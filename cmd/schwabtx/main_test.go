@@ -11,7 +11,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -93,10 +95,16 @@ func (f *fakeSchwab) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 	f.issued++
 	f.validAccess = fmt.Sprintf("access-%d", f.issued)
-	json.NewEncoder(w).Encode(map[string]any{
+	f.writeJSON(w, map[string]any{
 		"expires_in": 1800, "token_type": "Bearer", "scope": "api",
 		"refresh_token": testRefresh, "access_token": f.validAccess,
 	})
+}
+
+func (f *fakeSchwab) writeJSON(w http.ResponseWriter, v any) {
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		f.t.Errorf("fake Schwab: writing response: %v", err)
+	}
 }
 
 func (f *fakeSchwab) authed(w http.ResponseWriter, r *http.Request) bool {
@@ -113,7 +121,7 @@ func (f *fakeSchwab) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	if !f.authed(w, r) {
 		return
 	}
-	json.NewEncoder(w).Encode(f.accounts)
+	f.writeJSON(w, f.accounts)
 }
 
 func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +164,7 @@ func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) 
 	if out == nil {
 		out = []json.RawMessage{}
 	}
-	json.NewEncoder(w).Encode(out)
+	f.writeJSON(w, out)
 }
 
 // addAccount gives the fake an account with count transactions, the newest at
@@ -165,7 +173,7 @@ func (f *fakeSchwab) addAccount(number string, idBase int64, count int, newest t
 	hash := "HASH" + number
 	f.accounts = append(f.accounts, account{AccountNumber: number, HashValue: hash})
 	f.txs[hash] = nil
-	for i := 0; i < count; i++ {
+	for i := range count {
 		when := newest.Add(-time.Duration(i) * step)
 		id := idBase + int64(count-i)
 		js := fmt.Sprintf(`{"activityId":%d,"time":%q,"accountNumber":%q,"type":"TRADE","status":"VALID","tradeDate":%q,"netAmount":-1234.56,"description":"",`+
@@ -197,7 +205,7 @@ func (f *fakeSchwab) expected(n int, cutoff time.Time) []string {
 	}
 	ids := make([]string, len(all))
 	for i, tx := range all {
-		ids[i] = fmt.Sprint(tx.ID)
+		ids[i] = strconv.FormatInt(tx.ID, 10)
 	}
 	return ids
 }
@@ -318,7 +326,8 @@ func TestLoginThenMostRecent100AcrossAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows has no Unix permission bits to check.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("token file mode = %v, want 0600", info.Mode().Perm())
 	}
 
@@ -425,7 +434,9 @@ func TestExpiredRefreshTokenAsksForLogin(t *testing.T) {
 	doLogin(t)
 
 	b, _ := os.ReadFile(tokenFile)
-	os.WriteFile(tokenFile, bytes.ReplaceAll(b, []byte(testRefresh), []byte("stale-refresh")), 0o600)
+	if err := os.WriteFile(tokenFile, bytes.ReplaceAll(b, []byte(testRefresh), []byte("stale-refresh")), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	timeNow = func() time.Time { return testNow.Add(8 * 24 * time.Hour) }
 
 	_, _, err := runTx(t)

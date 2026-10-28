@@ -70,14 +70,13 @@ func loadConfig() (config, error) {
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return
-		}
-		if errors.Is(err, context.Canceled) {
-			os.Exit(130)
-		}
+	err := run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
+	stop()
+	switch {
+	case err == nil, errors.Is(err, flag.ErrHelp):
+	case errors.Is(err, context.Canceled):
+		os.Exit(130)
+	default:
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -92,7 +91,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	switch cmd {
 	case "login":
 		if len(args) > 0 {
-			return fmt.Errorf("login takes no arguments")
+			return errors.New("login takes no arguments")
 		}
 		cfg, err := loadConfig()
 		if err != nil {
@@ -194,7 +193,7 @@ func parseTypes(flagValue string) ([]string, error) {
 		return allTransactionTypes, nil
 	}
 	var list []string
-	for _, t := range strings.Split(flagValue, ",") {
+	for t := range strings.SplitSeq(flagValue, ",") {
 		t = strings.ToUpper(strings.TrimSpace(t))
 		if t == "" {
 			continue

@@ -66,7 +66,7 @@ func (a *authenticator) load() error {
 	}
 	var t token
 	if err := json.Unmarshal(b, &t); err != nil {
-		return fmt.Errorf("token file %s is corrupt (%v); run `schwabtx login` again", a.cfg.TokenFile, err)
+		return fmt.Errorf("token file %s is corrupt (%w); run `schwabtx login` again", a.cfg.TokenFile, err)
 	}
 	if t.RefreshToken == "" {
 		return fmt.Errorf("token file %s has no refresh token; run `schwabtx login` again", a.cfg.TokenFile)
@@ -76,7 +76,7 @@ func (a *authenticator) load() error {
 }
 
 func (a *authenticator) save() error {
-	b, err := json.MarshalIndent(a.tok, "", "  ")
+	b, err := json.MarshalIndent(a.tok, "", "  ") //nolint:gosec // G117: holding the tokens is this file's job; it is written 0600.
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func login(ctx context.Context, a *authenticator, stdin io.Reader, out io.Writer
 		return ctx.Err()
 	case p = <-ch:
 	}
-	if p.err != nil && (p.err != io.EOF || strings.TrimSpace(p.line) == "") {
+	if p.err != nil && (!errors.Is(p.err, io.EOF) || strings.TrimSpace(p.line) == "") {
 		return fmt.Errorf("reading the pasted address: %w", p.err)
 	}
 	code, err := extractCode(p.line, state)
