@@ -1,0 +1,15 @@
+# Build output
+/bin/
+/schwabtx
+/schwab-mcp
+*.exe
+
+# Test output
+*.test
+coverage.out
+
+# Secrets: Schwab app credentials and saved logins
+.env
+.env.*
+!.env.example
+token.json
