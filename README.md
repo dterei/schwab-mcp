@@ -49,9 +49,11 @@ guides, so menu names on the portal may differ slightly.
    the safe choice). Pick the **Individual Developer** profile.
 2. On the API Products page open **Trader API - Individual** and click Request
    Access if it asks.
-3. Dashboard > Apps > Create App. Add the **Accounts and Trading Production**
-   API product (add **Market Data Production** too if you want quotes later).
-   Set the callback URL to `https://127.0.0.1`.
+3. Dashboard > Apps > Create App. Add both API products, **Accounts and
+   Trading Production** and **Market Data Production**: the CLI needs the
+   first, the planned MCP server both, and calls to a product the app lacks
+   fail with "Client not authorized". Set the callback URL to
+   `https://127.0.0.1`, with no trailing slash.
 4. Wait for the app status to change from "Approved - Pending" to
    **"Ready For Use"**. Usually a few days, sometimes longer; login fails until
    then.
@@ -80,9 +82,8 @@ See [cmd/schwabtx](cmd/schwabtx/README.md) for flags and troubleshooting.
 - The tools talk only to Schwab (`api.schwabapi.com`). No third party sees your
   credentials or data.
 - The saved login is a file readable only by you, in your user config
-  directory. Treat it like a password: Schwab's tokens are not read-only, so
-  whoever holds one can do anything your app can, trading included, until the
-  login expires.
+  directory. Treat it like a password: the login is not read-only, so the file
+  lets whoever has it act on your accounts, trading included.
 - `schwabtx -json` prints Schwab's raw data, which includes full account
   numbers.
 
