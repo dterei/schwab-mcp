@@ -76,7 +76,7 @@ func (a *authenticator) load() error {
 }
 
 func (a *authenticator) save() error {
-	b, err := json.MarshalIndent(a.tok, "", "  ") //nolint:gosec // G117: holding the tokens is this file's job; it is written 0600.
+	b, err := json.MarshalIndent(a.tok, "", "  ") //nolint:gosec // G117: holding the tokens is this file's job.
 	if err != nil {
 		return err
 	}

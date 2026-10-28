@@ -23,6 +23,9 @@ linters:
     - usetesting
     - wastedassign
   settings:
+    nolintlint:
+      require-specific: true
+      require-explanation: true
     gosec:
       excludes:
         # Unchecked errors are errcheck's job, which knows the safe cases.

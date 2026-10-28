@@ -2,6 +2,8 @@
 /bin/
 /schwabtx
 /schwab-mcp
+/cmd/schwabtx/schwabtx
+/cmd/schwab-mcp/schwab-mcp
 *.exe
 
 # Test output

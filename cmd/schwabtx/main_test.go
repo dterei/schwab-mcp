@@ -230,7 +230,10 @@ func setup(t *testing.T) (*fakeSchwab, string) {
 func doLogin(t *testing.T) {
 	t.Helper()
 	var out bytes.Buffer
-	pr, pw, _ := os.Pipe()
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer pr.Close()
 	done := make(chan error, 1)
 	go func() {
@@ -238,21 +241,12 @@ func doLogin(t *testing.T) {
 	}()
 
 	// The state is random, so read it out of the printed link first.
-	var link string
-	deadline := time.After(5 * time.Second)
-	for link == "" {
-		select {
-		case <-deadline:
-			t.Fatalf("no login link printed: %s", out.String())
-		case <-time.After(10 * time.Millisecond):
-		}
-		outMu.Lock()
-		s := out.String()
-		outMu.Unlock()
-		if i := strings.Index(s, "http"); i >= 0 && strings.Contains(s, "> ") {
-			link = strings.Fields(s[i:])[0]
-		}
+	prompt := waitForPrompt(t, &out, done)
+	i := strings.Index(prompt, "http")
+	if i < 0 {
+		t.Fatalf("no login link printed: %s", prompt)
 	}
+	link := strings.Fields(prompt[i:])[0]
 	u, err := url.Parse(link)
 	if err != nil {
 		t.Fatal(err)
@@ -266,6 +260,28 @@ func doLogin(t *testing.T) {
 	pw.Close()
 	if err := <-done; err != nil {
 		t.Fatalf("login failed: %v", err)
+	}
+}
+
+// waitForPrompt returns login's output once it is waiting for the pasted
+// address, failing the test if login returns or stalls first.
+func waitForPrompt(t *testing.T, out *bytes.Buffer, done <-chan error) string {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		outMu.Lock()
+		s := out.String()
+		outMu.Unlock()
+		if strings.Contains(s, "> ") {
+			return s
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("login returned before prompting: %v\n%s", err, s)
+		case <-deadline:
+			t.Fatalf("login never prompted: %s", s)
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }
 
@@ -519,13 +535,17 @@ func TestRefusedWindowIsNarrowedToTheLimit(t *testing.T) {
 
 func TestLoginStopsOnCancel(t *testing.T) {
 	setup(t)
-	pr, pw, _ := os.Pipe() // never written to: the user is still at the prompt
+	pr, pw, err := os.Pipe() // never written to: the user is still at the prompt
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer pr.Close()
 	defer pw.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	var out bytes.Buffer
 	go func() { done <- run(ctx, []string{"login"}, pr, &syncWriter{w: &out}, &syncWriter{w: &out}) }()
+	waitForPrompt(t, &out, done) // so the cancel lands while login waits on stdin
 	cancel()
 	select {
 	case err := <-done:
