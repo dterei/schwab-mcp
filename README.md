@@ -5,11 +5,13 @@
 Go tools for getting your own data out of a Charles Schwab brokerage account
 through Schwab's official Trader API.
 
-The goal is a full [MCP](https://modelcontextprotocol.io) server for Schwab
-retail clients: one that lets an AI assistant look up your accounts,
-positions, transactions and market data, and that feeds your own return
-calculators and performance dashboards. Today it is a small CLI that logs in
-and prints your recent transactions.
+The first goal is your complete transaction history, positions and balances
+in a local store and plain files that your own return calculators and
+performance dashboards can read. The longer-term goal is a full
+[MCP](https://modelcontextprotocol.io) server for Schwab retail accounts that
+lets an AI assistant look up your accounts, positions, transactions and market
+data. Today it is a small CLI that logs in and prints your recent
+transactions.
 
 This project is not affiliated with, endorsed by or supported by Charles
 Schwab & Co.
@@ -19,12 +21,15 @@ Schwab & Co.
 | Piece | State |
 | --- | --- |
 | [`schwabtx`](cmd/schwabtx): log in and print recent transactions across all accounts | Works |
-| Reusable Go client for the Trader API | Planned |
-| MCP server, read-only first | Planned |
-| Full transaction history export for return calculations | Planned |
+| Daily snapshots of positions and balances (milestone 1) | Planned |
+| Reusable Go client for Schwab's API (milestone 1) | Planned |
+| Full transaction history, stored locally and exported for your calculators (milestone 2) | Planned |
+| MCP server, read-only first (milestone 3) | Planned |
 
-The [roadmap](docs/ROADMAP.md) has the plan and the full feature list, and
-[docs/schwab-api.md](docs/schwab-api.md) has notes on the API itself.
+The [roadmap](docs/ROADMAP.md) has the plan and the full feature list,
+[docs/schwab-api.md](docs/schwab-api.md) has notes on the API itself, and
+[docs/prior-art.md](docs/prior-art.md) surveys existing Schwab MCP servers and
+client libraries.
 
 ## Why the Schwab Trader API
 
@@ -44,24 +49,34 @@ You need a Schwab self-directed brokerage account; the Individual tier is free
 and only for accessing your own accounts. These steps come from community
 guides, so menu names on the portal may differ slightly.
 
-1. Go to <https://developer.schwab.com>, click Register and create a developer
+1. Enable thinkorswim on every brokerage account you want to read (on
+   schwab.com: Trade > Trading Platforms). The request can take about a day,
+   so start it first. Schwab's API team, as relayed in one report
+   ([regress#125](https://github.com/ssandy33/regress/issues/125)), says an
+   account without it has no transaction or order history through the API,
+   and that once it is enabled, transaction data can be retrieved "from that
+   day forward". Whether older history then appears is unconfirmed;
+   schwab.com's CSV exports can fill the gap. Without thinkorswim nothing
+   fails: login and positions work, but transactions come back empty.
+2. Go to <https://developer.schwab.com>, click Register and create a developer
    account (a separate login from your brokerage one; using the same email is
    the safe choice). Pick the **Individual Developer** profile.
-2. On the API Products page open **Trader API - Individual** and click Request
+3. On the API Products page open **Trader API - Individual** and click Request
    Access if it asks.
-3. Dashboard > Apps > Create App. Add both API products, **Accounts and
+4. Dashboard > Apps > Create App. Add both API products, **Accounts and
    Trading Production** and **Market Data Production**: the CLI needs the
    first, the planned MCP server both, and calls to a product the app lacks
-   fail with "Client not authorized". Set the callback URL to
-   `https://127.0.0.1`, with no trailing slash.
-4. Wait for the app status to change from "Approved - Pending" to
+   fail with "Client not authorized". Set the callback URLs to
+   `https://127.0.0.1,https://127.0.0.1:8182`: two URLs, comma-separated,
+   with no trailing slashes. The CLI uses the first. The second is for an
+   automatic login planned for later, which needs a port that does not
+   require root. Changing the app later sends it back to "Approved - Pending"
+   for a few days, so set both now.
+5. Wait for the app status to change from "Approved - Pending" to
    **"Ready For Use"**. Usually a few days, sometimes longer; login fails until
    then.
-5. Copy `.env.example` to `.env` and fill in the App Key and Secret. `.env` is
+6. Copy `.env.example` to `.env` and fill in the App Key and Secret. `.env` is
    git-ignored; never commit it or paste the values anywhere.
-
-Some guides say the brokerage account must be thinkorswim-enabled for API calls
-to work. If login succeeds but calls fail, enable thinkorswim on schwab.com.
 
 ## Quick start
 
@@ -92,6 +107,10 @@ See [cmd/schwabtx](cmd/schwabtx/README.md) for flags and troubleshooting.
   lets whoever has it act on your accounts, trading included.
 - `schwabtx -json` prints Schwab's raw data, which includes full account
   numbers.
+- Once the MCP server exists, what its tools return also goes to your AI
+  assistant's model, which for Claude Desktop and Claude Code is hosted,
+  normally by Anthropic. The server will mask account numbers in everything
+  it returns.
 
 Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
@@ -118,7 +137,7 @@ To get the same formatting on save, set up gopls in your editor with
 
 ```
 cmd/schwabtx/   the CLI and its tests, which run it against a fake Schwab server
-docs/           roadmap and notes on the Schwab API
+docs/           roadmap, notes on the Schwab API and a survey of prior art
 .github/        CI and Dependabot
 ```
 

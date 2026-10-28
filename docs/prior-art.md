@@ -2,7 +2,8 @@
 
 A survey of what already exists for Schwab's API: Schwab's own AI plans,
 community MCP servers, client libraries, and tools for computing returns.
-Checked in October 2026; star counts and activity change quickly.
+Checked in October 2026; Schwab's plans, project activity and tool counts
+change quickly.
 
 ## Schwab's own MCP servers
 
@@ -26,8 +27,8 @@ What this means here:
 - Use only OAuth and the documented API. Never ask for a Schwab password and
   never automate or scrape schwab.com. CSV exports are files you download
   yourself.
-- Keep the Go client and the history store independent of the MCP layer, so
-  they stay useful next to Schwab's own server.
+- Keep the Go client and the history store independent of this project's MCP
+  server (`internal/mcpserver`), so they stay useful next to Schwab's own.
 - Local history and return calculations are the parts an official
   balances-and-research server is least likely to offer.
 
@@ -47,7 +48,7 @@ What this means here:
 
 jkoelker/schwab-mcp's design is the one to learn from:
 
-- Order tools are previews. Each preview calls Schwab and caches the exact
+- Orders go through a preview. Each preview calls Schwab and caches the exact
   order under a random ID that is single-use, expires after 10 minutes and is
   bound to the account. Placing takes only that ID, so the model cannot alter
   the order between preview and placement.
@@ -76,14 +77,14 @@ jkoelker/schwab-mcp's design is the one to learn from:
 
 **Go.** No library is both mature and maintained.
 
-| Project | License | State | Notes |
+| Project | License | Last activity | Notes |
 | --- | --- | --- | --- |
-| [major/schwab-go](https://github.com/major/schwab-go) | Apache-2.0 | Archived May 2026 | Every REST operation with typed models and an auth package; no streaming, rate limiting or 429 retry. Its `docs/` has the copies of Schwab's OpenAPI specs these notes use. |
-| [Nightsuki/goschwab](https://github.com/Nightsuki/goschwab) | MIT | Alpha, 2026 | A port of Schwabdev with a streamer; thin transaction model; 429s are returned, not retried. |
-| [citizenadam/go-schwabapi](https://github.com/citizenadam/go-schwabapi) | None | 2026 | Schwabdev-based, with a streamer. No license, so not reusable. |
-| [go-schwab/trader](https://github.com/go-schwab/trader) | GPL-2.0 | Stale since early 2025 | Transaction listing, preview and user preferences are commented out. |
-| [rayli09/schwab-cli](https://github.com/rayli09/schwab-cli) | MIT | October 2026 | A CLI port of schwab-py; writes are dry runs unless `--execute`. Internal packages only. |
-| [Chalupa-Tech/go-schwab-api-individual](https://github.com/Chalupa-Tech/go-schwab-api-individual) | MIT | 2026 | Generated from the spec; no OAuth flow. |
+| [major/schwab-go](https://github.com/major/schwab-go) | Apache-2.0 | v0.4.3 2026-05-09; archived 2026-05-18 | Every REST operation with typed models and an auth package; no streaming, rate limiting or 429 retry. Its `docs/` has the copies of Schwab's OpenAPI specs these notes use. |
+| [Nightsuki/goschwab](https://github.com/Nightsuki/goschwab) | MIT | v0.2.3 2026-07-22 (alpha) | A port of Schwabdev with a streamer; thin transaction model; 429s are returned, not retried. |
+| [citizenadam/go-schwabapi](https://github.com/citizenadam/go-schwabapi) | None | v0.0.27 2026-09-02 | Schwabdev-based, with a streamer. No license, so not reusable. |
+| [go-schwab/trader](https://github.com/go-schwab/trader) | GPL-2.0 | main 2025-01-23; dev 2025-03-12 | Transaction listing, preview and user preferences are commented out. |
+| [rayli09/schwab-cli](https://github.com/rayli09/schwab-cli) | MIT | 2026-10-22 (one day of commits) | A CLI port of schwab-py; writes are dry runs unless `--execute`. Internal packages only. |
+| [Chalupa-Tech/go-schwab-api-individual](https://github.com/Chalupa-Tech/go-schwab-api-individual) | MIT | v0.1.0 2026-01-28; main 2026-03-22 | Generated from the spec; no OAuth flow. |
 
 Beware look-alikes: the Go module proxy flags ten copies of go-schwab/trader
 under random account names as malicious. Keep the default `GOPROXY` and
@@ -100,7 +101,10 @@ includes streaming.
 - [Portfolio Performance](https://www.portfolio-performance.info) computes
   true time-weighted return and IRR. It can read Schwab's History CSV through
   [rlan/convert-csv-schwab2pp](https://github.com/rlan/convert-csv-schwab2pp),
-  which handles buys, dividends, interest and wires but not yet ACH or sells.
+  which maps buys, sells, dividends, capital-gain distributions, interest and
+  wires. It stops with an error on any action outside its table, such as
+  "Non-Qualified Div" or "Stock Split", and its README lists ACH deposits and
+  withdrawals as not yet supported.
 - [Ghostfolio](https://ghostfol.io) imports Schwab CSV through
   [dickwolff/Export-To-Ghostfolio](https://github.com/dickwolff/Export-To-Ghostfolio).
 - [hoostus/portfolio-returns](https://github.com/hoostus/portfolio-returns)
@@ -114,9 +118,10 @@ Takes:
 - Preview-then-place with single-use, server-side preview IDs, and a human
   confirmation that the model cannot give itself.
 - Read-only unless trading is switched on.
-- `readOnlyHint` and `destructiveHint` on every tool.
+- `readOnlyHint` on every tool, and `destructiveHint` on the tools that place,
+  replace or cancel orders.
 - Compact results, and option chains that are always bounded.
-- Transaction windows of at most a year, split whenever a response hits 3000.
+- Transaction windows of at most 365 days, split whenever a response hits 3000.
 - Lenient decoding that keeps the raw JSON.
 
 Avoids:

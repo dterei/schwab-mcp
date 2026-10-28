@@ -4,7 +4,7 @@ Working notes on the parts of Schwab's API this project uses or plans to use.
 The authority is <https://developer.schwab.com>. These notes come from:
 
 - Schwab's OpenAPI specs, as captured from the developer portal in 2024
-  (Trader API of 2024-05-11, Market Data of 2024-03-21), with copies in
+  (Accounts and Trading of 2024-05-11, Market Data of 2024-03-21), with copies in
   [major/schwab-go](https://github.com/major/schwab-go/tree/main/docs);
 - Schwab's Streamer Guide of 2024-05-15, as redistributed by
   [Schwabdev](https://github.com/tylerebowers/Schwabdev/blob/main/docs/pages/pdfs/Schwab_Trader_API_Streamer_Guide.pdf);
@@ -25,8 +25,17 @@ spec, it says so. Things nobody has pinned down are collected under
   Production. Add both; a call to a product the app lacks fails with 401
   "Client not authorized".
 - The app must say **Ready For Use**; "Approved - Pending" does not work yet.
-- **thinkorswim** must be enabled on the brokerage account for orders and
-  some other calls, according to Schwabdev's setup guide.
+  Changing an approved app, even only its callbacks or products, sends it
+  back to "Approved - Pending", typically for a few days (schwab-py's auth
+  docs), so set up everything you will need at the start.
+- **thinkorswim** must be enabled on each brokerage account. Schwabdev's
+  setup guide says it is needed for orders and other calls. Schwab's Trader
+  API team, as relayed in a July 2026 comment on
+  [ssandy33/regress#125](https://github.com/ssandy33/regress/issues/125),
+  says that without it an account has no transaction or order history
+  through the API. The reported symptom is not an error: transactions come
+  back empty with HTTP 200 while positions still load. See
+  [transactions](#transactions).
 - The **order limit** (0 to 120 order requests a minute) is set when you
   register the app. schwab-py recommends 120.
 - **No money movement.** The API has no transfer endpoints. Orders are the
@@ -47,16 +56,20 @@ spec, it says so. Things nobody has pinned down are collected under
 
 - **Login** is the authorization code flow:
   `authorize?response_type=code&client_id=<app key>&redirect_uri=<callback>`.
-  Schwab's own spec also sends `scope=readonly`, which community clients leave
-  out; whether it limits the token is unknown.
+  The authorize URL in Schwab's own spec also carries `scope=readonly`.
+  schwab-py, Schwabdev and this project's CLI send no scope;
+  sudowealth/schwab-api sends `api offline_access`; ssandy33/regress has sent
+  `scope=readonly` since May 2026 without reporting any effect. Whether
+  `readonly` limits the token is unknown.
 - **The code** comes back URL-encoded in the redirect, must be decoded, and
   expires in about 30 seconds.
 - **Token requests** are `POST /v1/oauth/token` with HTTP Basic auth (app key
   and secret) and a form body of either
   `grant_type=authorization_code&code=...&redirect_uri=...` or
   `grant_type=refresh_token&refresh_token=...`. The response has
-  `access_token`, `refresh_token`, `id_token`, `expires_in` (1800) and
-  `token_type`.
+  `access_token`, `refresh_token`, `id_token`, `expires_in` (1800),
+  `token_type` and `scope` (`api` in the samples community clients test
+  against).
 - **Lifetimes**: access tokens last 30 minutes. A refresh token works for 7
   days from the browser login, and refreshing does not extend that. It can
   stop sooner, for example after a login somewhere else. schwab-py forces a
@@ -64,6 +77,10 @@ spec, it says so. Things nobody has pinned down are collected under
 - **Callback URLs** must be `https`, match the registered value exactly
   (a trailing slash difference gives an "Access Denied" page) and use
   `127.0.0.1`, not `localhost`. An app may register several, comma-separated.
+  A callback without a port means port 443, which a local listener normally
+  cannot use on Linux without root, so catching the redirect automatically
+  needs a registered callback with a port above 1023; schwab-py uses
+  `https://127.0.0.1:8182`.
 - **One refresher at a time.** schwab-py warns that when two applications
   share a token file, "one of them will beat the other to refreshing, locking
   the slower one out". Schwabdev serializes refreshes with a database lock.
@@ -87,7 +104,7 @@ Every account-scoped path takes the account's **hash** from
 | POST | `/accounts/{hash}/orders` | 201 with an empty body; the new order's URL, ending in its ID, is in the `Location` header |
 | GET, PUT, DELETE | `/accounts/{hash}/orders/{orderId}` | Get, replace or cancel. A replace cancels the order and creates a new one, with a new `Location`. |
 | GET | `/orders` | Orders across all accounts; `fromEnteredTime` must be within 60 days |
-| POST | `/accounts/{hash}/previewOrder` | `orderStrategy`, `orderValidationResult` (`accepts`, `alerts`, `rejects`, `reviews`, `warns`) and `commissionAndFee`. One community server reports a 404 on live accounts; others use it on live accounts. |
+| POST | `/accounts/{hash}/previewOrder` | `orderStrategy`, `orderValidationResult` (`accepts`, `alerts`, `rejects`, `reviews`, `warns`) and `commissionAndFee`. [k1xme/schwab-mcp](https://github.com/k1xme/schwab-mcp) says it returns 404 on live accounts; other servers use it on live accounts. |
 | GET | `/accounts/{hash}/transactions` | See [transactions](#transactions) |
 | GET | `/accounts/{hash}/transactions/{id}` | One transaction by its `activityId` |
 | GET | `/userPreference` | `accounts[]` (with `nickName`, `primaryAccount`, `type`), `streamerInfo[]` and `offers[]` (market data permissions) |
@@ -116,18 +133,27 @@ retention period.
 - schwab-py's docs, jkoelker/schwab-mcp and TradeZella say 60 days. That
   probably comes from the wording for orders.
 - LumiBot and other clients fetch history in 365-day windows.
-- A 2026 report relays Schwab saying API history starts when the account was
-  enabled for thinkorswim.
+- A July 2026 comment on
+  [ssandy33/regress#125](https://github.com/ssandy33/regress/issues/125)
+  quotes Schwab's Trader API team: once an account is thinkorswim enabled,
+  transaction data can be retrieved "from that day forward".
 - schwab.com shows up to four years of history under Accounts > History, and
   ten years of statements and trade confirmations.
+- Exports from that page are reportedly limited. Third-party guides give
+  about 1,500 rows per file, with an empty file when a range has more, or
+  10,000 rows, and at most two years per export. No Schwab source we found
+  states a limit, so export short ranges and check that no file comes back
+  empty.
 
 **Boundaries.**
 
 - Send exact instants. A date-only end date sent as midnight UTC drops that
   day's trades.
 - A window whose start equals its end returns nothing.
-- Keep each window at or under 365 days, measured in time rather than
-  calendar dates.
+- Keep each window at most 365 × 24 hours from start to end. The spec says
+  only "1 year", but one client says the cap counts hours, so a window from
+  local midnight a year ago up to now is a few hours too long
+  ([Akiko0210/PersonalAssistant#25](https://github.com/Akiko0210/PersonalAssistant/pull/25)).
 
 **Response.**
 
@@ -184,15 +210,20 @@ retention period.
     BUY_TO_CLOSE, SELL_TO_OPEN, SELL_TO_CLOSE and others.
 
   The spec lists 21 order statuses.
-- **What can be ordered**: only equities and options, and no fractional shares,
-  per Schwabdev (one 2026 report disagrees on fractions).
+- **What can be ordered**: only equities and options, and no fractional
+  shares, per Schwabdev's docs. A September 2026 comment on
+  [Schwabdev#110](https://github.com/tylerebowers/Schwabdev/issues/110)
+  relays Schwab support saying decimal quantities work above one share;
+  unconfirmed.
 - **The order ID** comes from the `Location` header, which is missing when the
   order filled instantly.
 - **Never retry** a POST, PUT or DELETE automatically: a retried order is a
   second order.
 - **Option symbols** follow the OCC format: the root padded to six characters,
   YYMMDD, C or P, and the strike times 1000 padded to eight digits
-  (`AAPL  240517P00190000`). Indexes take a `$` prefix (`$SPX`).
+  (`AAPL  240517P00190000`). Index options have no `$`, and their root is not
+  always the index's name (`SPXW  251208C06880000` on `$SPX`), so take option
+  symbols from the chain rather than building them from the index symbol.
 - To learn an order's JSON, place it in thinkorswim and read it back with
   `GET`.
 
@@ -209,13 +240,17 @@ retention period.
 | `GET /markets`, `GET /markets/{market}` | Hours for equity, option, bond, future and forex markets, from today up to a year ahead; send `markets` comma-separated |
 | `GET /instruments`, `GET /instruments/{cusip}` | Search by symbol or description (exact or regex), or fundamentals |
 
+Indexes take a `$` prefix wherever the index itself is named: quotes
+(`$SPX`, `$DJI`), option chains, movers and streamed quotes.
+
 ## Rate limits
 
 - **Neither spec states a limit.** Schwab's Trader API page, seen through
   search excerpts, gives 120 requests a minute for everything except orders,
   plus the order limit you chose for the app.
 - **Schwabdev** adds 4000 order-related calls a day and 500 streamed symbols.
-  Going over returns HTTP 429.
+  Going over the request limits returns HTTP 429; going over the symbol limit
+  is reported on the stream as code 19 (see [streaming](#streaming)).
 - **Bursts can be refused** even under the per-minute rate, so limit on the
   client side and back off on 429, honoring `Retry-After`.
 
@@ -244,7 +279,7 @@ retention period.
 ## Errors
 
 - **Error bodies vary by API**:
-  - the Trader API sends `{message, errors: [string]}`;
+  - Accounts and Trading sends `{message, errors: [string]}`;
   - Market Data sends `{errors: [{id, status, title, detail, source}]}`;
   - OAuth sends `{error, error_description}`;
   - the gateway sometimes sends `{fault: {...}}`.
@@ -276,7 +311,7 @@ JSON.
 ## Sources
 
 - Schwab OpenAPI specs (2024 captures):
-  [Trader API](https://github.com/major/schwab-go/blob/main/docs/trader_api.openapi.json),
+  [Accounts and Trading](https://github.com/major/schwab-go/blob/main/docs/trader_api.openapi.json),
   [Market Data](https://github.com/major/schwab-go/blob/main/docs/market_data.openapi.json)
 - [Streamer Guide](https://github.com/tylerebowers/Schwabdev/blob/main/docs/pages/pdfs/Schwab_Trader_API_Streamer_Guide.pdf)
   (2024-05-15)
@@ -295,3 +330,7 @@ JSON.
   [ssandy33/regress#125](https://github.com/ssandy33/regress/issues/125),
   [Akiko0210/PersonalAssistant#25](https://github.com/Akiko0210/PersonalAssistant/pull/25),
   [GeneBO98/tradetally#274](https://github.com/GeneBO98/tradetally/issues/274)
+- Orders: [k1xme/schwab-mcp](https://github.com/k1xme/schwab-mcp)
+  (`previewOrder` on live accounts),
+  [Schwabdev#110](https://github.com/tylerebowers/Schwabdev/issues/110)
+  (fractional shares)

@@ -76,16 +76,21 @@ truncated responses and rate-limit retries.
 
 ## Open questions
 
-- How far back Schwab actually serves transactions (sources disagree between
-  60 days and one year), which only affects `-lookback` and `-window`.
-- An empty list usually means the account was not ticked during login.
+- How far back Schwab serves transactions is not documented (see
+  [the API notes](../../docs/schwab-api.md#transactions)). It only affects
+  `-lookback` and `-window`.
 
 ## Troubleshooting
 
 - `HTTP 401` at login: the app is not "Ready For Use" yet, or the key/secret
   is wrong.
 - `invalid_grant` / `HTTP 400` at login: the pasted code expired (be quicker)
-  or `SCHWAB_CALLBACK_URL` does not match the app's callback URL exactly.
+  or `SCHWAB_CALLBACK_URL` does not match one of the app's callback URLs
+  exactly.
 - "Schwab rejected the saved login": the 7 days are up, run `login` again.
-- Login works but API calls fail: some guides say the brokerage account must
-  be thinkorswim-enabled; turn that on at schwab.com.
+- `0 transactions` although the account has activity: the account is
+  probably not enabled for thinkorswim (see the
+  [top-level README](../../README.md#one-time-setup)). An account you did not
+  tick at login is left out rather than shown as empty, so check N in
+  "... from N accounts"; if you ticked none, schwabtx stops with "Schwab
+  returned no accounts".
