@@ -9,10 +9,12 @@ Before the first run, set up a Schwab developer app as described in the
 
 ## Run
 
-From the root of the repository:
+From the root of the repository. The first line loads `.env`; on Windows,
+use the PowerShell line from the [quick start](../../README.md#quick-start)
+instead.
 
 ```sh
-set -a; source .env; set +a
+set -a; . ./.env; set +a
 
 go run ./cmd/schwabtx login   # opens nothing itself: follow the printed steps
 go run ./cmd/schwabtx         # the 100 most recent transactions, all accounts
@@ -44,8 +46,10 @@ Flags:
 ```
 
 The login token is stored in your user config directory under
-`schwabtx/token.json` with owner-only permissions. Override with
-`SCHWAB_TOKEN_FILE`.
+`schwabtx/token.json`. Override with `SCHWAB_TOKEN_FILE`. On Linux and macOS
+the file is made readable only by you wherever it is. On Windows it takes its
+folder's permissions, which at the default location means only you, so keep
+an overridden path inside your user profile.
 
 ## How it fetches
 

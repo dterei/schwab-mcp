@@ -243,6 +243,9 @@ installing.
       one-click install in Claude Desktop
 - [ ] Streamable HTTP transport bound to localhost, for clients that cannot
       launch a subprocess
+- [ ] GitHub Actions pinned to commit SHAs once a workflow can write to the
+      repository or holds secrets, as a release workflow will (CI today has a
+      read-only token and no secrets)
 
 ### Later
 

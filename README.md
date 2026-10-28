@@ -69,10 +69,16 @@ to work. If login succeeds but calls fail, enable thinkorswim on schwab.com.
 git clone https://github.com/dterei/schwab-mcp
 cd schwab-mcp
 cp .env.example .env          # then fill in your app key and secret
-set -a; source .env; set +a
+set -a; . ./.env; set +a      # load it into the environment
 
 go run ./cmd/schwabtx login   # follow the printed steps
 go run ./cmd/schwabtx         # your 100 most recent transactions
+```
+
+On Windows, load `.env` in PowerShell instead:
+
+```powershell
+Get-Content .env | ForEach-Object { if ($_ -match '^\s*([A-Za-z_]\w*)=(.*)$') { Set-Item "Env:$($Matches[1])" $Matches[2] } }
 ```
 
 See [cmd/schwabtx](cmd/schwabtx/README.md) for flags and troubleshooting.
@@ -91,8 +97,7 @@ Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## Development
 
-You need Go 1.26 or newer. With Go 1.21 or later installed, `go` downloads a
-new enough toolchain by itself.
+You need Go 1.26 or newer.
 
 ```sh
 make check   # everything CI runs: go.mod tidiness, lint, tests, govulncheck
@@ -103,8 +108,13 @@ make help    # all targets
 ```
 
 `make lint` and `make fmt` run the pinned golangci-lint version through
-`go run`, so there is nothing to install. To get the same formatting on save,
-turn on gofumpt in your editor (for gopls: `"formatting.gofumpt": true`).
+`go run`, so there is nothing to install. The race detector in `make test` and
+`make check` needs `gcc` on Linux and Windows (or `CC` set to another C
+compiler); without one, run `make test RACE=`.
+
+To get the same formatting on save, set up gopls in your editor with
+`"formatting.gofumpt": true` and
+`"formatting.local": "github.com/dterei/schwab-mcp"`.
 
 ```
 cmd/schwabtx/   the CLI and its tests, which run it against a fake Schwab server
@@ -124,7 +134,8 @@ What runs where:
   supported Go; golangci-lint and a `go mod tidy` check; govulncheck.
 - **Dependabot** ([`.github/dependabot.yml`](.github/dependabot.yml)): weekly
   grouped updates for Go modules and GitHub Actions, each release left to age
-  a week first.
+  a week first. Actions are referenced by major version (`@v7`), so their
+  minor and patch releases arrive without Dependabot and without the wait.
 
 ## License
 
