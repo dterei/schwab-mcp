@@ -108,9 +108,9 @@ See [cmd/schwabtx](cmd/schwabtx/README.md) for flags and troubleshooting.
 - `schwabtx -json` prints Schwab's raw data, which includes full account
   numbers.
 - Once the MCP server exists, what its tools return also goes to your AI
-  assistant's model, which for Claude Desktop and Claude Code is hosted,
-  normally by Anthropic. The server will mask account numbers in everything
-  it returns.
+  assistant's model, which for most assistants runs on the provider's
+  servers rather than your machine. The server will mask account numbers in
+  everything it returns.
 
 Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 

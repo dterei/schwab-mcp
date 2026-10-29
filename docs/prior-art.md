@@ -8,17 +8,17 @@ change quickly.
 ## Schwab's own MCP servers
 
 - **Advisors.** Schwab publishes a read-only MCP connector for Schwab Advisor
-  Services, at `agent.schwabinstitutional.com/mcp`, listed in Claude's
-  connector directory in October 2026. It has 29 read-only tools, such as
-  `schwab-as-list-balances`, `schwab-as-get-transaction-detail` and
-  `schwab-as-list-rgl-transactions`, and is only for advisors who custody
+  Services, at `agent.schwabinstitutional.com/mcp`, listed in an AI
+  assistant's connector directory in October 2026. It has 29 read-only
+  tools, such as `schwab-as-list-balances`, `schwab-as-get-transaction-detail`
+  and `schwab-as-list-rgl-transactions`, and is only for advisors who custody
   with Schwab.
 - **Retail.** On its 2026-10-15 earnings call Schwab said a pilot had started
   that lets traders connect the LLM of their choice to its "MCP layer",
-  beginning with Claude and widening "in the coming months". The next day
-  its CEO said on Bloomberg TV that outside AI tools will check balances and
-  do research through Schwab's MCP servers, but not move money. Some reports
-  say some traders can also trade through it.
+  beginning with one AI assistant and widening "in the coming months". The
+  next day its CEO said on Bloomberg TV that outside AI tools will check
+  balances and do research through Schwab's MCP servers, but not move money.
+  Some reports say some traders can also trade through it.
 - **Blocking.** In the same remarks Schwab said it blocks agents that log in on
   a client's behalf with the client's password, naming Meta's Muse.
 
@@ -41,7 +41,7 @@ What this means here:
 | [sudowealth/schwab-mcp](https://github.com/sudowealth/schwab-mcp) | TypeScript, Cloudflare Workers | Ungated | A remote server with its own OAuth, tokens in KV. 23 tools, account identifiers scrubbed from output. `getTransaction` is a stub. Legacy SSE transport. Inactive since June 2025. |
 | [vsoneji/schwab-mcp](https://github.com/vsoneji/schwab-mcp) | TypeScript, stdio | Ungated | sudowealth's code run locally. Its OAuth callback listens on every network interface. |
 | [Tapojit/schwab-mcp](https://github.com/Tapojit/schwab-mcp) | TypeScript | None | A rewrite of jkoelker's server without trading, about 35 tools, refreshing the token every 25 minutes. |
-| [k1xme/schwab-mcp](https://github.com/k1xme/schwab-mcp) | Python, Schwabdev | Dry run, then `confirmed=true` | About 22 tools, streamable HTTP, a Claude Code plugin with skills, credential redaction. The confirmation is a boolean the model can set, not tied to the dry run. Says `previewOrder` returns 404 on live accounts. |
+| [k1xme/schwab-mcp](https://github.com/k1xme/schwab-mcp) | Python, Schwabdev | Dry run, then `confirmed=true` | About 22 tools, streamable HTTP, a coding-agent plugin with skills, credential redaction. The confirmation is a boolean the model can set, not tied to the dry run. Says `previewOrder` returns 404 on live accounts. |
 | [acidsolution/schwab-mcp-server](https://github.com/acidsolution/schwab-mcp-server) | Python, httpx | None | 9 tools. Loads price history and option chains into DuckDB for SQL. Its SELECT-only check parses the query, which `SELECT * FROM read_csv('/etc/passwd')` passes. Reads a cost-basis field that is not in Schwab's position schema. No transactions tool. |
 | [Open-Agent-Tools/open-stocks-mcp](https://github.com/Open-Agent-Tools/open-stocks-mcp) | Python, schwab-py | Not checked | Robinhood and Schwab; 64 Schwab tools on main (21 in the last PyPI release), including transactions by date. |
 | [lonniev/schwab-mcp](https://github.com/lonniev/schwab-mcp) | Python, hosted | | A paid, multi-tenant hosted server where users sign in through the operator's Schwab app: the Commercial-tier pattern. Listed in the official MCP Registry. |
