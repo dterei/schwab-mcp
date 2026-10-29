@@ -39,8 +39,8 @@ current as of October 2026.
   are stored owner-only, and secrets never appear in logs, errors or tool
   output.
 - **Private by default.** What an MCP tool returns goes to the model your
-  client uses. For Claude Desktop and Claude Code that model is hosted,
-  normally by Anthropic; only a local model keeps the data on your machine.
+  client uses. For most clients that model runs on the provider's servers;
+  only a local model keeps the data on your machine.
   So account numbers are masked in all tool and resource output, Schwab's raw
   JSON and SQL results included, and tools refer to accounts by nickname or
   Schwab's account hash.
@@ -60,7 +60,7 @@ current as of October 2026.
 
 - **Schwab's own MCP servers.** Schwab already runs a read-only MCP connector
   for advisors. In October 2026 it started a pilot that lets retail traders
-  connect an LLM, Claude first, to its own "MCP layer", for balances and
+  connect an LLM to its own "MCP layer", for balances and
   research but not money movement. At the same time it is blocking outside
   agents that sign in with a client's password. A general official server
   would overlap with milestone 3. It is unlikely to keep your full history
@@ -217,7 +217,7 @@ The data your return calculators need, kept complete and current.
 - [ ] Resources: account list, positions per account, and reference pages
       for Schwab's enums (transaction types, order types and statuses)
 - [ ] A prompt for a portfolio review
-- [ ] Setup docs for Claude Code, Claude Desktop and other MCP clients
+- [ ] Setup docs for the common MCP clients, desktop and command-line
 - [ ] Tests through the SDK's in-memory transport against the fake Schwab
       that call every tool with empty and with full responses, so the SDK's
       output check covers every schema, and that fail if a full account
@@ -318,7 +318,7 @@ installing.
 - [ ] A Homebrew tap
 - [ ] An entry in the official MCP Registry (with "schwab" in the name, since
       the registry's search matches names only), and an MCP Bundle for
-      one-click install in Claude Desktop
+      one-click install in desktop clients that support bundles
 - [ ] Streamable HTTP transport for clients that cannot launch a subprocess,
       bound to `127.0.0.1`, with a bearer token required on every request and
       requests from a foreign `Origin` refused: binding to loopback alone
@@ -438,8 +438,8 @@ milestone 1.
   return before the first recorded dividend needs a file you import.
 - **How do you confirm an order in a client that cannot elicit?**
   jkoelker/schwab-mcp sends each order to Discord or Signal for approval. A
-  command in your own terminal is simpler, but an assistant with a shell,
-  such as Claude Code, could run it itself.
+  command in your own terminal is simpler, but an assistant that can run
+  shell commands, as coding agents can, could run it itself.
 - **Are account hashes stable across logins and across developer apps?**
 - **How do corporate actions, option expirations and assignments, money
   market sweeps and transfers show up in transactions?** This decides the
