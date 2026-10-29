@@ -11,7 +11,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -93,10 +95,16 @@ func (f *fakeSchwab) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 	f.issued++
 	f.validAccess = fmt.Sprintf("access-%d", f.issued)
-	json.NewEncoder(w).Encode(map[string]any{
+	f.writeJSON(w, map[string]any{
 		"expires_in": 1800, "token_type": "Bearer", "scope": "api",
 		"refresh_token": testRefresh, "access_token": f.validAccess,
 	})
+}
+
+func (f *fakeSchwab) writeJSON(w http.ResponseWriter, v any) {
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		f.t.Errorf("fake Schwab: writing response: %v", err)
+	}
 }
 
 func (f *fakeSchwab) authed(w http.ResponseWriter, r *http.Request) bool {
@@ -113,7 +121,7 @@ func (f *fakeSchwab) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	if !f.authed(w, r) {
 		return
 	}
-	json.NewEncoder(w).Encode(f.accounts)
+	f.writeJSON(w, f.accounts)
 }
 
 func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +164,7 @@ func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) 
 	if out == nil {
 		out = []json.RawMessage{}
 	}
-	json.NewEncoder(w).Encode(out)
+	f.writeJSON(w, out)
 }
 
 // addAccount gives the fake an account with count transactions, the newest at
@@ -165,7 +173,7 @@ func (f *fakeSchwab) addAccount(number string, idBase int64, count int, newest t
 	hash := "HASH" + number
 	f.accounts = append(f.accounts, account{AccountNumber: number, HashValue: hash})
 	f.txs[hash] = nil
-	for i := 0; i < count; i++ {
+	for i := range count {
 		when := newest.Add(-time.Duration(i) * step)
 		id := idBase + int64(count-i)
 		js := fmt.Sprintf(`{"activityId":%d,"time":%q,"accountNumber":%q,"type":"TRADE","status":"VALID","tradeDate":%q,"netAmount":-1234.56,"description":"",`+
@@ -197,7 +205,7 @@ func (f *fakeSchwab) expected(n int, cutoff time.Time) []string {
 	}
 	ids := make([]string, len(all))
 	for i, tx := range all {
-		ids[i] = fmt.Sprint(tx.ID)
+		ids[i] = strconv.FormatInt(tx.ID, 10)
 	}
 	return ids
 }
@@ -222,7 +230,10 @@ func setup(t *testing.T) (*fakeSchwab, string) {
 func doLogin(t *testing.T) {
 	t.Helper()
 	var out bytes.Buffer
-	pr, pw, _ := os.Pipe()
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer pr.Close()
 	done := make(chan error, 1)
 	go func() {
@@ -230,21 +241,12 @@ func doLogin(t *testing.T) {
 	}()
 
 	// The state is random, so read it out of the printed link first.
-	var link string
-	deadline := time.After(5 * time.Second)
-	for link == "" {
-		select {
-		case <-deadline:
-			t.Fatalf("no login link printed: %s", out.String())
-		case <-time.After(10 * time.Millisecond):
-		}
-		outMu.Lock()
-		s := out.String()
-		outMu.Unlock()
-		if i := strings.Index(s, "http"); i >= 0 && strings.Contains(s, "> ") {
-			link = strings.Fields(s[i:])[0]
-		}
+	prompt := waitForPrompt(t, &out, done)
+	i := strings.Index(prompt, "http")
+	if i < 0 {
+		t.Fatalf("no login link printed: %s", prompt)
 	}
+	link := strings.Fields(prompt[i:])[0]
 	u, err := url.Parse(link)
 	if err != nil {
 		t.Fatal(err)
@@ -258,6 +260,28 @@ func doLogin(t *testing.T) {
 	pw.Close()
 	if err := <-done; err != nil {
 		t.Fatalf("login failed: %v", err)
+	}
+}
+
+// waitForPrompt returns login's output once it is waiting for the pasted
+// address, failing the test if login returns or stalls first.
+func waitForPrompt(t *testing.T, out *bytes.Buffer, done <-chan error) string {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		outMu.Lock()
+		s := out.String()
+		outMu.Unlock()
+		if strings.Contains(s, "> ") {
+			return s
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("login returned before prompting: %v\n%s", err, s)
+		case <-deadline:
+			t.Fatalf("login never prompted: %s", s)
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }
 
@@ -318,7 +342,8 @@ func TestLoginThenMostRecent100AcrossAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows has no Unix permission bits to check.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("token file mode = %v, want 0600", info.Mode().Perm())
 	}
 
@@ -425,7 +450,9 @@ func TestExpiredRefreshTokenAsksForLogin(t *testing.T) {
 	doLogin(t)
 
 	b, _ := os.ReadFile(tokenFile)
-	os.WriteFile(tokenFile, bytes.ReplaceAll(b, []byte(testRefresh), []byte("stale-refresh")), 0o600)
+	if err := os.WriteFile(tokenFile, bytes.ReplaceAll(b, []byte(testRefresh), []byte("stale-refresh")), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	timeNow = func() time.Time { return testNow.Add(8 * 24 * time.Hour) }
 
 	_, _, err := runTx(t)
@@ -508,13 +535,17 @@ func TestRefusedWindowIsNarrowedToTheLimit(t *testing.T) {
 
 func TestLoginStopsOnCancel(t *testing.T) {
 	setup(t)
-	pr, pw, _ := os.Pipe() // never written to: the user is still at the prompt
+	pr, pw, err := os.Pipe() // never written to: the user is still at the prompt
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer pr.Close()
 	defer pw.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	var out bytes.Buffer
 	go func() { done <- run(ctx, []string{"login"}, pr, &syncWriter{w: &out}, &syncWriter{w: &out}) }()
+	waitForPrompt(t, &out, done) // so the cancel lands while login waits on stdin
 	cancel()
 	select {
 	case err := <-done:

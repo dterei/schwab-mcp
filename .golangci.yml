@@ -1,0 +1,53 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - durationcheck
+    - errorlint
+    - gocritic
+    - gosec
+    - intrange
+    - misspell
+    - modernize
+    - nilerr
+    - noctx
+    - nolintlint
+    - perfsprint
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+  settings:
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+    gosec:
+      excludes:
+        # Unchecked errors are errcheck's job, which knows the safe cases.
+        - G104
+  exclusions:
+    presets:
+      - common-false-positives
+      - std-error-handling
+    rules:
+      # Tests use fake credentials and temp-dir paths on purpose.
+      - path: _test\.go
+        linters: [gosec]
+      # Schwab is a proper noun, so an error message may start with it.
+      - linters: [staticcheck]
+        text: ST1005
+        source: '"Schwab'
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/dterei/schwab-mcp

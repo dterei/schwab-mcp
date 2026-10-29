@@ -67,11 +67,11 @@ func formatNumber(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
-func truncate(s string, max int) string {
+func truncate(s string, limit int) string {
 	s = strings.Join(strings.Fields(s), " ")
 	r := []rune(s)
-	if len(r) <= max {
+	if len(r) <= limit {
 		return s
 	}
-	return string(r[:max-3]) + "..."
+	return string(r[:limit-3]) + "..."
 }
