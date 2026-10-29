@@ -21,7 +21,7 @@ Schwab & Co.
 | Piece | State |
 | --- | --- |
 | [`schwabtx`](cmd/schwabtx): log in and print recent transactions across all accounts | Works |
-| Daily snapshots of positions and balances (milestone 1) | Planned |
+| [`schwabtx snapshot`](cmd/schwabtx/README.md#snapshots): save today's positions and balances, once a day | Works |
 | Reusable Go client for Schwab's API (milestone 1) | Planned |
 | Full transaction history, stored locally and exported for your calculators (milestone 2) | Planned |
 | MCP server, read-only first (milestone 3) | Planned |
@@ -86,8 +86,9 @@ cd schwab-mcp
 cp .env.example .env          # then fill in your app key and secret
 set -a; . ./.env; set +a      # load it into the environment
 
-go run ./cmd/schwabtx login   # follow the printed steps
-go run ./cmd/schwabtx         # your 100 most recent transactions
+go run ./cmd/schwabtx login      # follow the printed steps
+go run ./cmd/schwabtx            # your 100 most recent transactions
+go run ./cmd/schwabtx snapshot   # save today's positions and balances
 ```
 
 On Windows, load `.env` in PowerShell instead:
@@ -106,7 +107,8 @@ See [cmd/schwabtx](cmd/schwabtx/README.md) for flags and troubleshooting.
   directory. Treat it like a password: the login is not read-only, so the file
   lets whoever has it act on your accounts, trading included.
 - `schwabtx -json` prints Schwab's raw data, which includes full account
-  numbers.
+  numbers. `schwabtx snapshot` saves the same kind of data, in a file
+  readable only by you.
 - Once the MCP server exists, what its tools return also goes to your AI
   assistant's model, which for most assistants runs on the provider's
   servers rather than your machine. The server will mask account numbers in

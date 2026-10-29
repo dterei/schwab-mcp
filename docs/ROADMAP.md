@@ -120,15 +120,16 @@ its MCP tools need milestone 3.
 Start recording positions and balances right away, then move the CLI's auth
 and HTTP code into `internal/schwab` with what the history store needs.
 
-- [ ] `schwabtx snapshot`, built on the CLI's current code so it does not
+- [x] `schwabtx snapshot`, built on the CLI's current code so it does not
       wait for the rest: it appends the raw `GET /accounts?fields=positions`
       response and its fetch time to an owner-only JSON Lines file. Schwab
       reports positions and balances only as of now, so every day without a
       snapshot is lost for good
-- [ ] A daily scheduled run of it after the market close, with sample cron,
-      launchd and Task Scheduler entries. It exits non-zero with the message
-      to run `schwabtx login` once the weekly login lapses, and prints the
-      day-ahead expiry warning, so the scheduler can alert you
+- [ ] A daily scheduled run of it after the market close, with sample
+      launchd and Task Scheduler entries (the CLI's README has one for cron).
+      It already exits non-zero with the message to run `schwabtx login` once
+      the weekly login lapses, and prints the day-ahead expiry warning, so the
+      scheduler can alert you
 - [ ] OAuth login, refresh and token store extracted from the CLI, with a
       file lock and refresh coordination between processes
 - [ ] Client-side rate limiting (Schwab publishes 120 requests a minute plus
@@ -392,7 +393,8 @@ Everything planned, by area.
 | Client | Rate limiting, retries for reads, correlation IDs in errors | M1 |
 | Client | Orders and every Market Data endpoint, typed, raw JSON kept | M3 |
 | History | Recent transactions across all accounts (`schwabtx`) | done |
-| History | Daily position and balance snapshots, on a schedule | M1 |
+| History | Position and balance snapshots (`schwabtx snapshot`) | done |
+| History | Snapshots on a daily schedule, with sample scheduler entries | M1 |
 | History | Full backfill as far as Schwab serves, then incremental sync | M2 |
 | History | Every transaction classified, with overrides | M2 |
 | History | Import of schwab.com History and Realized Gain/Loss CSVs, each transaction counted once | M2 |

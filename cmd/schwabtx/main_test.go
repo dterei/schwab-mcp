@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,8 +21,8 @@ import (
 	"time"
 )
 
-// fakeSchwab imitates the OAuth token endpoint and the two Trader API
-// endpoints the tool uses, enforcing the same auth rules.
+// fakeSchwab imitates the OAuth token endpoint and the Trader API endpoints
+// the tool uses, enforcing the same auth rules.
 type fakeSchwab struct {
 	t   *testing.T
 	srv *httptest.Server
@@ -37,6 +38,8 @@ type fakeSchwab struct {
 	cap           int       // max transactions per response, 0 = unlimited
 	oldestAllowed time.Time // startDate before this gets a 400
 	rateLimitNext int       // answer this many transaction calls with 429
+	detailsFields string    // fields= of the last GET /accounts
+	detailsBody   string    // what the last GET /accounts returned
 }
 
 type fakeTx struct {
@@ -58,6 +61,7 @@ func newFakeSchwab(t *testing.T) *fakeSchwab {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/oauth/token", f.handleToken)
 	mux.HandleFunc("GET /trader/v1/accounts/accountNumbers", f.handleAccounts)
+	mux.HandleFunc("GET /trader/v1/accounts", f.handleAccountDetails)
 	mux.HandleFunc("GET /trader/v1/accounts/{hash}/transactions", f.handleTransactions)
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
@@ -122,6 +126,41 @@ func (f *fakeSchwab) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.writeJSON(w, f.accounts)
+}
+
+// fakePositions are the positions of every fake account. The "&" and the
+// numbers such as 250.0 show whether a snapshot keeps Schwab's text exactly.
+const fakePositions = `{"shortQuantity":0,"averagePrice":246.91,"longQuantity":5,"marketValue":1300.5,` +
+	`"instrument":{"assetType":"COLLECTIVE_INVESTMENT","symbol":"VTI","description":"VANGUARD TOTAL STOCK MARKET ETF"}},` +
+	`{"shortQuantity":0,"averagePrice":17.5,"longQuantity":10,"marketValue":250.0,` +
+	`"instrument":{"assetType":"EQUITY","symbol":"T","description":"AT&T INC"}}`
+
+// handleAccountDetails answers GET /accounts, with positions only when asked
+// for, as Schwab does. The JSON is written by hand so that tests can check
+// the tool keeps it as sent.
+func (f *fakeSchwab) handleAccountDetails(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.authed(w, r) {
+		return
+	}
+	f.detailsFields = r.URL.Query().Get("fields")
+	parts := make([]string, len(f.accounts))
+	for i, a := range f.accounts {
+		positions := ""
+		if f.detailsFields == "positions" {
+			positions = `"positions":[` + fakePositions + `],`
+		}
+		parts[i] = fmt.Sprintf(`{"securitiesAccount":{"type":"MARGIN","accountNumber":%q,%s`+
+			`"currentBalances":{"liquidationValue":12345.60,"cashBalance":100.0}},`+
+			`"aggregatedBalance":{"currentLiquidationValue":12345.60,"liquidationValue":12345.60}}`,
+			a.AccountNumber, positions)
+	}
+	f.detailsBody = "[" + strings.Join(parts, ",") + "]"
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := io.WriteString(w, f.detailsBody); err != nil {
+		f.t.Errorf("fake Schwab: writing response: %v", err)
+	}
 }
 
 func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) {
@@ -220,6 +259,7 @@ func setup(t *testing.T) (*fakeSchwab, string) {
 	t.Setenv("SCHWAB_CALLBACK_URL", "")
 	t.Setenv("SCHWAB_BASE_URL", f.srv.URL)
 	t.Setenv("SCHWAB_TOKEN_FILE", tokenFile)
+	t.Setenv("SCHWAB_SNAPSHOT_FILE", filepath.Join(filepath.Dir(tokenFile), "snapshots.jsonl"))
 	timeNow = func() time.Time { return testNow }
 	t.Cleanup(func() { timeNow = time.Now })
 	return f, tokenFile

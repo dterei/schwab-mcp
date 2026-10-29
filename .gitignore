@@ -10,8 +10,9 @@
 *.test
 coverage.out
 
-# Secrets: Schwab app credentials and saved logins
+# Secrets and account data: Schwab app credentials, saved logins, snapshots
 .env
 .env.*
 !.env.example
 token.json
+snapshots*.jsonl

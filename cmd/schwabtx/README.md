@@ -1,8 +1,9 @@
 # schwabtx
 
-A small CLI that logs in to the Charles Schwab Trader API and prints your
-most recent transactions across every account you share with it. It uses only
-the Go standard library.
+A small CLI that logs in to the Charles Schwab Trader API, prints your most
+recent transactions across every account you share with it, and saves
+snapshots of those accounts' positions and balances. It uses only the Go
+standard library.
 
 Before the first run, set up a Schwab developer app as described in the
 [top-level README](../../README.md#one-time-setup).
@@ -16,8 +17,9 @@ instead.
 ```sh
 set -a; . ./.env; set +a
 
-go run ./cmd/schwabtx login   # opens nothing itself: follow the printed steps
-go run ./cmd/schwabtx         # the 100 most recent transactions, all accounts
+go run ./cmd/schwabtx login      # opens nothing itself: follow the printed steps
+go run ./cmd/schwabtx            # the 100 most recent transactions, all accounts
+go run ./cmd/schwabtx snapshot   # save today's positions and balances
 ```
 
 Or install it:
@@ -51,6 +53,48 @@ the file is made readable only by you wherever it is. On Windows it takes its
 folder's permissions, which at the default location means only you, so keep
 an overridden path inside your user profile.
 
+## Snapshots
+
+Schwab reports positions and balances only as of now, so their past values
+are gone unless you saved them. `schwabtx snapshot` saves them: each run
+appends one line to `snapshots.jsonl` in your user config directory, under
+`schwabtx/`. Choose another file with `-file` or `SCHWAB_SNAPSHOT_FILE`.
+
+The file holds full account numbers and balances. On Linux and macOS it and
+any directory the tool creates for it are readable only by you; on Windows
+the file takes its folder's permissions, as the token file does.
+
+Each line is one JSON object:
+
+```json
+{"version":1,"fetched_at":"2026-10-29T21:05:00Z","accounts":[...]}
+```
+
+- `fetched_at` is when Schwab's response arrived, in UTC.
+- `accounts` is Schwab's response to `GET /accounts?fields=positions`, as
+  sent but on one line: for each account its balances (initial, current and
+  projected) and positions.
+- `version` changes if the line's fields ever do.
+
+A run that fails saves nothing and exits with an error. If a write is ever
+cut short, the next run starts on a new line, so a reader can skip a line
+that does not parse.
+
+### Every day
+
+Run it once a day in the evening, after the market close; mutual fund prices
+can post a few hours after 4 p.m. Eastern. For example, from cron at 9:05 p.m.
+on weekdays:
+
+```
+5 21 * * 1-5  set -a && . "$HOME/schwab-mcp/.env" && set +a && "$HOME/go/bin/schwabtx" snapshot >> "$HOME/schwabtx-snapshot.log"
+```
+
+Adjust the paths to where your `.env` and `schwabtx` are. Cron times are in
+the machine's time zone. The line logs what the tool prints on success and
+leaves what it prints on errors to cron, which mails it to you: the warning a
+day before the weekly login lapses, and the error once it has.
+
 ## How it fetches
 
 - It covers **brokerage accounts**, not Schwab Bank checking or savings.
@@ -72,7 +116,7 @@ go test ./cmd/schwabtx
 
 The tests run the whole tool against a fake Schwab server: login, token
 refresh, paging backwards through windows, merging accounts, splitting
-truncated responses and rate-limit retries.
+truncated responses, rate-limit retries and snapshots.
 
 ## Open questions
 
