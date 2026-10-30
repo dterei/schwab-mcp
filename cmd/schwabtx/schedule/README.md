@@ -47,11 +47,12 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.github.dterei.schwab
 ```
 
 macOS then tells you that background items were added. The agent shows up
-under System Settings > General > Login Items & Extensions > Allow in the
-Background, probably as `sh` from an unidentified developer. Leave it on:
-switched off, it stops running without a word. Keep this repository out of
-Documents, Desktop, Downloads and iCloud Drive, which macOS does not let
-background jobs read.
+under System Settings > General > Login Items & Extensions (Login Items
+before macOS 15) > Allow in the Background, as `sh` from an unidentified
+developer. Leave it on: switched off, it stops running without a word.
+
+Keep this repository out of Documents, Desktop, Downloads and iCloud Drive,
+which macOS does not let background jobs read.
 
 Run it once now, and after a few seconds check the log:
 
@@ -66,6 +67,9 @@ means that the folder for the log is missing:
 ```sh
 launchctl print gui/$(id -u)/com.github.dterei.schwabtx.snapshot | grep 'last exit code'
 ```
+
+If `launchctl` cannot find the agent, check that it is allowed in Login
+Items.
 
 The notifications come from Script Editor, and macOS may drop them until you
 allow it. Check that this test notification shows:
