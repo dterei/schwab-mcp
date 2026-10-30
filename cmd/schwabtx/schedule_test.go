@@ -491,7 +491,9 @@ func TestTaskSchedulerSteps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, steps, ok1 := strings.Cut(string(b), "\n## Windows\n")
+	// A Windows checkout may have CRLF line endings.
+	readme := strings.ReplaceAll(string(b), "\r\n", "\n")
+	_, steps, ok1 := strings.Cut(readme, "\n## Windows\n")
 	_, steps, ok2 := strings.Cut(steps, "```powershell\n")
 	steps, _, ok3 := strings.Cut(steps, "\n```")
 	if !ok1 || !ok2 || !ok3 || !strings.Contains(steps, "'schwabtx snapshot'") {
@@ -499,7 +501,11 @@ func TestTaskSchedulerSteps(t *testing.T) {
 	}
 	const name = "schwabtx snapshot test"
 	steps = strings.ReplaceAll(steps, "'schwabtx snapshot'", "'"+name+"'")
-	script := "$ErrorActionPreference = 'Stop'\n" + steps + `
+	// A task left from an earlier run would make Register-ScheduledTask
+	// fail, and what the steps print would get in the way of the JSON.
+	script := "$ErrorActionPreference = 'Stop'\n" +
+		"Unregister-ScheduledTask -TaskName '" + name + "' -Confirm:$false -ErrorAction SilentlyContinue\n" +
+		"$null = & {\n" + steps + "\n}" + `
 $task = Get-ScheduledTask -TaskName '` + name + `'
 try {
     [pscustomobject]@{
