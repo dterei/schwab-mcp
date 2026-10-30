@@ -162,7 +162,7 @@ func runUnix(t *testing.T, s scriptSetup, name string, args ...string) scriptRun
 			t.Fatal(err)
 		}
 	}
-	env := append(unixEnv(s.home, slices.Concat([]string{bin}, s.path)...), "TMPDIR="+tmp, "CALLS="+calls)
+	env := append(unixEnv(t, s.home, slices.Concat([]string{bin}, s.path)...), "TMPDIR="+tmp, "CALLS="+calls)
 
 	r := runScript(t, env, name, args...)
 	r.notices = stubCalls(t, calls+".osascript")
@@ -220,15 +220,31 @@ func readIfExists(t *testing.T, path string) string {
 }
 
 // unixEnv returns the environment that cron and launchd give a job: HOME,
-// SHELL and a short PATH. The PATH has the given folders first, then those of
-// the tools the scripts use, which are not in /usr/bin on every system.
-func unixEnv(home string, path ...string) []string {
-	for _, tool := range []string{"sh", "uname", "tr", "date", "cat", "rm", "mktemp", "dirname", "basename", "grep", "tee"} {
-		if p, err := exec.LookPath(tool); err == nil && !slices.Contains(path, filepath.Dir(p)) {
-			path = append(path, filepath.Dir(p))
+// SHELL and a short PATH. The PATH has the given folders first, then one of
+// links to the tools the scripts use, which are not in /usr/bin on every
+// system, so that a schwabtx installed next to them stays out of reach. When
+// the tests measure coverage, GOCOVERDIR is passed on too, for schwabtx to
+// record its coverage there rather than warn that it cannot.
+func unixEnv(t *testing.T, home string, path ...string) []string {
+	t.Helper()
+	tools := filepath.Join(home, "tools")
+	if err := os.MkdirAll(tools, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{"sh", "uname", "tr", "date", "cat", "rm", "mktemp", "dirname", "basename", "readlink", "grep", "tee"} {
+		p, err := exec.LookPath(tool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(p, filepath.Join(tools, tool)); err != nil && !errors.Is(err, os.ErrExist) {
+			t.Fatal(err)
 		}
 	}
-	return []string{"HOME=" + home, "SHELL=/bin/sh", "PATH=" + strings.Join(path, ":")}
+	env := []string{"HOME=" + home, "SHELL=/bin/sh", "PATH=" + strings.Join(append(path, tools), ":")}
+	if dir := os.Getenv("GOCOVERDIR"); dir != "" {
+		env = append(env, "GOCOVERDIR="+dir)
+	}
+	return env
 }
 
 // windowsEnv returns the environment Task Scheduler starts a script with,
@@ -342,11 +358,11 @@ func TestSnapshotScripts(t *testing.T) {
 				failDetails int           // fetches of the accounts that fail first
 				envArg      bool          // the .env file is elsewhere, given as an argument
 				noEnvFile   bool
-				relative    bool // the .env file has paths relative to its folder
-				crlf        bool // the .env file has CRLF line endings
-				mistake     bool // the .env file has a value with a space and no quotes
-				envFolder   bool // a folder is given as the .env file
-				linked      bool // the script is run through a link to its folder
+				relative    bool   // the .env file has paths relative to its folder
+				crlf        bool   // the .env file has CRLF line endings
+				mistake     bool   // the .env file has a value with a space and no quotes
+				envFolder   bool   // a folder is given as the .env file
+				link        string // the script is run through a link: "folder" to its folder, "file" to itself
 
 				wantCode     int
 				wantSaved    bool
@@ -367,7 +383,11 @@ func TestSnapshotScripts(t *testing.T) {
 					wantSaved: true, wantInfo: []string{saved},
 				},
 				{
-					name: "finds the env file through a linked folder", only: "snapshot.sh", linked: true,
+					name: "finds the env file through a linked folder", only: "snapshot.sh", link: "folder",
+					wantSaved: true, wantInfo: []string{saved},
+				},
+				{
+					name: "finds the env file through links to the script", only: "snapshot.sh", link: "file",
 					wantSaved: true, wantInfo: []string{saved},
 				},
 				{
@@ -486,6 +506,7 @@ func TestSnapshotScripts(t *testing.T) {
 					switch tc.binary {
 					case "go bin":
 						copyFile(t, self, filepath.Join(home, "go", "bin", s.binary))
+						lines = append(lines, "SCHWABTX=   # default: ~/go/bin")
 					case "path":
 						dir := filepath.Join(home, "path-bin")
 						copyFile(t, self, filepath.Join(dir, s.binary))
@@ -515,13 +536,27 @@ func TestSnapshotScripts(t *testing.T) {
 					}
 
 					run := script
-					if tc.linked {
-						// Run the script through a link to its folder.
+					switch tc.link {
+					case "folder":
 						link := filepath.Join(home, "jobs")
 						if err := os.Symlink(filepath.Dir(script), link); err != nil {
 							t.Fatal(err)
 						}
 						run = filepath.Join(link, s.script)
+					case "file":
+						// A relative link to a link to the script.
+						for _, dir := range []string{"bin", "jobs"} {
+							if err := os.Mkdir(filepath.Join(home, dir), 0o755); err != nil {
+								t.Fatal(err)
+							}
+						}
+						run = filepath.Join(home, "jobs", "snapshot")
+						if err := os.Symlink(script, filepath.Join(home, "bin", "snapshot")); err != nil {
+							t.Fatal(err)
+						}
+						if err := os.Symlink(filepath.Join("..", "bin", "snapshot"), run); err != nil {
+							t.Fatal(err)
+						}
 					}
 					r := s.run(t, scriptSetup{home: home, script: run, path: path, args: args})
 
@@ -590,7 +625,7 @@ func TestSnapshotScripts(t *testing.T) {
 						if s.name == "powershell.exe" && os.Getenv("CI") != "" {
 							for line := range strings.Lines(r.log) {
 								for _, bug := range []string{
-									"Unable to find type", "is not recognized as", "Cannot find an overload",
+									"Unable to find type", "Cannot find type", "is not recognized as", "Cannot find an overload",
 									"Method invocation failed", "parameter cannot be found", "null-valued expression",
 								} {
 									if strings.Contains(line, "notification") && strings.Contains(line, bug) {
@@ -638,6 +673,53 @@ func checkNotices(t *testing.T, home string, notices [][]string, problems []stri
 	compile := append([]string{"-o", filepath.Join(home, "notify.scpt")}, args[:len(args)-1]...)
 	if out, err := exec.CommandContext(t.Context(), "osacompile", compile...).CombinedOutput(); err != nil {
 		t.Errorf("the notification's AppleScript %q does not compile: %v\n%s", args[:len(args)-1], err, out)
+	}
+}
+
+// TestSnapshotTrace runs snapshot.sh with sh -xv, as you might to find out
+// why it fails, and checks that it works all the same and that the trace
+// leaves out the secrets in the .env file, but not what comes after.
+func TestSnapshotTrace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("snapshot.sh is for Unix systems")
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newFakeSchwab(t)
+	f.addAccount("11112222", 1000, 1, time.Now(), time.Hour)
+	home := t.TempDir()
+	repo := filepath.Join(home, "schwab-mcp")
+	script := filepath.Join(repo, "cmd", "schwabtx", "schedule", "snapshot.sh")
+	copyFile(t, filepath.Join("schedule", "snapshot.sh"), script)
+	tokenFile := filepath.Join(home, "cfg", "token.json")
+	snapshots := filepath.Join(home, "cfg", "snapshots.jsonl")
+	writeToken(t, tokenFile, testRefresh, time.Hour)
+	env := []string{
+		"SCHWAB_APP_KEY=" + testKey,
+		"SCHWAB_APP_SECRET=" + testSecret,
+		"SCHWAB_BASE_URL=" + f.srv.URL,
+		`SCHWAB_TOKEN_FILE="` + tokenFile + `"`,
+		`SCHWAB_SNAPSHOT_FILE="` + snapshots + `"`,
+		`SCHWABTX="` + self + `"`,
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte(strings.Join(env, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := runUnix(t, scriptSetup{home: home}, "sh", "-xv", script)
+	if r.code != 0 {
+		t.Errorf("exit code %d, want 0\nstdout: %s\nstderr: %s", r.code, r.stdout, r.stderr)
+	}
+	if !strings.Contains(r.stderr, self+" snapshot") {
+		t.Errorf("the trace stops at the .env file:\n%s", r.stderr)
+	}
+	if strings.Contains(r.stdout+r.stderr, testSecret) {
+		t.Errorf("the trace shows the app secret:\n%s%s", r.stdout, r.stderr)
+	}
+	if _, err := os.Stat(snapshots); err != nil {
+		t.Errorf("no snapshot saved: %v", err)
 	}
 }
 

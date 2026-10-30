@@ -40,9 +40,12 @@ after the 4 p.m. Eastern close.
 ## macOS
 
 Keep this repository, and any file that `.env` names, out of Documents,
-Desktop, Downloads, iCloud Drive, external drives and network volumes: macOS
-does not let background jobs read them. Then, from the root of this
-repository, as yourself (not with `sudo`):
+Desktop, Downloads, iCloud Drive, the folders in `~/Library/CloudStorage`
+that Dropbox, Google Drive and OneDrive sync, external drives and network
+volumes: macOS does not let background jobs read them. The installer refuses
+a repository in one of those folders, but only warns about one under
+`/Volumes`, since not every drive there is off limits. Then, from the root
+of this repository, as yourself (not with `sudo`):
 
 ```sh
 sh cmd/schwabtx/schedule/install-agent.sh

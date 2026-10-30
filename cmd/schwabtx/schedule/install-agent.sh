@@ -35,8 +35,11 @@ esac
 # compared with links followed and case ignored, as the file system does.
 home=$(lower "$(cd -P "$HOME" && pwd -P)")
 case $(lower "$here") in
-"$home"desktop/* | "$home"documents/* | "$home"downloads/* | "$home""library/mobile documents"/* | /volumes/*)
+"$home"desktop/* | "$home"documents/* | "$home"downloads/* | "$home""library/mobile documents"/* | "$home""library/cloudstorage"/*)
 	fail "macOS does not let background jobs read $here; move this repository elsewhere, such as ~/schwab-mcp, and run this again"
+	;;
+/volumes/*)
+	echo "install-agent.sh: if $here is on an external drive or a network volume, macOS will not let the agent read it" >&2
 	;;
 esac
 hour=${at%:*}

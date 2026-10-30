@@ -91,11 +91,12 @@ try {
     # starts a comment.
     foreach ($line in Get-Content -LiteralPath $EnvFile -Encoding UTF8) {
         if ($line -match '^\s*([A-Za-z_]\w*)=(.*)$') {
-            $name, $value = $Matches[1], $Matches[2].Trim()
+            $name, $raw = $Matches[1], $Matches[2]
+            $value = $raw.Trim()
             if ($value -match '^(["''])(.*?)\1(\s+#.*)?$') {
                 $value = $Matches[2]
             } else {
-                $value = $value -replace '\s+#.*$', ''
+                $value = ($raw -replace '\s+#.*$', '').Trim()
             }
             [Environment]::SetEnvironmentVariable($name, $value)
         }

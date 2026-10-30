@@ -47,24 +47,41 @@ fail() {
 	exit 1
 }
 
-# -P follows symbolic links before "..", so that the script finds the .env of
-# the repository it is in, however it is reached.
-env_file=${1:-$(dirname "$0")/../../../.env}
+# The default .env is the one of the repository this script is in, found
+# through any link to the script and, with cd -P, to its folders.
+script=$0
+links=0
+while [ -L "$script" ] && [ "$links" -lt 40 ]; do
+	link=$(readlink "$script")
+	case $link in
+	/*) script=$link ;;
+	*) script=$(dirname "$script")/$link ;;
+	esac
+	links=$((links + 1))
+done
+env_file=${1:-$(dirname "$script")/../../../.env}
 cd -P "$(dirname "$env_file")" 2>/dev/null || fail "cannot read $env_file"
 env_file=$(pwd -P)/$(basename "$env_file")
-[ -f "$env_file" ] && [ -r "$env_file" ] || fail "cannot read $env_file"
+if [ -d "$env_file" ] || [ ! -r "$env_file" ]; then
+	fail "cannot read $env_file"
+fi
 if grep -q "$(printf '\r')" "$env_file"; then
 	fail "$env_file has Windows (CRLF) line endings; save it with Unix (LF) ones"
 fi
 # A mistake in the file, such as a value with a space and no quotes, must be
 # reported, not end the script or be skipped without a word, so the file is
-# first loaded in a subshell, where any complaint shows.
+# first loaded in a subshell, where any complaint shows. Tracing (sh -x) is
+# off meanwhile: it would show as a complaint, and show the secrets in it.
+flags=$-
+set +xv
 if ! complaint=$( (set +u -a && command . "$env_file") 2>&1 >/dev/null) || [ -n "$complaint" ]; then
 	fail "cannot load $env_file: $complaint"
 fi
 set +u -a
 command . "$env_file" || fail "cannot load $env_file"
 set -u +a
+case $flags in *x*) set -x ;; esac
+case $flags in *v*) set -v ;; esac
 
 schwabtx=${SCHWABTX:-$(command -v schwabtx || printf '%s' "$HOME/go/bin/schwabtx")}
 [ -x "$schwabtx" ] || fail "cannot run $schwabtx; install it with \`go install ./cmd/schwabtx\`, or set SCHWABTX in $env_file to where it is"
