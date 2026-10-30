@@ -38,9 +38,10 @@ type snapshotAccount struct {
 	} `json:"securitiesAccount"`
 }
 
-// runSnapshot appends the positions and balances of every account to the
-// snapshot file. Schwab only reports them as of now, so a day without a
-// snapshot is lost for good.
+// runSnapshot appends the current positions and balances of every account
+// to the snapshot file. Schwab only reports them as of now. Past holdings can
+// be rebuilt from transactions, but not the values of holdings that price
+// history does not cover, nor Schwab's own balance figures.
 func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("schwabtx snapshot", flag.ContinueOnError)
 	fs.SetOutput(stderr)
