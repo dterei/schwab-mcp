@@ -1,24 +1,27 @@
 #!/bin/sh
-# snapshot.sh runs `schwabtx snapshot` for a scheduler: launchd on macOS, with
-# the plist next to this file, or cron. README.md next to this file says how
-# to set it up.
+# snapshot.sh runs `schwabtx snapshot` for a scheduler: launchd on macOS,
+# through the agent that install-agent.sh sets up, or cron. README.md next to
+# this file says how to set it up.
 #
 #   snapshot.sh [ENV_FILE]
 #
 # It loads ENV_FILE, by default the .env at the root of this repository, and
-# runs $SCHWABTX, which the .env can set, else schwabtx from PATH, else
-# ~/go/bin/schwabtx. A run that fails is tried twice more, a minute apart,
-# since a run that launchd starts as the Mac wakes can come before the network
-# is back.
+# runs schwabtx in that file's folder, so that relative paths in it work as
+# they do from there. It runs $SCHWABTX, which the .env can set, else
+# schwabtx from PATH, else ~/go/bin/schwabtx. A run that fails is tried twice
+# more, a minute apart, since a run that launchd starts as the Mac wakes can
+# come before the network is back.
 #
-# Each line of output gets the time in front. The summary, and any failed
-# try that is tried again, go to stdout. Warnings and errors from the last
+# Each line of output gets the time in front. The summary, and the errors of
+# a try that is tried again, go to stdout. Warnings and errors from the last
 # try go to stderr, which cron mails to you if the machine can send mail.
 # launchd mails nothing, so on macOS they also show as a notification: the
-# warning a day before the weekly Schwab login lapses, and the error once it
-# has or when every try failed. The exit status is that of the last try.
+# warning in the two days before the weekly Schwab login lapses, and the error
+# once it has or when every try failed. The exit status is that of the last
+# try.
 
 set -u
+unset CDPATH
 
 # notify shows its argument, on one line, as a macOS notification, and does
 # nothing elsewhere. The message is passed as an argument, so quotes in it
@@ -45,18 +48,21 @@ fail() {
 }
 
 env_file=${1:-$(dirname "$0")/../../../.env}
-case $env_file in
-*/*) ;;
-*) env_file=./$env_file ;; # "." searches PATH for a bare file name
-esac
+cd "$(dirname "$env_file")" 2>/dev/null || fail "cannot read $env_file"
+env_file=$(pwd)/$(basename "$env_file")
 [ -r "$env_file" ] || fail "cannot read $env_file"
-set -a
-# shellcheck source=/dev/null
-. "$env_file"
-set +a
+if grep -q "$(printf '\r')" "$env_file"; then
+	fail "$env_file has Windows (CRLF) line endings; save it with Unix (LF) ones"
+fi
+# A mistake in the file, or a variable that is not set here, must not end
+# the script before it can tell you.
+sh -n "$env_file" || fail "cannot load $env_file"
+set +u -a
+command . "$env_file" || fail "cannot load $env_file"
+set -u +a
 
 schwabtx=${SCHWABTX:-$(command -v schwabtx || printf '%s' "$HOME/go/bin/schwabtx")}
-[ -x "$schwabtx" ] || fail "cannot run $schwabtx; install it with \`go install\` or set SCHWABTX in $env_file"
+[ -x "$schwabtx" ] || fail "cannot run $schwabtx; install it with \`go install ./cmd/schwabtx\`, or set SCHWABTX in $env_file to where it is"
 
 tmp=$(mktemp -d) || fail "cannot create a temporary directory"
 trap 'rm -rf "$tmp"' EXIT
@@ -77,10 +83,11 @@ while :; do
 	sleep 60
 done
 
+if [ "$status" -ne 0 ] && [ ! -s "$tmp/err" ]; then
+	echo "error: schwabtx exited with status $status" >"$tmp/err"
+fi
 stamp <"$tmp/err" >&2
 if [ -s "$tmp/err" ]; then
 	notify "$(cat "$tmp/err")"
-elif [ "$status" -ne 0 ]; then
-	notify "error: schwabtx exited with status $status"
 fi
 exit "$status"

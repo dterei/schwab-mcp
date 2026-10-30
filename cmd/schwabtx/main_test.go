@@ -750,3 +750,33 @@ func TestMissingCredentials(t *testing.T) {
 		t.Fatalf("expected a missing-credentials error, got %v", err)
 	}
 }
+
+func TestExpiryWarning(t *testing.T) {
+	timeNow = func() time.Time { return testNow }
+	t.Cleanup(func() { timeNow = time.Now })
+	for _, tc := range []struct {
+		left time.Duration // until the login lapses
+		want string
+	}{
+		{left: 49 * time.Hour},
+		{left: 48 * time.Hour, want: "in about 48 hours"},
+		{left: 36*time.Hour + 20*time.Minute, want: "in about 36 hours"},
+		{left: 90 * time.Minute, want: "in about 2 hours"},
+		{left: time.Hour, want: "in about an hour"},
+		{left: 20 * time.Minute, want: "in less than an hour"},
+		{left: 0},
+		{left: -time.Hour},
+	} {
+		a := &authenticator{tok: &token{RefreshObtainedAt: testNow.Add(tc.left - refreshTokenLifetime)}}
+		got := a.expiryWarning()
+		switch {
+		case tc.want == "" && got != "":
+			t.Errorf("%v left: warned %q", tc.left, got)
+		case tc.want != "" && !strings.Contains(got, "expires "+tc.want+"; run `schwabtx login`"):
+			t.Errorf("%v left: warned %q, want it to say %q", tc.left, got, tc.want)
+		}
+	}
+	if got := (&authenticator{}).expiryWarning(); got != "" {
+		t.Errorf("warned %q without a saved login", got)
+	}
+}

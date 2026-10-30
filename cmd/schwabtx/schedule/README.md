@@ -3,28 +3,32 @@
 `schwabtx snapshot` is meant to run every evening (see
 [Every day](../README.md#every-day)). This folder has what a scheduler needs:
 
-- [`snapshot.sh`](snapshot.sh) for launchd on macOS, with the agent
-  [`com.github.dterei.schwabtx.snapshot.plist`](com.github.dterei.schwabtx.snapshot.plist),
-  and for cron on Linux and other Unix systems
-- [`snapshot.ps1`](snapshot.ps1) for Task Scheduler on Windows
+- [`snapshot.sh`](snapshot.sh), which launchd on macOS or cron runs, and
+  [`install-agent.sh`](install-agent.sh), which sets up the launchd agent
+- [`snapshot.ps1`](snapshot.ps1), which Task Scheduler on Windows runs, and
+  [`register-task.ps1`](register-task.ps1), which sets up the task
 
-Each script loads `.env` from the root of this repository, runs
-`schwabtx snapshot` and puts the time in front of each line of output. A run
-that fails is tried twice more, a minute apart, since a run that starts as
-the computer wakes can come before the network is back. Warnings and errors
-from the last try reach you as a notification on macOS and Windows, and
-through cron's mail elsewhere: the warning a day before the weekly Schwab
-login lapses, the error once it has, and any run that failed.
+Each script loads `.env` from the root of this repository and runs
+`schwabtx snapshot` in that folder, so relative paths in `.env` work as they
+do there. It puts the time in front of each line of output. A run that fails
+is tried twice more, a minute apart, since a run that starts as the computer
+wakes can come before the network is back. Warnings and errors from the last
+try reach you as a notification on macOS and Windows, and through cron's mail
+elsewhere: the warning in the two days before the weekly Schwab login lapses,
+the error once it has, and any run that failed. After you log in again, run
+the snapshot once more, as under "Run it once now" below, so that the day is
+not missed.
 
-The scripts run the `schwabtx` that `go install` puts in your Go bin folder,
-`~/go/bin` unless you set `GOBIN` or `GOPATH`. Install it from the root of
-this repository, and again whenever you pull changes:
+The scripts look for `schwabtx` in `~/go/bin` (`%USERPROFILE%\go\bin` on
+Windows), where `go install` puts it unless you set `GOBIN` or `GOPATH`.
+Install it from the root of this repository, and again whenever you pull
+changes:
 
 ```sh
 go install ./cmd/schwabtx
 ```
 
-To run another binary, set `SCHWABTX` to its path in `.env`.
+If it is somewhere else, set `SCHWABTX` in `.env` to its full path.
 
 The examples run at 9:05 p.m. local time, which suits US time zones.
 Elsewhere, pick the local time that falls in the US evening, a few hours
@@ -32,29 +36,30 @@ after the 4 p.m. Eastern close.
 
 ## macOS
 
-The launchd agent runs `snapshot.sh` at 9:05 p.m. while you are logged in, or
-when the Mac wakes if it was asleep then, and appends its output to
-`~/Library/Logs/schwabtx-snapshot.log`. A run missed while the Mac was shut
-down or you were logged out is skipped. Install it from the root of this
-repository:
+Keep this repository, and any file that `.env` names, out of Documents,
+Desktop, Downloads and iCloud Drive: macOS does not let background jobs read
+them. Then, from the root of this repository:
 
 ```sh
-mkdir -p ~/Library/LaunchAgents ~/Library/Logs
-sed -e "s|/Users/YOU/schwab-mcp|$PWD|g" -e "s|/Users/YOU|$HOME|g" \
-  cmd/schwabtx/schedule/com.github.dterei.schwabtx.snapshot.plist \
-  > ~/Library/LaunchAgents/com.github.dterei.schwabtx.snapshot.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.github.dterei.schwabtx.snapshot.plist
+sh cmd/schwabtx/schedule/install-agent.sh
 ```
+
+It installs a launchd agent that runs `snapshot.sh` at 9:05 p.m. while you
+are logged in, or when the Mac wakes if it was asleep then, and appends its
+output to `~/Library/Logs/schwabtx-snapshot.log`. A run missed while the Mac
+was shut down or you were logged out is skipped. For another time, give it
+in 24-hour form: `sh cmd/schwabtx/schedule/install-agent.sh 22:30`. Run it
+again after moving this repository, too: the agent runs the script where it
+was, and fails without a word once it is gone.
 
 macOS then tells you that background items were added. The agent shows up
 under System Settings > General > Login Items & Extensions (Login Items
 before macOS 15) > Allow in the Background, as `sh` from an unidentified
 developer. Leave it on: switched off, it stops running without a word.
 
-Keep this repository out of Documents, Desktop, Downloads and iCloud Drive,
-which macOS does not let background jobs read.
+### Run it once now
 
-Run it once now, and after a few seconds check the log:
+Start the agent now, and after a few seconds check the log:
 
 ```sh
 launchctl kickstart gui/$(id -u)/com.github.dterei.schwabtx.snapshot
@@ -70,6 +75,8 @@ launchctl print gui/$(id -u)/com.github.dterei.schwabtx.snapshot | grep 'last ex
 
 If `launchctl` cannot find the agent, check that it is allowed in Login
 Items.
+
+### Notifications
 
 The notifications come from Script Editor, and macOS may drop them until you
 allow it. Check that this test notification shows:
@@ -87,10 +94,7 @@ one you miss is still listed there. Allow Script Editor in any Focus you use
 in the evening. Whether or not a notification shows, the log has every
 warning and error.
 
-To run it at another time, change `Hour` and `Minute` in the copy in
-`~/Library/LaunchAgents`, then run the `bootout` command below and the
-`bootstrap` command above. `bootstrap` fails with error 5 or 37 while the
-agent is still loaded. To remove it:
+### Remove it
 
 ```sh
 launchctl bootout gui/$(id -u)/com.github.dterei.schwabtx.snapshot
@@ -106,34 +110,39 @@ From cron at 9:05 p.m.:
 ```
 
 Adjust the path to where this repository is. Cron uses the machine's time
-zone, so on a machine set to UTC, use `5 2 * * *`. It skips a run while the
-machine is off or asleep.
+zone, so on a machine set to UTC, use `5 2 * * *`. It runs nothing while the
+machine is off, and after a sleep of more than a few hours it skips the runs
+it missed.
 
 The line appends the output to `~/schwabtx-snapshot.log`. Warnings and errors
 from the last try also go to cron, which mails them to you only if the
 machine can send mail and `MAILTO` names an address you read. Many machines,
 stock Ubuntu among them, have no mail server, and cron then throws them away.
 
-## Windows
+Cron runs the line with little more than `HOME` and a short `PATH`. To run
+the script once now the same way:
 
-From PowerShell at the root of this repository, without admin rights:
-
-```powershell
-$script = Join-Path $PWD 'cmd\schwabtx\schedule\snapshot.ps1'
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`""
-$trigger = New-ScheduledTaskTrigger -Daily -At '21:05'
-# Local time without a UTC offset, so the task stays at 9:05 p.m. when
-# daylight saving time starts or ends.
-$trigger.StartBoundary = (Get-Date -Hour 21 -Minute 5 -Second 0).ToString('s')
-$principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
-Register-ScheduledTask -TaskName 'schwabtx snapshot' -Action $action -Trigger $trigger -Principal $principal -Settings $settings
+```sh
+env -i HOME="$HOME" PATH=/usr/bin:/bin sh "$HOME/schwab-mcp/cmd/schwabtx/schedule/snapshot.sh"
 ```
 
-The task runs at 9:05 p.m. while you are signed in, also on battery; a
-locked screen is fine. A run missed while the PC was off starts about 10
-minutes after it boots, and one missed while it slept usually soon after it
-wakes. One missed while you were signed out is skipped.
+## Windows
+
+Keep this repository inside your user profile, like the token file: other
+users of the PC may be able to change files elsewhere, and so the script that
+the task runs as you. Then, from the root of this repository, in PowerShell
+or a Command Prompt, without admin rights:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File cmd\schwabtx\schedule\register-task.ps1
+```
+
+It registers a task that runs `snapshot.ps1` at 9:05 p.m. while you are
+signed in, also on battery; a locked screen is fine. For another time, add
+`-At` with a time in 24-hour form, such as `-At 22:30`. Run it again after
+moving this repository, too: it replaces the task. A run missed while the PC
+was off starts about 10 minutes after it boots, and one missed while it slept
+usually soon after it wakes. One missed while you were signed out is skipped.
 
 The script appends its output to `%LOCALAPPDATA%\schwabtx\snapshot.log`, and
 warnings and errors show as a notification from Windows PowerShell, so keep
@@ -151,14 +160,23 @@ minimized, and stays until the run ends; closing it stops the run. For just
 the flash, set Windows Terminal's Settings > Startup > Default terminal
 application to Windows Console Host.
 
-Run it once now, and after a few seconds check the log and the result, where
-0 means it worked, 267009 that it is still running, and any other number
-that it failed:
+### Run it once now
 
 ```powershell
 Start-ScheduledTask 'schwabtx snapshot'
-Get-Content "$env:LOCALAPPDATA\schwabtx\snapshot.log"
+```
+
+After a few seconds, check the log and the result, where 0 means it worked,
+267009 that it is still running, 267011 that it has not run yet, and any
+other number that it failed:
+
+```powershell
+Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\schwabtx\snapshot.log"
 (Get-ScheduledTaskInfo 'schwabtx snapshot').LastTaskResult
 ```
 
-To remove it: `Unregister-ScheduledTask 'schwabtx snapshot' -Confirm:$false`.
+### Remove it
+
+```powershell
+Unregister-ScheduledTask 'schwabtx snapshot' -Confirm:$false
+```

@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-A launchd agent that runs snapshot.sh every day at 9:05 p.m., or when the Mac
-wakes if it was asleep then. launchd does not expand ~ or $HOME, so the paths
-are absolute: the install command in README.md#macos, next to this file,
-fills in your home folder and where this repository is.
+The launchd agent that runs snapshot.sh every day at 9:05 p.m., or when the
+Mac wakes if it was asleep then. launchd does not expand ~ or $HOME, so the
+paths are absolute: install-agent.sh, next to this file, fills in yours.
 -->
 <plist version="1.0">
 <dict>

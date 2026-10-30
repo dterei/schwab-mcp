@@ -94,8 +94,8 @@ tool warns you and saves the rest.
 
 Run it every day in the evening, after the US market close: mutual fund
 prices can post a few hours after 4 p.m. Eastern. The weekend runs mostly
-repeat Friday's, but they are what warn you a day ahead when the weekly
-login lapses on a weekend.
+repeat Friday's, but they are what warn you at least a day ahead when the
+weekly login lapses on a weekend: the warning starts two days before.
 
 [`schedule/`](schedule) has scripts and steps for launchd on macOS, cron on
 Linux and Task Scheduler on Windows. They try a failed run again, and tell

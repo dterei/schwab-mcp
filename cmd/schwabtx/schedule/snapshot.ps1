@@ -4,22 +4,26 @@ Runs `schwabtx snapshot` for Windows Task Scheduler.
 
 .DESCRIPTION
 Loads -EnvFile, by default the .env at the root of this repository, and runs
-$env:SCHWABTX, which the .env can set, else schwabtx.exe in your Go bin
-folder. A run that fails is tried twice more, -RetryDelay seconds apart, since
-a run that starts as the PC wakes can come before the network is back.
+schwabtx in that file's folder, so that relative paths in it work as they do
+from there. It runs $env:SCHWABTX, which the .env can set, else schwabtx.exe
+from PATH, else the one in %USERPROFILE%\go\bin. A run that fails is tried
+twice more, -RetryDelay seconds apart, since a run that starts as the PC
+wakes can come before the network is back.
 
 Every line of output is appended to -Log with the time in front. Task
-Scheduler reports neither warnings nor errors, so those from the last try also
-show as a notification: the warning a day before the weekly Schwab login
-lapses, and the error once it has or when every try failed. The exit code is
-that of the last try, which Task Scheduler shows as the Last Run Result.
+Scheduler reports neither warnings nor errors, so those from the last try
+also show as a notification, unless -NoNotification is given: the warning in
+the two days before the weekly Schwab login lapses, and the error once it
+has or when every try failed. The exit code is that of the last try, which
+Task Scheduler shows as the Last Run Result.
 
-README.md next to this file says how to schedule it.
+register-task.ps1, next to this file, sets up the task that runs it.
 #>
 param(
     [string]$EnvFile = (Join-Path $PSScriptRoot '..\..\..\.env'),
     [string]$Log = (Join-Path $env:LOCALAPPDATA 'schwabtx\snapshot.log'),
-    [int]$RetryDelay = 60
+    [int]$RetryDelay = 60,
+    [switch]$NoNotification
 )
 
 # Write-Log appends each line of $Text to the log and prints it, with the time
@@ -38,11 +42,14 @@ function Write-Log([string]$Text) {
 # Windows PowerShell (powershell.exe) can reach the Windows Runtime for that;
 # PowerShell 7 notes in the log that it cannot.
 function Show-Notification([string]$Text) {
-    $Text = $Text -replace '\s*\r?\n\s*', ' '
+    if ($NoNotification) {
+        return
+    }
     if ($PSVersionTable.PSEdition -ne 'Desktop') {
         Write-Log 'no notification: notifications need Windows PowerShell (powershell.exe)'
         return
     }
+    $Text = $Text -replace '\s*\r?\n\s*', ' '
     try {
         $null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
         $null = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]
@@ -53,40 +60,54 @@ function Show-Notification([string]$Text) {
         # The app ID of Windows PowerShell, which Windows lets show notifications.
         $app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
         $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app)
-        # Windows drops a notification it does not allow without an error.
-        if ($notifier.Setting -ne 'Enabled') {
-            Write-Log "notifications are off for Windows PowerShell ($($notifier.Setting))"
-        }
         $notifier.Show($toast)
     } catch {
         Write-Log "could not show a notification: $($_.Exception.Message)"
+        return
+    }
+    # Windows drops a notification it does not allow without an error. Until
+    # an app has shown one, reading its setting can fail, so this comes after.
+    try {
+        if ($notifier.Setting -ne 'Enabled') {
+            Write-Log "notifications are off for Windows PowerShell ($($notifier.Setting))"
+        }
+    } catch {
+        Write-Log "could not check that notifications are on: $($_.Exception.Message)"
     }
 }
 
-# .NET resolves a relative path against the process's directory, not
-# PowerShell's.
+# .NET resolves a relative path against the process's folder, not
+# PowerShell's, so the paths are made absolute first.
 $Log = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Log)
+$EnvFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($EnvFile)
 $code = 1
 try {
     $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Log)
     if (-not (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
         throw "cannot read $EnvFile"
     }
-    foreach ($line in Get-Content -LiteralPath $EnvFile) {
+    # Windows PowerShell reads a file without a byte order mark as ANSI unless
+    # told otherwise. A value may be quoted, as in sh.
+    foreach ($line in Get-Content -LiteralPath $EnvFile -Encoding UTF8) {
         if ($line -match '^\s*([A-Za-z_]\w*)=(.*)$') {
-            [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2])
+            [Environment]::SetEnvironmentVariable($Matches[1], ($Matches[2] -replace '^(["''])(.*)\1$', '$2'))
         }
     }
+    $dir = Split-Path -Parent $EnvFile
+    Set-Location -LiteralPath $dir
     $exe = $env:SCHWABTX
     if (-not $exe) {
-        $exe = Join-Path $env:USERPROFILE 'go\bin\schwabtx.exe'
+        $onPath = Get-Command schwabtx.exe -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+        $exe = if ($onPath) { $onPath.Path } else { Join-Path $env:USERPROFILE 'go\bin\schwabtx.exe' }
     }
+    $exe = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($exe)
     if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-        throw "cannot run $exe; install it with ``go install`` or set SCHWABTX in $EnvFile"
+        throw "cannot run $exe; install it with ``go install ./cmd/schwabtx``, or set SCHWABTX in $EnvFile to where it is"
     }
 
     # Read stdout and stderr as they are, whichever PowerShell runs this.
     $start = New-Object Diagnostics.ProcessStartInfo $exe, 'snapshot'
+    $start.WorkingDirectory = $dir
     $start.UseShellExecute = $false
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
@@ -109,11 +130,12 @@ try {
         Start-Sleep -Seconds $RetryDelay
     }
 
-    Write-Log $problems
+    if ($code -ne 0 -and -not $problems) {
+        $problems = "error: schwabtx exited with code $code"
+    }
     if ($problems) {
+        Write-Log $problems
         Show-Notification $problems
-    } elseif ($code -ne 0) {
-        Show-Notification "error: schwabtx exited with code $code"
     }
 } catch {
     Write-Log "error: $($_.Exception.Message)"

@@ -129,11 +129,13 @@ and HTTP code into `internal/schwab` with what the history store needs.
       options, bonds) or Schwab's own balance figures, so those are lost for
       every day without a snapshot
 - [x] A daily scheduled run of it after the market close
-      ([`cmd/schwabtx/schedule`](../cmd/schwabtx/schedule)): a launchd agent
-      for macOS, a cron line, and a Task Scheduler task for Windows, each
-      running a script that tries a failed run twice more, a minute apart,
-      and passes on the day-ahead expiry warning and any error, as a
-      notification on macOS and Windows and through cron's mail elsewhere
+      ([`cmd/schwabtx/schedule`](../cmd/schwabtx/schedule)): scripts that set
+      up a launchd agent on macOS and a Task Scheduler task on Windows, and a
+      cron line, each running a script that tries a failed run twice more, a
+      minute apart, and passes on any warning or error, as a notification on
+      macOS and Windows and through cron's mail elsewhere. The expiry warning
+      now starts two days before the weekly login lapses, so that a daily run
+      gives at least a day's notice
 - [ ] OAuth login, refresh and token store extracted from the CLI, with a
       file lock and refresh coordination between processes
 - [ ] Client-side rate limiting (Schwab publishes 120 requests a minute plus
@@ -392,7 +394,7 @@ Everything planned, by area.
 | Area | Feature | Milestone |
 | --- | --- | --- |
 | Login | Browser login with paste-back of the redirect | done |
-| Login | Expiry warning a day before the weekly login lapses | done |
+| Login | Expiry warning two days before the weekly login lapses | done |
 | Login | Token shared safely between the CLI and the server | M1 |
 | Login | Automatic redirect capture on `127.0.0.1` | Later |
 | Login | Token in the OS keychain | Later |
@@ -479,5 +481,5 @@ milestone 1.
   confirmation, limits and an audit log, and why trading waits until the
   read-only server has been in use for a while.
 - **The weekly login** is a fixed cost of Schwab's API. The tools warn early,
-  the scheduled snapshot tells you a day before the login lapses and again
-  once it has, and the login itself takes a minute.
+  the scheduled snapshot tells you at least a day before the login lapses
+  and again once it has, and the login itself takes a minute.

@@ -94,7 +94,7 @@ go run ./cmd/schwabtx snapshot   # save today's positions and balances
 On Windows, load `.env` in PowerShell instead:
 
 ```powershell
-Get-Content .env | ForEach-Object { if ($_ -match '^\s*([A-Za-z_]\w*)=(.*)$') { Set-Item "Env:$($Matches[1])" $Matches[2] } }
+Get-Content -Encoding UTF8 .env | ForEach-Object { if ($_ -match '^\s*([A-Za-z_]\w*)=(.*)$') { Set-Item "Env:$($Matches[1])" ($Matches[2] -replace '^(["''])(.*)\1$', '$2') } }
 ```
 
 See [cmd/schwabtx](cmd/schwabtx/README.md) for flags and troubleshooting.

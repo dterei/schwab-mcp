@@ -15,47 +15,77 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf16"
 )
 
-// TestMain lets the tests of the scheduler scripts in schedule/ use this test
-// binary as schwabtx: with SCHWABTX_TEST_MAIN=1 in its environment it runs
-// the command instead of the tests.
+// TestMain makes this test binary act as schwabtx when it is run the way the
+// scheduler scripts in schedule/ run schwabtx, as `<binary> snapshot`, so
+// that their tests can use it. `go test` never runs it like that.
 func TestMain(m *testing.M) {
-	if os.Getenv("SCHWABTX_TEST_MAIN") == "1" {
+	if len(os.Args) == 2 && os.Args[1] == "snapshot" {
 		main()
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }
 
-// scriptRun is what a scheduler script did: its exit code, what it printed,
-// what it logged, and the notifications it showed, as far as the test can
-// tell.
+// scriptSetup is how a test runs a scheduler script.
+type scriptSetup struct {
+	home   string   // the home folder, with the repository at schwab-mcp
+	script string   // the script, in the repository
+	env    []string // the environment, without PATH
+	path   []string // folders to put first on PATH
+	args   []string
+}
+
+// scriptRun is what a scheduler script did, as far as the test can tell.
 type scriptRun struct {
 	code           int
 	stdout, stderr string
-	log            string
-	notifications  string
+	info           string     // the summary and the rest of the output for the log
+	problems       string     // the warnings and errors that reach you
+	log            string     // the log, when the script or the scheduler writes one
+	notices        [][]string // the arguments of each call to osascript
+	sleeps         []string   // the arguments of each call to sleep
+	tmpLeft        []string   // what the script left in TMPDIR
 }
 
 // scheduler runs one of the scripts in schedule/ the way a scheduler would.
 type scheduler struct {
 	name   string
-	script string // path in this repository
-	binary string // name of schwabtx in the Go bin folder
-	run    func(t *testing.T, script, home string, env []string, args ...string) scriptRun
+	script string // the script's name in schedule/
+	binary string // schwabtx's file name
+	// split is whether warnings and errors reach you apart from the summary.
+	split bool
+	run   func(t *testing.T, s scriptSetup) scriptRun
 }
 
-// schedulers returns the scripts this system can run: snapshot.sh on Unix
-// systems, snapshot.ps1 with each PowerShell found on Windows.
+// schedulers returns the ways this system can run the scripts: snapshot.sh
+// directly and through the README's cron line on Unix systems, and
+// snapshot.ps1 with each PowerShell found on Windows.
 func schedulers(t *testing.T) []scheduler {
+	t.Helper()
 	if runtime.GOOS != "windows" {
-		return []scheduler{{name: "sh", script: "snapshot.sh", binary: "schwabtx", run: runShScript}}
+		line := cronLine(t)
+		return []scheduler{
+			{name: "sh", script: "snapshot.sh", binary: "schwabtx", split: true, run: func(t *testing.T, s scriptSetup) scriptRun {
+				t.Helper()
+				r := runUnix(t, s, "sh", append([]string{s.script}, s.args...)...)
+				r.info, r.problems = r.stdout, r.stderr
+				return r
+			}},
+			{name: "cron", script: "snapshot.sh", binary: "schwabtx", split: true, run: func(t *testing.T, s scriptSetup) scriptRun {
+				t.Helper()
+				r := runUnix(t, s, "sh", "-c", line)
+				r.log = readIfExists(t, filepath.Join(s.home, "schwabtx-snapshot.log"))
+				r.info, r.problems = r.log, r.stdout+r.stderr // cron mails both
+				return r
+			}},
+		}
 	}
 	var list []scheduler
 	for _, shell := range []string{"powershell.exe", "pwsh.exe"} {
@@ -65,9 +95,20 @@ func schedulers(t *testing.T) []scheduler {
 		}
 		list = append(list, scheduler{
 			name: shell, script: "snapshot.ps1", binary: "schwabtx.exe",
-			run: func(t *testing.T, script, home string, env []string, args ...string) scriptRun {
+			run: func(t *testing.T, s scriptSetup) scriptRun {
 				t.Helper()
-				return runPowerShellScript(t, shell, script, home, env, args...)
+				args := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", s.script, "-RetryDelay", "0"}
+				// A notification from Windows PowerShell would pop up on a
+				// developer's desktop, so only CI lets the script show one.
+				if shell == "powershell.exe" && os.Getenv("CI") == "" {
+					args = append(args, "-NoNotification")
+				}
+				path := slices.Concat(s.path, testPATH("schwabtx.exe"))
+				env := slices.Concat(s.env, []string{"PATH=" + strings.Join(path, string(os.PathListSeparator))})
+				r := runScript(t, env, shell, append(args, s.args...)...)
+				r.log = readIfExists(t, filepath.Join(s.home, "LocalAppData", "schwabtx", "snapshot.log"))
+				r.info, r.problems = r.log, r.log
+				return r
 			},
 		})
 	}
@@ -77,42 +118,76 @@ func schedulers(t *testing.T) []scheduler {
 	return list
 }
 
-func runShScript(t *testing.T, script, home string, env []string, args ...string) scriptRun {
+// cronLine returns the command in the cron line of schedule/README.md.
+func cronLine(t *testing.T) string {
 	t.Helper()
-	// Stand in for osascript, so that the notifications on macOS are recorded
-	// instead of shown, and for sleep, so that tries come right after each
-	// other.
-	bin := filepath.Join(home, "stub-bin")
-	notifications := filepath.Join(home, "notifications.txt")
-	stubs := map[string]string{
-		"osascript": "for arg; do last=$arg; done\nprintf '%s\\n' \"$last\" >> \"$NOTIFICATIONS\"\n",
-		"sleep":     "exit 0\n",
-	}
-	for name, body := range stubs {
-		if err := os.MkdirAll(bin, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
-			t.Fatal(err)
+	_, section, _ := strings.Cut(readme(t), "\n## Linux and other Unix systems\n")
+	entry := regexp.MustCompile(`^(\S+\s+){5}(sh .*)$`)
+	for line := range strings.Lines(section) {
+		if m := entry.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+			return m[2]
 		}
 	}
-	// The PATH that cron and launchd give a job, so that schwabtx is not
-	// found on it.
-	env = append(env, "PATH="+bin+":/usr/bin:/bin:/usr/sbin:/sbin", "NOTIFICATIONS="+notifications)
-	r := runScript(t, env, "sh", append([]string{script}, args...)...)
-	r.notifications = readIfExists(t, notifications)
+	t.Fatal("no cron line under ## Linux and other Unix systems in schedule/README.md")
+	return ""
+}
+
+// readme returns schedule/README.md, with LF line endings even in a Windows
+// checkout.
+func readme(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("schedule", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.ReplaceAll(string(b), "\r\n", "\n")
+}
+
+// runUnix runs a command that runs snapshot.sh, with stand-ins for osascript
+// and sleep first on PATH that record their arguments, so that notifications
+// are recorded instead of shown and tries come right after each other.
+func runUnix(t *testing.T, s scriptSetup, name string, args ...string) scriptRun {
+	t.Helper()
+	bin := filepath.Join(s.home, "stub-bin")
+	tmp := filepath.Join(s.home, "tmp")
+	calls := filepath.Join(s.home, "calls")
+	for _, dir := range []string{bin, tmp} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stub := "#!/bin/sh\nprintf '%s\\037' \"$@\" >> \"$CALLS.${0##*/}\"\necho >> \"$CALLS.${0##*/}\"\n"
+	for _, cmd := range []string{"osascript", "sleep"} {
+		if err := os.WriteFile(filepath.Join(bin, cmd), []byte(stub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := slices.Concat([]string{bin}, s.path, testPATH("schwabtx"))
+	env := slices.Concat(s.env, []string{"PATH=" + strings.Join(path, ":"), "TMPDIR=" + tmp, "CALLS=" + calls})
+
+	r := runScript(t, env, name, args...)
+	r.notices = stubCalls(t, calls+".osascript")
+	for _, call := range stubCalls(t, calls+".sleep") {
+		r.sleeps = append(r.sleeps, strings.Join(call, " "))
+	}
+	left, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range left {
+		r.tmpLeft = append(r.tmpLeft, e.Name())
+	}
 	return r
 }
 
-func runPowerShellScript(t *testing.T, shell, script, home string, env []string, args ...string) scriptRun {
+// stubCalls returns the arguments of each call that a stand-in recorded.
+func stubCalls(t *testing.T, path string) [][]string {
 	t.Helper()
-	args = append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-RetryDelay", "0"}, args...)
-	r := runScript(t, env, shell, args...)
-	r.log = readIfExists(t, filepath.Join(home, "LocalAppData", "schwabtx", "snapshot.log"))
-	// Whether a notification shows depends on the session the test runs in;
-	// a failure to show one is logged.
-	t.Logf("%s log:\n%s", shell, r.log)
-	return r
+	var calls [][]string
+	for line := range strings.Lines(readIfExists(t, path)) {
+		calls = append(calls, strings.Split(strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\x1f"), "\x1f"))
+	}
+	return calls
 }
 
 func runScript(t *testing.T, env []string, name string, args ...string) scriptRun {
@@ -145,15 +220,16 @@ func readIfExists(t *testing.T, path string) string {
 	return string(b)
 }
 
-// scriptEnv returns the environment a scheduler starts a script with: this
-// process's, without any Schwab settings, and with the home and config
-// directories in the test's temp space so the real ones stay out of reach.
+// scriptEnv returns the environment a scheduler starts a script with, apart
+// from PATH: this process's, without any Schwab settings, and with the home
+// and config folders in the test's temp space so the real ones stay out of
+// reach.
 func scriptEnv(home string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
 		switch name = strings.ToUpper(name); {
-		case strings.HasPrefix(name, "SCHWAB"),
+		case strings.HasPrefix(name, "SCHWAB"), name == "PATH", name == "TMPDIR",
 			name == "HOME", name == "XDG_CONFIG_HOME", name == "APPDATA", name == "LOCALAPPDATA", name == "USERPROFILE":
 			continue
 		}
@@ -166,6 +242,18 @@ func scriptEnv(home string) []string {
 		"LOCALAPPDATA="+filepath.Join(home, "LocalAppData"),
 		"USERPROFILE="+home,
 	)
+}
+
+// testPATH returns the folders on this process's PATH that hold no file
+// named binary, so that the scripts cannot run a schwabtx installed here.
+func testPATH(binary string) []string {
+	var dirs []string
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if _, err := os.Stat(filepath.Join(dir, binary)); err != nil {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
 }
 
 // writeToken saves a login made obtainedAgo before now, in real time, since
@@ -190,7 +278,8 @@ func writeToken(t *testing.T, path, refresh string, obtainedAgo time.Duration) {
 	}
 }
 
-func copyFile(t *testing.T, src, dst string, perm os.FileMode) {
+// copyFile copies src to dst, executable, making dst's folder.
+func copyFile(t *testing.T, src, dst string) {
 	t.Helper()
 	b, err := os.ReadFile(src)
 	if err != nil {
@@ -199,7 +288,7 @@ func copyFile(t *testing.T, src, dst string, perm os.FileMode) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(dst, b, perm); err != nil {
+	if err := os.WriteFile(dst, b, 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -228,63 +317,101 @@ func TestSnapshotScripts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	const saved = "Saved a snapshot of 1 accounts with 2 positions to "
+	const warning = "warning: your Schwab login expires in about 36 hours; run `schwabtx login` to renew it"
+	const forbidden = "error: fetching accounts: HTTP 403 from Schwab"
 	for _, s := range schedulers(t) {
 		t.Run(s.name, func(t *testing.T) {
 			for _, tc := range []struct {
 				name        string
+				only        string        // the one script this case is for
+				cronToo     bool          // whether the README's cron line can do this too
+				binary      string        // where schwabtx is: "quoted" in SCHWABTX, "go bin", "path", "missing", "unset" or "false"
 				refresh     string        // the saved refresh token
 				obtainedAgo time.Duration // how long ago the login was
+				failDetails int           // fetches of the accounts that fail first
+				envArg      bool          // the .env file is elsewhere, given as an argument
 				noEnvFile   bool
-				envArg      bool // pass the .env file as an argument
-				goBin       bool // leave SCHWABTX unset, so the Go bin folder is used
-				failDetails int  // fetches of the accounts that fail first
-				wantRetries int
-				wantCode    int
-				wantSaved   bool
-				wantInfo    string // in the summary
-				wantProblem string // in the warning or error, and its notification
+				relative    bool // the .env file has paths relative to its folder
+				crlf        bool // the .env file has CRLF line endings
+
+				wantCode     int
+				wantSaved    bool
+				wantInfo     []string
+				wantProblems []string // the warnings and errors that reach you
+				wantRetries  int
 			}{
 				{
-					name: "saves a snapshot", refresh: testRefresh, obtainedAgo: time.Hour, goBin: true,
-					wantSaved: true, wantInfo: "Saved a snapshot of 1 accounts with 2 positions to ",
+					name: "saves a snapshot", cronToo: true, binary: "go bin",
+					wantSaved: true, wantInfo: []string{saved},
 				},
 				{
-					name: "takes the env file as an argument", refresh: testRefresh, obtainedAgo: time.Hour, envArg: true,
-					wantSaved: true, wantInfo: "Saved a snapshot of 1 accounts with 2 positions to ",
+					name: "finds schwabtx on PATH", cronToo: true, binary: "path",
+					wantSaved: true, wantInfo: []string{saved},
 				},
 				{
-					name: "warns a day before the login lapses", refresh: testRefresh, obtainedAgo: 6*24*time.Hour + 12*time.Hour,
-					wantSaved: true, wantInfo: "Saved a snapshot of 1 accounts with 2 positions to ",
-					wantProblem: "warning: your Schwab login expires in about 12 hours; run `schwabtx login` to renew it",
+					name: "takes the env file as an argument", envArg: true,
+					wantSaved: true, wantInfo: []string{saved},
 				},
 				{
-					name: "tries again after a failure", refresh: testRefresh, obtainedAgo: time.Hour, failDetails: 1,
-					wantSaved: true, wantInfo: "Saved a snapshot of 1 accounts with 2 positions to ", wantRetries: 1,
+					name: "runs in the folder of the env file", cronToo: true, relative: true,
+					wantSaved: true, wantInfo: []string{saved},
 				},
 				{
-					name: "fails once the login has lapsed", refresh: "stale-refresh", obtainedAgo: 8 * 24 * time.Hour,
-					wantCode: 1, wantProblem: "error: fetching accounts: Schwab rejected the saved login", wantRetries: 2,
+					name: "warns in the two days before the login lapses", cronToo: true, obtainedAgo: 5*24*time.Hour + 12*time.Hour,
+					wantSaved: true, wantInfo: []string{saved}, wantProblems: []string{warning},
 				},
 				{
-					name: "fails without an env file", noEnvFile: true,
-					wantCode: 1, wantProblem: "error: cannot read ",
+					name: "tries again after a failure", cronToo: true, failDetails: 1,
+					wantSaved: true, wantInfo: []string{forbidden, saved}, wantRetries: 1,
+				},
+				{
+					name: "fails once the login has lapsed", cronToo: true, refresh: "stale-refresh", obtainedAgo: 8 * 24 * time.Hour,
+					wantCode: 1, wantProblems: []string{"error: fetching accounts: Schwab rejected the saved login"}, wantRetries: 2,
+				},
+				{
+					name: "warns and fails in the same run", cronToo: true, obtainedAgo: 5*24*time.Hour + 12*time.Hour, failDetails: 3,
+					wantCode: 1, wantProblems: []string{warning, forbidden}, wantRetries: 2,
+				},
+				{
+					name: "fails without an env file", cronToo: true, noEnvFile: true,
+					wantCode: 1, wantProblems: []string{"error: cannot read "},
+				},
+				{
+					name: "fails without schwabtx", cronToo: true, binary: "missing",
+					wantCode: 1, wantProblems: []string{"error: cannot run "},
+				},
+				{
+					name: "tells you of a variable that is not set", cronToo: true, binary: "unset",
+					wantCode: 1, wantProblems: []string{"error: cannot run "},
+				},
+				{
+					name: "reports a failure that prints nothing", only: "snapshot.sh", cronToo: true, binary: "false",
+					wantCode: 1, wantProblems: []string{"error: schwabtx exited with status 1"}, wantRetries: 2,
+				},
+				{
+					name: "rejects an env file with CRLF line endings", only: "snapshot.sh", cronToo: true, crlf: true,
+					wantCode: 1, wantProblems: []string{"line endings; save it with Unix (LF) ones"},
+				},
+				{
+					name: "reads an env file with CRLF line endings", only: "snapshot.ps1", crlf: true,
+					wantSaved: true, wantInfo: []string{saved},
 				},
 			} {
+				if tc.only != "" && tc.only != s.script || s.name == "cron" && !tc.cronToo {
+					continue
+				}
 				t.Run(tc.name, func(t *testing.T) {
 					f := newFakeSchwab(t)
 					f.addAccount("11112222", 1000, 1, time.Now(), time.Hour)
 					f.failDetails = tc.failDetails
 					home := t.TempDir()
-					cfg := filepath.Join(home, "cfg")
-					tokenFile := filepath.Join(cfg, "token.json")
-					snapshots := filepath.Join(cfg, "snapshots.jsonl")
-					writeToken(t, tokenFile, tc.refresh, tc.obtainedAgo)
 
 					// The script runs from a copy of the repository's layout, with
 					// the .env at its root.
 					repo := filepath.Join(home, "schwab-mcp")
 					script := filepath.Join(repo, "cmd", "schwabtx", "schedule", s.script)
-					copyFile(t, filepath.Join("schedule", s.script), script, 0o644)
+					copyFile(t, filepath.Join("schedule", s.script), script)
 					envFile := filepath.Join(repo, ".env")
 					var args []string
 					if tc.envArg {
@@ -294,92 +421,134 @@ func TestSnapshotScripts(t *testing.T) {
 							args = []string{"-EnvFile", envFile}
 						}
 					}
+
+					tokenFile := filepath.Join(home, "cfg", "token.json")
+					snapshots := filepath.Join(home, "cfg", "snapshots.jsonl")
+					tokenValue, snapshotsValue := tokenFile, snapshots
+					if tc.relative {
+						tokenFile = filepath.Join(repo, "cfg", "token.json")
+						snapshots = filepath.Join(repo, "cfg", "snapshots.jsonl")
+						tokenValue, snapshotsValue = "cfg/token.json", "cfg/snapshots.jsonl"
+					}
+					refresh := tc.refresh
+					if refresh == "" {
+						refresh = testRefresh
+					}
+					obtainedAgo := tc.obtainedAgo
+					if obtainedAgo == 0 {
+						obtainedAgo = time.Hour
+					}
+					writeToken(t, tokenFile, refresh, obtainedAgo)
+
 					lines := []string{
 						"# Schwab app settings",
 						"SCHWAB_APP_KEY=" + testKey,
 						"SCHWAB_APP_SECRET=" + testSecret,
 						"SCHWAB_BASE_URL=" + f.srv.URL,
-						"SCHWAB_TOKEN_FILE=" + tokenFile,
-						"SCHWAB_SNAPSHOT_FILE=" + snapshots,
-						"SCHWABTX_TEST_MAIN=1",
+						"SCHWAB_TOKEN_FILE=" + tokenValue,
+						"SCHWAB_SNAPSHOT_FILE=" + snapshotsValue,
 					}
-					if tc.goBin {
-						copyFile(t, self, filepath.Join(home, "go", "bin", s.binary), 0o755)
-					} else {
-						lines = append(lines, "SCHWABTX="+self)
+					var path []string
+					switch tc.binary {
+					case "go bin":
+						copyFile(t, self, filepath.Join(home, "go", "bin", s.binary))
+					case "path":
+						dir := filepath.Join(home, "path-bin")
+						copyFile(t, self, filepath.Join(dir, s.binary))
+						path = append(path, dir)
+					case "missing":
+						lines = append(lines, "SCHWABTX="+filepath.Join(home, "missing", s.binary))
+					case "unset":
+						lines = append(lines, "SCHWABTX=$SCHWABTX_TEST_UNSET/"+s.binary)
+					case "false":
+						// A schwabtx that fails without a word.
+						silent, err := exec.LookPath("false")
+						if err != nil {
+							t.Fatal(err)
+						}
+						lines = append(lines, "SCHWABTX="+silent)
+					default:
+						lines = append(lines, `SCHWABTX="`+self+`"`)
+					}
+					newline := "\n"
+					if tc.crlf {
+						newline = "\r\n"
 					}
 					if !tc.noEnvFile {
-						if err := os.WriteFile(envFile, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+						if err := os.WriteFile(envFile, []byte(strings.Join(lines, newline)+newline), 0o600); err != nil {
 							t.Fatal(err)
 						}
 					}
 
-					r := s.run(t, script, home, scriptEnv(home), args...)
+					r := s.run(t, scriptSetup{home: home, script: script, env: scriptEnv(home), path: path, args: args})
 
-					if r.code != tc.wantCode {
+					// Cron ignores the exit status, which tee's ends the line.
+					if s.name != "cron" && r.code != tc.wantCode {
 						t.Errorf("exit code %d, want %d\nstdout: %s\nstderr: %s\nlog: %s", r.code, tc.wantCode, r.stdout, r.stderr, r.log)
 					}
-					// snapshot.sh leaves the log to the scheduler: the summary
-					// goes to stdout, and warnings and errors to stderr. The
-					// PowerShell script writes the log itself and prints it too.
-					info, problems := r.stdout, r.stderr
-					if s.script == "snapshot.ps1" {
-						info, problems = r.log, r.log
-						if got := strings.Join(messages(t, r.stdout), "\n"); got != strings.Join(messages(t, r.log), "\n") {
-							t.Errorf("printed %q but logged %q", r.stdout, r.log)
+					info := strings.Join(messages(t, r.info), "\n")
+					problems := strings.Join(messages(t, r.problems), "\n")
+					for _, want := range tc.wantInfo {
+						if want == saved {
+							want += snapshotsValue
+						}
+						if !strings.Contains(info, want) {
+							t.Errorf("no %q in the output:\n%s", want, r.info)
+						}
+					}
+					for _, want := range tc.wantProblems {
+						if !strings.Contains(problems, want) {
+							t.Errorf("no %q in the warnings and errors:\n%s", want, r.problems)
+						}
+					}
+					if got := strings.Count(info, "; trying again in "); got != tc.wantRetries {
+						t.Errorf("tried again %d times, want %d:\n%s", got, tc.wantRetries, r.info)
+					}
+
+					if s.split {
+						// The warnings and errors that reach you are those of the
+						// last try, and the log has them too.
+						if len(tc.wantProblems) == 0 && problems != "" {
+							t.Errorf("unexpected warnings or errors:\n%s", r.problems)
+						}
+						if strings.Count(problems, "error: ") > 1 {
+							t.Errorf("errors of more than one try:\n%s", r.problems)
+						}
+						if s.name == "cron" && !strings.Contains(info, problems) {
+							t.Errorf("warnings and errors %q are not in the log:\n%s", problems, r.log)
+						}
+						if want := slices.Repeat([]string{"60"}, tc.wantRetries); !slices.Equal(r.sleeps, want) {
+							t.Errorf("slept %q, want %q", r.sleeps, want)
+						}
+						if len(r.tmpLeft) > 0 {
+							t.Errorf("left %q in TMPDIR", r.tmpLeft)
+						}
+						checkNotices(t, home, r.notices, tc.wantProblems)
+					} else {
+						if got, want := messages(t, r.stdout), messages(t, r.log); !slices.Equal(got, want) {
+							t.Errorf("printed %q but logged %q", got, want)
 						}
 						if r.stderr != "" {
 							t.Errorf("stderr: %s", r.stderr)
 						}
-					}
-					infoMsgs := strings.Join(messages(t, info), "\n")
-					problemMsgs := strings.Join(messages(t, problems), "\n")
-					if tc.wantInfo != "" && !strings.Contains(infoMsgs, tc.wantInfo+snapshots) {
-						t.Errorf("no %q in the summary:\n%s", tc.wantInfo+snapshots, info)
-					}
-					if tc.wantProblem == "" && s.script == "snapshot.sh" && problemMsgs != "" {
-						t.Errorf("unexpected warnings or errors:\n%s", problems)
-					}
-					if tc.wantProblem != "" && !strings.Contains(problemMsgs, tc.wantProblem) {
-						t.Errorf("no %q in the warnings and errors:\n%s", tc.wantProblem, problems)
-					}
-					if got := strings.Count(infoMsgs, "; trying again in "); got != tc.wantRetries {
-						t.Errorf("tried again %d times, want %d:\n%s", got, tc.wantRetries, info)
-					}
-					if s.script == "snapshot.sh" && strings.Count(problemMsgs, "error: ") > 1 {
-						t.Errorf("errors of earlier tries went to stderr:\n%s", problems)
-					}
-
-					switch {
-					case s.script == "snapshot.ps1":
 						// A notification that Windows PowerShell shows leaves no
 						// trace; one it cannot show, or that PowerShell 7 does not
 						// try, is noted in the log.
 						noted := strings.Contains(r.log, "notification")
-						if tc.wantProblem == "" && noted {
+						if len(tc.wantProblems) == 0 && noted {
 							t.Errorf("notified without a warning or error:\n%s", r.log)
 						}
-						if tc.wantProblem != "" && s.name == "pwsh.exe" && !noted {
+						if len(tc.wantProblems) > 0 && s.name == "pwsh.exe" && !noted {
 							t.Errorf("no note that PowerShell 7 cannot notify:\n%s", r.log)
 						}
-					case runtime.GOOS != "darwin":
-						if r.notifications != "" {
-							t.Errorf("notified %q off macOS", r.notifications)
-						}
-					case tc.wantProblem == "":
-						if r.notifications != "" {
-							t.Errorf("notified %q, want no notification", r.notifications)
-						}
-					case !strings.Contains(r.notifications, tc.wantProblem):
-						t.Errorf("notified %q, want %q", r.notifications, tc.wantProblem)
 					}
 
-					saved := 0
+					got := 0
 					if b, err := os.ReadFile(snapshots); err == nil {
-						saved = strings.Count(string(b), "\n")
+						got = strings.Count(string(b), "\n")
 					}
-					if want := map[bool]int{true: 1}[tc.wantSaved]; saved != want {
-						t.Errorf("saved %d snapshots, want %d", saved, want)
+					if want := map[bool]int{true: 1}[tc.wantSaved]; got != want {
+						t.Errorf("saved %d snapshots, want %d", got, want)
 					}
 				})
 			}
@@ -387,15 +556,45 @@ func TestSnapshotScripts(t *testing.T) {
 	}
 }
 
+// checkNotices checks the notifications that snapshot.sh showed: none off
+// macOS, and on macOS one for the warnings and errors, on one line, with an
+// AppleScript that compiles.
+func checkNotices(t *testing.T, home string, notices [][]string, problems []string) {
+	t.Helper()
+	if runtime.GOOS != "darwin" || len(problems) == 0 {
+		if len(notices) > 0 {
+			t.Errorf("notified %q", notices)
+		}
+		return
+	}
+	if len(notices) != 1 {
+		t.Fatalf("notified %d times, want once: %q", len(notices), notices)
+	}
+	args := notices[0]
+	msg := args[len(args)-1]
+	for _, want := range problems {
+		if !strings.Contains(msg, want) || strings.Contains(msg, "\n") {
+			t.Errorf("notified %q, want one line with %q", msg, want)
+		}
+	}
+	compile := append([]string{"-o", filepath.Join(home, "notify.scpt")}, args[:len(args)-1]...)
+	if out, err := exec.CommandContext(t.Context(), "osacompile", compile...).CombinedOutput(); err != nil {
+		t.Errorf("the notification's AppleScript %q does not compile: %v\n%s", args[:len(args)-1], err, out)
+	}
+}
+
 // plistValue decodes the property list element start, whose start tag d has
-// just read, into a string (for string and integer), a []any or a
-// map[string]any.
+// just read, into a string, an int, a []any or a map[string]any.
 func plistValue(d *xml.Decoder, start xml.StartElement) (any, error) {
 	switch start.Name.Local {
-	case "string", "integer":
+	case "string":
 		var s string
 		err := d.DecodeElement(&s, &start)
 		return s, err
+	case "integer":
+		var n int
+		err := d.DecodeElement(&n, &start)
+		return n, err
 	case "array", "dict":
 		var list []any
 		dict := map[string]any{}
@@ -457,13 +656,15 @@ func TestLaunchdPlist(t *testing.T) {
 		}
 	}
 
+	// install-agent.sh fills in the paths, so the template's need only be
+	// right in form. launchd ignores an hour or minute that is not an
+	// integer, and %#v shows the types.
 	const home = "/Users/YOU"
-	const repo = home + "/schwab-mcp"
-	got := fmt.Sprint(plist)
-	want := fmt.Sprint(map[string]any{
+	got := fmt.Sprintf("%#v", plist)
+	want := fmt.Sprintf("%#v", map[string]any{
 		"Label":                 strings.TrimSuffix(name, ".plist"),
-		"ProgramArguments":      []any{"/bin/sh", repo + "/cmd/schwabtx/schedule/snapshot.sh"},
-		"StartCalendarInterval": map[string]any{"Hour": strconv.Itoa(21), "Minute": strconv.Itoa(5)},
+		"ProgramArguments":      []any{"/bin/sh", home + "/schwab-mcp/cmd/schwabtx/schedule/snapshot.sh"},
+		"StartCalendarInterval": map[string]any{"Hour": 21, "Minute": 5},
 		"StandardOutPath":       home + "/Library/Logs/schwabtx-snapshot.log",
 		"StandardErrorPath":     home + "/Library/Logs/schwabtx-snapshot.log",
 	})
@@ -477,69 +678,156 @@ func TestLaunchdPlist(t *testing.T) {
 	}
 }
 
-// TestTaskSchedulerSteps registers the task the way schedule/README.md says,
-// under another name, and checks what Task Scheduler stored. It changes the
-// system's scheduled tasks, so it runs only in CI.
-func TestTaskSchedulerSteps(t *testing.T) {
+// TestInstallAgent runs install-agent.sh from a repository whose path needs
+// escaping in a plist, with a stand-in for launchctl, and checks the agent it
+// installs.
+func TestInstallAgent(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchd agents are for macOS")
+	}
+	const label = "com.github.dterei.schwabtx.snapshot"
+	home := t.TempDir()
+	install := func(t *testing.T, repo string, args ...string) (calls [][]string, out string, err error) {
+		t.Helper()
+		schedule := filepath.Join(repo, "cmd", "schwabtx", "schedule")
+		for _, f := range []string{"install-agent.sh", "snapshot.sh", label + ".plist"} {
+			copyFile(t, filepath.Join("schedule", f), filepath.Join(schedule, f))
+		}
+		bin := filepath.Join(home, "stub-bin")
+		stub := "#!/bin/sh\nprintf '%s\\037' \"$@\" >> \"$CALLS\"\necho >> \"$CALLS\"\n"
+		copyStub := filepath.Join(bin, "launchctl")
+		if err := os.MkdirAll(bin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(copyStub, []byte(stub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		callsFile := filepath.Join(home, "launchctl-calls")
+		if err := os.Remove(callsFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		cmd := exec.CommandContext(t.Context(), "sh", append([]string{filepath.Join(schedule, "install-agent.sh")}, args...)...)
+		cmd.Env = []string{"HOME=" + home, "PATH=" + bin + ":/usr/bin:/bin:/usr/sbin:/sbin", "CALLS=" + callsFile}
+		b, err := cmd.CombinedOutput()
+		return stubCalls(t, callsFile), string(b), err
+	}
+
+	repo := filepath.Join(home, "R&D | <code>", "schwab-mcp")
+	calls, out, err := install(t, repo, "03:07")
+	if err != nil {
+		t.Fatalf("install-agent.sh: %v\n%s", err, out)
+	}
+	plist := filepath.Join(home, "Library", "LaunchAgents", label+".plist")
+	j, err := exec.CommandContext(t.Context(), "plutil", "-convert", "json", "-o", "-", plist).Output()
+	if err != nil {
+		t.Fatalf("reading %s: %v", plist, err)
+	}
+	var agent struct {
+		Label                 string
+		ProgramArguments      []string
+		StartCalendarInterval map[string]any // the values must be integers, not strings
+		StandardOutPath       string
+		StandardErrorPath     string
+	}
+	if err := json.Unmarshal(j, &agent); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(home, "Library", "Logs", "schwabtx-snapshot.log")
+	script := filepath.Join(repo, "cmd", "schwabtx", "schedule", "snapshot.sh")
+	if agent.Label != label || !slices.Equal(agent.ProgramArguments, []string{"/bin/sh", script}) ||
+		agent.StandardOutPath != log || agent.StandardErrorPath != log {
+		t.Errorf("installed %+v, want it to run %s and log to %s", agent, script, log)
+	}
+	if hour, minute := agent.StartCalendarInterval["Hour"], agent.StartCalendarInterval["Minute"]; hour != 3.0 || minute != 7.0 {
+		t.Errorf("runs at %#v:%#v, want 3:7 as integers", hour, minute)
+	}
+	if _, err := os.Stat(filepath.Dir(log)); err != nil {
+		t.Errorf("no folder for the log: %v", err)
+	}
+	domain := fmt.Sprintf("gui/%d", os.Getuid())
+	want := [][]string{{"bootout", domain + "/" + label}, {"bootstrap", domain, plist}}
+	if !slices.EqualFunc(calls, want, slices.Equal) {
+		t.Errorf("ran launchctl %q, want %q", calls, want)
+	}
+
+	for _, tc := range []struct{ name, repo, at, want string }{
+		{"refuses a folder background jobs cannot read", filepath.Join(home, "Documents", "schwab-mcp"), "21:05", "does not let background jobs read"},
+		{"refuses a time that is not HH:MM", repo, "9:05", "must be HH:MM"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls, out, err := install(t, tc.repo, tc.at)
+			if err == nil || !strings.Contains(out, tc.want) || len(calls) > 0 {
+				t.Errorf("install-agent.sh %s: %v, ran launchctl %q, printed %q; want it to fail with %q", tc.at, err, calls, out, tc.want)
+			}
+		})
+	}
+}
+
+// TestRegisterTask runs register-task.ps1 under another task name and checks
+// what Task Scheduler stored. It changes the system's scheduled tasks, so it
+// runs only in CI.
+func TestRegisterTask(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Task Scheduler is part of Windows")
 	}
 	if os.Getenv("CI") == "" {
 		t.Skip("registers a scheduled task, so it runs only in CI; set CI=1 to run it anyway")
 	}
-	b, err := os.ReadFile(filepath.Join("schedule", "README.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A Windows checkout may have CRLF line endings.
-	readme := strings.ReplaceAll(string(b), "\r\n", "\n")
-	_, steps, ok1 := strings.Cut(readme, "\n## Windows\n")
-	_, steps, ok2 := strings.Cut(steps, "```powershell\n")
-	steps, _, ok3 := strings.Cut(steps, "\n```")
-	if !ok1 || !ok2 || !ok3 || !strings.Contains(steps, "'schwabtx snapshot'") {
-		t.Fatalf("no steps registering 'schwabtx snapshot' under ## Windows in schedule/README.md")
-	}
 	const name = "schwabtx snapshot test"
-	steps = strings.ReplaceAll(steps, "'schwabtx snapshot'", "'"+name+"'")
-	// A task left from an earlier run would make Register-ScheduledTask
-	// fail, and what the steps print would get in the way of the JSON.
-	script := "$ErrorActionPreference = 'Stop'\n" +
-		"Unregister-ScheduledTask -TaskName '" + name + "' -Confirm:$false -ErrorAction SilentlyContinue\n" +
-		"$null = & {\n" + steps + "\n}" + `
-$task = Get-ScheduledTask -TaskName '` + name + `'
-try {
-    [pscustomobject]@{
-        StartBoundary              = $task.Triggers[0].StartBoundary
-        DaysInterval               = $task.Triggers[0].DaysInterval
-        LogonType                  = [string]$task.Principal.LogonType
-        RunLevel                   = [string]$task.Principal.RunLevel
-        StartWhenAvailable         = $task.Settings.StartWhenAvailable
-        DisallowStartIfOnBatteries = $task.Settings.DisallowStartIfOnBatteries
-        StopIfGoingOnBatteries     = $task.Settings.StopIfGoingOnBatteries
-        ExecutionTimeLimit         = $task.Settings.ExecutionTimeLimit
-        Execute                    = $task.Actions[0].Execute
-        Arguments                  = $task.Actions[0].Arguments
-    } | ConvertTo-Json
-} finally {
-    Unregister-ScheduledTask -TaskName '` + name + `' -Confirm:$false
-}
-`
-	// -EncodedCommand takes the script as base64 of its UTF-16LE bytes.
-	units := utf16.Encode([]rune(script))
-	raw := make([]byte, 2*len(units))
-	for i, u := range units {
-		binary.LittleEndian.PutUint16(raw[2*i:], u)
+	powershell := func(script string) (string, error) {
+		t.Helper()
+		// -EncodedCommand takes the script as base64 of its UTF-16LE bytes.
+		units := utf16.Encode([]rune("$ErrorActionPreference = 'Stop'\n" + script))
+		raw := make([]byte, 2*len(units))
+		for i, u := range units {
+			binary.LittleEndian.PutUint16(raw[2*i:], u)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+			base64.StdEncoding.EncodeToString(raw)).CombinedOutput()
+		return string(out), err
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", base64.StdEncoding.EncodeToString(raw))
-	cmd.Dir = filepath.Join("..", "..") // the root of the repository, where the steps are run
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("registering the task: %v\n%s%s", err, stdout.String(), stderr.String())
+	unregister := "Unregister-ScheduledTask -TaskName '" + name + "' -Confirm:$false -ErrorAction SilentlyContinue"
+	if out, err := powershell(unregister); err != nil {
+		t.Fatalf("removing a task left from an earlier run: %v\n%s", err, out)
+	}
+	t.Cleanup(func() {
+		if out, err := powershell(unregister); err != nil {
+			t.Errorf("removing the task: %v\n%s", err, out)
+		}
+	})
+	register := func(at string) (string, error) {
+		return powershell("& '" + filepath.Join("schedule", "register-task.ps1") + "' -TaskName '" + name + "' -At '" + at + "'")
 	}
 
+	// Registering again replaces the task, so the second time is the one
+	// that counts.
+	for _, at := range []string{"21:05", "03:07"} {
+		if out, err := register(at); err != nil {
+			t.Fatalf("register-task.ps1 -At %s: %v\n%s", at, err, out)
+		}
+	}
+	if out, err := register("9pm"); err == nil || !strings.Contains(out, "24-hour") {
+		t.Errorf("register-task.ps1 -At 9pm: %v, %s; want it to fail", err, out)
+	}
+
+	out, err := powershell(`$task = Get-ScheduledTask -TaskName '` + name + `'
+[pscustomobject]@{
+    StartBoundary              = $task.Triggers[0].StartBoundary
+    DaysInterval               = $task.Triggers[0].DaysInterval
+    LogonType                  = [string]$task.Principal.LogonType
+    RunLevel                   = [string]$task.Principal.RunLevel
+    StartWhenAvailable         = $task.Settings.StartWhenAvailable
+    DisallowStartIfOnBatteries = $task.Settings.DisallowStartIfOnBatteries
+    StopIfGoingOnBatteries     = $task.Settings.StopIfGoingOnBatteries
+    ExecutionTimeLimit         = $task.Settings.ExecutionTimeLimit
+    Execute                    = $task.Actions[0].Execute
+    Arguments                  = $task.Actions[0].Arguments
+} | ConvertTo-Json`)
+	if err != nil {
+		t.Fatalf("reading the task: %v\n%s", err, out)
+	}
 	var task struct {
 		StartBoundary              string
 		DaysInterval               int
@@ -550,13 +838,13 @@ try {
 		ExecutionTimeLimit         string
 		Execute, Arguments         string
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &task); err != nil {
-		t.Fatalf("decoding %q: %v", stdout.String(), err)
+	if err := json.Unmarshal([]byte(out), &task); err != nil {
+		t.Fatalf("decoding %q: %v", out, err)
 	}
 	// An offset such as -07:00 or Z would tie the time to UTC, so the task
 	// would move by an hour when daylight saving time starts or ends.
-	if !regexp.MustCompile(`^\d{4}-\d\d-\d\dT21:05:00$`).MatchString(task.StartBoundary) {
-		t.Errorf("starts at %q, want 21:05 local time without an offset", task.StartBoundary)
+	if !regexp.MustCompile(`^\d{4}-\d\d-\d\dT03:07:00$`).MatchString(task.StartBoundary) {
+		t.Errorf("starts at %q, want 03:07 local time without an offset", task.StartBoundary)
 	}
 	if task.DaysInterval != 1 {
 		t.Errorf("runs every %d days, want every day", task.DaysInterval)
@@ -571,12 +859,14 @@ try {
 	if task.ExecutionTimeLimit != "PT30M" {
 		t.Errorf("time limit %s, want PT30M", task.ExecutionTimeLimit)
 	}
-	script, err = filepath.Abs(filepath.Join("schedule", "snapshot.ps1"))
+	script, err := filepath.Abs(filepath.Join("schedule", "snapshot.ps1"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.EqualFold(task.Execute, "powershell.exe") ||
-		!strings.Contains(strings.ToLower(task.Arguments), strings.ToLower(`-File "`+script+`"`)) {
-		t.Errorf("runs %s %s, want powershell.exe with -File %q", task.Execute, task.Arguments, script)
+	args := strings.ToLower(task.Arguments)
+	for _, want := range []string{"-executionpolicy bypass", "-windowstyle hidden", strings.ToLower(`-File "` + script + `"`)} {
+		if !strings.EqualFold(task.Execute, "powershell.exe") || !strings.Contains(args, want) {
+			t.Errorf("runs %s %s, want powershell.exe with %s", task.Execute, task.Arguments, want)
+		}
 	}
 }
