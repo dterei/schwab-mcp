@@ -87,10 +87,17 @@ try {
         throw "cannot read $EnvFile"
     }
     # Windows PowerShell reads a file without a byte order mark as ANSI unless
-    # told otherwise. A value may be quoted, as in sh.
+    # told otherwise. As in sh, a value may be quoted, and a # after a space
+    # starts a comment.
     foreach ($line in Get-Content -LiteralPath $EnvFile -Encoding UTF8) {
         if ($line -match '^\s*([A-Za-z_]\w*)=(.*)$') {
-            [Environment]::SetEnvironmentVariable($Matches[1], ($Matches[2] -replace '^(["''])(.*)\1$', '$2'))
+            $name, $value = $Matches[1], $Matches[2].Trim()
+            if ($value -match '^(["''])(.*?)\1(\s+#.*)?$') {
+                $value = $Matches[2]
+            } else {
+                $value = $value -replace '\s+#.*$', ''
+            }
+            [Environment]::SetEnvironmentVariable($name, $value)
         }
     }
     $dir = Split-Path -Parent $EnvFile
@@ -100,8 +107,15 @@ try {
         $onPath = Get-Command schwabtx.exe -CommandType Application -ErrorAction Ignore | Select-Object -First 1
         $exe = if ($onPath) { $onPath.Path } else { Join-Path $env:USERPROFILE 'go\bin\schwabtx.exe' }
     }
-    $exe = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($exe)
-    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+    # A path PowerShell cannot make sense of, say with a stray quote, gets the
+    # same message as one that does not exist.
+    $found = $false
+    try {
+        $exe = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($exe)
+        $found = Test-Path -LiteralPath $exe -PathType Leaf
+    } catch {
+    }
+    if (-not $found) {
         throw "cannot run $exe; install it with ``go install ./cmd/schwabtx``, or set SCHWABTX in $EnvFile to where it is"
     }
 

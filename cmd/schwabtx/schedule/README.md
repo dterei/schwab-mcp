@@ -19,16 +19,19 @@ the error once it has, and any run that failed. After you log in again, run
 the snapshot once more, as under "Run it once now" below, so that the day is
 not missed.
 
-The scripts look for `schwabtx` in `~/go/bin` (`%USERPROFILE%\go\bin` on
-Windows), where `go install` puts it unless you set `GOBIN` or `GOPATH`.
-Install it from the root of this repository, and again whenever you pull
-changes:
+The scripts run the `schwabtx` that `SCHWABTX` in `.env` names, else the
+first on the scheduler's `PATH`, else the one in `~/go/bin`
+(`%USERPROFILE%\go\bin` on Windows), where `go install` puts it unless you
+set `GOBIN` or `GOPATH`. launchd and cron give a short `PATH` that does not
+include your Go bin folder. Install it from the root of this repository, and
+again whenever you pull changes:
 
 ```sh
 go install ./cmd/schwabtx
 ```
 
-If it is somewhere else, set `SCHWABTX` in `.env` to its full path.
+If it ends up anywhere but `~/go/bin`, set `SCHWABTX` in `.env` to its full
+path.
 
 The examples run at 9:05 p.m. local time, which suits US time zones.
 Elsewhere, pick the local time that falls in the US evening, a few hours
@@ -37,8 +40,9 @@ after the 4 p.m. Eastern close.
 ## macOS
 
 Keep this repository, and any file that `.env` names, out of Documents,
-Desktop, Downloads and iCloud Drive: macOS does not let background jobs read
-them. Then, from the root of this repository:
+Desktop, Downloads, iCloud Drive, external drives and network volumes: macOS
+does not let background jobs read them. Then, from the root of this
+repository, as yourself (not with `sudo`):
 
 ```sh
 sh cmd/schwabtx/schedule/install-agent.sh
@@ -130,8 +134,8 @@ env -i HOME="$HOME" PATH=/usr/bin:/bin sh "$HOME/schwab-mcp/cmd/schwabtx/schedul
 
 Keep this repository inside your user profile, like the token file: other
 users of the PC may be able to change files elsewhere, and so the script that
-the task runs as you. Then, from the root of this repository, in PowerShell
-or a Command Prompt, without admin rights:
+the task runs as you. Then, in PowerShell at the root of this repository,
+without admin rights:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File cmd\schwabtx\schedule\register-task.ps1

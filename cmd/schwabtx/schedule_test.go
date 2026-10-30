@@ -36,8 +36,7 @@ func TestMain(m *testing.M) {
 // scriptSetup is how a test runs a scheduler script.
 type scriptSetup struct {
 	home   string   // the home folder, with the repository at schwab-mcp
-	script string   // the script, in the repository
-	env    []string // the environment, without PATH
+	script string   // the script to run
 	path   []string // folders to put first on PATH
 	args   []string
 }
@@ -104,7 +103,7 @@ func schedulers(t *testing.T) []scheduler {
 					args = append(args, "-NoNotification")
 				}
 				path := slices.Concat(s.path, testPATH("schwabtx.exe"))
-				env := slices.Concat(s.env, []string{"PATH=" + strings.Join(path, string(os.PathListSeparator))})
+				env := slices.Concat(windowsEnv(s.home), []string{"PATH=" + strings.Join(path, string(os.PathListSeparator))})
 				r := runScript(t, env, shell, append(args, s.args...)...)
 				r.log = readIfExists(t, filepath.Join(s.home, "LocalAppData", "schwabtx", "snapshot.log"))
 				r.info, r.problems = r.log, r.log
@@ -143,9 +142,10 @@ func readme(t *testing.T) string {
 	return strings.ReplaceAll(string(b), "\r\n", "\n")
 }
 
-// runUnix runs a command that runs snapshot.sh, with stand-ins for osascript
-// and sleep first on PATH that record their arguments, so that notifications
-// are recorded instead of shown and tries come right after each other.
+// runUnix runs a command that runs snapshot.sh in the environment that cron
+// and launchd give a job, with stand-ins for osascript and sleep first on
+// PATH that record their arguments, so that notifications are recorded
+// instead of shown and tries come right after each other.
 func runUnix(t *testing.T, s scriptSetup, name string, args ...string) scriptRun {
 	t.Helper()
 	bin := filepath.Join(s.home, "stub-bin")
@@ -162,8 +162,7 @@ func runUnix(t *testing.T, s scriptSetup, name string, args ...string) scriptRun
 			t.Fatal(err)
 		}
 	}
-	path := slices.Concat([]string{bin}, s.path, testPATH("schwabtx"))
-	env := slices.Concat(s.env, []string{"PATH=" + strings.Join(path, ":"), "TMPDIR=" + tmp, "CALLS=" + calls})
+	env := append(unixEnv(s.home, slices.Concat([]string{bin}, s.path)...), "TMPDIR="+tmp, "CALLS="+calls)
 
 	r := runScript(t, env, name, args...)
 	r.notices = stubCalls(t, calls+".osascript")
@@ -220,24 +219,35 @@ func readIfExists(t *testing.T, path string) string {
 	return string(b)
 }
 
-// scriptEnv returns the environment a scheduler starts a script with, apart
-// from PATH: this process's, without any Schwab settings, and with the home
-// and config folders in the test's temp space so the real ones stay out of
-// reach.
-func scriptEnv(home string) []string {
+// unixEnv returns the environment that cron and launchd give a job: HOME,
+// SHELL and a short PATH. The PATH has the given folders first, then those of
+// the tools the scripts use, which are not in /usr/bin on every system.
+func unixEnv(home string, path ...string) []string {
+	for _, tool := range []string{"sh", "uname", "tr", "date", "cat", "rm", "mktemp", "dirname", "basename", "grep", "tee"} {
+		if p, err := exec.LookPath(tool); err == nil && !slices.Contains(path, filepath.Dir(p)) {
+			path = append(path, filepath.Dir(p))
+		}
+	}
+	return []string{"HOME=" + home, "SHELL=/bin/sh", "PATH=" + strings.Join(path, ":")}
+}
+
+// windowsEnv returns the environment Task Scheduler starts a script with,
+// apart from PATH: the user's, here without any Schwab settings, and with the
+// home and config folders in the test's temp space so the real ones stay out
+// of reach.
+func windowsEnv(home string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
 		switch name = strings.ToUpper(name); {
-		case strings.HasPrefix(name, "SCHWAB"), name == "PATH", name == "TMPDIR",
-			name == "HOME", name == "XDG_CONFIG_HOME", name == "APPDATA", name == "LOCALAPPDATA", name == "USERPROFILE":
+		case strings.HasPrefix(name, "SCHWAB"), name == "PATH",
+			name == "HOME", name == "APPDATA", name == "LOCALAPPDATA", name == "USERPROFILE":
 			continue
 		}
 		env = append(env, kv)
 	}
 	return append(env,
 		"HOME="+home,
-		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
 		"APPDATA="+filepath.Join(home, "AppData"),
 		"LOCALAPPDATA="+filepath.Join(home, "LocalAppData"),
 		"USERPROFILE="+home,
@@ -334,6 +344,9 @@ func TestSnapshotScripts(t *testing.T) {
 				noEnvFile   bool
 				relative    bool // the .env file has paths relative to its folder
 				crlf        bool // the .env file has CRLF line endings
+				mistake     bool // the .env file has a value with a space and no quotes
+				envFolder   bool // a folder is given as the .env file
+				linked      bool // the script is run through a link to its folder
 
 				wantCode     int
 				wantSaved    bool
@@ -351,6 +364,10 @@ func TestSnapshotScripts(t *testing.T) {
 				},
 				{
 					name: "takes the env file as an argument", envArg: true,
+					wantSaved: true, wantInfo: []string{saved},
+				},
+				{
+					name: "finds the env file through a linked folder", only: "snapshot.sh", linked: true,
 					wantSaved: true, wantInfo: []string{saved},
 				},
 				{
@@ -376,6 +393,14 @@ func TestSnapshotScripts(t *testing.T) {
 				{
 					name: "fails without an env file", cronToo: true, noEnvFile: true,
 					wantCode: 1, wantProblems: []string{"error: cannot read "},
+				},
+				{
+					name: "fails on a folder given as the env file", envFolder: true,
+					wantCode: 1, wantProblems: []string{"error: cannot read "},
+				},
+				{
+					name: "tells you of a mistake in the env file", only: "snapshot.sh", cronToo: true, mistake: true,
+					wantCode: 1, wantProblems: []string{"error: cannot load "},
 				},
 				{
 					name: "fails without schwabtx", cronToo: true, binary: "missing",
@@ -414,11 +439,17 @@ func TestSnapshotScripts(t *testing.T) {
 					copyFile(t, filepath.Join("schedule", s.script), script)
 					envFile := filepath.Join(repo, ".env")
 					var args []string
-					if tc.envArg {
-						envFile = filepath.Join(home, "elsewhere.env")
-						args = []string{envFile}
+					if tc.envArg || tc.envFolder {
+						if tc.envArg {
+							envFile = filepath.Join(home, "elsewhere.env")
+						}
+						arg := envFile
+						if tc.envFolder {
+							arg = repo
+						}
+						args = []string{arg}
 						if s.script == "snapshot.ps1" {
-							args = []string{"-EnvFile", envFile}
+							args = []string{"-EnvFile", arg}
 						}
 					}
 
@@ -445,8 +476,11 @@ func TestSnapshotScripts(t *testing.T) {
 						"SCHWAB_APP_KEY=" + testKey,
 						"SCHWAB_APP_SECRET=" + testSecret,
 						"SCHWAB_BASE_URL=" + f.srv.URL,
-						"SCHWAB_TOKEN_FILE=" + tokenValue,
-						"SCHWAB_SNAPSHOT_FILE=" + snapshotsValue,
+						`SCHWAB_TOKEN_FILE="` + tokenValue + `"`,
+						`SCHWAB_SNAPSHOT_FILE="` + snapshotsValue + `"`,
+					}
+					if tc.mistake {
+						lines = append(lines, "NOTE=two words")
 					}
 					var path []string
 					switch tc.binary {
@@ -457,16 +491,16 @@ func TestSnapshotScripts(t *testing.T) {
 						copyFile(t, self, filepath.Join(dir, s.binary))
 						path = append(path, dir)
 					case "missing":
-						lines = append(lines, "SCHWABTX="+filepath.Join(home, "missing", s.binary))
+						lines = append(lines, `SCHWABTX="`+filepath.Join(home, "missing", s.binary)+`"`)
 					case "unset":
-						lines = append(lines, "SCHWABTX=$SCHWABTX_TEST_UNSET/"+s.binary)
+						lines = append(lines, `SCHWABTX="$SCHWABTX_TEST_UNSET/`+s.binary+`"`)
 					case "false":
 						// A schwabtx that fails without a word.
 						silent, err := exec.LookPath("false")
 						if err != nil {
 							t.Fatal(err)
 						}
-						lines = append(lines, "SCHWABTX="+silent)
+						lines = append(lines, `SCHWABTX="`+silent+`"`)
 					default:
 						lines = append(lines, `SCHWABTX="`+self+`"`)
 					}
@@ -480,7 +514,16 @@ func TestSnapshotScripts(t *testing.T) {
 						}
 					}
 
-					r := s.run(t, scriptSetup{home: home, script: script, env: scriptEnv(home), path: path, args: args})
+					run := script
+					if tc.linked {
+						// Run the script through a link to its folder.
+						link := filepath.Join(home, "jobs")
+						if err := os.Symlink(filepath.Dir(script), link); err != nil {
+							t.Fatal(err)
+						}
+						run = filepath.Join(link, s.script)
+					}
+					r := s.run(t, scriptSetup{home: home, script: run, path: path, args: args})
 
 					// Cron ignores the exit status, which tee's ends the line.
 					if s.name != "cron" && r.code != tc.wantCode {
@@ -540,6 +583,21 @@ func TestSnapshotScripts(t *testing.T) {
 						}
 						if len(tc.wantProblems) > 0 && s.name == "pwsh.exe" && !noted {
 							t.Errorf("no note that PowerShell 7 cannot notify:\n%s", r.log)
+						}
+						// In CI, Windows PowerShell tries to show the notifications.
+						// Whether one shows depends on the session, but an error from
+						// PowerShell itself means that the script's code is wrong.
+						if s.name == "powershell.exe" && os.Getenv("CI") != "" {
+							for line := range strings.Lines(r.log) {
+								for _, bug := range []string{
+									"Unable to find type", "is not recognized as", "Cannot find an overload",
+									"Method invocation failed", "parameter cannot be found", "null-valued expression",
+								} {
+									if strings.Contains(line, "notification") && strings.Contains(line, bug) {
+										t.Errorf("the notification code is wrong: %s", line)
+									}
+								}
+							}
 						}
 					}
 
@@ -686,7 +744,12 @@ func TestInstallAgent(t *testing.T) {
 		t.Skip("launchd agents are for macOS")
 	}
 	const label = "com.github.dterei.schwabtx.snapshot"
-	home := t.TempDir()
+	// The script compares paths with links followed, and the temp folder is
+	// under /var, a link to /private/var.
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	install := func(t *testing.T, repo string, args ...string) (calls [][]string, out string, err error) {
 		t.Helper()
 		schedule := filepath.Join(repo, "cmd", "schwabtx", "schedule")
@@ -745,13 +808,21 @@ func TestInstallAgent(t *testing.T) {
 		t.Errorf("no folder for the log: %v", err)
 	}
 	domain := fmt.Sprintf("gui/%d", os.Getuid())
-	want := [][]string{{"bootout", domain + "/" + label}, {"bootstrap", domain, plist}}
+	want := [][]string{{"enable", domain + "/" + label}, {"bootout", domain + "/" + label}, {"bootstrap", domain, plist}}
 	if !slices.EqualFunc(calls, want, slices.Equal) {
 		t.Errorf("ran launchctl %q, want %q", calls, want)
 	}
 
+	// A link from another folder into Documents leads there all the same.
+	if err := os.MkdirAll(filepath.Join(home, "Documents", "code"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "Documents", "code"), filepath.Join(home, "code")); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct{ name, repo, at, want string }{
 		{"refuses a folder background jobs cannot read", filepath.Join(home, "Documents", "schwab-mcp"), "21:05", "does not let background jobs read"},
+		{"refuses a link into such a folder", filepath.Join(home, "code", "schwab-mcp"), "21:05", "does not let background jobs read"},
 		{"refuses a time that is not HH:MM", repo, "9:05", "must be HH:MM"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

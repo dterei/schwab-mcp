@@ -47,16 +47,21 @@ fail() {
 	exit 1
 }
 
+# -P follows symbolic links before "..", so that the script finds the .env of
+# the repository it is in, however it is reached.
 env_file=${1:-$(dirname "$0")/../../../.env}
-cd "$(dirname "$env_file")" 2>/dev/null || fail "cannot read $env_file"
-env_file=$(pwd)/$(basename "$env_file")
-[ -r "$env_file" ] || fail "cannot read $env_file"
+cd -P "$(dirname "$env_file")" 2>/dev/null || fail "cannot read $env_file"
+env_file=$(pwd -P)/$(basename "$env_file")
+[ -f "$env_file" ] && [ -r "$env_file" ] || fail "cannot read $env_file"
 if grep -q "$(printf '\r')" "$env_file"; then
 	fail "$env_file has Windows (CRLF) line endings; save it with Unix (LF) ones"
 fi
-# A mistake in the file, or a variable that is not set here, must not end
-# the script before it can tell you.
-sh -n "$env_file" || fail "cannot load $env_file"
+# A mistake in the file, such as a value with a space and no quotes, must be
+# reported, not end the script or be skipped without a word, so the file is
+# first loaded in a subshell, where any complaint shows.
+if ! complaint=$( (set +u -a && command . "$env_file") 2>&1 >/dev/null) || [ -n "$complaint" ]; then
+	fail "cannot load $env_file: $complaint"
+fi
 set +u -a
 command . "$env_file" || fail "cannot load $env_file"
 set -u +a
