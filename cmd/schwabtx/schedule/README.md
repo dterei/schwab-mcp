@@ -131,26 +131,29 @@ Register-ScheduledTask -TaskName 'schwabtx snapshot' -Action $action -Trigger $t
 ```
 
 The task runs at 9:05 p.m. while you are signed in, also on battery; a
-locked screen is fine. A run missed while the PC was off or asleep starts
-about 10 minutes after it is back on. One missed while you were signed out
-may be skipped.
+locked screen is fine. A run missed while the PC was off starts about 10
+minutes after it boots, and one missed while it slept usually soon after it
+wakes. One missed while you were signed out is skipped.
 
 The script appends its output to `%LOCALAPPDATA%\schwabtx\snapshot.log`, and
 warnings and errors show as a notification from Windows PowerShell, so keep
 that app's notifications on in Settings > System > Notifications. Do not
-disturb holds a notification back, but it still lands in the notification
-center. The task has to run `powershell.exe`: PowerShell 7 cannot show
-notifications. If Group Policy sets an execution policy on your PC, it
-overrides `-ExecutionPolicy Bypass`; `Get-ExecutionPolicy -List` shows it.
+disturb holds a notification back, unless Windows PowerShell is among the
+priority notifications there, but it still lands in the notification center.
+The task has to run `powershell.exe`: PowerShell 7 cannot show
+notifications. If Group Policy on your PC requires signed scripts or turns
+scripts off, the task cannot run the script; `Get-ExecutionPolicy -List`
+shows the policies.
 
 A console window flashes as the task starts. On Windows 11, where Windows
-Terminal is the default terminal, a Terminal window stays open while it runs
-instead, and closing it stops the run. For just the flash, set Windows
-Terminal's Settings > Startup > Default terminal application to Windows
-Console Host.
+Terminal is the default terminal, a Terminal window opens instead, often
+minimized, and stays until the run ends; closing it stops the run. For just
+the flash, set Windows Terminal's Settings > Startup > Default terminal
+application to Windows Console Host.
 
 Run it once now, and after a few seconds check the log and the result, where
-0 means it worked and 267009 that it is still running:
+0 means it worked, 267009 that it is still running, and any other number
+that it failed:
 
 ```powershell
 Start-ScheduledTask 'schwabtx snapshot'

@@ -52,7 +52,12 @@ function Show-Notification([string]$Text) {
         $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
         # The app ID of Windows PowerShell, which Windows lets show notifications.
         $app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
-        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show($toast)
+        $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app)
+        # Windows drops a notification it does not allow without an error.
+        if ($notifier.Setting -ne 'Enabled') {
+            Write-Log "notifications are off for Windows PowerShell ($($notifier.Setting))"
+        }
+        $notifier.Show($toast)
     } catch {
         Write-Log "could not show a notification: $($_.Exception.Message)"
     }
