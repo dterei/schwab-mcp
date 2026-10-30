@@ -774,45 +774,56 @@ func TestRegisterTask(t *testing.T) {
 		t.Skip("registers a scheduled task, so it runs only in CI; set CI=1 to run it anyway")
 	}
 	const name = "schwabtx snapshot test"
-	powershell := func(script string) (string, error) {
+	run := func(args ...string) (stdout, stderr string, err error) {
 		t.Helper()
-		// -EncodedCommand takes the script as base64 of its UTF-16LE bytes.
-		units := utf16.Encode([]rune("$ErrorActionPreference = 'Stop'\n" + script))
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "powershell.exe", append([]string{"-NoProfile", "-NonInteractive"}, args...)...)
+		var out, errOut bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, &errOut
+		err = cmd.Run()
+		return out.String(), errOut.String(), err
+	}
+	// powershell runs script, which must end with an explicit exit code: in
+	// -Command mode the code is 1 whenever the last command failed, even with
+	// its error silenced. Progress records would come out as CLIXML.
+	powershell := func(script string) (string, string, error) {
+		t.Helper()
+		units := utf16.Encode([]rune("$ErrorActionPreference = 'Stop'\n$ProgressPreference = 'SilentlyContinue'\n" + script))
 		raw := make([]byte, 2*len(units))
 		for i, u := range units {
 			binary.LittleEndian.PutUint16(raw[2*i:], u)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		out, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand",
-			base64.StdEncoding.EncodeToString(raw)).CombinedOutput()
-		return string(out), err
+		// -EncodedCommand takes the script as base64 of its UTF-16LE bytes.
+		return run("-EncodedCommand", base64.StdEncoding.EncodeToString(raw))
 	}
-	unregister := "Unregister-ScheduledTask -TaskName '" + name + "' -Confirm:$false -ErrorAction SilentlyContinue"
-	if out, err := powershell(unregister); err != nil {
-		t.Fatalf("removing a task left from an earlier run: %v\n%s", err, out)
+	unregister := "if (Get-ScheduledTask -TaskName '" + name + "' -ErrorAction SilentlyContinue) {\n" +
+		"    Unregister-ScheduledTask -TaskName '" + name + "' -Confirm:$false\n}\nexit 0"
+	if _, errOut, err := powershell(unregister); err != nil {
+		t.Fatalf("removing a task left from an earlier run: %v\n%s", err, errOut)
 	}
 	t.Cleanup(func() {
-		if out, err := powershell(unregister); err != nil {
-			t.Errorf("removing the task: %v\n%s", err, out)
+		if _, errOut, err := powershell(unregister); err != nil {
+			t.Errorf("removing the task: %v\n%s", err, errOut)
 		}
 	})
-	register := func(at string) (string, error) {
-		return powershell("& '" + filepath.Join("schedule", "register-task.ps1") + "' -TaskName '" + name + "' -At '" + at + "'")
+	// Run the script the way the README does.
+	register := func(at string) (string, string, error) {
+		return run("-ExecutionPolicy", "Bypass", "-File", filepath.Join("schedule", "register-task.ps1"), "-TaskName", name, "-At", at)
 	}
 
 	// Registering again replaces the task, so the second time is the one
 	// that counts.
 	for _, at := range []string{"21:05", "03:07"} {
-		if out, err := register(at); err != nil {
-			t.Fatalf("register-task.ps1 -At %s: %v\n%s", at, err, out)
+		if out, errOut, err := register(at); err != nil || !strings.Contains(out, "Registered the task") {
+			t.Fatalf("register-task.ps1 -At %s: %v\n%s%s", at, err, out, errOut)
 		}
 	}
-	if out, err := register("9pm"); err == nil || !strings.Contains(out, "24-hour") {
-		t.Errorf("register-task.ps1 -At 9pm: %v, %s; want it to fail", err, out)
+	if out, errOut, err := register("9pm"); err == nil || !strings.Contains(errOut, "24-hour") {
+		t.Errorf("register-task.ps1 -At 9pm: %v\n%s%s\nwant it to fail, saying the time must be in 24-hour form", err, out, errOut)
 	}
 
-	out, err := powershell(`$task = Get-ScheduledTask -TaskName '` + name + `'
+	out, errOut, err := powershell(`$task = Get-ScheduledTask -TaskName '` + name + `'
 [pscustomobject]@{
     StartBoundary              = $task.Triggers[0].StartBoundary
     DaysInterval               = $task.Triggers[0].DaysInterval
@@ -824,9 +835,10 @@ func TestRegisterTask(t *testing.T) {
     ExecutionTimeLimit         = $task.Settings.ExecutionTimeLimit
     Execute                    = $task.Actions[0].Execute
     Arguments                  = $task.Actions[0].Arguments
-} | ConvertTo-Json`)
+} | ConvertTo-Json
+exit 0`)
 	if err != nil {
-		t.Fatalf("reading the task: %v\n%s", err, out)
+		t.Fatalf("reading the task: %v\n%s%s", err, out, errOut)
 	}
 	var task struct {
 		StartBoundary              string

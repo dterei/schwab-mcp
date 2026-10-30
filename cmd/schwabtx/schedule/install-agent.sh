@@ -34,10 +34,13 @@ hour=${at%:*}
 minute=${at#*:}
 
 # launchd does not expand ~ or $HOME and needs the log's folder to exist.
-# plutil writes each path as a proper plist string, whatever is in it.
+# plutil writes each path as a proper plist string, whatever is in it. On an
+# array element, -replace inserts rather than replaces, so the script's path
+# is removed and inserted.
 mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 cp "$here/$label.plist" "$plist"
-plutil -replace ProgramArguments.1 -string "$here/snapshot.sh" "$plist"
+plutil -remove ProgramArguments.1 "$plist"
+plutil -insert ProgramArguments.1 -string "$here/snapshot.sh" "$plist"
 plutil -replace StartCalendarInterval.Hour -integer "${hour#0}" "$plist"
 plutil -replace StartCalendarInterval.Minute -integer "${minute#0}" "$plist"
 plutil -replace StandardOutPath -string "$log" "$plist"
