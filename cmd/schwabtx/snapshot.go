@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -26,6 +27,15 @@ type snapshot struct {
 	Version   int             `json:"version"`
 	FetchedAt time.Time       `json:"fetched_at"`
 	Accounts  json.RawMessage `json:"accounts"`
+}
+
+// snapshotAccount is the part of an account in Schwab's response that the
+// command reads.
+type snapshotAccount struct {
+	SecuritiesAccount struct {
+		AccountNumber string            `json:"accountNumber"`
+		Positions     []json.RawMessage `json:"positions"`
+	} `json:"securitiesAccount"`
 }
 
 // runSnapshot appends the positions and balances of every account to the
@@ -64,13 +74,9 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if err != nil {
 		return fmt.Errorf("fetching accounts: %w", err)
 	}
-	fetchedAt := timeNow().UTC()
+	fetchedAt := timeNow().UTC().Truncate(time.Second)
 
-	var accounts []struct {
-		SecuritiesAccount struct {
-			Positions []json.RawMessage `json:"positions"`
-		} `json:"securitiesAccount"`
-	}
+	var accounts []snapshotAccount
 	if err := json.Unmarshal(body, &accounts); err != nil {
 		return fmt.Errorf("decoding accounts: %w", err)
 	}
@@ -78,8 +84,18 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 		return errors.New("Schwab returned no accounts; run `schwabtx login` again and tick the accounts to share")
 	}
 	positions := 0
+	current := map[string]bool{}
 	for _, a := range accounts {
 		positions += len(a.SecuritiesAccount.Positions)
+		current[a.SecuritiesAccount.AccountNumber] = true
+	}
+	warn := func(msg string) { fmt.Fprintln(stderr, "warning:", msg) }
+
+	// An account not ticked at the last login is simply missing from the
+	// response, so compare with the previous snapshot.
+	for _, number := range missingAccounts(lastLine(path), current) {
+		warn(fmt.Sprintf("Schwab did not return account %s, which the last snapshot has; "+
+			"to keep saving it, run `schwabtx login` and tick it", maskAccount(number)))
 	}
 
 	// The encoder puts Schwab's JSON on one line and, with HTML escaping off,
@@ -90,7 +106,7 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if err := enc.Encode(snapshot{Version: snapshotVersion, FetchedAt: fetchedAt, Accounts: body}); err != nil {
 		return fmt.Errorf("encoding the snapshot: %w", err)
 	}
-	if err := appendLine(path, line.Bytes()); err != nil {
+	if err := appendLine(path, line.Bytes(), warn); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Saved a snapshot of %d accounts with %d positions to %s\n", len(accounts), positions, path)
@@ -115,7 +131,7 @@ func snapshotPath(flagValue string) (string, error) {
 
 // appendLine adds line to the end of the file at path, creating the file, and
 // its directory, readable only by you.
-func appendLine(path string, line []byte) error {
+func appendLine(path string, line []byte, warn func(string)) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creating the snapshot directory: %w", err)
 	}
@@ -123,7 +139,7 @@ func appendLine(path string, line []byte) error {
 	if err != nil {
 		return fmt.Errorf("opening the snapshot file: %w", err)
 	}
-	if err := writeLine(f, line); err != nil {
+	if err := writeLine(f, line, warn); err != nil {
 		f.Close()
 		return fmt.Errorf("writing the snapshot file %s: %w", path, err)
 	}
@@ -135,11 +151,24 @@ func appendLine(path string, line []byte) error {
 
 // writeLine appends line to f and flushes it to disk. If an earlier write was
 // cut short, leaving the file without a final newline, line still starts on a
-// line of its own.
-func writeLine(f *os.File, line []byte) error {
+// line of its own. A file that others can read is made private first. Devices
+// and pipes, such as /dev/null, just get the line.
+func writeLine(f *os.File, line []byte, warn func(string)) error {
 	info, err := f.Stat()
 	if err != nil {
 		return err
+	}
+	if !info.Mode().IsRegular() {
+		_, err := f.Write(line)
+		return err
+	}
+	// Windows has no Unix permission bits; there the file takes its folder's.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		if err := f.Chmod(0o600); err != nil {
+			warn(fmt.Sprintf("%s can be read by others and could not be made private: %v", f.Name(), err))
+		} else {
+			warn(f.Name() + " could be read by others; it is now readable only by you")
+		}
 	}
 	if size := info.Size(); size > 0 {
 		last := make([]byte, 1)
@@ -154,4 +183,60 @@ func writeLine(f *os.File, line []byte) error {
 		return err
 	}
 	return f.Sync()
+}
+
+// lastLine returns the last line of the file at path, without its newline. It
+// returns nil when there is no complete last line: the file is missing, empty,
+// not a regular file, or ends in a write that was cut short.
+func lastLine(path string) []byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+		return nil
+	}
+	end := info.Size() - 1 // where the final newline should be
+	b := make([]byte, 1)
+	if _, err := f.ReadAt(b, end); err != nil || b[0] != '\n' {
+		return nil
+	}
+	// Read backwards a chunk at a time until the newline before the last line.
+	const chunk = 64 << 10
+	var line []byte
+	for pos := end; pos > 0; {
+		n := min(int64(chunk), pos)
+		pos -= n
+		buf := make([]byte, n)
+		if _, err := f.ReadAt(buf, pos); err != nil {
+			return nil
+		}
+		if i := bytes.LastIndexByte(buf, '\n'); i >= 0 {
+			return append(buf[i+1:], line...)
+		}
+		line = append(buf, line...)
+	}
+	return line
+}
+
+// missingAccounts returns the account numbers in the snapshot line prev that
+// are not in current.
+func missingAccounts(prev []byte, current map[string]bool) []string {
+	var s snapshot
+	if prev == nil || json.Unmarshal(prev, &s) != nil {
+		return nil
+	}
+	var accounts []snapshotAccount
+	if json.Unmarshal(s.Accounts, &accounts) != nil {
+		return nil
+	}
+	var missing []string
+	for _, a := range accounts {
+		if n := a.SecuritiesAccount.AccountNumber; n != "" && !current[n] {
+			missing = append(missing, n)
+		}
+	}
+	return missing
 }

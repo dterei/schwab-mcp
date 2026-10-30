@@ -51,13 +51,17 @@ func TestSnapshotAppendsSchwabsResponse(t *testing.T) {
 		t.Errorf("printed %q, want %q", out, want)
 	}
 
-	timeNow = func() time.Time { return testNow.Add(24 * time.Hour) }
+	// The clock reads local time with nanoseconds, as time.Now does; the
+	// file still gets UTC to the second.
+	timeNow = func() time.Time {
+		return testNow.Add(24*time.Hour + 987654321*time.Nanosecond).In(time.FixedZone("EDT", -4*3600))
+	}
 	if _, _, err := runTx(t, "snapshot"); err != nil {
 		t.Fatal(err)
 	}
 
-	// One line per run, holding Schwab's response as sent: "&" is not
-	// escaped and numbers such as 250.0 keep their spelling.
+	// One line per run, holding Schwab's response as sent but on one line:
+	// "&" is not escaped and numbers such as 250.0 keep their spelling.
 	lines := snapshotLines(t, path)
 	if len(lines) != 2 {
 		t.Fatalf("got %d lines, want 2:\n%s", len(lines), strings.Join(lines, "\n"))
@@ -191,6 +195,75 @@ func TestSnapshotStartsANewLineAfterACutShortWrite(t *testing.T) {
 	}
 }
 
+func TestSnapshotWarnsWhenAnAccountGoesMissing(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 1, testNow, time.Hour)
+	f.addAccount("33334444", 5000, 1, testNow, time.Hour)
+	doLogin(t)
+	if _, stderr, err := runTx(t, "snapshot"); err != nil || stderr != "" {
+		t.Fatalf("first snapshot: %v %q", err, stderr)
+	}
+
+	// At the next login only the first account was ticked.
+	f.accounts = f.accounts[:1]
+	_, stderr, err := runTx(t, "snapshot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "account ...4444") || strings.Contains(stderr, "...2222") {
+		t.Errorf("wrong warning about missing accounts: %q", stderr)
+	}
+	if strings.Contains(stderr, "33334444") {
+		t.Errorf("warning shows a full account number: %q", stderr)
+	}
+	if lines := snapshotLines(t, os.Getenv("SCHWAB_SNAPSHOT_FILE")); len(lines) != 2 {
+		t.Errorf("got %d snapshots, want 2", len(lines))
+	}
+}
+
+func TestSnapshotMakesAnExistingFilePrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix permission bits")
+	}
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 1, testNow, time.Hour)
+	doLogin(t)
+	path := os.Getenv("SCHWAB_SNAPSHOT_FILE")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, stderr, err := runTx(t, "snapshot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("snapshot file mode = %v, want 0600", info.Mode().Perm())
+	}
+	if !strings.Contains(stderr, "now readable only by you") {
+		t.Errorf("no warning about the permissions: %q", stderr)
+	}
+}
+
+func TestSnapshotToDevNull(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("NUL is not checked")
+	}
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 1, testNow, time.Hour)
+	doLogin(t)
+	if _, _, err := runTx(t, "snapshot", "-file", os.DevNull); err != nil {
+		t.Fatalf("a dry run to %s failed: %v", os.DevNull, err)
+	}
+}
+
 func TestSnapshotRejectsBadArguments(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 1, testNow, time.Hour)
@@ -208,4 +281,32 @@ func TestSnapshotRejectsBadArguments(t *testing.T) {
 		t.Error("bad arguments still fetched the accounts")
 	}
 	assertNoFile(t, os.Getenv("SCHWAB_SNAPSHOT_FILE"))
+}
+
+func TestLastLine(t *testing.T) {
+	dir := t.TempDir()
+	long := strings.Repeat("x", 200<<10) // spans several 64 KiB reads
+	for _, tc := range []struct {
+		name, content, want string
+		missing             bool
+	}{
+		{name: "missing file", missing: true},
+		{name: "empty file"},
+		{name: "cut short", content: "one\ntwo"},
+		{name: "one line", content: "one\n", want: "one"},
+		{name: "several lines", content: "one\ntwo\nthree\n", want: "three"},
+		{name: "long last line", content: "one\n" + long + "\n", want: long},
+		{name: "long only line", content: long + "\n", want: long},
+		{name: "chunk boundary", content: strings.Repeat("y", 64<<10) + "\n" + "z\n", want: "z"},
+	} {
+		path := filepath.Join(dir, strings.ReplaceAll(tc.name, " ", "-"))
+		if !tc.missing {
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := string(lastLine(path)); got != tc.want {
+			t.Errorf("%s: got %d bytes %.20q..., want %d bytes %.20q...", tc.name, len(got), got, len(tc.want), tc.want)
+		}
+	}
 }

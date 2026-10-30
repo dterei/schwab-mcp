@@ -60,17 +60,20 @@ are gone unless you saved them. `schwabtx snapshot` saves them: each run
 appends one line to `snapshots.jsonl` in your user config directory, under
 `schwabtx/`. Choose another file with `-file` or `SCHWAB_SNAPSHOT_FILE`.
 
-The file holds full account numbers and balances. On Linux and macOS it and
-any directory the tool creates for it are readable only by you; on Windows
-the file takes its folder's permissions, as the token file does.
+The file holds full account numbers and balances. On Linux and macOS the tool
+keeps it readable only by you: it creates the file, and any directory it
+makes for it, that way, and if it finds the file readable by others, it
+tightens it and tells you. On Windows the file takes its folder's
+permissions, as the token file does.
 
 Each line is one JSON object:
 
 ```json
-{"version":1,"fetched_at":"2026-10-29T21:05:00Z","accounts":[...]}
+{"version":1,"fetched_at":"2026-10-30T01:05:00Z","accounts":[...]}
 ```
 
-- `fetched_at` is when Schwab's response arrived, in UTC.
+- `fetched_at` is when Schwab's response arrived: UTC, to the second, in RFC
+  3339. An evening run in the US is dated the next day.
 - `accounts` is Schwab's response to `GET /accounts?fields=positions`, as
   sent but on one line: for each account its balances (initial, current and
   projected) and positions.
@@ -78,22 +81,33 @@ Each line is one JSON object:
 
 A run that fails saves nothing and exits with an error. If a write is ever
 cut short, the next run starts on a new line, so a reader can skip a line
-that does not parse.
+that does not parse. If an account in the last snapshot is missing from
+Schwab's response, usually because it was not ticked at the last login, the
+tool warns you and saves the rest.
 
 ### Every day
 
-Run it once a day in the evening, after the market close; mutual fund prices
-can post a few hours after 4 p.m. Eastern. For example, from cron at 9:05 p.m.
-on weekdays:
+Run it every day in the evening, after the US market close: mutual fund
+prices can post a few hours after 4 p.m. Eastern. The weekend runs mostly
+repeat Friday's, but they are what warn you a day ahead when the weekly
+login lapses on a weekend. For example, from cron at 9:05 p.m.:
 
 ```
-5 21 * * 1-5  set -a && . "$HOME/schwab-mcp/.env" && set +a && "$HOME/go/bin/schwabtx" snapshot >> "$HOME/schwabtx-snapshot.log"
+5 21 * * *  set -a && . "$HOME/schwab-mcp/.env" && set +a && "$HOME/go/bin/schwabtx" snapshot 2>&1 >> "$HOME/schwabtx-snapshot.log" | tee -a "$HOME/schwabtx-snapshot.log"
 ```
 
-Adjust the paths to where your `.env` and `schwabtx` are. Cron times are in
-the machine's time zone. The line logs what the tool prints on success and
-leaves what it prints on errors to cron, which mails it to you: the warning a
-day before the weekly login lapses, and the error once it has.
+Adjust the paths to where your `.env` and `schwabtx` are (`go install` puts
+it in `~/go/bin`). Cron uses the machine's time zone, so this line assumes US
+time; on a machine set to UTC, use `5 2 * * *`.
+
+The line appends the tool's summary to `~/schwabtx-snapshot.log`. Warnings
+and errors, such as the warning a day before the weekly login lapses and the
+error once it has, go to the log too, and to cron. Cron mails them to you
+only if the machine can send mail and `MAILTO` names an address you read;
+many machines, stock Ubuntu among them, have no mail server, and cron then
+throws the output away. Either way, check now and then that the newest
+snapshot is recent: the last line of the snapshot file starts with its
+`fetched_at`.
 
 ## How it fetches
 

@@ -137,7 +137,8 @@ const fakePositions = `{"shortQuantity":0,"averagePrice":246.91,"longQuantity":5
 
 // handleAccountDetails answers GET /accounts, with positions only when asked
 // for, as Schwab does. The JSON is written by hand so that tests can check
-// the tool keeps it as sent.
+// the tool keeps it as sent, and it goes out indented, so they can check the
+// tool puts it on one line.
 func (f *fakeSchwab) handleAccountDetails(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -157,8 +158,13 @@ func (f *fakeSchwab) handleAccountDetails(w http.ResponseWriter, r *http.Request
 			a.AccountNumber, positions)
 	}
 	f.detailsBody = "[" + strings.Join(parts, ",") + "]"
+	var sent bytes.Buffer
+	if err := json.Indent(&sent, []byte(f.detailsBody), "", "  "); err != nil {
+		f.t.Errorf("fake Schwab: indenting response: %v", err)
+	}
+	sent.WriteString("\n")
 	w.Header().Set("Content-Type", "application/json")
-	if _, err := io.WriteString(w, f.detailsBody); err != nil {
+	if _, err := io.Copy(w, &sent); err != nil {
 		f.t.Errorf("fake Schwab: writing response: %v", err)
 	}
 }
@@ -260,6 +266,12 @@ func setup(t *testing.T) (*fakeSchwab, string) {
 	t.Setenv("SCHWAB_BASE_URL", f.srv.URL)
 	t.Setenv("SCHWAB_TOKEN_FILE", tokenFile)
 	t.Setenv("SCHWAB_SNAPSHOT_FILE", filepath.Join(filepath.Dir(tokenFile), "snapshots.jsonl"))
+	// Keep the user config directory in the test's temp space too, so that
+	// nothing can reach the real one.
+	home := t.TempDir()
+	t.Setenv("HOME", home)            // macOS
+	t.Setenv("XDG_CONFIG_HOME", home) // Linux and other Unix systems
+	t.Setenv("AppData", home)         // Windows
 	timeNow = func() time.Time { return testNow }
 	t.Cleanup(func() { timeNow = time.Now })
 	return f, tokenFile

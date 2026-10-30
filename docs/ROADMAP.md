@@ -134,8 +134,10 @@ and HTTP code into `internal/schwab` with what the history store needs.
       file lock and refresh coordination between processes
 - [ ] Client-side rate limiting (Schwab publishes 120 requests a minute plus
       the order limit set for the app, shared by every process using the
-      login); backoff on 429 and 5xx for reads only; errors that understand
-      each of Schwab's error formats and carry its correlation ID for support
+      login); backoff on 429 and 5xx for reads only; retries for network
+      errors and for the token refresh, which today fail a run at once, so a
+      scheduled snapshot survives a brief outage; errors that understand each
+      of Schwab's error formats and carry its correlation ID for support
       tickets
 - [ ] Typed models with the raw JSON kept, for account numbers, accounts with
       balances and positions, transactions and user preferences. Written by

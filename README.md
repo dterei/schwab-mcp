@@ -10,8 +10,8 @@ in a local store and plain files that your own return calculators and
 performance dashboards can read. The longer-term goal is a full
 [MCP](https://modelcontextprotocol.io) server for Schwab retail accounts that
 lets an AI assistant look up your accounts, positions, transactions and market
-data. Today it is a small CLI that logs in and prints your recent
-transactions.
+data. Today it is a small CLI that logs in, prints your recent transactions
+and saves snapshots of your positions and balances.
 
 This project is not affiliated with, endorsed by or supported by Charles
 Schwab & Co.
@@ -21,7 +21,7 @@ Schwab & Co.
 | Piece | State |
 | --- | --- |
 | [`schwabtx`](cmd/schwabtx): log in and print recent transactions across all accounts | Works |
-| [`schwabtx snapshot`](cmd/schwabtx/README.md#snapshots): save today's positions and balances, once a day | Works |
+| [`schwabtx snapshot`](cmd/schwabtx/README.md#snapshots): save your current positions and balances; run it daily from cron | Works |
 | Reusable Go client for Schwab's API (milestone 1) | Planned |
 | Full transaction history, stored locally and exported for your calculators (milestone 2) | Planned |
 | MCP server, read-only first (milestone 3) | Planned |
