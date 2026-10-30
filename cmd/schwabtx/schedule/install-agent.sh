@@ -2,7 +2,8 @@
 # install-agent.sh installs, for you, the launchd agent that runs snapshot.sh
 # every day at 9:05 p.m., or at the time given as HH:MM in 24-hour form. Run
 # it again to change the time, or after moving this repository: it replaces
-# the agent. README.md next to this file says more.
+# the agent. It also makes the repository's .env readable only by you.
+# README.md next to this file says more.
 #
 #   install-agent.sh [HH:MM]
 
@@ -42,6 +43,12 @@ case $(lower "$here") in
 	echo "install-agent.sh: if $here is on an external drive or a network volume, macOS will not let the agent read it" >&2
 	;;
 esac
+# The .env holds the app's secret, and unlike Documents, a folder made in the
+# home folder is open to the Mac's other accounts.
+env_file=$here/../../../.env
+if [ -f "$env_file" ]; then
+	chmod go-rwx "$env_file" || echo "install-agent.sh: could not make $env_file readable only by you" >&2
+fi
 hour=${at%:*}
 minute=${at#*:}
 

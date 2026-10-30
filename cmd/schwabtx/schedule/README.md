@@ -57,7 +57,9 @@ output to `~/Library/Logs/schwabtx-snapshot.log`. A run missed while the Mac
 was shut down or you were logged out is skipped. For another time, give it
 in 24-hour form: `sh cmd/schwabtx/schedule/install-agent.sh 22:30`. Run it
 again after moving this repository, too: the agent runs the script where it
-was, and fails without a word once it is gone.
+was, and fails without a word once it is gone. It also makes `.env` readable
+only by you, since unlike Documents, a folder you make in your home folder
+is open to the Mac's other accounts.
 
 macOS then tells you that background items were added. The agent shows up
 under System Settings > General > Login Items & Extensions (Login Items

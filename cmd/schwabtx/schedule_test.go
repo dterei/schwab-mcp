@@ -872,9 +872,25 @@ func TestInstallAgent(t *testing.T) {
 	}
 
 	repo := filepath.Join(home, "R&D | <code>", "schwab-mcp")
+	// A .env that others can read, as cp makes it.
+	envFile := filepath.Join(repo, ".env")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(envFile, []byte("SCHWAB_APP_SECRET=secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(envFile, 0o644); err != nil { // whatever the umask
+		t.Fatal(err)
+	}
 	calls, out, err := install(t, repo, "03:07")
 	if err != nil {
 		t.Fatalf("install-agent.sh: %v\n%s", err, out)
+	}
+	if fi, err := os.Stat(envFile); err != nil {
+		t.Error(err)
+	} else if fi.Mode().Perm() != 0o600 {
+		t.Errorf("left .env as %v, want it readable only by you", fi.Mode().Perm())
 	}
 	plist := filepath.Join(home, "Library", "LaunchAgents", label+".plist")
 	j, err := exec.CommandContext(t.Context(), "plutil", "-convert", "json", "-o", "-", plist).Output()

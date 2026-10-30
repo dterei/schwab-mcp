@@ -84,6 +84,7 @@ guides, so menu names on the portal may differ slightly.
 git clone https://github.com/dterei/schwab-mcp
 cd schwab-mcp
 cp .env.example .env          # then fill in your app key and secret
+chmod 600 .env                # and keep them to yourself
 set -a; . ./.env; set +a      # load it into the environment
 
 go run ./cmd/schwabtx login      # follow the printed steps
@@ -91,7 +92,9 @@ go run ./cmd/schwabtx            # your 100 most recent transactions
 go run ./cmd/schwabtx snapshot   # save today's positions and balances
 ```
 
-On Windows, load `.env` in PowerShell instead:
+On Windows, where `chmod` does not apply, keep the clone inside your user
+profile, which other users cannot read, and load `.env` in PowerShell
+instead:
 
 ```powershell
 Get-Content -Encoding UTF8 .env | ForEach-Object { if ($_ -match '^\s*([A-Za-z_]\w*)=(.*)$') { Set-Item "Env:$($Matches[1])" ($Matches[2] -replace '^(["''])(.*)\1$', '$2') } }
