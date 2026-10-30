@@ -62,8 +62,12 @@ done
 env_file=${1:-$(dirname "$script")/../../../.env}
 cd -P "$(dirname "$env_file")" 2>/dev/null || fail "cannot read $env_file"
 env_file=$(pwd -P)/$(basename "$env_file")
-if [ -d "$env_file" ] || [ ! -r "$env_file" ]; then
+# Only a regular file will do: the script reads it three times, where a named
+# pipe can run dry or hang, and macOS's sh reads nothing from a pipe.
+if [ ! -r "$env_file" ]; then
 	fail "cannot read $env_file"
+elif [ ! -f "$env_file" ]; then
+	fail "cannot read $env_file: not a regular file"
 fi
 if grep -q "$(printf '\r')" "$env_file"; then
 	fail "$env_file has Windows (CRLF) line endings; save it with Unix (LF) ones"

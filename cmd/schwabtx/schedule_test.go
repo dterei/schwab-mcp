@@ -195,6 +195,9 @@ func runScript(t *testing.T, env []string, name string, args ...string) scriptRu
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = env
+	// A script that hangs is stopped after the timeout, and then a command it
+	// started that still holds its output open does not hold up the test.
+	cmd.WaitDelay = 5 * time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -362,6 +365,7 @@ func TestSnapshotScripts(t *testing.T) {
 				crlf        bool   // the .env file has CRLF line endings
 				mistake     bool   // the .env file has a value with a space and no quotes
 				envFolder   bool   // a folder is given as the .env file
+				envPipe     bool   // the .env file is a named pipe that nothing writes to
 				link        string // the script is run through a link: "folder" to its folder, "file" to itself
 
 				wantCode     int
@@ -417,6 +421,10 @@ func TestSnapshotScripts(t *testing.T) {
 				{
 					name: "fails on a folder given as the env file", envFolder: true,
 					wantCode: 1, wantProblems: []string{"error: cannot read "},
+				},
+				{
+					name: "fails at once on a named pipe as the env file", only: "snapshot.sh", cronToo: true, envPipe: true,
+					wantCode: 1, wantProblems: []string{"error: cannot read ", ": not a regular file"},
 				},
 				{
 					name: "tells you of a mistake in the env file", only: "snapshot.sh", cronToo: true, mistake: true,
@@ -529,7 +537,13 @@ func TestSnapshotScripts(t *testing.T) {
 					if tc.crlf {
 						newline = "\r\n"
 					}
-					if !tc.noEnvFile {
+					switch {
+					case tc.noEnvFile:
+					case tc.envPipe:
+						if out, err := exec.CommandContext(t.Context(), "mkfifo", envFile).CombinedOutput(); err != nil {
+							t.Fatalf("mkfifo: %v\n%s", err, out)
+						}
+					default:
 						if err := os.WriteFile(envFile, []byte(strings.Join(lines, newline)+newline), 0o600); err != nil {
 							t.Fatal(err)
 						}
