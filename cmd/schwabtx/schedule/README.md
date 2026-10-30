@@ -32,29 +32,39 @@ after the 4 p.m. Eastern close.
 
 ## macOS
 
-The launchd agent runs `snapshot.sh` at 9:05 p.m., or when the Mac wakes if
-it was asleep then, and appends its output to
-`~/Library/Logs/schwabtx-snapshot.log`. Install it from the root of this
+The launchd agent runs `snapshot.sh` at 9:05 p.m. while you are logged in, or
+when the Mac wakes if it was asleep then, and appends its output to
+`~/Library/Logs/schwabtx-snapshot.log`. A run missed while the Mac was shut
+down or you were logged out is skipped. Install it from the root of this
 repository:
 
 ```sh
-mkdir -p ~/Library/LaunchAgents
+mkdir -p ~/Library/LaunchAgents ~/Library/Logs
 sed -e "s|/Users/YOU/schwab-mcp|$PWD|g" -e "s|/Users/YOU|$HOME|g" \
   cmd/schwabtx/schedule/com.github.dterei.schwabtx.snapshot.plist \
   > ~/Library/LaunchAgents/com.github.dterei.schwabtx.snapshot.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.github.dterei.schwabtx.snapshot.plist
 ```
 
-macOS then tells you that a background item was added. It is listed as `sh`
-under System Settings > General > Login Items & Extensions, and has to stay
-allowed there. Keep this repository out of Documents, Desktop, Downloads and
-iCloud Drive, which macOS does not let background jobs read.
+macOS then tells you that background items were added. The agent shows up
+under System Settings > General > Login Items & Extensions > Allow in the
+Background, probably as `sh` from an unidentified developer. Leave it on:
+switched off, it stops running without a word. Keep this repository out of
+Documents, Desktop, Downloads and iCloud Drive, which macOS does not let
+background jobs read.
 
 Run it once now, and after a few seconds check the log:
 
 ```sh
 launchctl kickstart gui/$(id -u)/com.github.dterei.schwabtx.snapshot
 cat ~/Library/Logs/schwabtx-snapshot.log
+```
+
+If the log stays empty, this shows the agent's last exit code, where 78
+means that the folder for the log is missing:
+
+```sh
+launchctl print gui/$(id -u)/com.github.dterei.schwabtx.snapshot | grep 'last exit code'
 ```
 
 The notifications come from Script Editor, and macOS may drop them until you
@@ -66,15 +76,17 @@ osascript -e 'display notification "test" with title "schwabtx snapshot"'
 
 If it does not, open Script Editor (in Applications > Utilities), run
 `display notification "test"` there and allow notifications when asked, or
-turn them on under System Settings > Notifications > Script Editor. Set
-their style to Alerts (Persistent on newer macOS) so that one stays on
-screen until you close it, and allow Script Editor in any Focus you use in
-the evening. A notification you miss stays in Notification Center. Whether
-or not one shows, the log has every warning and error.
+turn them on under System Settings > Notifications > Script Editor. There,
+set the style to Alerts (Persistent on macOS 26) so that a notification
+stays on screen until you close it, and leave Notification Center on so that
+one you miss is still listed there. Allow Script Editor in any Focus you use
+in the evening. Whether or not a notification shows, the log has every
+warning and error.
 
 To run it at another time, change `Hour` and `Minute` in the copy in
 `~/Library/LaunchAgents`, then run the `bootout` command below and the
-`bootstrap` command above. To remove it:
+`bootstrap` command above. `bootstrap` fails with error 5 or 37 while the
+agent is still loaded. To remove it:
 
 ```sh
 launchctl bootout gui/$(id -u)/com.github.dterei.schwabtx.snapshot
@@ -105,25 +117,36 @@ From PowerShell at the root of this repository, without admin rights:
 ```powershell
 $script = Join-Path $PWD 'cmd\schwabtx\schedule\snapshot.ps1'
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`""
-$trigger = New-ScheduledTaskTrigger -Daily -At '9:05 PM'
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
-Register-ScheduledTask -TaskName 'schwabtx snapshot' -Action $action -Trigger $trigger -Settings $settings
+$trigger = New-ScheduledTaskTrigger -Daily -At '21:05'
+# Local time without a UTC offset, so the task stays at 9:05 p.m. when
+# daylight saving time starts or ends.
+$trigger.StartBoundary = (Get-Date -Hour 21 -Minute 5 -Second 0).ToString('s')
+$principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+Register-ScheduledTask -TaskName 'schwabtx snapshot' -Action $action -Trigger $trigger -Principal $principal -Settings $settings
 ```
 
-The task runs at 9:05 p.m. while you are signed in, also on battery, or as
-soon as it can after a run missed while the PC was off or asleep. A console
-window flashes as it starts; on Windows 11, where Windows Terminal is the
-default terminal, a Terminal window may stay open while it runs. The script
-appends its output to `%LOCALAPPDATA%\schwabtx\snapshot.log`, and warnings
-and errors show as a notification from Windows PowerShell, so keep that
-app's notifications on in Settings > System > Notifications. Do not disturb
-holds a notification back, but it still lands in the notification center.
-The task has to use `powershell.exe`: PowerShell 7 cannot show notifications.
-If Group Policy sets an execution policy on your PC, it overrides
-`-ExecutionPolicy Bypass`; `Get-ExecutionPolicy -List` shows it.
+The task runs at 9:05 p.m. while you are signed in, also on battery; a
+locked screen is fine. A run missed while the PC was off or asleep starts
+about 10 minutes after it is back on. One missed while you were signed out
+may be skipped.
+
+The script appends its output to `%LOCALAPPDATA%\schwabtx\snapshot.log`, and
+warnings and errors show as a notification from Windows PowerShell, so keep
+that app's notifications on in Settings > System > Notifications. Do not
+disturb holds a notification back, but it still lands in the notification
+center. The task has to run `powershell.exe`: PowerShell 7 cannot show
+notifications. If Group Policy sets an execution policy on your PC, it
+overrides `-ExecutionPolicy Bypass`; `Get-ExecutionPolicy -List` shows it.
+
+A console window flashes as the task starts. On Windows 11, where Windows
+Terminal is the default terminal, a Terminal window stays open while it runs
+instead, and closing it stops the run. For just the flash, set Windows
+Terminal's Settings > Startup > Default terminal application to Windows
+Console Host.
 
 Run it once now, and after a few seconds check the log and the result, where
-0 means it worked:
+0 means it worked and 267009 that it is still running:
 
 ```powershell
 Start-ScheduledTask 'schwabtx snapshot'

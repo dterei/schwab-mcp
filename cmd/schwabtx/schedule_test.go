@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -17,6 +19,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 )
 
 // TestMain lets the tests of the scheduler scripts in schedule/ use this test
@@ -471,5 +474,103 @@ func TestLaunchdPlist(t *testing.T) {
 		if out, err := exec.CommandContext(t.Context(), "plutil", "-lint", path).CombinedOutput(); err != nil {
 			t.Errorf("plutil -lint: %v\n%s", err, out)
 		}
+	}
+}
+
+// TestTaskSchedulerSteps registers the task the way schedule/README.md says,
+// under another name, and checks what Task Scheduler stored. It changes the
+// system's scheduled tasks, so it runs only in CI.
+func TestTaskSchedulerSteps(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Task Scheduler is part of Windows")
+	}
+	if os.Getenv("CI") == "" {
+		t.Skip("registers a scheduled task, so it runs only in CI; set CI=1 to run it anyway")
+	}
+	b, err := os.ReadFile(filepath.Join("schedule", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, steps, ok1 := strings.Cut(string(b), "\n## Windows\n")
+	_, steps, ok2 := strings.Cut(steps, "```powershell\n")
+	steps, _, ok3 := strings.Cut(steps, "\n```")
+	if !ok1 || !ok2 || !ok3 || !strings.Contains(steps, "'schwabtx snapshot'") {
+		t.Fatalf("no steps registering 'schwabtx snapshot' under ## Windows in schedule/README.md")
+	}
+	const name = "schwabtx snapshot test"
+	steps = strings.ReplaceAll(steps, "'schwabtx snapshot'", "'"+name+"'")
+	script := "$ErrorActionPreference = 'Stop'\n" + steps + `
+$task = Get-ScheduledTask -TaskName '` + name + `'
+try {
+    [pscustomobject]@{
+        StartBoundary              = $task.Triggers[0].StartBoundary
+        DaysInterval               = $task.Triggers[0].DaysInterval
+        LogonType                  = [string]$task.Principal.LogonType
+        RunLevel                   = [string]$task.Principal.RunLevel
+        StartWhenAvailable         = $task.Settings.StartWhenAvailable
+        DisallowStartIfOnBatteries = $task.Settings.DisallowStartIfOnBatteries
+        StopIfGoingOnBatteries     = $task.Settings.StopIfGoingOnBatteries
+        ExecutionTimeLimit         = $task.Settings.ExecutionTimeLimit
+        Execute                    = $task.Actions[0].Execute
+        Arguments                  = $task.Actions[0].Arguments
+    } | ConvertTo-Json
+} finally {
+    Unregister-ScheduledTask -TaskName '` + name + `' -Confirm:$false
+}
+`
+	// -EncodedCommand takes the script as base64 of its UTF-16LE bytes.
+	units := utf16.Encode([]rune(script))
+	raw := make([]byte, 2*len(units))
+	for i, u := range units {
+		binary.LittleEndian.PutUint16(raw[2*i:], u)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", base64.StdEncoding.EncodeToString(raw))
+	cmd.Dir = filepath.Join("..", "..") // the root of the repository, where the steps are run
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("registering the task: %v\n%s%s", err, stdout.String(), stderr.String())
+	}
+
+	var task struct {
+		StartBoundary              string
+		DaysInterval               int
+		LogonType, RunLevel        string
+		StartWhenAvailable         bool
+		DisallowStartIfOnBatteries bool
+		StopIfGoingOnBatteries     bool
+		ExecutionTimeLimit         string
+		Execute, Arguments         string
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &task); err != nil {
+		t.Fatalf("decoding %q: %v", stdout.String(), err)
+	}
+	// An offset such as -07:00 or Z would tie the time to UTC, so the task
+	// would move by an hour when daylight saving time starts or ends.
+	if !regexp.MustCompile(`^\d{4}-\d\d-\d\dT21:05:00$`).MatchString(task.StartBoundary) {
+		t.Errorf("starts at %q, want 21:05 local time without an offset", task.StartBoundary)
+	}
+	if task.DaysInterval != 1 {
+		t.Errorf("runs every %d days, want every day", task.DaysInterval)
+	}
+	if task.LogonType != "Interactive" || task.RunLevel != "Limited" {
+		t.Errorf("runs with logon type %s at run level %s, want Interactive and Limited", task.LogonType, task.RunLevel)
+	}
+	if !task.StartWhenAvailable || task.DisallowStartIfOnBatteries || task.StopIfGoingOnBatteries {
+		t.Errorf("settings: start when available %v, not on batteries %v, stop on batteries %v; want true, false, false",
+			task.StartWhenAvailable, task.DisallowStartIfOnBatteries, task.StopIfGoingOnBatteries)
+	}
+	if task.ExecutionTimeLimit != "PT30M" {
+		t.Errorf("time limit %s, want PT30M", task.ExecutionTimeLimit)
+	}
+	script, err = filepath.Abs(filepath.Join("schedule", "snapshot.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.EqualFold(task.Execute, "powershell.exe") ||
+		!strings.Contains(strings.ToLower(task.Arguments), strings.ToLower(`-File "`+script+`"`)) {
+		t.Errorf("runs %s %s, want powershell.exe with -File %q", task.Execute, task.Arguments, script)
 	}
 }
