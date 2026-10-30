@@ -55,10 +55,15 @@ an overridden path inside your user profile.
 
 ## Snapshots
 
-Schwab reports positions and balances only as of now, so their past values
-are gone unless you saved them. `schwabtx snapshot` saves them: each run
-appends one line to `snapshots.jsonl` in your user config directory, under
-`schwabtx/`. Choose another file with `-file` or `SCHWAB_SNAPSHOT_FILE`.
+Schwab reports positions and balances only as of now. Holdings on a past
+date can be rebuilt later from your transactions, and stocks and ETFs valued
+with Schwab's daily prices. What cannot be rebuilt is the value of holdings
+that price history does not cover (mutual funds, money-market funds, options
+and bonds) and Schwab's own balance figures for the day, such as buying
+power. `schwabtx snapshot` saves those, along with a daily record to check a
+rebuild against: each run appends one line to `snapshots.jsonl` in your user
+config directory, under `schwabtx/`. Choose another file with `-file` or
+`SCHWAB_SNAPSHOT_FILE`.
 
 The file holds full account numbers and balances. On Linux and macOS the tool
 keeps it readable only by you: it creates the file, and any directory it

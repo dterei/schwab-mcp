@@ -123,8 +123,11 @@ and HTTP code into `internal/schwab` with what the history store needs.
 - [x] `schwabtx snapshot`, built on the CLI's current code so it does not
       wait for the rest: it appends the raw `GET /accounts?fields=positions`
       response and its fetch time to an owner-only JSON Lines file. Schwab
-      reports positions and balances only as of now, so every day without a
-      snapshot is lost for good
+      reports positions and balances only as of now. Milestone 4 can rebuild
+      past holdings from transactions, but not the values of holdings that
+      price history does not cover (mutual funds, money-market funds,
+      options, bonds) or Schwab's own balance figures, so those are lost for
+      every day without a snapshot
 - [ ] A daily scheduled run of it after the market close, with sample
       launchd and Task Scheduler entries (the CLI's README has one for cron).
       It already exits non-zero with the message to run `schwabtx login` once
@@ -170,10 +173,11 @@ The data your return calculators need, kept complete and current.
       cancellations recorded rather than lost
 - [ ] A snapshot on every sync, and the files from `schwabtx snapshot`
       imported, each kept with its time and the market date it stands for;
-      days without one are recorded as gaps. Snapshots are the only exact
-      record of past valuations, and for mutual funds, options and bonds,
-      which price history does not cover, the only record at all. The daily
-      scheduled run becomes `schwabtx sync`
+      days without one are recorded as gaps. Snapshots are Schwab's own
+      record of each day's holdings and values: a check on what milestone 4
+      rebuilds from transactions, and for mutual funds, options and bonds,
+      which price history does not cover, the only source of past values.
+      The daily scheduled run becomes `schwabtx sync`
 - [ ] Every transaction classified (deposit or withdrawal, in-kind transfer in
       or out, journal between your own accounts, buy, sell, dividend,
       interest, fee, tax, other), with overrides you can edit
