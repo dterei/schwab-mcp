@@ -21,7 +21,7 @@ Schwab & Co.
 | Piece | State |
 | --- | --- |
 | [`schwabtx`](cmd/schwabtx): log in and print recent transactions across all accounts | Works |
-| [`schwabtx snapshot`](cmd/schwabtx/README.md#snapshots): save your current positions and balances; run it daily from cron | Works |
+| [`schwabtx snapshot`](cmd/schwabtx/README.md#snapshots): save your current positions and balances; [run it daily](cmd/schwabtx/schedule) with launchd, cron or Task Scheduler | Works |
 | Reusable Go client for Schwab's API (milestone 1) | Planned |
 | Full transaction history, stored locally and exported for your calculators (milestone 2) | Planned |
 | MCP server, read-only first (milestone 3) | Planned |
@@ -123,15 +123,16 @@ You need Go 1.26 or newer.
 ```sh
 make check   # everything CI runs: go.mod tidiness, lint, tests, govulncheck
 make test    # tests with the race detector
-make lint    # golangci-lint, which includes go vet and the format check
+make lint    # golangci-lint, with go vet and the format check, and ShellCheck
 make fmt     # format the code
 make help    # all targets
 ```
 
 `make lint` and `make fmt` run the pinned golangci-lint version through
-`go run`, so there is nothing to install. The race detector in `make test` and
-`make check` needs `gcc` on Linux and Windows (or `CC` set to another C
-compiler); without one, run `make test RACE=`.
+`go run`, so there is nothing to install; `make lint` skips ShellCheck if it
+is not installed. The race detector in `make test` and `make check` needs
+`gcc` on Linux and Windows (or `CC` set to another C compiler); without one,
+run `make test RACE=`.
 
 To get the same formatting on save, set up gopls in your editor with
 `"formatting.gofumpt": true` and
@@ -139,6 +140,8 @@ To get the same formatting on save, set up gopls in your editor with
 
 ```
 cmd/schwabtx/   the CLI and its tests, which run it against a fake Schwab server
+cmd/schwabtx/schedule/
+                scripts and steps for running snapshots daily
 docs/           roadmap, notes on the Schwab API and a survey of prior art
 .github/        CI and Dependabot
 ```
@@ -148,11 +151,13 @@ What runs where:
 - **Linting** ([`.golangci.yml`](.golangci.yml)): golangci-lint v2 with its
   standard linters (go vet, staticcheck, errcheck, ineffassign, unused) plus
   ones for error wrapping, HTTP bodies and contexts, security (gosec) and
-  modern Go idioms. Code is formatted with gofumpt and goimports.
+  modern Go idioms. Code is formatted with gofumpt and goimports. ShellCheck
+  checks the shell scripts.
 - **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), on pull
   requests, pushes to `main` and weekly: tests with the race detector on
   Linux, macOS and Windows with the latest Go, and on Linux with the oldest
-  supported Go; golangci-lint and a `go mod tidy` check; govulncheck.
+  supported Go; golangci-lint, ShellCheck and a `go mod tidy` check;
+  govulncheck.
 - **Dependabot** ([`.github/dependabot.yml`](.github/dependabot.yml)): weekly
   grouped updates for Go modules and GitHub Actions, each release left to age
   a week first. Actions are referenced by major version (`@v7`), so their

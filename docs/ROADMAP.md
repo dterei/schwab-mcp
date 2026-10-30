@@ -128,20 +128,21 @@ and HTTP code into `internal/schwab` with what the history store needs.
       price history does not cover (mutual funds, money-market funds,
       options, bonds) or Schwab's own balance figures, so those are lost for
       every day without a snapshot
-- [ ] A daily scheduled run of it after the market close, with sample
-      launchd and Task Scheduler entries (the CLI's README has one for cron).
-      It already exits non-zero with the message to run `schwabtx login` once
-      the weekly login lapses, and prints the day-ahead expiry warning, so the
-      scheduler can alert you
+- [x] A daily scheduled run of it after the market close
+      ([`cmd/schwabtx/schedule`](../cmd/schwabtx/schedule)): a launchd agent
+      for macOS, a cron line, and a Task Scheduler task for Windows, each
+      running a script that tries a failed run twice more, a minute apart,
+      and passes on the day-ahead expiry warning and any error, as a
+      notification on macOS and Windows and through cron's mail elsewhere
 - [ ] OAuth login, refresh and token store extracted from the CLI, with a
       file lock and refresh coordination between processes
 - [ ] Client-side rate limiting (Schwab publishes 120 requests a minute plus
       the order limit set for the app, shared by every process using the
       login); backoff on 429 and 5xx for reads only; retries for network
-      errors and for the token refresh, which today fail a run at once, so a
-      scheduled snapshot survives a brief outage; errors that understand each
-      of Schwab's error formats and carry its correlation ID for support
-      tickets
+      errors and for the token refresh, which today fail a run at once and
+      leave it to the scheduler scripts to try again a minute later; errors
+      that understand each of Schwab's error formats and carry its
+      correlation ID for support tickets
 - [ ] Typed models with the raw JSON kept, for account numbers, accounts with
       balances and positions, transactions and user preferences. Written by
       hand, since the spec is wrong in places (see
@@ -400,7 +401,7 @@ Everything planned, by area.
 | Client | Orders and every Market Data endpoint, typed, raw JSON kept | M3 |
 | History | Recent transactions across all accounts (`schwabtx`) | done |
 | History | Position and balance snapshots (`schwabtx snapshot`) | done |
-| History | Snapshots on a daily schedule, with sample scheduler entries | M1 |
+| History | Snapshots on a daily schedule, with sample scheduler entries | done |
 | History | Full backfill as far as Schwab serves, then incremental sync | M2 |
 | History | Every transaction classified, with overrides | M2 |
 | History | Import of schwab.com History and Realized Gain/Loss CSVs, each transaction counted once | M2 |
@@ -478,5 +479,5 @@ milestone 1.
   confirmation, limits and an audit log, and why trading waits until the
   read-only server has been in use for a while.
 - **The weekly login** is a fixed cost of Schwab's API. The tools warn early,
-  the scheduled snapshot fails loudly when the login lapses, and the login
-  itself takes a minute.
+  the scheduled snapshot tells you a day before the login lapses and again
+  once it has, and the login itself takes a minute.

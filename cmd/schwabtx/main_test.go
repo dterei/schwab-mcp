@@ -38,6 +38,7 @@ type fakeSchwab struct {
 	cap           int       // max transactions per response, 0 = unlimited
 	oldestAllowed time.Time // startDate before this gets a 400
 	rateLimitNext int       // answer this many transaction calls with 429
+	failDetails   int       // answer this many GET /accounts calls with 403
 	detailsFields string    // fields= of the last GET /accounts
 	detailsBody   string    // what the last GET /accounts returned
 }
@@ -143,6 +144,11 @@ func (f *fakeSchwab) handleAccountDetails(w http.ResponseWriter, r *http.Request
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.authed(w, r) {
+		return
+	}
+	if f.failDetails > 0 {
+		f.failDetails--
+		http.Error(w, `{"message":"try again later"}`, http.StatusForbidden)
 		return
 	}
 	f.detailsFields = r.URL.Query().Get("fields")

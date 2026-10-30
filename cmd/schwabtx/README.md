@@ -95,24 +95,14 @@ tool warns you and saves the rest.
 Run it every day in the evening, after the US market close: mutual fund
 prices can post a few hours after 4 p.m. Eastern. The weekend runs mostly
 repeat Friday's, but they are what warn you a day ahead when the weekly
-login lapses on a weekend. For example, from cron at 9:05 p.m.:
+login lapses on a weekend.
 
-```
-5 21 * * *  set -a && . "$HOME/schwab-mcp/.env" && set +a && "$HOME/go/bin/schwabtx" snapshot 2>&1 >> "$HOME/schwabtx-snapshot.log" | tee -a "$HOME/schwabtx-snapshot.log"
-```
-
-Adjust the paths to where your `.env` and `schwabtx` are (`go install` puts
-it in `~/go/bin`). Cron uses the machine's time zone, so this line assumes US
-time; on a machine set to UTC, use `5 2 * * *`.
-
-The line appends the tool's summary to `~/schwabtx-snapshot.log`. Warnings
-and errors, such as the warning a day before the weekly login lapses and the
-error once it has, go to the log too, and to cron. Cron mails them to you
-only if the machine can send mail and `MAILTO` names an address you read;
-many machines, stock Ubuntu among them, have no mail server, and cron then
-throws the output away. Either way, check now and then that the newest
-snapshot is recent: the last line of the snapshot file starts with its
-`fetched_at`.
+[`schedule/`](schedule) has scripts and steps for launchd on macOS, cron on
+Linux and Task Scheduler on Windows. They try a failed run again, and tell
+you, with a notification or through cron's mail, when the weekly login is
+about to lapse or has, and when a run fails. Even so, check now and then that
+the newest snapshot is recent: the last line of the snapshot file starts with
+its `fetched_at`.
 
 ## How it fetches
 
@@ -135,7 +125,9 @@ go test ./cmd/schwabtx
 
 The tests run the whole tool against a fake Schwab server: login, token
 refresh, paging backwards through windows, merging accounts, splitting
-truncated responses, rate-limit retries and snapshots.
+truncated responses, rate-limit retries and snapshots. They also run the
+scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
+`snapshot.ps1` with each PowerShell on Windows.
 
 ## Open questions
 

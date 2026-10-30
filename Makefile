@@ -17,7 +17,7 @@ all: check
 
 check: ## Everything CI checks
 	go mod tidy -diff
-	$(GOLANGCI_LINT) run
+	$(MAKE) --no-print-directory lint
 	go test $(RACE) -shuffle=on ./...
 	$(GOVULNCHECK) ./...
 
@@ -31,8 +31,10 @@ cover: ## Run the tests and print coverage per function
 	go test -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out
 
-lint: ## Run the linters, go vet and the format check
+lint: ## Run the linters, go vet, the format check and ShellCheck
 	$(GOLANGCI_LINT) run
+	@if command -v shellcheck >/dev/null; then shellcheck cmd/schwabtx/schedule/*.sh; \
+	else echo "shellcheck not found; skipping the shell scripts"; fi
 
 fmt: ## Format the code (gofumpt and goimports)
 	$(GOLANGCI_LINT) fmt
