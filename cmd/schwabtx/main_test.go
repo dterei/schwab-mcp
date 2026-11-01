@@ -38,6 +38,7 @@ type fakeSchwab struct {
 	cap           int       // max transactions per response, 0 = unlimited
 	oldestAllowed time.Time // startDate before this gets a 400
 	rateLimitNext int       // answer this many transaction calls with 429
+	failDetails   int       // answer this many GET /accounts calls with 403
 	detailsFields string    // fields= of the last GET /accounts
 	detailsBody   string    // what the last GET /accounts returned
 }
@@ -143,6 +144,11 @@ func (f *fakeSchwab) handleAccountDetails(w http.ResponseWriter, r *http.Request
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.authed(w, r) {
+		return
+	}
+	if f.failDetails > 0 {
+		f.failDetails--
+		http.Error(w, `{"message":"try again later"}`, http.StatusForbidden)
 		return
 	}
 	f.detailsFields = r.URL.Query().Get("fields")
@@ -742,5 +748,35 @@ func TestMissingCredentials(t *testing.T) {
 	t.Setenv("SCHWAB_APP_SECRET", "")
 	if _, _, err := runTx(t); err == nil || !strings.Contains(err.Error(), "SCHWAB_APP_SECRET") {
 		t.Fatalf("expected a missing-credentials error, got %v", err)
+	}
+}
+
+func TestExpiryWarning(t *testing.T) {
+	timeNow = func() time.Time { return testNow }
+	t.Cleanup(func() { timeNow = time.Now })
+	for _, tc := range []struct {
+		left time.Duration // until the login lapses
+		want string
+	}{
+		{left: 49 * time.Hour},
+		{left: 48 * time.Hour, want: "in about 48 hours"},
+		{left: 36*time.Hour + 20*time.Minute, want: "in about 36 hours"},
+		{left: 90 * time.Minute, want: "in about 2 hours"},
+		{left: time.Hour, want: "in about an hour"},
+		{left: 20 * time.Minute, want: "in less than an hour"},
+		{left: 0},
+		{left: -time.Hour},
+	} {
+		a := &authenticator{tok: &token{RefreshObtainedAt: testNow.Add(tc.left - refreshTokenLifetime)}}
+		got := a.expiryWarning()
+		switch {
+		case tc.want == "" && got != "":
+			t.Errorf("%v left: warned %q", tc.left, got)
+		case tc.want != "" && !strings.Contains(got, "expires "+tc.want+"; run `schwabtx login`"):
+			t.Errorf("%v left: warned %q, want it to say %q", tc.left, got, tc.want)
+		}
+	}
+	if got := (&authenticator{}).expiryWarning(); got != "" {
+		t.Errorf("warned %q without a saved login", got)
 	}
 }

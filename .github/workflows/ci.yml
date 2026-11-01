@@ -57,6 +57,9 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
+      # ShellCheck comes with the Ubuntu runner.
+      - name: Check the shell scripts
+        run: shellcheck cmd/schwabtx/schedule/*.sh
 
   govulncheck:
     runs-on: ubuntu-latest

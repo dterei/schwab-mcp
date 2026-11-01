@@ -22,6 +22,11 @@ import (
 // issued them; refreshing the access token does not extend that.
 const refreshTokenLifetime = 7 * 24 * time.Hour
 
+// expiryWarningWindow is how long before the login lapses the tools start to
+// warn. Two days, so that a snapshot scheduled once a day warns at least a
+// day ahead, whatever the time of day of the login.
+const expiryWarningWindow = 48 * time.Hour
+
 type token struct {
 	AccessToken       string    `json:"access_token"`
 	RefreshToken      string    `json:"refresh_token"`
@@ -107,13 +112,14 @@ func (a *authenticator) save() error {
 	return nil
 }
 
-// expiryWarning returns a message when the weekly re-login is less than a day away.
+// expiryWarning returns a message when the weekly re-login is due within
+// expiryWarningWindow.
 func (a *authenticator) expiryWarning() string {
 	if a.tok == nil || a.tok.RefreshObtainedAt.IsZero() {
 		return ""
 	}
 	left := a.tok.RefreshObtainedAt.Add(refreshTokenLifetime).Sub(timeNow())
-	if left <= 0 || left > 24*time.Hour {
+	if left <= 0 || left > expiryWarningWindow {
 		return ""
 	}
 	when := "in less than an hour"
