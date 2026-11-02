@@ -177,6 +177,8 @@ type flight struct {
 	// made it gave up or had no time left for the next try, or a panic.
 	// Then one of those waiting carries on its tries from next.
 	quit bool
+	// next is how far its tries have got: while it runs, as of the last
+	// wait it began, guarded by Auth.mu; once done is closed, as it ended.
 	next series
 	// followers is how many others have waited for it, for tests.
 	followers int
@@ -478,8 +480,10 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 	for {
 		a.mu.Lock()
 		f, follow := a.flights[rejected]
+		var sofar series
 		if follow {
 			f.followers++
+			sofar = f.next
 		} else {
 			f = &flight{done: make(chan struct{})}
 			if a.flights == nil {
@@ -491,27 +495,32 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 		if !follow {
 			return a.lead(ctx, rejected, f, from)
 		}
+		// A wait that the renewal has begun and that this caller's deadline
+		// would cut short is not waited for.
+		if wait := time.Until(sofar.due); wait > 0 && sofar.last != nil && !fits(ctx, wait) {
+			return "", sofar.last
+		}
 		select {
 		case <-f.done:
 		case <-ctx.Done():
-			return "", ctx.Err()
+			a.mu.Lock()
+			last := f.next.last
+			a.mu.Unlock()
+			return "", withLast(ctx.Err(), last)
 		}
 		if !f.quit {
 			return f.tok, f.err
 		}
-		// The renewal ended without an answer. Carry on its tries, after the
-		// wait it was due, if this caller has the time for it.
+		// The renewal ended without an answer: carry on its tries, if this
+		// caller has the time for the wait it was due. Its last failure, not
+		// its own error, which may carry its caller's cancel, is the one
+		// that counts.
 		from = f.next
-		if wait := time.Until(from.due); wait > 0 {
-			if !fits(ctx, wait) {
-				return "", f.err // no more time than the one that gave up
-			}
-			if err := a.sleep(ctx, wait); err != nil {
-				return "", withLast(err, f.err)
-			}
+		if wait := time.Until(from.due); wait > 0 && from.last != nil && !fits(ctx, wait) {
+			return "", from.last
 		}
 		if err := ctx.Err(); err != nil {
-			return "", withLast(err, f.err)
+			return "", withLast(err, from.last)
 		}
 	}
 }
@@ -520,36 +529,60 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 // off, and ends it whatever happens, a panic included, so that they do not
 // wait forever.
 func (a *Auth) lead(ctx context.Context, rejected string, f *flight, from series) (string, error) {
-	finished := false
+	var (
+		tok      string
+		next     series
+		quit     bool
+		err      error
+		finished bool
+	)
 	defer func() {
-		if !finished {
-			f.quit = true // a panic is no answer for the others
-		}
 		a.mu.Lock()
+		f.tok, f.err, f.next = tok, err, next
+		f.quit = !finished || err != nil && quit // a panic is no answer for the others
 		delete(a.flights, rejected)
 		a.mu.Unlock()
 		close(f.done)
 	}()
-	tok, next, quit, err := a.renewTries(ctx, rejected, from)
-	f.tok, f.err, f.next, f.quit = tok, err, next, err != nil && quit
+	tok, next, quit, err = a.renewTries(ctx, rejected, from, f)
 	finished = true
 	return tok, err
 }
 
-// renewTries is renew for one goroutine, from where s left off. A refresh
-// that fails for a while, on the network or at Schwab, is tried again, up to
-// refreshTries times in all, but one that times out only once more, as a
-// read is. Between tries the lock is let go and the wait comes without it,
-// since another process may refresh meanwhile, and the next try re-reads the
-// file to find out. A refresh that Schwab refuses looks at the file once
-// more, since a login that was waiting for the lock may just have saved.
+// note records on f how far its tries have got, as a wait begins, for those
+// who wait for it.
+func (a *Auth) note(f *flight, s series) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	f.next = s
+}
+
+// renewTries is renew for one goroutine, for the renewal f, from where s
+// left off. A refresh that fails for a while, on the network or at Schwab,
+// is tried again, up to refreshTries times in all, but one that times out
+// only once more, as a read is. Between tries the lock is let go and the
+// wait comes without it, since another process may refresh meanwhile, and
+// the next try re-reads the file to find out. A refresh that Schwab refuses
+// looks at the file once more, since a login that was waiting for the lock
+// may just have saved.
 //
 // quit reports that the tries ended without an answer, because ctx ended or
-// its deadline left no time for the next try; then next says where they
+// its deadline left no time for the next wait; then next says where they
 // stopped, for another caller with more time to carry on from.
-func (a *Auth) renewTries(ctx context.Context, rejected string, s series) (tok string, next series, quit bool, err error) {
+func (a *Auth) renewTries(ctx context.Context, rejected string, s series, f *flight) (tok string, next series, quit bool, err error) {
 	if s.try == 0 {
 		s.try = 1
+	}
+	// The wait that the renewal this one carries on was due to make, inside
+	// this renewal, so that others who arrive meanwhile wait with it.
+	if wait := time.Until(s.due); wait > 0 {
+		if !fits(ctx, wait) {
+			return "", s, true, s.last
+		}
+		a.note(f, s)
+		if serr := a.sleep(ctx, wait); serr != nil {
+			return "", s, true, withLast(serr, s.last)
+		}
 	}
 	for {
 		// A token request runs to its end whatever ctx says, so none begins
@@ -569,8 +602,13 @@ func (a *Auth) renewTries(ctx context.Context, rejected string, s series) (tok s
 			return "", s, true, withLast(err, s.last) // the wait for the lock was cut short
 		case requested && !s.rechecked && errors.Is(err, ErrLoginExpired):
 			s.rechecked, s.last = true, err
-			if serr := a.sleep(ctx, recheckWait); serr != nil {
+			s.due = time.Now().Add(recheckWait)
+			if !fits(ctx, recheckWait) {
 				return "", s, true, err
+			}
+			a.note(f, s)
+			if serr := a.sleep(ctx, recheckWait); serr != nil {
+				return "", s, true, withLast(serr, err)
 			}
 			continue
 		case !refreshTransient(context.WithoutCancel(ctx), err):
@@ -591,11 +629,12 @@ func (a *Auth) renewTries(ctx context.Context, rejected string, s series) (tok s
 		}
 		s.try++
 		s.due = time.Now().Add(wait)
-		if ctx.Err() != nil || !fits(ctx, wait) {
+		if !fits(ctx, wait) {
 			return "", s, true, err
 		}
+		a.note(f, s)
 		if serr := a.sleep(ctx, wait); serr != nil {
-			return "", s, true, fmt.Errorf("%w while waiting to try again; the last try got: %w", serr, err)
+			return "", s, true, withLast(serr, err)
 		}
 	}
 }

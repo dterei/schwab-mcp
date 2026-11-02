@@ -58,7 +58,9 @@ func Acquire(ctx context.Context, path string, wait time.Duration) (*Lock, error
 		if !time.Now().Before(deadline) {
 			return nil, fmt.Errorf("waited %v for %s: %w", wait, path, ErrTimeout)
 		}
-		timer := time.NewTimer(delay)
+		// The last sleep ends at the deadline, so that the wait is wait,
+		// not up to a poll longer.
+		timer := time.NewTimer(min(delay, time.Until(deadline)))
 		select {
 		case <-ctx.Done():
 			timer.Stop()

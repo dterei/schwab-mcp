@@ -136,9 +136,11 @@ its `fetched_at`.
   meanwhile, or a refresh. A 401 for a token that Schwab issued moments ago is
   reported as it is, since a new token would not help.
 - After a 429, a 5xx answer or a failure of the network it tries again, up to
-  four times in all, waiting 1, 2, then 4 seconds, or what Schwab asks in
-  Retry-After.
-  A 429 holds back every process that shares the rate limit for that long,
+  four times in all. It waits 1, 2, then 4 seconds (after a 5xx or a failure
+  of the network, between half and all of that, at random), or what Schwab
+  asks in Retry-After: after a 429 always, after a 5xx only if that is longer.
+  If Schwab asks for more than a minute, it stops at once. A 429 holds back
+  every process that shares the rate limit for that wait, at most a minute,
   not only this one. A request that times out is tried once more, not three
   times; a refresh of the login that fails on the network or at Schwab is
   tried again too.

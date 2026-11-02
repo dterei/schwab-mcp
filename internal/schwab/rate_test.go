@@ -351,8 +351,16 @@ func TestRateShortDeadlinesReachBusyMode(t *testing.T) {
 			t.Fatalf("check %d: %v", i, err)
 		}
 	}
+	// The warning names the wait in all, not the last check's part of it.
+	var waited time.Duration
 	if len(warnings) != 1 {
-		t.Errorf("warnings %q, want one", warnings)
+		t.Fatalf("warnings %q, want one", warnings)
+	}
+	if _, after, ok := strings.Cut(warnings[0], "waited "); ok {
+		waited, _ = time.ParseDuration(strings.Fields(after)[0])
+	}
+	if waited < c.limit.wait {
+		t.Errorf("the warning %q names a wait of %v, want at least %v", warnings[0], waited, c.limit.wait)
 	}
 }
 
@@ -390,6 +398,23 @@ func TestRateClockSetBackWhileKeptApart(t *testing.T) {
 	held = false
 	if got := takeTimes(t, c, 1, back); got[0] != time.Minute {
 		t.Errorf("let go %v after the clock went back, want the minute that was left of the pause", got[0])
+	}
+}
+
+// A pause waits for its turn at the limit longer than the lock does, so that
+// when another process keeps the lock, the lock's wait runs out first and the
+// pause is kept in this process's own limit, rather than dropped.
+func TestRatePauseOutlastsTheLockWait(t *testing.T) {
+	c := newRateClient(t, filepath.Join(t.TempDir(), "rate"), ClientConfig{}, &fakeTime{now: testNow})
+	c.limit.lock = func(ctx context.Context, _ string, wait time.Duration) (*filelock.Lock, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) < wait+time.Second {
+			t.Errorf("the pause gives its turn %v, the lock waits %v", time.Until(deadline), wait)
+		}
+		return nil, filelock.ErrTimeout
+	}
+	if err := c.pause(t.Context(), time.Second); err != nil {
+		t.Fatal(err)
 	}
 }
 

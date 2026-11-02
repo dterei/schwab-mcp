@@ -1009,8 +1009,9 @@ func TestRefreshFollowerGivesUp(t *testing.T) {
 	f.mu.Lock()
 	f.tokenFailures = []int{http.StatusServiceUnavailable}
 	f.mu.Unlock()
-	release := make(chan struct{})
+	release, sleeping := make(chan struct{}), make(chan struct{})
 	a.sleep = func(ctx context.Context, _ time.Duration) error {
+		close(sleeping)
 		select {
 		case <-release:
 			return nil
@@ -1023,7 +1024,7 @@ func TestRefreshFollowerGivesUp(t *testing.T) {
 		_, err := a.AccessToken(t.Context())
 		leader <- err
 	}()
-	waitFor(t, "the renewal", func() bool { a.mu.Lock(); defer a.mu.Unlock(); return a.flights[""] != nil })
+	<-sleeping
 	ctx, cancel := context.WithCancel(t.Context())
 	follower := make(chan error, 1)
 	go func() {
@@ -1034,8 +1035,8 @@ func TestRefreshFollowerGivesUp(t *testing.T) {
 	cancel()
 	select {
 	case err := <-follower:
-		if !errors.Is(err, context.Canceled) {
-			t.Errorf("the follower: %v, want context.Canceled", err)
+		if se, ok := errors.AsType[*Error](err); !errors.Is(err, context.Canceled) || !ok || se.Status != http.StatusServiceUnavailable {
+			t.Errorf("the follower: %v, want context.Canceled and the last try's 503", err)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("the follower kept waiting after its cancel")
@@ -1476,5 +1477,164 @@ func TestRefreshLeaderGoneDuringItsRequest(t *testing.T) {
 	}
 	if err := <-leader; err == nil {
 		t.Error("the leader got no error")
+	}
+}
+
+// When the goroutine renewing has no time left for the look at the token
+// file after a refusal, one that waits with it makes the look, after the
+// same wait, and so finds a login saved meanwhile.
+func TestRefreshRecheckHandedOver(t *testing.T) {
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	tokenFile := filepath.Join(t.TempDir(), "token.json")
+	writeTestToken(t, tokenFile, token{AccessToken: "old", RefreshToken: "ended", AccessExpiresAt: testNow.Add(-time.Hour), RefreshObtainedAt: testNow.Add(-time.Hour)})
+	a := newTestAuth(t, f, tokenFile, c)
+	var once sync.Once
+	f.mu.Lock()
+	f.delay = 200 * time.Millisecond // past the first goroutine's deadline
+	f.onToken = func() {
+		once.Do(func() {
+			waitFor(t, "the follower", func() bool { return followers(a) == 1 })
+			// A login waiting for the lock saves soon after the refusal.
+			time.AfterFunc(400*time.Millisecond, func() {
+				writeTestToken(t, tokenFile, token{AccessToken: "new", RefreshToken: "fresh", AccessObtainedAt: testNow, AccessExpiresAt: testNow.Add(30 * time.Minute), RefreshObtainedAt: testNow})
+			})
+		})
+	}
+	f.mu.Unlock()
+	short, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	leader := make(chan error, 1)
+	go func() {
+		_, err := a.AccessToken(short)
+		leader <- err
+	}()
+	waitFor(t, "the renewal", func() bool { a.mu.Lock(); defer a.mu.Unlock(); return a.flights[""] != nil })
+	if tok, err := a.AccessToken(t.Context()); err != nil || tok != "new" {
+		t.Errorf("the goroutine with time: %q, %v; want the new login's token", tok, err)
+	}
+	if err := <-leader; !errors.Is(err, ErrLoginExpired) {
+		t.Errorf("the goroutine out of time: %v, want the refusal", err)
+	}
+}
+
+// A goroutine that asks for a renewal while another waits to carry on one
+// that ended without an answer waits with it, rather than sends at once.
+func TestRefreshNewcomerJoinsTheCarriedWait(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	sent := &counting{inner: http.DefaultTransport}
+	a.cfg.HTTPClient = &http.Client{Transport: sent}
+	var once sync.Once
+	f.mu.Lock()
+	f.tokenFailures = []int{http.StatusServiceUnavailable}
+	f.tokenRetryAfter = "2"
+	f.onToken = func() {
+		once.Do(func() { waitFor(t, "the follower", func() bool { return followers(a) == 1 }) })
+	}
+	f.mu.Unlock()
+	newcomer := make(chan string, 1)
+	a.sleep = func(ctx context.Context, _ time.Duration) error {
+		// The carried wait: a newcomer arrives during it, and must join.
+		go func() {
+			tok, err := a.AccessToken(t.Context())
+			if err != nil {
+				t.Errorf("the newcomer: %v", err)
+			}
+			newcomer <- tok
+		}()
+		for i := 0; followers(a) == 0 && i < 5000; i++ {
+			time.Sleep(time.Millisecond)
+		}
+		return ctx.Err()
+	}
+	short, cancel := context.WithTimeout(t.Context(), time.Second) // shorter than Retry-After's 2s
+	defer cancel()
+	go func() { _, _ = a.AccessToken(short) }()
+	waitFor(t, "the renewal", func() bool { a.mu.Lock(); defer a.mu.Unlock(); return a.flights[""] != nil })
+	if tok, err := a.AccessToken(t.Context()); err != nil || tok != "access-2" {
+		t.Errorf("the one that carried on: %q, %v; want access-2", tok, err)
+	}
+	if tok := <-newcomer; tok != "access-2" {
+		t.Errorf("the newcomer got %q, want access-2", tok)
+	}
+	if n := sent.n.Load(); n != 2 {
+		t.Errorf("%d token requests, want 2", n)
+	}
+}
+
+// A goroutine waiting for a renewal whose next wait it has no time for gets
+// the last failure at once, and never the renewing goroutine's own cancel,
+// whether it joined before that wait began or during it.
+func TestRefreshFollowerGetsTheLastFailure(t *testing.T) {
+	for _, joinDuring := range []bool{false, true} {
+		f := newFakeOAuth(t)
+		a := loggedInAuth(t, f)
+		leaderCtx, cancelLeader := context.WithCancel(t.Context())
+		follower := make(chan error, 1)
+		startFollower := func() {
+			go func() {
+				ctx, cancel := context.WithTimeout(t.Context(), 1500*time.Millisecond) // shorter than Retry-After's 5s
+				defer cancel()
+				_, err := a.AccessToken(ctx)
+				follower <- err
+			}()
+		}
+		var once sync.Once
+		f.mu.Lock()
+		f.tokenFailures = []int{http.StatusServiceUnavailable}
+		f.tokenRetryAfter = "5"
+		if !joinDuring {
+			f.onToken = func() {
+				once.Do(func() { waitFor(t, "the follower", func() bool { return followers(a) == 1 }) })
+			}
+		}
+		f.mu.Unlock()
+		var err error
+		a.sleep = func(ctx context.Context, _ time.Duration) error {
+			if joinDuring {
+				// The follower joins while this wait goes on, and must not
+				// wait for it.
+				startFollower()
+				select {
+				case err = <-follower:
+				case <-time.After(10 * time.Second):
+				}
+			}
+			cancelLeader() // its caller gives up during the wait
+			return ctx.Err()
+		}
+		leaderDone := make(chan struct{})
+		go func() {
+			defer close(leaderDone)
+			_, _ = a.AccessToken(leaderCtx)
+		}()
+		if joinDuring {
+			<-leaderDone
+		} else {
+			waitFor(t, "the renewal", func() bool { a.mu.Lock(); defer a.mu.Unlock(); return a.flights[""] != nil })
+			startFollower()
+			err = <-follower
+		}
+		if se, ok := errors.AsType[*Error](err); !ok || se.Status != http.StatusServiceUnavailable ||
+			errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("joined during the wait %v: the follower got %v, want the 503 at once, without a cancel", joinDuring, err)
+		}
+	}
+}
+
+// A caller that gives up during a token request that fails for a while gets
+// its cancel, with the failure, as when it gives up during the wait after.
+func TestRefreshCancelDuringAFailingRequest(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	ctx, cancel := context.WithCancel(t.Context())
+	f.mu.Lock()
+	f.tokenFailures = []int{http.StatusServiceUnavailable}
+	f.onToken = cancel
+	f.mu.Unlock()
+	_, err := a.AccessToken(ctx)
+	if se, ok := errors.AsType[*Error](err); !errors.Is(err, context.Canceled) || !ok || se.Status != http.StatusServiceUnavailable {
+		t.Errorf("AccessToken: %v, want context.Canceled and the 503", err)
 	}
 }

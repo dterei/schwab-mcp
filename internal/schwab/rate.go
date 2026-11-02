@@ -297,12 +297,15 @@ func (l *limiter) changeFile(ctx context.Context, now func() time.Time,
 func (l *limiter) take(ctx context.Context) (*filelock.Lock, error) {
 	if !l.busy {
 		start := time.Now()
-		lk, err := l.lock(ctx, l.path, l.wait-l.waited)
+		lk, err := l.lock(ctx, l.path, max(l.wait-l.waited, 0))
 		switch {
 		case err == nil:
 			l.waited = 0
 		case ctx.Err() != nil:
 			l.waited += time.Since(start)
+		case errors.Is(err, filelock.ErrTimeout):
+			// Say how long the wait was in all, not this check's part of it.
+			err = fmt.Errorf("waited %v for its lock: %w", (l.waited + time.Since(start)).Round(time.Millisecond), filelock.ErrTimeout)
 		}
 		return lk, err
 	}
