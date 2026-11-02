@@ -854,3 +854,35 @@ func TestDefaultTokenFile(t *testing.T) {
 		t.Errorf("token file %s, want %s, ending in schwabtx/token.json", st.TokenFile, want)
 	}
 }
+
+// A token file under a link to a folder is found by its real path even
+// before the folders it goes in exist, so that a process that starts before
+// the first login uses the same path as one that starts after.
+func TestTokenFileUnderALinkedFolder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("links need extra rights on Windows")
+	}
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "real")
+	if err := os.Mkdir(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	a, err := NewAuth(Config{AppKey: testKey, AppSecret: testSecret, TokenFile: filepath.Join(dir, "link", "cfg", "token.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := a.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(realDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want = filepath.Join(want, "cfg", "token.json"); st.TokenFile != want {
+		t.Errorf("token file %s, want %s", st.TokenFile, want)
+	}
+}

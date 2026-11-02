@@ -162,21 +162,26 @@ func NewAuth(cfg Config) (*Auth, error) {
 	return &Auth{cfg: cfg, tokenFile: tokenFile, sem: make(chan struct{}, 1)}, nil
 }
 
-// resolve returns path made absolute, with links followed as far as they
-// exist.
+// resolve returns path made absolute, with links followed, and on Windows
+// short names made long, in the longest part of it that exists: before the
+// first login neither the file nor its directory may exist.
 func resolve(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved, nil
+	rest := ""
+	for p := abs; ; {
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(resolved, rest), nil
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return abs, nil
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+		p = parent
 	}
-	// The file does not exist yet, so follow links in its directory.
-	if dir, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil {
-		return filepath.Join(dir, filepath.Base(abs)), nil
-	}
-	return abs, nil
 }
 
 // Status describes the login in the token file, without its tokens.
