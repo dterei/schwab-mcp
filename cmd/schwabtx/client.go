@@ -21,8 +21,11 @@ type client struct {
 	pageCap int
 }
 
+// clientConfig tunes the client. Tests set a fast rate and short waits.
+var clientConfig schwab.ClientConfig
+
 func newClient(auth *schwab.Auth) *client {
-	return &client{api: schwab.NewClient(auth), pageCap: schwabMaxTransactions}
+	return &client{api: schwab.NewClient(auth, clientConfig), pageCap: schwabMaxTransactions}
 }
 
 // get fetches a Trader API path and returns the response body. Its errors

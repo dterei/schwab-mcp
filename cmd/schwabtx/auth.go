@@ -20,14 +20,13 @@ const expiryWarningWindow = 48 * time.Hour
 
 // newAuth returns the login for cfg, kept in cfg.TokenFile and shared with
 // any other process using that file. Its warnings go to stderr.
-func newAuth(cfg config, httpClient *http.Client, stderr io.Writer) (*schwab.Auth, error) {
+func newAuth(cfg config, stderr io.Writer) (*schwab.Auth, error) {
 	return schwab.NewAuth(schwab.Config{
 		AppKey:      cfg.AppKey,
 		AppSecret:   cfg.AppSecret,
 		CallbackURL: cfg.CallbackURL,
 		BaseURL:     cfg.BaseURL,
 		TokenFile:   cfg.TokenFile,
-		HTTPClient:  httpClient,
 		Now:         func() time.Time { return timeNow() },
 		Warn:        func(msg string) { fmt.Fprintln(stderr, "warning:", msg) },
 	})
@@ -35,8 +34,8 @@ func newAuth(cfg config, httpClient *http.Client, stderr io.Writer) (*schwab.Aut
 
 // openLogin checks that there is a saved login, warning on stderr when it
 // lapses soon.
-func openLogin(cfg config, httpClient *http.Client, stderr io.Writer) (*schwab.Auth, error) {
-	auth, err := newAuth(cfg, httpClient, stderr)
+func openLogin(cfg config, stderr io.Writer) (*schwab.Auth, error) {
+	auth, err := newAuth(cfg, stderr)
 	if err != nil {
 		return nil, err
 	}
@@ -53,9 +52,10 @@ func openLogin(cfg config, httpClient *http.Client, stderr io.Writer) (*schwab.A
 	return auth, nil
 }
 
-// hint adds to an error from the login what to do about it.
+// hint adds to an error from the login or the API what to do about it.
 func hint(err error) error {
 	var what string
+	se, fromSchwab := errors.AsType[*schwab.Error](err)
 	switch {
 	case errors.Is(err, schwab.ErrNotLoggedIn):
 		what = "run `schwabtx login` first"
@@ -63,6 +63,12 @@ func hint(err error) error {
 		what = "run `schwabtx login` again (Schwab ends a login after 7 days, or sooner when you log in elsewhere)"
 	case errors.Is(err, schwab.ErrAppRejected):
 		what = `check SCHWAB_APP_KEY and SCHWAB_APP_SECRET, and that the app is "Ready For Use"`
+	case errors.Is(err, schwab.ErrRateLimited):
+		what = "Schwab is limiting requests from your app key, counting every program that uses it; wait a minute and try again"
+	case fromSchwab && se.Status == http.StatusInternalServerError && strings.Contains(se.Body, "Whitelabel Error Page"):
+		what = `Schwab answers this way until the app says "Ready For Use" on developer.schwab.com`
+	case fromSchwab && se.Reference != "":
+		what = "Schwab's network turned the request away; that usually passes within hours, and if it does not, write to traderapi@schwab.com with the reference"
 	default:
 		return err
 	}

@@ -105,7 +105,7 @@ func (a *Auth) tokenRequest(ctx context.Context, form url.Values) (tokenResponse
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return out, err
+		return out, fmt.Errorf("%w: %w", errReading, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return out, newError(resp.StatusCode, resp.Header, body)

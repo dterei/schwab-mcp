@@ -56,6 +56,12 @@ const (
 	refreshTries = 4
 	refreshWait  = time.Second
 
+	// recheckWait is how long a refresh that Schwab refused waits before it
+	// looks at the token file once more: twice the longest that a process
+	// waiting for the lock sleeps between looks, so that a login waiting to
+	// save gets in first.
+	recheckWait = 500 * time.Millisecond
+
 	// freshTokenAge is how old an access token must be before Schwab
 	// refusing it leads to a refresh. Schwab refusing a token it has only
 	// just issued means that something else is wrong, such as an API product
@@ -102,8 +108,10 @@ type Config struct {
 	// TokenFile + ".lock" for the login, and TokenFile + ".stream.lock",
 	// kept for the streamer.
 	TokenFile string
-	// HTTPClient makes the token requests. Nil means a client with a
-	// 30-second timeout.
+	// HTTPClient makes the token requests, and a Client's API requests. Nil
+	// means a client with a 30-second timeout whose HTTP/2 connections are
+	// checked with a ping when they go quiet, so that one that has stopped
+	// answering, as after a change of network, is not used again.
 	HTTPClient *http.Client
 	// Now tells the time by which tokens expire. Nil means time.Now. Waits
 	// use real timers whatever it says.
@@ -142,10 +150,27 @@ type Auth struct {
 	refused    string
 	refusedErr error
 
+	// flights are the renewals in progress in this process, by the access
+	// token that they replace after Schwab refused it, or "". Goroutines that
+	// need the same renewal wait for it rather than make their own.
+	flights map[string]*flight
+
 	// sleep waits between tries of a refresh, and jitter picks a wait up to
 	// the one given; tests replace them.
 	sleep  func(ctx context.Context, d time.Duration) error
 	jitter func(d time.Duration) time.Duration
+}
+
+// flight is a renewal in progress.
+type flight struct {
+	done chan struct{}
+	tok  string
+	err  error
+	// quit means that it failed because the caller who made it gave up,
+	// which is no answer for the others.
+	quit bool
+	// followers is how many others have waited for it, for tests.
+	followers int
 }
 
 // NewAuth returns an Auth for cfg. It does not read the token file yet.
@@ -170,8 +195,11 @@ func NewAuth(cfg Config) (*Auth, error) {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = DefaultBaseURL
 	}
+	if u, err := url.Parse(cfg.BaseURL); err != nil || u.Scheme != "https" && u.Scheme != "http" || u.Host == "" {
+		return nil, fmt.Errorf("the base URL %q is not an https or http address", cfg.BaseURL)
+	}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+		cfg.HTTPClient = &http.Client{Timeout: 30 * time.Second, Transport: newTransport()}
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -184,6 +212,19 @@ func NewAuth(cfg Config) (*Auth, error) {
 		lock: filelock.Acquire, tryLock: filelock.TryAcquire,
 		sleep: sleep, jitter: equalJitter,
 	}, nil
+}
+
+// newTransport returns Go's default transport with a health check for HTTP/2
+// connections: Go keeps using one that has stopped answering until the
+// system gives up on it, which can take many minutes.
+func newTransport() http.RoundTripper {
+	def, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return http.DefaultTransport
+	}
+	t := def.Clone()
+	t.HTTP2 = &http.HTTP2Config{SendPingTimeout: 15 * time.Second, PingTimeout: 10 * time.Second}
+	return t
 }
 
 var (
@@ -409,50 +450,115 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 
 // renew re-reads the token file under the lock, and returns its access token
 // if that is fresh and not rejected; otherwise it refreshes the token and
-// saves the result. A refresh that fails for a while, on the network or at
-// Schwab, is tried again, up to refreshTries times in all. Between tries the
-// lock is let go and the wait comes without it, since another process may
-// refresh meanwhile, and the next try re-reads the file to find out.
+// saves the result. Goroutines of this process that renew at once, for the
+// same rejected token, share one renewal.
 func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
-	for try := 1; ; try++ {
-		tok, err := a.renewOnce(ctx, rejected)
-		if err == nil || try >= refreshTries || !refreshTransient(ctx, err) {
-			return tok, err
+	for {
+		a.mu.Lock()
+		f, follow := a.flights[rejected]
+		if follow {
+			f.followers++
+		} else {
+			f = &flight{done: make(chan struct{})}
+			if a.flights == nil {
+				a.flights = map[string]*flight{}
+			}
+			a.flights[rejected] = f
 		}
-		if err := a.sleep(ctx, a.backoff(try)); err != nil {
+		a.mu.Unlock()
+		if !follow {
+			f.tok, f.err = a.renewTries(ctx, rejected)
+			f.quit = f.err != nil && ctx.Err() != nil
+			a.mu.Lock()
+			delete(a.flights, rejected)
+			a.mu.Unlock()
+			close(f.done)
+			return f.tok, f.err
+		}
+		select {
+		case <-f.done:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+		if !f.quit {
+			return f.tok, f.err
+		}
+		if err := ctx.Err(); err != nil {
 			return "", err
 		}
 	}
 }
 
-// renewOnce is one try of renew.
-func (a *Auth) renewOnce(ctx context.Context, rejected string) (string, error) {
+// renewTries is renew for one goroutine. A refresh that fails for a while,
+// on the network or at Schwab, is tried again, up to refreshTries times in
+// all. Between tries the lock is let go and the wait comes without it, since
+// another process may refresh meanwhile, and the next try re-reads the file
+// to find out. A refresh that Schwab refuses looks at the file once more,
+// since a login that was waiting for the lock may just have saved.
+func (a *Auth) renewTries(ctx context.Context, rejected string) (string, error) {
+	rechecked := false
+	for try := 1; ; {
+		// A token request runs to its end whatever ctx says, so none begins
+		// for a caller that has gone.
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		tok, requested, err := a.renewOnce(ctx, rejected)
+		switch {
+		case err == nil:
+			return tok, nil
+		case requested && !rechecked && errors.Is(err, ErrLoginExpired):
+			rechecked = true
+			if a.sleep(ctx, recheckWait) != nil {
+				return "", err
+			}
+			continue
+		case try >= refreshTries || !refreshTransient(ctx, err):
+			return "", err
+		}
+		wait := a.backoff(try)
+		if se, ok := errors.AsType[*Error](err); ok && se.RetryAfter > wait {
+			wait = min(se.RetryAfter, maxPause)
+		}
+		if !fits(ctx, wait) {
+			return "", err
+		}
+		if serr := a.sleep(ctx, wait); serr != nil {
+			return "", fmt.Errorf("%w while waiting to try again; the last try got: %w", serr, err)
+		}
+		try++
+	}
+}
+
+// renewOnce is one try of renew. It reports whether it made a token request.
+func (a *Auth) renewOnce(ctx context.Context, rejected string) (tok string, requested bool, err error) {
 	release, err := a.hold(ctx)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer release()
 	t, err := a.read()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	a.set(t)
 	if fresh, ok := a.fresh(rejected); ok {
-		return fresh, nil
+		return fresh, false, nil
 	}
 	a.mu.Lock()
 	refused, refusedErr := a.refused, a.refusedErr
 	a.mu.Unlock()
 	if t.RefreshToken == refused {
-		return "", refusedErr
+		return "", false, refusedErr
 	}
 	// An issue time still to come, from a clock that has been set back
 	// since, says nothing, so that token gets its refresh.
 	if age := a.now().Sub(t.AccessObtainedAt); rejected != "" && t.AccessToken == rejected &&
 		!t.AccessObtainedAt.IsZero() && age >= 0 && age < freshTokenAge {
-		return "", ErrTokenRefused
+		return "", false, ErrTokenRefused
 	}
-	return a.refresh(ctx, t)
+	tok, err = a.refresh(ctx, t)
+	return tok, true, err
 }
 
 // refresh trades t's refresh token for a new access token and saves the
@@ -464,8 +570,8 @@ func (a *Auth) refresh(ctx context.Context, t *token) (string, error) {
 		"refresh_token": {t.RefreshToken},
 	})
 	if err != nil {
-		err = refreshError(err)
-		if errors.Is(err, ErrLoginExpired) {
+		final, err := refreshError(err)
+		if final {
 			a.mu.Lock()
 			a.refused, a.refusedErr = t.RefreshToken, err
 			a.mu.Unlock()
@@ -490,8 +596,9 @@ func (a *Auth) refresh(ctx context.Context, t *token) (string, error) {
 }
 
 // refreshTransient reports whether err, from a refresh, is worth trying
-// again: the network failed, or Schwab answered 429 or 5xx. A refusal of the
-// login or the app is final.
+// again: the token request failed on the network, or Schwab answered 429 or
+// 5xx. A refusal of the login or the app is final, and so is a problem with
+// the token file.
 func refreshTransient(ctx context.Context, err error) bool {
 	if errors.Is(err, ErrLoginExpired) || errors.Is(err, ErrAppRejected) {
 		return false
@@ -499,7 +606,10 @@ func refreshTransient(ctx context.Context, err error) bool {
 	if se, ok := errors.AsType[*Error](err); ok {
 		return se.Status == http.StatusTooManyRequests || se.Status >= 500 && se.Status != http.StatusNotImplemented
 	}
-	return transient(ctx, err)
+	if _, ok := errors.AsType[*url.Error](err); ok || errors.Is(err, errReading) {
+		return retryable(ctx, err)
+	}
+	return false
 }
 
 // backoff returns the wait before refresh try+1, longer with each try and
@@ -508,23 +618,30 @@ func (a *Auth) backoff(try int) time.Duration {
 	return a.jitter(refreshWait << (try - 1))
 }
 
-// refreshError says what a failed refresh means. Schwab refuses a lapsed or
-// replaced refresh token with HTTP 400 and unsupported_token_type, nesting
-// the real reason, invalid_grant or refresh_token_authentication_error;
-// older reports also show invalid_client with "refresh token invalid". A
-// wrong app key or secret gets invalid_client and "Unauthorized".
-func refreshError(err error) error {
+// refreshError reports whether Schwab refused the refresh token for good, so
+// that it is not sent again while the file holds it, and says what a failed
+// refresh means.
+//
+// Schwab refuses a lapsed or replaced refresh token with HTTP 400 and
+// unsupported_token_type, nesting the real reason, invalid_grant or
+// refresh_token_authentication_error; older reports also show
+// invalid_client with "refresh token invalid". A wrong app key or secret
+// gets invalid_client and "Unauthorized". The codes decide, whatever the
+// status. Another 400 is taken as a refused login too, but only for this
+// try: it may be a gateway's.
+func refreshError(err error) (final bool, _ error) {
 	se, ok := errors.AsType[*Error](err)
-	if !ok || se.Status != http.StatusBadRequest && se.Status != http.StatusUnauthorized {
-		return fmt.Errorf("refreshing the access token: %w", err)
-	}
 	switch {
-	case loginCodes[se.Code], loginCodes[se.Detail], strings.Contains(strings.ToLower(se.Body), "refresh token"):
-		return fmt.Errorf("%w: %w", ErrLoginExpired, err)
+	case !ok:
+	case loginCodes[se.Code], loginCodes[se.Detail],
+		(se.Status == http.StatusBadRequest || se.Status == http.StatusUnauthorized) && strings.Contains(strings.ToLower(se.Body), "refresh token"):
+		return true, fmt.Errorf("%w: %w", ErrLoginExpired, err)
 	case se.Code == "invalid_client", se.Status == http.StatusUnauthorized:
-		return fmt.Errorf("%w: %w", ErrAppRejected, err)
+		return false, fmt.Errorf("%w: %w", ErrAppRejected, err)
+	case se.Status == http.StatusBadRequest:
+		return false, fmt.Errorf("%w: %w", ErrLoginExpired, err)
 	}
-	return fmt.Errorf("%w: %w", ErrLoginExpired, err)
+	return false, fmt.Errorf("refreshing the access token: %w", err)
 }
 
 // loginCodes are the OAuth error codes with which Schwab refuses a refresh

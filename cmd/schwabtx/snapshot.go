@@ -61,8 +61,7 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if err != nil {
 		return err
 	}
-	httpClient := newHTTPClient()
-	auth, err := openLogin(cfg, httpClient, stderr)
+	auth, err := openLogin(cfg, stderr)
 	if err != nil {
 		return err
 	}

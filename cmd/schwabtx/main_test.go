@@ -19,6 +19,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
 // fakeSchwab imitates the OAuth token endpoint and the Trader API endpoints
@@ -39,6 +41,8 @@ type fakeSchwab struct {
 	oldestAllowed time.Time // startDate before this gets a 400
 	rateLimitNext int       // answer this many transaction calls with 429
 	failDetails   int       // answer this many GET /accounts calls with 403
+	// accountsReply, if set, answers GET /accounts/accountNumbers instead.
+	accountsReply http.HandlerFunc
 	detailsFields string    // fields= of the last GET /accounts
 	detailsBody   string    // what the last GET /accounts returned
 }
@@ -126,6 +130,10 @@ func (f *fakeSchwab) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	if !f.authed(w, r) {
 		return
 	}
+	if f.accountsReply != nil {
+		f.accountsReply(w, r)
+		return
+	}
 	f.writeJSON(w, f.accounts)
 }
 
@@ -183,9 +191,11 @@ func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) 
 	}
 	f.txCalls++
 	if f.rateLimitNext > 0 {
+		// As Schwab answers: a body of whitespace, and no Retry-After.
 		f.rateLimitNext--
-		w.Header().Set("Retry-After", "0")
-		http.Error(w, `{"error":"too many requests"}`, http.StatusTooManyRequests)
+		w.Header().Set("Schwab-Client-CorrelId", "corr-429")
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, " \n")
 		return
 	}
 	q := r.URL.Query()
@@ -279,8 +289,14 @@ func setup(t *testing.T) (*fakeSchwab, string) {
 	t.Setenv("HOME", home)            // macOS
 	t.Setenv("XDG_CONFIG_HOME", home) // Linux and other Unix systems
 	t.Setenv("AppData", home)         // Windows
+	// And the user cache directory, which holds the rate limit.
+	t.Setenv("XDG_CACHE_HOME", home)
+	t.Setenv("LocalAppData", home)
 	timeNow = func() time.Time { return testNow }
 	t.Cleanup(func() { timeNow = time.Now })
+	// Tests make many requests, so let them go fast, and try again at once.
+	clientConfig = schwab.ClientConfig{RatePerMinute: 60_000, Burst: 100, Backoff: time.Millisecond}
+	t.Cleanup(func() { clientConfig = schwab.ClientConfig{} })
 	return f, tokenFile
 }
 
@@ -539,7 +555,7 @@ func TestTruncatedResponsesAreSplit(t *testing.T) {
 
 	// The cap is Schwab's 3000 in real life; shrink it to match the fake.
 	cfg, _ := loadConfig()
-	auth, err := openLogin(cfg, newHTTPClient(), io.Discard)
+	auth, err := openLogin(cfg, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,7 +709,7 @@ func TestRateLimitIsRetried(t *testing.T) {
 	f.rateLimitNext = 2
 
 	cfg, _ := loadConfig()
-	auth, err := openLogin(cfg, newHTTPClient(), io.Discard)
+	auth, err := openLogin(cfg, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -704,6 +720,39 @@ func TestRateLimitIsRetried(t *testing.T) {
 	}
 	if len(txs) != 5 || f.txCalls != 3 {
 		t.Fatalf("got %d transactions in %d calls, want 5 in 3", len(txs), f.txCalls)
+	}
+}
+
+// Schwab's answers that the tool cannot get past say what to do about them.
+func TestSchwabErrorsSayWhatToDo(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		want   []string
+	}{
+		{"rate limited", http.StatusTooManyRequests, " \n", []string{"HTTP 429 from Schwab after 4 tries", "wait a minute"}},
+		{"an app not yet Ready For Use", http.StatusInternalServerError,
+			`<html><body><h1>Whitelabel Error Page</h1><p>This application has no configured error view.</p></body></html>`,
+			[]string{"Whitelabel Error Page", `until the app says "Ready For Use"`}},
+		{"turned away by Schwab's network", http.StatusForbidden,
+			"<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY>Reference&#32;&#35;18&#46;9efa3f17&#46;1792539138</BODY></HTML>",
+			[]string{"Access Denied (reference #18.9efa3f17.1792539138)", "traderapi@schwab.com"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := setup(t)
+			doLogin(t)
+			f.accountsReply = func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				fmt.Fprint(w, tc.body)
+			}
+			_, _, err := runTx(t)
+			for _, want := range tc.want {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Errorf("got %v, want %q in it", err, want)
+				}
+			}
+		})
 	}
 }
 

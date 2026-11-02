@@ -15,7 +15,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/signal"
 	"slices"
@@ -94,7 +93,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		if err != nil {
 			return err
 		}
-		auth, err := newAuth(cfg, newHTTPClient(), stderr)
+		auth, err := newAuth(cfg, stderr)
 		if err != nil {
 			return err
 		}
@@ -155,8 +154,7 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 	if err != nil {
 		return err
 	}
-	httpClient := newHTTPClient()
-	auth, err := openLogin(cfg, httpClient, stderr)
+	auth, err := openLogin(cfg, stderr)
 	if err != nil {
 		return err
 	}
@@ -209,8 +207,4 @@ func parseTypes(flagValue string) ([]string, error) {
 		return nil, errors.New("-types has no transaction types in it")
 	}
 	return list, nil
-}
-
-func newHTTPClient() *http.Client {
-	return &http.Client{Timeout: 30 * time.Second}
 }

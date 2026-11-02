@@ -224,3 +224,36 @@ func TestLockFileOfAnotherUser(t *testing.T) {
 		t.Errorf("TryAcquire on a lock file this user cannot open: %v, %v; want a permission error that says what to do", ok, err)
 	}
 }
+
+// The file can be read and written through its lock, the one handle that
+// Windows lets at it while the lock is held, and what is written is there for
+// the next holder.
+func TestLockReadsAndWritesItsFile(t *testing.T) {
+	skipUnsupported(t)
+	path := filepath.Join(t.TempDir(), "state")
+	l, err := Acquire(t.Context(), path, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 8)
+	if n, err := l.ReadAt(buf, 0); n != 0 || !errors.Is(err, io.EOF) {
+		t.Errorf("reading a new file: %d bytes, %v; want none and io.EOF", n, err)
+	}
+	if _, err := l.WriteAt([]byte("first"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.WriteAt([]byte("F"), 0); err != nil {
+		t.Fatal(err)
+	}
+	l.Release()
+
+	l, err = Acquire(t.Context(), path, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Release()
+	n, err := l.ReadAt(buf, 0)
+	if got := string(buf[:n]); got != "First" || !errors.Is(err, io.EOF) {
+		t.Errorf("the next holder read %q, %v; want %q", got, err, "First")
+	}
+}

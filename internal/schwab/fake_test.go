@@ -39,23 +39,41 @@ type fakeOAuth struct {
 	refreshGrants int
 
 	// tokenFailures answers the next token requests with these statuses, in
-	// order, where 0 cuts the connection instead.
-	tokenFailures []int
+	// order, where 0 cuts the connection instead, and with tokenRetryAfter
+	// as their Retry-After, if set.
+	tokenFailures   []int
+	tokenRetryAfter string
 	// script answers the next requests to the API, each entry once, in
 	// order; after it, the API answers 200.
-	script   []func(w http.ResponseWriter, r *http.Request)
-	apiCalls int
+	script    []func(w http.ResponseWriter, r *http.Request)
+	apiCalls  int
+	lastToken string // the access token of the last API request
 }
 
 func newFakeOAuth(t *testing.T) *fakeOAuth {
 	f := &fakeOAuth{t: t, refresh: map[string]bool{}, access: map[string]bool{}}
+	f.srv = httptest.NewServer(f.mux())
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+// newFakeOAuthH2 is newFakeOAuth over HTTPS with HTTP/2, which a client
+// gets from f.srv.Client().
+func newFakeOAuthH2(t *testing.T) *fakeOAuth {
+	f := &fakeOAuth{t: t, refresh: map[string]bool{}, access: map[string]bool{}}
+	f.srv = httptest.NewUnstartedServer(f.mux())
+	f.srv.EnableHTTP2 = true
+	f.srv.StartTLS()
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (f *fakeOAuth) mux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/oauth/token", f.handleToken)
 	mux.HandleFunc("GET /whoami", f.handleWhoami)
 	mux.HandleFunc("GET /trader/v1/test", f.handleAPI)
-	f.srv = httptest.NewServer(mux)
-	t.Cleanup(f.srv.Close)
-	return f
+	return mux
 }
 
 func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
@@ -70,9 +88,12 @@ func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
 		f.tokenFailures = f.tokenFailures[1:]
 		if status == 0 {
 			cut(w)
-		} else {
-			http.Error(w, `{"error":"server_error"}`, status)
+			return
 		}
+		if f.tokenRetryAfter != "" {
+			w.Header().Set("Retry-After", f.tokenRetryAfter)
+		}
+		http.Error(w, `{"error":"server_error"}`, status)
 		return
 	}
 	user, pass, ok := r.BasicAuth()
@@ -156,6 +177,7 @@ func (f *fakeOAuth) handleAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
+	f.lastToken = auth[len(prefix):]
 	var answer func(w http.ResponseWriter, r *http.Request)
 	if len(f.script) > 0 {
 		answer = f.script[0]
@@ -196,6 +218,12 @@ func (f *fakeOAuth) calls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.apiCalls
+}
+
+// tooMany is a script entry that answers as Schwab does when it rate
+// limits: 429, a body of whitespace, and no Retry-After.
+func tooMany(w http.ResponseWriter, r *http.Request) {
+	answer(http.StatusTooManyRequests, " \n", "Schwab-Client-CorrelId", "corr-429")(w, r)
 }
 
 // allow makes refresh a refresh token that the fake takes.
