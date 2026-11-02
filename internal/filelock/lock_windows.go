@@ -1,6 +1,6 @@
 //go:build windows
 
-package schwab
+package filelock
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 	"unsafe"
 )
 
-const lockSupported = true
+const supported = true
 
 // The standard library has no binding for these. kernel32.dll is one of the
 // system's known DLLs, which Windows loads only from the system folder.

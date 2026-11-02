@@ -30,6 +30,7 @@ type fakeOAuth struct {
 	rotate        bool            // a refresh issues a new refresh token and retires the old one
 	revokeOlder   bool            // issuing an access token retires the earlier ones
 	delay         time.Duration   // how long each grant takes, to widen races
+	requests      int             // token requests, granted or not
 	issued        int
 	codeGrants    int
 	refreshGrants int
@@ -51,6 +52,7 @@ func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.requests++
 	user, pass, ok := r.BasicAuth()
 	if !ok || user != testKey || pass != testSecret {
 		http.Error(w, `{"error":"invalid_client"}`, http.StatusUnauthorized)
@@ -60,7 +62,6 @@ func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"bad content type"}`, http.StatusBadRequest)
 		return
 	}
-	f.issued++
 	var refresh string
 	switch r.FormValue("grant_type") {
 	case "authorization_code":
@@ -69,6 +70,7 @@ func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.codeGrants++
+		f.issued++
 		refresh = fmt.Sprintf("refresh-%d", f.issued)
 		f.refresh[refresh] = true
 	case "refresh_token":
@@ -78,6 +80,7 @@ func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.refreshGrants++
+		f.issued++
 		if f.rotate {
 			delete(f.refresh, refresh)
 			refresh = fmt.Sprintf("refresh-%d", f.issued)
@@ -127,6 +130,13 @@ func (f *fakeOAuth) retire(refresh string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.refresh, refresh)
+}
+
+// tokenRequests returns how many token requests the fake has had.
+func (f *fakeOAuth) tokenRequests() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.requests
 }
 
 // grants returns how many code and refresh grants the fake has made.

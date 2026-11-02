@@ -15,11 +15,19 @@ import (
 
 // Error is an error response from Schwab.
 type Error struct {
-	Status int    // the HTTP status code
-	Body   string // the response body as sent
+	Status int // the HTTP status code
+	// Code is the error code of an OAuth error response, such as
+	// invalid_grant; it is empty for other responses.
+	Code string
+	Body string // the response body as sent
 }
 
 func (e *Error) Error() string {
+	// An OAuth error's description can quote Schwab's internal errors at
+	// length, so only its code is shown.
+	if e.Code != "" {
+		return fmt.Sprintf("HTTP %d from Schwab: %s", e.Status, e.Code)
+	}
 	body := strings.TrimSpace(e.Body)
 	if len(body) > 500 {
 		body = body[:500] + "..."
@@ -85,7 +93,7 @@ func CodeFromRedirect(pasted, wantState string) (string, error) {
 		return "", errors.New("no code= in that address; paste the address the browser ended up on after you approved")
 	}
 	if got := q.Get("state"); got != "" && got != wantState {
-		return "", errors.New("that address is from a different login attempt; start `schwabtx login` over")
+		return "", errors.New("that address is from a different login attempt; start the login over")
 	}
 	return code, nil
 }
@@ -95,10 +103,17 @@ type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int    `json:"expires_in"`
+	Scope        string `json:"scope"`
 }
 
-// tokenRequest posts a grant to Schwab's token endpoint.
+// tokenRequest posts a grant to Schwab's token endpoint. The request runs to
+// its end even if ctx is cancelled, since Schwab may grant it all the same,
+// and a grant that is not saved can lose the login. It gets its own time
+// limit instead, whatever the HTTP client's, so that a process holding the
+// lock lets go of it in time.
 func (a *Auth) tokenRequest(ctx context.Context, form url.Values) (tokenResponse, error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tokenRequestTimeout)
+	defer cancel()
 	var out tokenResponse
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.cfg.BaseURL+"/v1/oauth/token", strings.NewReader(form.Encode()))
 	if err != nil {
@@ -118,7 +133,11 @@ func (a *Auth) tokenRequest(ctx context.Context, form url.Values) (tokenResponse
 		return out, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return out, &Error{Status: resp.StatusCode, Body: string(body)}
+		var oauthErr struct {
+			Code string `json:"error"`
+		}
+		_ = json.Unmarshal(body, &oauthErr) // a body that is not an OAuth error leaves Code empty
+		return out, &Error{Status: resp.StatusCode, Code: oauthErr.Code, Body: string(body)}
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
 		return out, fmt.Errorf("decoding token response: %w", err)

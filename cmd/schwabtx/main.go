@@ -18,7 +18,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -58,11 +57,10 @@ func loadConfig() (config, error) {
 		cfg.BaseURL = schwab.DefaultBaseURL
 	}
 	if cfg.TokenFile == "" {
-		dir, err := os.UserConfigDir()
-		if err != nil {
-			return cfg, fmt.Errorf("cannot find a config directory, set SCHWAB_TOKEN_FILE: %w", err)
+		var err error
+		if cfg.TokenFile, err = schwab.DefaultTokenFile(); err != nil {
+			return cfg, fmt.Errorf("%w; set SCHWAB_TOKEN_FILE", err)
 		}
-		cfg.TokenFile = filepath.Join(dir, "schwabtx", "token.json")
 	}
 	return cfg, nil
 }
@@ -158,7 +156,7 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 		return err
 	}
 	httpClient := newHTTPClient()
-	auth, err := openLogin(ctx, cfg, httpClient, stderr)
+	auth, err := openLogin(cfg, httpClient, stderr)
 	if err != nil {
 		return err
 	}

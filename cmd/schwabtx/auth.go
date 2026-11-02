@@ -32,20 +32,51 @@ func newAuth(cfg config, httpClient *http.Client) (*schwab.Auth, error) {
 	})
 }
 
-// openLogin reads the saved login, warning on stderr when it lapses soon.
-func openLogin(ctx context.Context, cfg config, httpClient *http.Client, stderr io.Writer) (*schwab.Auth, error) {
+// openLogin checks that there is a saved login, warning on stderr when it
+// lapses soon.
+func openLogin(cfg config, httpClient *http.Client, stderr io.Writer) (*schwab.Auth, error) {
 	auth, err := newAuth(cfg, httpClient)
 	if err != nil {
 		return nil, err
 	}
-	if err := auth.Load(ctx); err != nil {
+	st, err := auth.Status()
+	if err != nil {
 		return nil, err
 	}
-	if w := expiryWarning(auth.LoginExpiresAt()); w != "" {
+	if !st.LoggedIn {
+		return nil, hint(schwab.ErrNotLoggedIn)
+	}
+	if w := expiryWarning(st.ExpiresAt); w != "" {
 		fmt.Fprintln(stderr, "warning:", w)
 	}
 	return auth, nil
 }
+
+// hint adds to an error from the login what to do about it.
+func hint(err error) error {
+	var what string
+	switch {
+	case errors.Is(err, schwab.ErrNotLoggedIn):
+		what = "run `schwabtx login` first"
+	case errors.Is(err, schwab.ErrLoginExpired):
+		what = "run `schwabtx login` again (Schwab ends a login after 7 days, or sooner when you log in elsewhere)"
+	case errors.Is(err, schwab.ErrAppRejected):
+		what = `check SCHWAB_APP_KEY and SCHWAB_APP_SECRET, and that the app is "Ready For Use"`
+	default:
+		return err
+	}
+	return &hinted{err: err, hint: what}
+}
+
+// hinted is an error with what to do about it.
+type hinted struct {
+	err  error
+	hint string
+}
+
+func (h *hinted) Error() string { return h.err.Error() + "; " + h.hint }
+
+func (h *hinted) Unwrap() error { return h.err }
 
 // expiryWarning returns a message when the login, which lapses at expiresAt,
 // is due for renewal within expiryWarningWindow.
@@ -109,7 +140,7 @@ func login(ctx context.Context, cfg config, auth *schwab.Auth, stdin io.Reader, 
 		return err
 	}
 	if err := auth.Login(ctx, code); err != nil {
-		return err
+		return hint(err)
 	}
 	fmt.Fprintf(out, "\nLogged in. Token saved to %s.\nSchwab expires this login after 7 days, so run `schwabtx login` again when it does.\n", cfg.TokenFile)
 	return nil

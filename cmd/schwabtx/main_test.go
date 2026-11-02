@@ -493,7 +493,18 @@ func TestRevokedAccessTokenIsRefreshedOn401(t *testing.T) {
 	doLogin(t)
 	f.validAccess = "revoked-server-side"
 
-	// The fake's refresh handler issues a fresh token, so one retry fixes it.
+	// Schwab refusing a token it has only just issued is not the token's
+	// fault, so the tool reports it rather than refresh.
+	if _, _, err := runTx(t, "-json"); err == nil || !strings.Contains(err.Error(), "HTTP 401") {
+		t.Fatalf("a 401 right after the login: %v, want Schwab's HTTP 401", err)
+	}
+	if f.refreshGrants != 0 {
+		t.Fatalf("refresh grants = %d, want 0", f.refreshGrants)
+	}
+
+	// Ten minutes later, the fake's refresh handler issues a fresh token, so
+	// one retry fixes it.
+	timeNow = func() time.Time { return testNow.Add(10 * time.Minute) }
 	if _, _, err := runTx(t, "-json"); err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +538,7 @@ func TestTruncatedResponsesAreSplit(t *testing.T) {
 
 	// The cap is Schwab's 3000 in real life; shrink it to match the fake.
 	cfg, _ := loadConfig()
-	auth, err := openLogin(context.Background(), cfg, newHTTPClient(), io.Discard)
+	auth, err := openLogin(cfg, newHTTPClient(), io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -681,7 +692,7 @@ func TestRateLimitIsRetried(t *testing.T) {
 	f.rateLimitNext = 2
 
 	cfg, _ := loadConfig()
-	auth, err := openLogin(context.Background(), cfg, newHTTPClient(), io.Discard)
+	auth, err := openLogin(cfg, newHTTPClient(), io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}

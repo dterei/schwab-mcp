@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,7 +48,7 @@ func (c *client) get(ctx context.Context, path string, query url.Values) ([]byte
 	for attempt := 0; ; attempt++ {
 		tok, err := c.auth.AccessToken(ctx)
 		if err != nil {
-			return nil, err
+			return nil, hint(err)
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if err != nil {
@@ -71,8 +72,12 @@ func (c *client) get(ctx context.Context, path string, query url.Values) ([]byte
 			return body, nil
 		case resp.StatusCode == http.StatusUnauthorized && !refreshed:
 			refreshed = true
-			if _, err := c.auth.Refresh(ctx, tok); err != nil {
-				return nil, err
+			_, err := c.auth.Refresh(ctx, tok)
+			if errors.Is(err, schwab.ErrTokenRefused) {
+				break // a new token would not help, so report Schwab's answer
+			}
+			if err != nil {
+				return nil, hint(err)
 			}
 			continue
 		case (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) && attempt < maxRetries:

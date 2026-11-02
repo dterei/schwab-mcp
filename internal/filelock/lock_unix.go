@@ -1,14 +1,15 @@
 //go:build darwin || dragonfly || freebsd || illumos || linux || netbsd || openbsd
 
-package schwab
+package filelock
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"syscall"
 )
 
-const lockSupported = true
+const supported = true
 
 // tryLock takes an exclusive lock on f if no other open file holds one, in
 // this process or another, and reports whether it did. The system drops the
@@ -20,6 +21,9 @@ func tryLock(f *os.File) (bool, error) {
 		return true, nil
 	case errors.Is(err, syscall.EWOULDBLOCK), errors.Is(err, syscall.EINTR):
 		return false, nil
+	case errors.Is(err, syscall.ENOLCK), errors.Is(err, syscall.ENOTSUP), errors.Is(err, syscall.EOPNOTSUPP):
+		// Network file systems without a lock manager, and some others.
+		return false, fmt.Errorf("the file system of %s cannot lock files; keep it on a local disk: %w", f.Name(), err)
 	}
 	return false, err
 }
