@@ -742,15 +742,20 @@ func TestSymlinkedTokenFile(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("links need extra rights on Windows")
 	}
+	if !filelock.Supported {
+		t.Skip("no file locks on " + runtime.GOOS)
+	}
 	f := newFakeOAuth(t)
-	f.rotate = true
-	f.delay = 100 * time.Millisecond
-	c := &clock{now: testNow}
+	f.rotate = true // a second refresh with the same refresh token would fail
+	f.delay = 300 * time.Millisecond
 	dir := t.TempDir()
 	target := filepath.Join(dir, "data", "token.json")
-	if err := newTestAuth(t, f, target, c).Login(t.Context(), testCode); err != nil {
-		t.Fatal(err)
-	}
+	f.allow("refresh-0")
+	// The helpers tell the time by the real clock.
+	writeTestToken(t, target, token{
+		AccessToken: "access-0", RefreshToken: "refresh-0",
+		AccessExpiresAt: time.Now().Add(-time.Minute), RefreshObtainedAt: time.Now().Add(-time.Hour),
+	})
 	link := filepath.Join(dir, "cfg", "token.json")
 	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
 		t.Fatal(err)
@@ -758,25 +763,43 @@ func TestSymlinkedTokenFile(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	c.advance(time.Hour)
+
 	var wg sync.WaitGroup
-	for _, path := range []string{target, link} {
-		a := newTestAuth(t, f, path, c)
+	paths := []string{target, link}
+	outs := make([]string, len(paths))
+	errs := make([]error, len(paths))
+	for i, path := range paths {
+		cmd := startHelper(t, "access", f.srv.URL, path)
 		wg.Go(func() {
-			if _, err := a.AccessToken(t.Context()); err != nil {
-				t.Errorf("through %s: %v", path, err)
+			b, err := cmd.Output()
+			outs[i] = strings.TrimSpace(string(b))
+			if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+				err = fmt.Errorf("%w: %s", err, ee.Stderr)
 			}
+			errs[i] = err
 		})
 	}
 	wg.Wait()
+	for i := range outs {
+		if errs[i] != nil || outs[i] != outs[0] || outs[i] == "" {
+			t.Errorf("through %s: %q, %v; want the same token as through %s (%q)", paths[i], outs[i], errs[i], paths[0], outs[0])
+		}
+	}
 	if _, refresh := f.grants(); refresh != 1 {
 		t.Errorf("%d refresh grants, want 1", refresh)
 	}
 	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Errorf("the link is gone after the refresh: %v, %v", info, err)
 	}
-	if saved := readTestToken(t, link); saved.AccessToken != "access-2" {
-		t.Errorf("through the link the file holds %s, want access-2", saved.AccessToken)
+	if saved := readTestToken(t, link); saved.AccessToken != outs[0] {
+		t.Errorf("through the link the file holds %s, want %s", saved.AccessToken, outs[0])
+	}
+	// A login through the link locks next to the file, too.
+	if err := newTestAuth(t, f, link, &clock{now: time.Now()}).Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(link + ".lock"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("there is a lock file next to the link: %v", err)
 	}
 }
 
@@ -1045,5 +1068,72 @@ func TestLifetimeCountsFromTheRequest(t *testing.T) {
 	}
 	if saved := readTestToken(t, tokenFile); !saved.AccessExpiresAt.Equal(asked.Add(30 * time.Minute)) {
 		t.Errorf("refresh saved the access token expiring at %v, want %v", saved.AccessExpiresAt, asked.Add(30*time.Minute))
+	}
+}
+
+// A clock set back since the last login, as on a PC that starts with its
+// clock hours ahead until it syncs, neither keeps the old login over a new
+// one nor stops a 401 from leading to a refresh.
+func TestClockSetBack(t *testing.T) {
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow.Add(5 * time.Hour)} // ahead
+	tokenFile := filepath.Join(t.TempDir(), "token.json")
+	if err := newTestAuth(t, f, tokenFile, c).Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	c.now = testNow // set right
+	a := newTestAuth(t, f, tokenFile, c)
+
+	// The access token looks fresh by the file, but Schwab has expired it.
+	f.mu.Lock()
+	clear(f.access)
+	f.mu.Unlock()
+	if tok := call(t, f, a); tok != "access-2" {
+		t.Errorf("after a 401 for a token stamped in the future: %q, want a refreshed access-2", tok)
+	}
+
+	if err := a.Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	if saved := readTestToken(t, tokenFile); saved.RefreshToken != "refresh-3" || !saved.RefreshObtainedAt.Equal(testNow) {
+		t.Errorf("after a new login the file holds %s from %v, want the new login's refresh-3 from %v", saved.RefreshToken, saved.RefreshObtainedAt, testNow)
+	}
+}
+
+// A relative token file is the file that the system opens for it: with ".."
+// after a link, that is next to the link's target, whatever the shell calls
+// the working directory, as the scheduler scripts' cd -P and a shell's cd
+// differ.
+func TestRelativeTokenFileThroughALink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows takes .. by name")
+	}
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	dir := t.TempDir()
+	proj := filepath.Join(dir, "real", "proj")
+	if err := os.MkdirAll(proj, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(proj, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := newTestAuth(t, f, filepath.Join(dir, "real", "token.json"), c).Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(link) // sets PWD to the link, as a shell's cd does
+	for _, name := range []string{"../token.json", "../cfg/../token.json"} {
+		st, err := newTestAuth(t, f, name, c).Status()
+		want, _ := filepath.EvalSymlinks(filepath.Join(dir, "real"))
+		if err != nil || !st.LoggedIn || st.TokenFile != filepath.Join(want, "token.json") {
+			t.Errorf("%s from the link: %+v, %v; want the login in %s", name, st, err, filepath.Join(want, "token.json"))
+		}
+	}
+	// A file not made yet, below a folder not made yet, under the link.
+	st, err := newTestAuth(t, f, "new/../../new.json", c).Status()
+	want, _ := filepath.EvalSymlinks(filepath.Join(dir, "real"))
+	if err != nil || st.TokenFile != filepath.Join(want, "new.json") {
+		t.Errorf("a path that does not exist yet: %s, %v; want %s", st.TokenFile, err, filepath.Join(want, "new.json"))
 	}
 }

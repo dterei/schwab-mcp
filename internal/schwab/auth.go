@@ -193,26 +193,62 @@ func semFor(path string) chan struct{} {
 	return sem
 }
 
-// resolve returns path made absolute, with links followed, and on Windows
-// short names made long, in the longest part of it that exists: before the
-// first login neither the file nor its directory may exist.
+// resolve returns the file that path names, as an absolute path with links
+// followed, and on Windows short names made long, in the longest part of it
+// that exists: before the first login neither the file nor its folder may.
+//
+// On Linux and macOS a ".." after a link leads out of the link's target, as
+// the system takes it, so a relative path is joined to the real working
+// directory, not the one the shell names, and nothing is cleaned before the
+// links are followed. Windows takes ".." by name, so there it is.
 func resolve(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
+	if runtime.GOOS == "windows" {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return "", err
+		}
+		path = abs
+	} else if !filepath.IsAbs(path) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		if physical, err := filepath.EvalSymlinks(wd); err == nil {
+			wd = physical
+		}
+		path = wd + string(filepath.Separator) + path
 	}
 	rest := ""
-	for p := abs; ; {
+	for p := path; ; {
 		if resolved, err := filepath.EvalSymlinks(p); err == nil {
 			return filepath.Join(resolved, rest), nil
 		}
-		parent := filepath.Dir(p)
-		if parent == p {
-			return abs, nil
+		// Drop the last element by hand, since filepath.Dir would clean
+		// what is left.
+		i := lastSeparator(p)
+		if i < 0 {
+			return filepath.Clean(path), nil
 		}
-		rest = filepath.Join(filepath.Base(p), rest)
+		parent := p[:i]
+		if parent == "" || parent == filepath.VolumeName(p) {
+			parent = p[:i+1] // the root
+		}
+		if parent == p {
+			return filepath.Clean(path), nil
+		}
+		rest = filepath.Join(p[i+1:], rest)
 		p = parent
 	}
+}
+
+// lastSeparator returns the index of the last path separator in p, or -1.
+func lastSeparator(p string) int {
+	for i := len(p) - 1; i >= 0; i-- {
+		if os.IsPathSeparator(p[i]) {
+			return i
+		}
+	}
+	return -1
 }
 
 // Status describes the login in the token file, without its tokens.
@@ -291,6 +327,7 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 	if held {
 		defer release()
 	}
+	before, _ := readToken(a.tokenFile) // to tell whether another login is saved meanwhile
 	start := a.now()
 	res, err := a.tokenRequest(ctx, url.Values{
 		"grant_type":   {"authorization_code"},
@@ -323,9 +360,13 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 		}
 		defer release()
 	}
-	// A login that another process saved after this one began is the newer
-	// one, so it stays.
-	if saved, err := readToken(a.tokenFile); err == nil && saved.RefreshObtainedAt.After(t.RefreshObtainedAt) {
+	// A login that another process saved while this one waited, and that
+	// began after this one, is the newer one, so it stays. A refresh keeps a
+	// login's time, so only a login changes it. The times are compared only
+	// for a login saved meanwhile, so that a clock that has been set back
+	// since an earlier login does not keep that one.
+	if saved, err := readToken(a.tokenFile); err == nil && (before == nil || !saved.RefreshObtainedAt.Equal(before.RefreshObtainedAt)) &&
+		saved.RefreshObtainedAt.After(t.RefreshObtainedAt) {
 		a.set(saved)
 		return nil
 	}
@@ -359,8 +400,10 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 	if t.RefreshToken == refused {
 		return "", refusedErr
 	}
-	if rejected != "" && t.AccessToken == rejected && !t.AccessObtainedAt.IsZero() &&
-		a.now().Sub(t.AccessObtainedAt) < freshTokenAge {
+	// An issue time still to come, from a clock that has been set back
+	// since, says nothing, so that token gets its refresh.
+	if age := a.now().Sub(t.AccessObtainedAt); rejected != "" && t.AccessToken == rejected &&
+		!t.AccessObtainedAt.IsZero() && age >= 0 && age < freshTokenAge {
 		return "", ErrTokenRefused
 	}
 	return a.refresh(ctx, t)

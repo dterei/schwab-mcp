@@ -14,9 +14,10 @@ const supported = true
 
 const allBytes = ^uint32(0)
 
-// tryLock takes an exclusive lock on f if no other open file holds one, in
-// this process or another, and reports whether it did. Windows drops the
-// lock when f is closed or the process ends.
+// tryLock takes an exclusive lock on f if no other open file holds one, and
+// reports whether it did. Windows locks by handle, so another handle in the
+// same process counts as another. It drops the lock when f is closed or the
+// process ends.
 func tryLock(f *os.File) (bool, error) {
 	err := windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY,
 		0, allBytes, allBytes, new(windows.Overlapped))

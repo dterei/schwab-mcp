@@ -168,48 +168,44 @@ func TestLockOfADeadProcessIsFree(t *testing.T) {
 	l.Release()
 }
 
-// A lock file removed while a process waits on it, and created again by
-// another, does not let two processes in at once.
+// A lock file removed and made again, with another process locking the new
+// one, between a TryAcquire's open and its lock, does not let that TryAcquire
+// in beside the other: it finds the new file and that it is held.
 func TestLockFileReplaced(t *testing.T) {
 	skipUnsupported(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not let a file that is open be removed")
 	}
 	path := filepath.Join(t.TempDir(), "x.lock")
-	first, err := Acquire(t.Context(), path, time.Minute)
-	if err != nil {
-		t.Fatal(err)
+	var other *Lock
+	opens := 0
+	testHookOpened = func() {
+		opens++
+		if opens != 1 {
+			return
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		hook := testHookOpened
+		testHookOpened = nil
+		l, ok, err := TryAcquire(path)
+		testHookOpened = hook
+		if err != nil || !ok {
+			t.Fatalf("locking the new file: %v, %v", ok, err)
+		}
+		other = l
 	}
-	// The waiter's TryAcquire keeps opening the old file until it is gone.
-	f, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	third, err := Acquire(t.Context(), path, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The first holder still has the old file locked, and now the only way
-	// to reach it is through f: locking f must not count.
-	if ok, err := tryLock(f); err != nil || ok {
-		t.Fatalf("locked the old file through another open: %v, %v", ok, err)
-	}
-	first.Release()
-	if ok, err := tryLock(f); err != nil || !ok {
-		t.Fatalf("the old file, once free: %v, %v", ok, err)
-	}
-	unlock(f)
-	if sameFile(f, path) {
-		t.Error("the old file still counts as the lock file")
-	}
+	t.Cleanup(func() { testHookOpened = nil })
 	if _, ok, err := TryAcquire(path); err != nil || ok {
-		t.Errorf("TryAcquire while the new file is held: %v, %v; want false", ok, err)
+		t.Errorf("TryAcquire got in beside the holder of the new lock file: %v, %v", ok, err)
 	}
-	third.Release()
+	if opens != 2 {
+		t.Errorf("TryAcquire opened the lock file %d times, want 2: once more for the new file", opens)
+	}
+	if other != nil {
+		other.Release()
+	}
 }
 
 // A lock file that this user cannot open, such as one that root made, gets

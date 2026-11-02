@@ -1,8 +1,12 @@
 // Package filelock locks files across processes: with flock on Linux, macOS
-// and the BSDs, and LockFileEx on Windows. A lock belongs to an open file,
-// so it also keeps out other opens of the same file in the same process. The
-// system drops it when the file is closed or the process ends, so a crash
-// leaves no stale lock behind.
+// and the BSDs, and LockFileEx on Windows. The system drops a lock when its
+// file is closed or the process ends, so a crash leaves no stale lock behind.
+//
+// On a local disk a lock belongs to the open file, so it also keeps out other
+// opens of the same file in the same process. On some network volumes, such
+// as macOS's SMB and NFS ones, it belongs to the process instead, so callers
+// in one process must take turns among themselves too, as internal/schwab
+// does with one semaphore per token file.
 //
 // A lock file is never deleted. A process that opened the path after a
 // delete would get a different file, and so a different lock.
@@ -34,6 +38,10 @@ var (
 
 // Lock is a lock that this process holds.
 type Lock struct{ f *os.File }
+
+// testHookOpened, if set, runs in TryAcquire between opening the lock file
+// and locking it.
+var testHookOpened func()
 
 // Acquire takes the lock on the file at path, creating the file, and its
 // directory, readable only by you. While another process holds the lock, it
@@ -80,6 +88,9 @@ func TryAcquire(path string) (*Lock, bool, error) {
 			return nil, false, fmt.Errorf("opening the lock file: %w; if another user, such as root, made it, remove it while nothing is using it", err)
 		default:
 			return nil, false, fmt.Errorf("opening the lock file: %w", err)
+		}
+		if testHookOpened != nil {
+			testHookOpened()
 		}
 		ok, err := tryLock(f)
 		if err != nil {

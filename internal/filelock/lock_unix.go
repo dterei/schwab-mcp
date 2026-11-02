@@ -11,9 +11,10 @@ import (
 
 const supported = true
 
-// tryLock takes an exclusive lock on f if no other open file holds one, in
-// this process or another, and reports whether it did. The system drops the
-// lock when f is closed or the process ends.
+// tryLock takes an exclusive lock on f if no other open file holds one, and
+// reports whether it did. Which opens count as others depends on the file
+// system: see the package doc. The system drops the lock when f is closed or
+// the process ends.
 func tryLock(f *os.File) (bool, error) {
 	err := flock(f, syscall.LOCK_EX|syscall.LOCK_NB)
 	switch {
