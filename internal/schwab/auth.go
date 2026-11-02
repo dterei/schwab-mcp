@@ -161,6 +161,9 @@ type Auth struct {
 	// token that they replace after Schwab refused it, or "". Goroutines that
 	// need the same renewal wait for it rather than make their own.
 	flights map[string]*flight
+	// carry is where a renewal that ended without an answer stopped, by the
+	// same key, for the next one to carry on from while its wait is due.
+	carry map[string]series
 
 	// sleep waits between tries of a refresh, and jitter picks a wait up to
 	// the one given; tests replace them.
@@ -179,7 +182,10 @@ type flight struct {
 	quit bool
 	// next is how far its tries have got: while it runs, as of the last
 	// wait it began, guarded by Auth.mu; once done is closed, as it ended.
-	next series
+	// noted is closed, and replaced, whenever next changes, so that those
+	// waiting see a wait that their deadline would cut short.
+	next  series
+	noted chan struct{}
 	// followers is how many others have waited for it, for tests.
 	followers int
 }
@@ -429,8 +435,11 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 		"redirect_uri": {a.cfg.CallbackURL},
 	})
 	if err != nil {
-		if se, ok := errors.AsType[*Error](err); ok && (se.Code == "invalid_client" || se.Code == "" && se.Status == http.StatusUnauthorized) {
-			return fmt.Errorf("%w: %w", ErrAppRejected, err)
+		// Decided by the OAuth code, not a gateway's, which Code may hold too.
+		if se, ok := errors.AsType[*Error](err); ok {
+			if code, _ := oauthError(se.Body); code == "invalid_client" || code == "" && se.Status == http.StatusUnauthorized {
+				return fmt.Errorf("%w: %w", ErrAppRejected, err)
+			}
 		}
 		return fmt.Errorf("exchanging the authorization code: %w", err)
 	}
@@ -477,15 +486,33 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 // same rejected token, share one renewal.
 func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 	var from series
+	looked := false
 	for {
 		a.mu.Lock()
 		f, follow := a.flights[rejected]
-		var sofar series
 		if follow {
 			f.followers++
-			sofar = f.next
 		} else {
-			f = &flight{done: make(chan struct{})}
+			// Carry on a renewal that ended without an answer while its wait
+			// is due, whoever began it.
+			if c, ok := a.carry[rejected]; ok && from == (series{}) && time.Until(c.due) > 0 {
+				from = c
+			}
+			if time.Until(from.due) > 0 && !looked {
+				// Before waiting for it, or giving up for lack of time, see
+				// whether another process has saved a token meanwhile.
+				a.mu.Unlock()
+				looked = true
+				if tok, ok := a.look(ctx, rejected); ok {
+					return tok, nil
+				}
+				continue
+			}
+			if wait := time.Until(from.due); wait > 0 && from.last != nil && !fits(ctx, wait) {
+				a.mu.Unlock()
+				return "", from.last
+			}
+			f = &flight{done: make(chan struct{}), noted: make(chan struct{}), next: from}
 			if a.flights == nil {
 				a.flights = map[string]*flight{}
 			}
@@ -495,18 +522,25 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 		if !follow {
 			return a.lead(ctx, rejected, f, from)
 		}
-		// A wait that the renewal has begun and that this caller's deadline
-		// would cut short is not waited for.
-		if wait := time.Until(sofar.due); wait > 0 && sofar.last != nil && !fits(ctx, wait) {
-			return "", sofar.last
-		}
-		select {
-		case <-f.done:
-		case <-ctx.Done():
+		for waiting := true; waiting; {
 			a.mu.Lock()
-			last := f.next.last
+			sofar, noted := f.next, f.noted
 			a.mu.Unlock()
-			return "", withLast(ctx.Err(), last)
+			// A wait that the renewal has begun and that this caller's
+			// deadline would cut short is not waited for.
+			if wait := time.Until(sofar.due); wait > 0 && sofar.last != nil && !fits(ctx, wait) {
+				return "", sofar.last
+			}
+			select {
+			case <-f.done:
+				waiting = false
+			case <-noted:
+			case <-ctx.Done():
+				a.mu.Lock()
+				last := f.next.last
+				a.mu.Unlock()
+				return "", withLast(ctx.Err(), last)
+			}
 		}
 		if !f.quit {
 			return f.tok, f.err
@@ -525,9 +559,26 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 	}
 }
 
+// look reads the token file under the lock and returns its access token if
+// that is fresh and not rejected, with no token request.
+func (a *Auth) look(ctx context.Context, rejected string) (string, bool) {
+	release, err := a.hold(ctx)
+	if err != nil {
+		return "", false
+	}
+	defer release()
+	t, err := a.read()
+	if err != nil {
+		return "", false
+	}
+	a.set(t)
+	return a.fresh(rejected)
+}
+
 // lead makes the renewal f, which others may wait for, from where from left
 // off, and ends it whatever happens, a panic included, so that they do not
-// wait forever.
+// wait forever. A renewal that ends without an answer leaves its series for
+// the next one to carry on; one that ends with an answer clears it.
 func (a *Auth) lead(ctx context.Context, rejected string, f *flight, from series) (string, error) {
 	var (
 		tok      string
@@ -538,9 +589,19 @@ func (a *Auth) lead(ctx context.Context, rejected string, f *flight, from series
 	)
 	defer func() {
 		a.mu.Lock()
-		f.tok, f.err, f.next = tok, err, next
+		if finished {
+			f.tok, f.err, f.next = tok, err, next
+		} // after a panic, next stays as last noted
 		f.quit = !finished || err != nil && quit // a panic is no answer for the others
 		delete(a.flights, rejected)
+		if f.quit {
+			if a.carry == nil {
+				a.carry = map[string]series{}
+			}
+			a.carry[rejected] = f.next
+		} else {
+			delete(a.carry, rejected)
+		}
 		a.mu.Unlock()
 		close(f.done)
 	}()
@@ -550,11 +611,13 @@ func (a *Auth) lead(ctx context.Context, rejected string, f *flight, from series
 }
 
 // note records on f how far its tries have got, as a wait begins, for those
-// who wait for it.
+// who wait for it, and wakes them to see it.
 func (a *Auth) note(f *flight, s series) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	f.next = s
+	close(f.noted)
+	f.noted = make(chan struct{})
 }
 
 // renewTries is renew for one goroutine, for the renewal f, from where s

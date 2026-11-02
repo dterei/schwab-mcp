@@ -162,10 +162,15 @@ func (c *Client) Get(ctx context.Context, path string, query url.Values) ([]byte
 			} else {
 				err = fmt.Errorf("GET %s: %w", path, err)
 			}
-			last = err
 			if final {
+				// A try cut short by the caller keeps what the one before got,
+				// as a wait cut short does.
+				if ctx.Err() != nil && last != nil {
+					return nil, fmt.Errorf("%w; the try before got: %w", err, last)
+				}
 				return nil, err
 			}
+			last = err
 			if err := c.wait(ctx, c.backoff(try), err); err != nil {
 				return nil, err
 			}

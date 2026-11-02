@@ -1638,3 +1638,177 @@ func TestRefreshCancelDuringAFailingRequest(t *testing.T) {
 		t.Errorf("AccessToken: %v, want context.Canceled and the 503", err)
 	}
 }
+
+// A goroutine that asks after a renewal ended without an answer, with no
+// one left to carry it on, carries it on itself: it makes the wait the
+// renewal was due, rather than send at once.
+func TestRefreshNewcomerAfterAQuit(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	var w waits
+	a.sleep = w.sleep
+	a.jitter = func(d time.Duration) time.Duration { return d }
+	sent := &counting{inner: http.DefaultTransport}
+	a.cfg.HTTPClient = &http.Client{Transport: sent}
+	f.mu.Lock()
+	f.tokenFailures = []int{http.StatusServiceUnavailable}
+	f.tokenRetryAfter = "3"
+	f.mu.Unlock()
+	short, cancel := context.WithTimeout(t.Context(), time.Second) // shorter than Retry-After's 3s
+	defer cancel()
+	if _, err := a.AccessToken(short); err == nil {
+		t.Fatal("the first caller got no error")
+	}
+	if tok, err := a.AccessToken(t.Context()); err != nil || tok != "access-2" {
+		t.Errorf("the caller after it: %q, %v; want access-2", tok, err)
+	}
+	if got := w.got(); len(got) != 1 || got[0] < 2*time.Second || got[0] > 3*time.Second {
+		t.Errorf("waited %v, want what was left of Retry-After's 3s", got)
+	}
+	if n := sent.n.Load(); n != 2 {
+		t.Errorf("%d token requests, want 2", n)
+	}
+}
+
+// One that would carry on such a renewal first looks at the token file, and
+// takes a token that another process saved meanwhile.
+func TestRefreshCarryLooksAtTheFile(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	f.mu.Lock()
+	f.tokenFailures = []int{http.StatusServiceUnavailable}
+	f.tokenRetryAfter = "30"
+	f.mu.Unlock()
+	short, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if _, err := a.AccessToken(short); err == nil {
+		t.Fatal("the first caller got no error")
+	}
+	other := newTestAuth(t, f, a.tokenFile, &clock{now: a.now()})
+	if tok, err := other.AccessToken(t.Context()); err != nil || tok != "access-2" {
+		t.Fatalf("another process's refresh: %q, %v", tok, err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second) // shorter than what is left of the 30s
+	defer cancel()
+	if tok, err := a.AccessToken(ctx); err != nil || tok != "access-2" {
+		t.Errorf("after the other process's refresh: %q, %v; want its access-2", tok, err)
+	}
+}
+
+// A goroutine that waits for a renewal from before that renewal begins a
+// wait is told of it, and gets the last failure at once when its deadline
+// would cut the wait short.
+func TestRefreshFollowerToldOfAWait(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	var w waits
+	a.sleep = w.sleep
+	var once sync.Once
+	f.mu.Lock()
+	f.tokenFailures = []int{http.StatusServiceUnavailable}
+	f.tokenRetryAfter = "5"
+	f.onToken = func() {
+		once.Do(func() { waitFor(t, "the follower", func() bool { return followers(a) == 1 }) })
+	}
+	f.mu.Unlock()
+	leader := make(chan error, 1)
+	go func() {
+		_, err := a.AccessToken(t.Context())
+		leader <- err
+	}()
+	waitFor(t, "the renewal", func() bool { a.mu.Lock(); defer a.mu.Unlock(); return a.flights[""] != nil })
+	ctx, cancel := context.WithTimeout(t.Context(), 1500*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := a.AccessToken(ctx)
+	if se, ok := errors.AsType[*Error](err); !ok || se.Status != http.StatusServiceUnavailable || errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("the follower: %v, want the 503 at once", err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("the follower waited %v", d)
+	}
+	if err := <-leader; err != nil {
+		t.Errorf("the leader, which had time: %v", err)
+	}
+}
+
+// panicOn is a transport whose nth request panics, once ready says so.
+type panicOn struct {
+	n     int32
+	sent  atomic.Int32
+	ready func() bool
+}
+
+func (p *panicOn) RoundTrip(req *http.Request) (*http.Response, error) {
+	if p.sent.Add(1) == p.n {
+		for !p.ready() {
+			time.Sleep(time.Millisecond)
+		}
+		panic("the transport broke")
+	}
+	return http.DefaultTransport.RoundTrip(req)
+}
+
+// A renewal that panics part way through its tries hands them on as far as
+// they had got, so that the one that carries them on keeps their bounds.
+func TestRefreshPanicKeepsTheSeries(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	var w waits
+	a.sleep = w.sleep
+	a.jitter = func(d time.Duration) time.Duration { return d }
+	a.cfg.HTTPClient = &http.Client{Transport: &panicOn{n: 3, ready: func() bool { return followers(a) == 1 }}}
+	f.mu.Lock()
+	for range 10 {
+		f.tokenFailures = append(f.tokenFailures, http.StatusServiceUnavailable)
+	}
+	f.mu.Unlock()
+	before := f.tokenRequests()
+	leader := make(chan any, 1)
+	go func() {
+		defer func() { leader <- recover() }()
+		_, _ = a.AccessToken(t.Context())
+	}()
+	waitFor(t, "the renewal", func() bool { a.mu.Lock(); defer a.mu.Unlock(); return a.flights[""] != nil })
+	_, err := a.AccessToken(t.Context())
+	if p := <-leader; p == nil {
+		t.Fatal("the transport did not panic")
+	}
+	if se, ok := errors.AsType[*Error](err); !ok || se.Status != http.StatusServiceUnavailable {
+		t.Errorf("the one that carried on: %v, want the 503", err)
+	}
+	if n := f.tokenRequests() - before; n != refreshTries {
+		t.Errorf("%d token requests reached Schwab, want %d in the one series", n, refreshTries)
+	}
+}
+
+// A later try that the caller's deadline cuts short keeps what the try
+// before got, with its correlation ID.
+func TestGetKeepsTheAnswerBeforeACutTry(t *testing.T) {
+	f := newFakeOAuth(t)
+	f.script = append(f.script,
+		answer(http.StatusServiceUnavailable, `{"message":"down"}`, "Schwab-Client-CorrelId", "corr-503"),
+		func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() })
+	cl := newTestClient(t, f, &clock{now: testNow}, &fakeTime{now: testNow})
+	cl.firstWait = 10 * time.Millisecond // a wait that fits the deadline
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	_, err := cl.Get(ctx, "/trader/v1/test", nil)
+	if se, ok := errors.AsType[*Error](err); !errors.Is(err, context.DeadlineExceeded) || !ok || se.CorrelID != "corr-503" {
+		t.Errorf("a 503, then a try past the deadline: %v, want the deadline and the 503", err)
+	}
+}
+
+// A login that the gateway refuses with 401 is a refusal of the app, as one
+// that the OAuth server refuses is.
+func TestLoginGatewayRefusal(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := newTestAuth(t, f, filepath.Join(t.TempDir(), "token.json"), &clock{now: testNow})
+	f.mu.Lock()
+	f.tokenFailures = []int{http.StatusUnauthorized}
+	f.tokenFailureBody = `{"fault":{"faultstring":"Invalid ApiKey","detail":{"errorcode":"oauth.v2.InvalidApiKey"}}}`
+	f.mu.Unlock()
+	if err := a.Login(t.Context(), testCode); !errors.Is(err, ErrAppRejected) {
+		t.Errorf("Login: %v, want ErrAppRejected", err)
+	}
+}

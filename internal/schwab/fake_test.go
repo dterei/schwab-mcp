@@ -42,10 +42,11 @@ type fakeOAuth struct {
 	refreshGrants int
 
 	// tokenFailures answers the next token requests with these statuses, in
-	// order, where 0 cuts the connection instead, and with tokenRetryAfter
-	// as their Retry-After, if set.
-	tokenFailures   []int
-	tokenRetryAfter string
+	// order, where 0 cuts the connection instead, with tokenRetryAfter as
+	// their Retry-After, if set, and tokenFailureBody as their body, if set.
+	tokenFailures    []int
+	tokenRetryAfter  string
+	tokenFailureBody string
 	// script answers the next requests to the API, each entry once, in
 	// order; after it, the API answers 200.
 	script    []func(w http.ResponseWriter, r *http.Request)
@@ -115,7 +116,11 @@ func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
 		if f.tokenRetryAfter != "" {
 			w.Header().Set("Retry-After", f.tokenRetryAfter)
 		}
-		http.Error(w, `{"error":"server_error"}`, status)
+		body := `{"error":"server_error"}`
+		if f.tokenFailureBody != "" {
+			body = f.tokenFailureBody
+		}
+		http.Error(w, body, status)
 		return
 	}
 	user, pass, ok := r.BasicAuth()
