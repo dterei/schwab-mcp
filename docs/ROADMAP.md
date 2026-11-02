@@ -82,6 +82,7 @@ current as of October 2026.
 cmd/schwabtx/            CLI: login, snapshot, sync, export, quick lookups
 cmd/schwab-mcp/          MCP server (stdio; streamable HTTP later)
 
+internal/filelock/       file locks across processes, for the token file
 internal/schwab/         Schwab API client: OAuth, token store, HTTP with
                          retries and rate limiting, typed models + raw JSON
 internal/schwab/schwabtest/
@@ -136,13 +137,23 @@ and HTTP code into `internal/schwab` with what the history store needs.
       macOS and Windows and through cron's mail elsewhere. The expiry warning
       now starts two days before the weekly login lapses, so that a daily run
       gives at least a day's notice
-- [ ] OAuth login, refresh and token store extracted from the CLI, with a
-      file lock and refresh coordination between processes
+- [x] OAuth login, refresh and token store extracted from the CLI into
+      `internal/schwab`, with a file lock (`internal/filelock`) and refresh
+      coordination between processes. A process re-reads the token file
+      under the lock before it refreshes, and takes a token that another
+      process saved meanwhile, after a 401 too. A token request runs to its
+      end even if the caller gives up, so that a grant is not lost unsaved.
+      The token file keeps its format, now with a version, and keeps fields
+      that a newer version adds; `Status` reads it without a request, for
+      the M3 `auth_status` tool
 - [ ] Client-side rate limiting (Schwab publishes 120 requests a minute plus
       the order limit set for the app, shared by every process using the
       login); backoff on 429 and 5xx for reads only; retries for network
       errors and for the token refresh, which today fail a run at once and
-      leave it to the scheduler scripts to try again a minute later; errors
+      leave it to the scheduler scripts to try again a minute later. A
+      refresh that waits to try again lets go of the token file's lock
+      meanwhile and re-reads the file after, since another process may have
+      refreshed in between; errors
       that understand each of Schwab's error formats and carry its
       correlation ID for support tickets
 - [ ] Typed models with the raw JSON kept, for account numbers, accounts with
@@ -395,7 +406,7 @@ Everything planned, by area.
 | --- | --- | --- |
 | Login | Browser login with paste-back of the redirect | done |
 | Login | Expiry warning two days before the weekly login lapses | done |
-| Login | Token shared safely between the CLI and the server | M1 |
+| Login | Token shared safely between the CLI and the server | done |
 | Login | Automatic redirect capture on `127.0.0.1` | Later |
 | Login | Token in the OS keychain | Later |
 | Client | Accounts, balances, positions, transactions and preferences, typed, raw JSON kept | M1 |
