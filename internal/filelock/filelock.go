@@ -39,9 +39,9 @@ var (
 // Lock is a lock that this process holds.
 type Lock struct{ f *os.File }
 
-// testHookOpened, if set, runs in TryAcquire between opening the lock file
-// and locking it.
-var testHookOpened func()
+// testHookBeforeLock, if set, runs at the last moment before TryAcquire
+// locks the file it opened.
+var testHookBeforeLock func()
 
 // Acquire takes the lock on the file at path, creating the file, and its
 // directory, readable only by you. While another process holds the lock, it
@@ -89,10 +89,7 @@ func TryAcquire(path string) (*Lock, bool, error) {
 		default:
 			return nil, false, fmt.Errorf("opening the lock file: %w", err)
 		}
-		if testHookOpened != nil {
-			testHookOpened()
-		}
-		ok, err := tryLock(f)
+		ok, err := lockOpened(f)
 		if err != nil {
 			f.Close()
 			return nil, false, err
@@ -109,6 +106,16 @@ func TryAcquire(path string) (*Lock, bool, error) {
 		unlock(f)
 		f.Close()
 	}
+}
+
+// lockOpened locks f, which TryAcquire has just opened, after running the
+// test hook, so that the hook can replace the lock file after any check
+// that comes before the lock.
+func lockOpened(f *os.File) (bool, error) {
+	if testHookBeforeLock != nil {
+		testHookBeforeLock()
+	}
+	return tryLock(f)
 }
 
 // Release drops the lock.

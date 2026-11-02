@@ -193,62 +193,81 @@ func semFor(path string) chan struct{} {
 	return sem
 }
 
-// resolve returns the file that path names, as an absolute path with links
-// followed, and on Windows short names made long, in the longest part of it
-// that exists: before the first login neither the file nor its folder may.
-//
-// On Linux and macOS a ".." after a link leads out of the link's target, as
-// the system takes it, so a relative path is joined to the real working
-// directory, not the one the shell names, and nothing is cleaned before the
-// links are followed. Windows takes ".." by name, so there it is.
+// resolve returns the file that path names, as the system takes it when it
+// opens or creates the file: an absolute path with every link followed, so
+// that every process naming the file, however it spells it, uses the same
+// lock file, and a rewrite replaces the file rather than a link to it. What
+// does not exist yet, as before the first login, is taken by name, since it
+// will be made with that name.
 func resolve(path string) (string, error) {
 	if runtime.GOOS == "windows" {
-		abs, err := filepath.Abs(path)
-		if err != nil {
-			return "", err
-		}
-		path = abs
-	} else if !filepath.IsAbs(path) {
+		return resolveWindows(path)
+	}
+	// Walk the path as the system does: ".." leads to the parent of the
+	// folder reached so far, and a link's target takes its place, so that a
+	// ".." after a link leads out of the link's target, and a link to a file
+	// not made yet leads to where it will be.
+	cur := "/"
+	if !filepath.IsAbs(path) {
 		wd, err := os.Getwd()
 		if err != nil {
 			return "", err
 		}
-		if physical, err := filepath.EvalSymlinks(wd); err == nil {
-			wd = physical
+		if cur, err = filepath.EvalSymlinks(wd); err != nil {
+			cur = wd
 		}
-		path = wd + string(filepath.Separator) + path
+	}
+	todo := strings.Split(path, "/")
+	for links := 0; len(todo) > 0; {
+		elem := todo[0]
+		todo = todo[1:]
+		switch elem {
+		case "", ".":
+			continue
+		case "..":
+			cur = filepath.Dir(cur)
+			continue
+		}
+		next := filepath.Join(cur, elem)
+		if info, err := os.Lstat(next); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			cur = next
+			continue
+		}
+		if links++; links > 255 {
+			return "", fmt.Errorf("%s: too many links", path)
+		}
+		target, err := os.Readlink(next)
+		if err != nil {
+			return "", err
+		}
+		if filepath.IsAbs(target) {
+			cur = "/"
+		}
+		todo = append(strings.Split(target, "/"), todo...)
+	}
+	return cur, nil
+}
+
+// resolveWindows is resolve on Windows, which takes ".." by name: it makes
+// path absolute, then follows links and makes short names long in the
+// longest part of it that exists.
+func resolveWindows(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
 	}
 	rest := ""
-	for p := path; ; {
+	for p := abs; ; {
 		if resolved, err := filepath.EvalSymlinks(p); err == nil {
 			return filepath.Join(resolved, rest), nil
 		}
-		// Drop the last element by hand, since filepath.Dir would clean
-		// what is left.
-		i := lastSeparator(p)
-		if i < 0 {
-			return filepath.Clean(path), nil
-		}
-		parent := p[:i]
-		if parent == "" || parent == filepath.VolumeName(p) {
-			parent = p[:i+1] // the root
-		}
+		parent := filepath.Dir(p)
 		if parent == p {
-			return filepath.Clean(path), nil
+			return abs, nil
 		}
-		rest = filepath.Join(p[i+1:], rest)
+		rest = filepath.Join(filepath.Base(p), rest)
 		p = parent
 	}
-}
-
-// lastSeparator returns the index of the last path separator in p, or -1.
-func lastSeparator(p string) int {
-	for i := len(p) - 1; i >= 0; i-- {
-		if os.IsPathSeparator(p[i]) {
-			return i
-		}
-	}
-	return -1
 }
 
 // Status describes the login in the token file, without its tokens.

@@ -169,8 +169,9 @@ func TestLockOfADeadProcessIsFree(t *testing.T) {
 }
 
 // A lock file removed and made again, with another process locking the new
-// one, between a TryAcquire's open and its lock, does not let that TryAcquire
-// in beside the other: it finds the new file and that it is held.
+// one, at the last moment before a TryAcquire locks the file it opened, does
+// not let that TryAcquire in beside the other: it finds the new file and that
+// it is held.
 func TestLockFileReplaced(t *testing.T) {
 	skipUnsupported(t)
 	if runtime.GOOS == "windows" {
@@ -179,7 +180,7 @@ func TestLockFileReplaced(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "x.lock")
 	var other *Lock
 	opens := 0
-	testHookOpened = func() {
+	testHookBeforeLock = func() {
 		opens++
 		if opens != 1 {
 			return
@@ -187,16 +188,16 @@ func TestLockFileReplaced(t *testing.T) {
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
 		}
-		hook := testHookOpened
-		testHookOpened = nil
+		hook := testHookBeforeLock
+		testHookBeforeLock = nil
 		l, ok, err := TryAcquire(path)
-		testHookOpened = hook
+		testHookBeforeLock = hook
 		if err != nil || !ok {
 			t.Fatalf("locking the new file: %v, %v", ok, err)
 		}
 		other = l
 	}
-	t.Cleanup(func() { testHookOpened = nil })
+	t.Cleanup(func() { testHookBeforeLock = nil })
 	if _, ok, err := TryAcquire(path); err != nil || ok {
 		t.Errorf("TryAcquire got in beside the holder of the new lock file: %v, %v", ok, err)
 	}
