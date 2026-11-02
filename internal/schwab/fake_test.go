@@ -37,6 +37,14 @@ type fakeOAuth struct {
 	issued        int
 	codeGrants    int
 	refreshGrants int
+
+	// tokenFailures answers the next token requests with these statuses, in
+	// order, where 0 cuts the connection instead.
+	tokenFailures []int
+	// script answers the next requests to the API, each entry once, in
+	// order; after it, the API answers 200.
+	script   []func(w http.ResponseWriter, r *http.Request)
+	apiCalls int
 }
 
 func newFakeOAuth(t *testing.T) *fakeOAuth {
@@ -44,6 +52,7 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/oauth/token", f.handleToken)
 	mux.HandleFunc("GET /whoami", f.handleWhoami)
+	mux.HandleFunc("GET /trader/v1/test", f.handleAPI)
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
@@ -56,6 +65,16 @@ func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests++
+	if len(f.tokenFailures) > 0 {
+		status := f.tokenFailures[0]
+		f.tokenFailures = f.tokenFailures[1:]
+		if status == 0 {
+			cut(w)
+		} else {
+			http.Error(w, `{"error":"server_error"}`, status)
+		}
+		return
+	}
 	user, pass, ok := r.BasicAuth()
 	if !ok || user != testKey || pass != testSecret {
 		http.Error(w, `{"error":"invalid_client","error_description":"Unauthorized"}`, http.StatusUnauthorized)
@@ -123,6 +142,60 @@ func (f *fakeOAuth) handleWhoami(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleAPI answers an API request with a working access token by the next
+// entry of the script, or else 200.
+func (f *fakeOAuth) handleAPI(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.apiCalls++
+	const prefix = "Bearer "
+	auth := r.Header.Get("Authorization")
+	if len(auth) <= len(prefix) || !f.access[auth[len(prefix):]] {
+		f.mu.Unlock()
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	var answer func(w http.ResponseWriter, r *http.Request)
+	if len(f.script) > 0 {
+		answer = f.script[0]
+		f.script = f.script[1:]
+	}
+	f.mu.Unlock()
+	if answer == nil {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"ok":true}`)
+		return
+	}
+	answer(w, r)
+}
+
+// answer returns a script entry that answers with status, headers in pairs,
+// and body.
+func answer(status int, body string, headers ...string) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		for i := 0; i+1 < len(headers); i += 2 {
+			w.Header().Set(headers[i], headers[i+1])
+		}
+		w.WriteHeader(status)
+		fmt.Fprint(w, body)
+	}
+}
+
+// cut closes the connection without an answer, as a network failure would.
+func cut(w http.ResponseWriter) {
+	if hj, ok := w.(http.Hijacker); ok {
+		if conn, _, err := hj.Hijack(); err == nil {
+			conn.Close()
+		}
+	}
+}
+
+// calls returns how many API requests the fake has had.
+func (f *fakeOAuth) calls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.apiCalls
 }
 
 // allow makes refresh a refresh token that the fake takes.

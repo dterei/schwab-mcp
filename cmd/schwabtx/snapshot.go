@@ -66,7 +66,7 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if err != nil {
 		return err
 	}
-	c := newClient(cfg, auth, httpClient)
+	c := newClient(auth)
 
 	body, err := c.get(ctx, "/accounts", url.Values{"fields": {"positions"}})
 	if err != nil {

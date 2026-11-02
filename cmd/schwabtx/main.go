@@ -160,7 +160,7 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 	if err != nil {
 		return err
 	}
-	c := newClient(cfg, auth, httpClient)
+	c := newClient(auth)
 
 	accounts, err := c.accountNumbers(ctx)
 	if err != nil {

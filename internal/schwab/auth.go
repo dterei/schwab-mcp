@@ -51,6 +51,11 @@ const (
 	// refreshed.
 	refreshMargin = time.Minute
 
+	// refreshTries is how many times a refresh is sent before its failure
+	// is returned, and refreshWait is the wait after the first.
+	refreshTries = 4
+	refreshWait  = time.Second
+
 	// freshTokenAge is how old an access token must be before Schwab
 	// refusing it leads to a refresh. Schwab refusing a token it has only
 	// just issued means that something else is wrong, such as an API product
@@ -136,6 +141,11 @@ type Auth struct {
 	// that it is not sent again while the file holds it.
 	refused    string
 	refusedErr error
+
+	// sleep waits between tries of a refresh, and jitter picks a wait up to
+	// the one given; tests replace them.
+	sleep  func(ctx context.Context, d time.Duration) error
+	jitter func(d time.Duration) time.Duration
 }
 
 // NewAuth returns an Auth for cfg. It does not read the token file yet.
@@ -172,6 +182,7 @@ func NewAuth(cfg Config) (*Auth, error) {
 	return &Auth{
 		cfg: cfg, tokenFile: tokenFile, sem: semFor(tokenFile),
 		lock: filelock.Acquire, tryLock: filelock.TryAcquire,
+		sleep: sleep, jitter: equalJitter,
 	}, nil
 }
 
@@ -398,8 +409,24 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 
 // renew re-reads the token file under the lock, and returns its access token
 // if that is fresh and not rejected; otherwise it refreshes the token and
-// saves the result.
+// saves the result. A refresh that fails for a while, on the network or at
+// Schwab, is tried again, up to refreshTries times in all. Between tries the
+// lock is let go and the wait comes without it, since another process may
+// refresh meanwhile, and the next try re-reads the file to find out.
 func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
+	for try := 1; ; try++ {
+		tok, err := a.renewOnce(ctx, rejected)
+		if err == nil || try >= refreshTries || !refreshTransient(ctx, err) {
+			return tok, err
+		}
+		if err := a.sleep(ctx, a.backoff(try)); err != nil {
+			return "", err
+		}
+	}
+}
+
+// renewOnce is one try of renew.
+func (a *Auth) renewOnce(ctx context.Context, rejected string) (string, error) {
 	release, err := a.hold(ctx)
 	if err != nil {
 		return "", err
@@ -460,6 +487,25 @@ func (a *Auth) refresh(ctx context.Context, t *token) (string, error) {
 		return "", err
 	}
 	return next.AccessToken, nil
+}
+
+// refreshTransient reports whether err, from a refresh, is worth trying
+// again: the network failed, or Schwab answered 429 or 5xx. A refusal of the
+// login or the app is final.
+func refreshTransient(ctx context.Context, err error) bool {
+	if errors.Is(err, ErrLoginExpired) || errors.Is(err, ErrAppRejected) {
+		return false
+	}
+	if se, ok := errors.AsType[*Error](err); ok {
+		return se.Status == http.StatusTooManyRequests || se.Status >= 500 && se.Status != http.StatusNotImplemented
+	}
+	return transient(ctx, err)
+}
+
+// backoff returns the wait before refresh try+1, longer with each try and
+// jittered.
+func (a *Auth) backoff(try int) time.Duration {
+	return a.jitter(refreshWait << (try - 1))
 }
 
 // refreshError says what a failed refresh means. Schwab refuses a lapsed or

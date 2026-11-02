@@ -184,6 +184,7 @@ func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) 
 	f.txCalls++
 	if f.rateLimitNext > 0 {
 		f.rateLimitNext--
+		w.Header().Set("Retry-After", "0")
 		http.Error(w, `{"error":"too many requests"}`, http.StatusTooManyRequests)
 		return
 	}
@@ -542,7 +543,7 @@ func TestTruncatedResponsesAreSplit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := newClient(cfg, auth, newHTTPClient())
+	c := newClient(auth)
 	c.pageCap = 50
 	accounts, err := c.accountNumbers(context.Background())
 	if err != nil {
@@ -696,8 +697,7 @@ func TestRateLimitIsRetried(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := newClient(cfg, auth, newHTTPClient())
-	c.retryWait = time.Millisecond
+	c := newClient(auth)
 	txs, err := c.transactions(context.Background(), "HASH11112222", testNow.Add(-24*time.Hour), testNow, allTransactionTypes)
 	if err != nil {
 		t.Fatal(err)
