@@ -18,19 +18,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
-const (
-	defaultBaseURL     = "https://api.schwabapi.com"
-	defaultCallbackURL = "https://127.0.0.1"
-
-	// maxDays bounds -lookback and -window so they cannot overflow a Duration.
-	maxDays = 36500
-)
+// maxDays bounds -lookback and -window so they cannot overflow a Duration.
+const maxDays = 36500
 
 // timeNow is swapped out in tests.
 var timeNow = time.Now
@@ -55,17 +51,16 @@ func loadConfig() (config, error) {
 		return cfg, errors.New("SCHWAB_APP_KEY and SCHWAB_APP_SECRET must be set (see README.md)")
 	}
 	if cfg.CallbackURL == "" {
-		cfg.CallbackURL = defaultCallbackURL
+		cfg.CallbackURL = schwab.DefaultCallbackURL
 	}
 	if cfg.BaseURL == "" {
-		cfg.BaseURL = defaultBaseURL
+		cfg.BaseURL = schwab.DefaultBaseURL
 	}
 	if cfg.TokenFile == "" {
-		dir, err := os.UserConfigDir()
-		if err != nil {
-			return cfg, fmt.Errorf("cannot find a config directory, set SCHWAB_TOKEN_FILE: %w", err)
+		var err error
+		if cfg.TokenFile, err = schwab.DefaultTokenFile(); err != nil {
+			return cfg, fmt.Errorf("%w; set SCHWAB_TOKEN_FILE", err)
 		}
-		cfg.TokenFile = filepath.Join(dir, "schwabtx", "token.json")
 	}
 	return cfg, nil
 }
@@ -99,7 +94,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		if err != nil {
 			return err
 		}
-		return login(ctx, newAuthenticator(cfg, newHTTPClient()), stdin, stdout)
+		auth, err := newAuth(cfg, newHTTPClient(), stderr)
+		if err != nil {
+			return err
+		}
+		return login(ctx, cfg, auth, stdin, stdout)
 	case "transactions":
 		return runTransactions(ctx, args, stdout, stderr)
 	case "snapshot":
@@ -157,12 +156,9 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 		return err
 	}
 	httpClient := newHTTPClient()
-	auth := newAuthenticator(cfg, httpClient)
-	if err := auth.load(); err != nil {
+	auth, err := openLogin(cfg, httpClient, stderr)
+	if err != nil {
 		return err
-	}
-	if w := auth.expiryWarning(); w != "" {
-		fmt.Fprintln(stderr, "warning:", w)
 	}
 	c := newClient(cfg, auth, httpClient)
 

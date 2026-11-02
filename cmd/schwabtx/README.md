@@ -3,7 +3,7 @@
 A small CLI that logs in to the Charles Schwab Trader API, prints your most
 recent transactions across every account you share with it, and saves
 snapshots of those accounts' positions and balances. It uses only the Go
-standard library.
+standard library, and golang.org/x/sys for file locks on Windows.
 
 Before the first run, set up a Schwab developer app as described in the
 [top-level README](../../README.md#one-time-setup).
@@ -52,6 +52,16 @@ The login token is stored in your user config directory under
 the file is made readable only by you wherever it is. On Windows it takes its
 folder's permissions, which at the default location means only you, so keep
 an overridden path inside your user profile.
+
+Every process that uses the login shares that file: the scheduled snapshot,
+a `schwabtx` you run by hand and, later, the MCP server. Next to it,
+`token.json.lock` lets one of them at a time refresh the login or replace it.
+Leave the lock file in place; it stays empty. Keep the token file on a local
+disk of the one machine that uses it, not in iCloud Drive, Dropbox, OneDrive
+or another synced folder: the lock does not reach other machines, a login on
+one machine ends the login on the other, and the sync provider would hold
+your token. If others can read the token file, as one copied in by hand may,
+`schwabtx` makes it private and says so.
 
 ## Snapshots
 
@@ -114,8 +124,10 @@ its `fetched_at`.
   prints what it got and warns you.
 - A response with 3000 transactions may have been cut short, so the tool splits
   that window in half and asks again.
-- On a 401 it refreshes the access token once; on a 429 or 5xx it backs off
-  and retries.
+- On a 401 it gets a new access token once: one that another process saved
+  meanwhile, or a refresh. A 401 for a token that Schwab issued moments ago is
+  reported as it is, since a new token would not help. On a 429 or 5xx it
+  backs off and retries.
 
 ## Tests
 
@@ -142,7 +154,16 @@ scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
 - `invalid_grant` / `HTTP 400` at login: the pasted code expired (be quicker)
   or `SCHWAB_CALLBACK_URL` does not match one of the app's callback URLs
   exactly.
-- "Schwab rejected the saved login": the 7 days are up, run `login` again.
+- "Schwab rejected the saved login": the 7 days are up, or you logged in
+  elsewhere since; run `login` again.
+- "another process kept the Schwab login locked": another `schwabtx`, or the
+  MCP server, was still refreshing the login after two minutes, which it
+  should never take. Find and stop the stuck process.
+- "cannot be locked" (a warning): the token file is on a file system that
+  cannot lock, as some network ones cannot. `schwabtx` carries on without the
+  lock, but set `SCHWAB_TOKEN_FILE` to a file on a local disk.
+- "opening the lock file: ... permission denied": another user, often root
+  after a `sudo`, made `token.json.lock`. Remove it while no `schwabtx` runs.
 - `0 transactions` although the account has activity: the account is
   probably not enabled for thinkorswim (see the
   [top-level README](../../README.md#one-time-setup)). An account you did not

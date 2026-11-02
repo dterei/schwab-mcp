@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"sort"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
 // allTransactionTypes is every value the Trader API accepts for "types".
@@ -174,7 +176,7 @@ func fetchAccount(ctx context.Context, c *client, acct account, opt fetchOptions
 			// Schwab limits how far back it will serve. If an older window is
 			// refused after newer ones worked, halve the window to get as close
 			// to that limit as we can, then keep what we have.
-			var ae *apiError
+			var ae *schwab.Error
 			if !end.Equal(opt.Now) && errors.As(err, &ae) && ae.Status == http.StatusBadRequest {
 				if span := end.Sub(start); span > 24*time.Hour {
 					window = span / 2

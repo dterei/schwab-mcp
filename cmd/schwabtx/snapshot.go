@@ -62,12 +62,9 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 		return err
 	}
 	httpClient := newHTTPClient()
-	auth := newAuthenticator(cfg, httpClient)
-	if err := auth.load(); err != nil {
+	auth, err := openLogin(cfg, httpClient, stderr)
+	if err != nil {
 		return err
-	}
-	if w := auth.expiryWarning(); w != "" {
-		fmt.Fprintln(stderr, "warning:", w)
 	}
 	c := newClient(cfg, auth, httpClient)
 

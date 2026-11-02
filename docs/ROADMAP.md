@@ -50,8 +50,9 @@ current as of October 2026.
   unknown fields and keeps enums as open strings.
 - **Orders are never retried automatically.** A retried order request can be
   a second order.
-- **Few dependencies.** The standard library, an MCP SDK and, from milestone
-  2, SQLite. Each new dependency has to earn its place.
+- **Few dependencies.** The standard library and golang.org/x/sys, for file
+  locks on Windows, an MCP SDK and, from milestone 2, SQLite, whose driver
+  needs x/sys too. Each new dependency has to earn its place.
 - **Tested against a fake Schwab.** Every endpoint the code uses is imitated by
   an in-process fake server that enforces Schwab's auth rules, as the CLI's
   tests already do. Nothing in CI talks to the real API.
@@ -82,6 +83,7 @@ current as of October 2026.
 cmd/schwabtx/            CLI: login, snapshot, sync, export, quick lookups
 cmd/schwab-mcp/          MCP server (stdio; streamable HTTP later)
 
+internal/filelock/       file locks across processes, for the token file
 internal/schwab/         Schwab API client: OAuth, token store, HTTP with
                          retries and rate limiting, typed models + raw JSON
 internal/schwab/schwabtest/
@@ -97,8 +99,9 @@ has no mature, maintained Schwab client library today.
 
 The CLI and the server share one token file. A file lock keeps them from
 refreshing at the same time, and each re-reads the file before refreshing,
-because a refresh by one process can invalidate the other's copy. Schwab's
-single streamer connection (milestone 6) is shared the same way.
+because another process may have refreshed meanwhile, or logged in again,
+which ends the earlier login's refresh token. Schwab's single streamer
+connection (milestone 6) is shared the same way.
 
 ## Milestones
 
@@ -136,13 +139,23 @@ and HTTP code into `internal/schwab` with what the history store needs.
       macOS and Windows and through cron's mail elsewhere. The expiry warning
       now starts two days before the weekly login lapses, so that a daily run
       gives at least a day's notice
-- [ ] OAuth login, refresh and token store extracted from the CLI, with a
-      file lock and refresh coordination between processes
+- [x] OAuth login, refresh and token store extracted from the CLI into
+      `internal/schwab`, with a file lock (`internal/filelock`) and refresh
+      coordination between processes. A process re-reads the token file
+      under the lock before it refreshes, and takes a token that another
+      process saved meanwhile, after a 401 too. A token request runs to its
+      end even if the caller gives up, so that a grant is not lost unsaved.
+      The token file keeps its format, now with a version, and keeps fields
+      that a newer version adds; `Status` reads it without a request, for
+      the M3 `auth_status` tool
 - [ ] Client-side rate limiting (Schwab publishes 120 requests a minute plus
       the order limit set for the app, shared by every process using the
       login); backoff on 429 and 5xx for reads only; retries for network
       errors and for the token refresh, which today fail a run at once and
-      leave it to the scheduler scripts to try again a minute later; errors
+      leave it to the scheduler scripts to try again a minute later. A
+      refresh that waits to try again lets go of the token file's lock
+      meanwhile and re-reads the file after, since another process may have
+      refreshed in between; errors
       that understand each of Schwab's error formats and carry its
       correlation ID for support tickets
 - [ ] Typed models with the raw JSON kept, for account numbers, accounts with
@@ -300,6 +313,9 @@ Copies the safety design of jkoelker/schwab-mcp and adds limits.
 - [ ] `readOnlyHint` on `preview_order` and `destructiveHint` on
       `place_order`, `replace_order` and `cancel_order`; an append-only local
       audit log of every preview, order, replacement and cancellation
+- [ ] An order goes out only with an access token that has at least five
+      minutes left, refreshed first if need be, since a 401 would call for a
+      retry, which orders never get
 
 ### M6. Streaming
 
@@ -395,7 +411,7 @@ Everything planned, by area.
 | --- | --- | --- |
 | Login | Browser login with paste-back of the redirect | done |
 | Login | Expiry warning two days before the weekly login lapses | done |
-| Login | Token shared safely between the CLI and the server | M1 |
+| Login | Token shared safely between the CLI and the server | done |
 | Login | Automatic redirect capture on `127.0.0.1` | Later |
 | Login | Token in the OS keychain | Later |
 | Client | Accounts, balances, positions, transactions and preferences, typed, raw JSON kept | M1 |
@@ -463,6 +479,10 @@ milestone 1.
   re-check.
 - **What are the real rate limits for this app, and how does Schwab signal
   them?**
+- **Does a refresh end the older access tokens, and does it ever change the
+  refresh token?** Community clients suggest that it does not change the
+  refresh token. The login code copes either way, but each answer saves
+  requests.
 
 ## Risks
 

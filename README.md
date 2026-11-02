@@ -145,6 +145,12 @@ To get the same formatting on save, set up gopls in your editor with
 cmd/schwabtx/   the CLI and its tests, which run it against a fake Schwab server
 cmd/schwabtx/schedule/
                 scripts and steps for running snapshots daily
+internal/schwab/
+                the Schwab client: so far the login, its refresh and the token
+                file that every process using the login shares
+internal/filelock/
+                file locks across processes, which keep two processes from
+                refreshing the login at once
 docs/           roadmap, notes on the Schwab API and a survey of prior art
 .github/        CI and Dependabot
 ```

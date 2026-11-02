@@ -493,7 +493,18 @@ func TestRevokedAccessTokenIsRefreshedOn401(t *testing.T) {
 	doLogin(t)
 	f.validAccess = "revoked-server-side"
 
-	// The fake's refresh handler issues a fresh token, so one retry fixes it.
+	// Schwab refusing a token it has only just issued is not the token's
+	// fault, so the tool reports it rather than refresh.
+	if _, _, err := runTx(t, "-json"); err == nil || !strings.Contains(err.Error(), "HTTP 401") {
+		t.Fatalf("a 401 right after the login: %v, want Schwab's HTTP 401", err)
+	}
+	if f.refreshGrants != 0 {
+		t.Fatalf("refresh grants = %d, want 0", f.refreshGrants)
+	}
+
+	// Ten minutes later, the fake's refresh handler issues a fresh token, so
+	// one retry fixes it.
+	timeNow = func() time.Time { return testNow.Add(10 * time.Minute) }
 	if _, _, err := runTx(t, "-json"); err != nil {
 		t.Fatal(err)
 	}
@@ -527,8 +538,8 @@ func TestTruncatedResponsesAreSplit(t *testing.T) {
 
 	// The cap is Schwab's 3000 in real life; shrink it to match the fake.
 	cfg, _ := loadConfig()
-	auth := newAuthenticator(cfg, newHTTPClient())
-	if err := auth.load(); err != nil {
+	auth, err := openLogin(cfg, newHTTPClient(), io.Discard)
+	if err != nil {
 		t.Fatal(err)
 	}
 	c := newClient(cfg, auth, newHTTPClient())
@@ -681,8 +692,8 @@ func TestRateLimitIsRetried(t *testing.T) {
 	f.rateLimitNext = 2
 
 	cfg, _ := loadConfig()
-	auth := newAuthenticator(cfg, newHTTPClient())
-	if err := auth.load(); err != nil {
+	auth, err := openLogin(cfg, newHTTPClient(), io.Discard)
+	if err != nil {
 		t.Fatal(err)
 	}
 	c := newClient(cfg, auth, newHTTPClient())
@@ -693,31 +704,6 @@ func TestRateLimitIsRetried(t *testing.T) {
 	}
 	if len(txs) != 5 || f.txCalls != 3 {
 		t.Fatalf("got %d transactions in %d calls, want 5 in 3", len(txs), f.txCalls)
-	}
-}
-
-func TestExtractCode(t *testing.T) {
-	cases := []struct {
-		name, in, state, want string
-		wantErr               bool
-	}{
-		{"full address", "https://127.0.0.1/?code=C0.abc%40&session=x&state=s1\n", "s1", "C0.abc@", false},
-		{"no state echoed", "https://127.0.0.1/?code=C0.abc%40", "s1", "C0.abc@", false},
-		{"wrong state", "https://127.0.0.1/?code=C0.abc%40&state=other", "s1", "", true},
-		{"bare encoded code", "C0.abc%40", "s1", "C0.abc@", false},
-		{"bare code", "  C0.abc@  ", "s1", "C0.abc@", false},
-		{"address without scheme", "127.0.0.1/?code=C0.abc%40&session=x&state=s1", "s1", "C0.abc@", false},
-		{"query string only", "code=C0.abc%40&state=s1", "s1", "C0.abc@", false},
-		{"query string, wrong state", "code=C0.abc%40&state=other", "s1", "", true},
-		{"denied", "https://127.0.0.1/?error=access_denied&error_description=nope", "s1", "", true},
-		{"no code", "https://127.0.0.1/", "s1", "", true},
-		{"empty", "\n", "s1", "", true},
-	}
-	for _, tc := range cases {
-		got, err := extractCode(tc.in, tc.state)
-		if (err != nil) != tc.wantErr || got != tc.want {
-			t.Errorf("%s: got %q, %v; want %q, err=%v", tc.name, got, err, tc.want, tc.wantErr)
-		}
 	}
 }
 
@@ -767,8 +753,7 @@ func TestExpiryWarning(t *testing.T) {
 		{left: 0},
 		{left: -time.Hour},
 	} {
-		a := &authenticator{tok: &token{RefreshObtainedAt: testNow.Add(tc.left - refreshTokenLifetime)}}
-		got := a.expiryWarning()
+		got := expiryWarning(testNow.Add(tc.left))
 		switch {
 		case tc.want == "" && got != "":
 			t.Errorf("%v left: warned %q", tc.left, got)
@@ -776,7 +761,7 @@ func TestExpiryWarning(t *testing.T) {
 			t.Errorf("%v left: warned %q, want it to say %q", tc.left, got, tc.want)
 		}
 	}
-	if got := (&authenticator{}).expiryWarning(); got != "" {
+	if got := expiryWarning(time.Time{}); got != "" {
 		t.Errorf("warned %q without a saved login", got)
 	}
 }
