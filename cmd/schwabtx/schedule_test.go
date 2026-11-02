@@ -286,15 +286,16 @@ func testPATH(binary string) []string {
 }
 
 // writeToken saves a login made obtainedAgo before now, in real time, since
-// the scripts run schwabtx in a process of its own.
+// the scripts run schwabtx in a process of its own. The fields are those of
+// the token file.
 func writeToken(t *testing.T, path, refresh string, obtainedAgo time.Duration) {
 	t.Helper()
 	now := time.Now()
-	b, err := json.Marshal(token{
-		AccessToken:       "expired-access",
-		RefreshToken:      refresh,
-		AccessExpiresAt:   now.Add(-time.Hour),
-		RefreshObtainedAt: now.Add(-obtainedAgo),
+	b, err := json.Marshal(map[string]any{
+		"access_token":        "expired-access",
+		"refresh_token":       refresh,
+		"access_expires_at":   now.Add(-time.Hour),
+		"refresh_obtained_at": now.Add(-obtainedAgo),
 	})
 	if err != nil {
 		t.Fatal(err)

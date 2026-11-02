@@ -22,15 +22,12 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
-const (
-	defaultBaseURL     = "https://api.schwabapi.com"
-	defaultCallbackURL = "https://127.0.0.1"
-
-	// maxDays bounds -lookback and -window so they cannot overflow a Duration.
-	maxDays = 36500
-)
+// maxDays bounds -lookback and -window so they cannot overflow a Duration.
+const maxDays = 36500
 
 // timeNow is swapped out in tests.
 var timeNow = time.Now
@@ -55,10 +52,10 @@ func loadConfig() (config, error) {
 		return cfg, errors.New("SCHWAB_APP_KEY and SCHWAB_APP_SECRET must be set (see README.md)")
 	}
 	if cfg.CallbackURL == "" {
-		cfg.CallbackURL = defaultCallbackURL
+		cfg.CallbackURL = schwab.DefaultCallbackURL
 	}
 	if cfg.BaseURL == "" {
-		cfg.BaseURL = defaultBaseURL
+		cfg.BaseURL = schwab.DefaultBaseURL
 	}
 	if cfg.TokenFile == "" {
 		dir, err := os.UserConfigDir()
@@ -99,7 +96,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		if err != nil {
 			return err
 		}
-		return login(ctx, newAuthenticator(cfg, newHTTPClient()), stdin, stdout)
+		auth, err := newAuth(cfg, newHTTPClient())
+		if err != nil {
+			return err
+		}
+		return login(ctx, cfg, auth, stdin, stdout)
 	case "transactions":
 		return runTransactions(ctx, args, stdout, stderr)
 	case "snapshot":
@@ -157,12 +158,9 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 		return err
 	}
 	httpClient := newHTTPClient()
-	auth := newAuthenticator(cfg, httpClient)
-	if err := auth.load(); err != nil {
+	auth, err := openLogin(ctx, cfg, httpClient, stderr)
+	if err != nil {
 		return err
-	}
-	if w := auth.expiryWarning(); w != "" {
-		fmt.Fprintln(stderr, "warning:", w)
 	}
 	c := newClient(cfg, auth, httpClient)
 

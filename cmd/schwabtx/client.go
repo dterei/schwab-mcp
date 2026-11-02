@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
 // Schwab caps a transactions response at 3000 entries.
@@ -17,25 +19,9 @@ const schwabMaxTransactions = 3000
 
 const maxRetries = 3
 
-type apiError struct {
-	Status int
-	Body   string
-}
-
-func (e *apiError) Error() string {
-	body := strings.TrimSpace(e.Body)
-	if len(body) > 500 {
-		body = body[:500] + "..."
-	}
-	if body == "" {
-		return fmt.Sprintf("HTTP %d from Schwab", e.Status)
-	}
-	return fmt.Sprintf("HTTP %d from Schwab: %s", e.Status, body)
-}
-
 type client struct {
 	cfg  config
-	auth *authenticator
+	auth *schwab.Auth
 	http *http.Client
 
 	// pageCap is the response size at which a result may have been cut short.
@@ -44,12 +30,12 @@ type client struct {
 	retryWait time.Duration
 }
 
-func newClient(cfg config, auth *authenticator, httpClient *http.Client) *client {
+func newClient(cfg config, auth *schwab.Auth, httpClient *http.Client) *client {
 	return &client{cfg: cfg, auth: auth, http: httpClient, pageCap: schwabMaxTransactions, retryWait: 2 * time.Second}
 }
 
-// get fetches a Trader API path and returns the response body. It refreshes
-// the access token once on a 401 and backs off on 429 and 5xx.
+// get fetches a Trader API path and returns the response body. On a 401 it
+// gets a new access token once, and it backs off on 429 and 5xx.
 func (c *client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	u := c.cfg.BaseURL + "/trader/v1" + path
 	if len(query) > 0 {
@@ -59,7 +45,7 @@ func (c *client) get(ctx context.Context, path string, query url.Values) ([]byte
 	refreshed := false
 	wait := c.retryWait
 	for attempt := 0; ; attempt++ {
-		tok, err := c.auth.accessToken(ctx)
+		tok, err := c.auth.AccessToken(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -85,7 +71,7 @@ func (c *client) get(ctx context.Context, path string, query url.Values) ([]byte
 			return body, nil
 		case resp.StatusCode == http.StatusUnauthorized && !refreshed:
 			refreshed = true
-			if err := c.auth.refresh(ctx); err != nil {
+			if _, err := c.auth.Refresh(ctx, tok); err != nil {
 				return nil, err
 			}
 			continue
@@ -102,7 +88,7 @@ func (c *client) get(ctx context.Context, path string, query url.Values) ([]byte
 			}
 			continue
 		}
-		return nil, &apiError{Status: resp.StatusCode, Body: string(body)}
+		return nil, &schwab.Error{Status: resp.StatusCode, Body: string(body)}
 	}
 }
 
