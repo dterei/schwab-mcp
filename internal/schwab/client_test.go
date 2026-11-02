@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1701,8 +1702,11 @@ func TestRefreshCarryLooksAtTheFile(t *testing.T) {
 func TestRefreshFollowerToldOfAWait(t *testing.T) {
 	f := newFakeOAuth(t)
 	a := loggedInAuth(t, f)
-	var w waits
-	a.sleep = w.sleep
+	followerDone := make(chan struct{})
+	a.sleep = func(ctx context.Context, _ time.Duration) error {
+		<-followerDone // the leader's wait lasts until the follower has its answer
+		return ctx.Err()
+	}
 	var once sync.Once
 	f.mu.Lock()
 	f.tokenFailures = []int{http.StatusServiceUnavailable}
@@ -1721,6 +1725,7 @@ func TestRefreshFollowerToldOfAWait(t *testing.T) {
 	defer cancel()
 	start := time.Now()
 	_, err := a.AccessToken(ctx)
+	close(followerDone)
 	if se, ok := errors.AsType[*Error](err); !ok || se.Status != http.StatusServiceUnavailable || errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("the follower: %v, want the 503 at once", err)
 	}
@@ -1729,6 +1734,53 @@ func TestRefreshFollowerToldOfAWait(t *testing.T) {
 	}
 	if err := <-leader; err != nil {
 		t.Errorf("the leader, which had time: %v", err)
+	}
+}
+
+// Those who would wait out a renewal's wait, or give up on it for lack of
+// time, first look at the token file, and take a token that another process
+// saved meanwhile.
+func TestRefreshFollowersLookAtTheFile(t *testing.T) {
+	for _, deadline := range []time.Duration{0, 5 * time.Second} {
+		f := newFakeOAuth(t)
+		a := loggedInAuth(t, f)
+		other := newTestAuth(t, f, a.tokenFile, &clock{now: a.now()})
+		waiting, followerDone := make(chan struct{}), make(chan struct{})
+		a.sleep = func(ctx context.Context, _ time.Duration) error {
+			// Another process refreshes while this one waits out a
+			// Retry-After, and the wait goes on until the follower has its
+			// answer.
+			if _, err := other.AccessToken(t.Context()); err != nil {
+				t.Error(err)
+			}
+			close(waiting)
+			<-followerDone
+			return ctx.Err()
+		}
+		f.mu.Lock()
+		f.tokenFailures = []int{http.StatusServiceUnavailable}
+		f.tokenRetryAfter = "30"
+		f.mu.Unlock()
+		leader := make(chan error, 1)
+		go func() {
+			_, err := a.AccessToken(t.Context())
+			leader <- err
+		}()
+		<-waiting
+		ctx := t.Context()
+		if deadline > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, deadline)
+			defer cancel()
+		}
+		tok, err := a.AccessToken(ctx)
+		close(followerDone)
+		if err != nil || tok != "access-2" {
+			t.Errorf("a follower with a deadline of %v: %q, %v; want the other process's access-2", deadline, tok, err)
+		}
+		if err := <-leader; err != nil {
+			t.Errorf("the leader: %v", err)
+		}
 	}
 }
 
@@ -1810,5 +1862,148 @@ func TestLoginGatewayRefusal(t *testing.T) {
 	f.mu.Unlock()
 	if err := a.Login(t.Context(), testCode); !errors.Is(err, ErrAppRejected) {
 		t.Errorf("Login: %v, want ErrAppRejected", err)
+	}
+}
+
+// quitOn503 makes a renewal through a, for rejected, end without an answer:
+// the token endpoint answers 503 with a Retry-After longer than the
+// caller's deadline, so a wait is carried.
+func quitOn503(t *testing.T, f *fakeOAuth, a *Auth, rejected, retryAfter string) {
+	t.Helper()
+	f.mu.Lock()
+	f.tokenFailures = []int{http.StatusServiceUnavailable}
+	f.tokenRetryAfter = retryAfter
+	f.mu.Unlock()
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	var err error
+	if rejected == "" {
+		_, err = a.AccessToken(ctx)
+	} else {
+		_, err = a.Refresh(ctx, rejected)
+	}
+	if se, ok := errors.AsType[*Error](err); !ok || se.Status != http.StatusServiceUnavailable {
+		t.Fatalf("the renewal that should end without an answer: %v", err)
+	}
+}
+
+// One that would carry on a renewal takes the token file's own answer: that
+// there is no login, a lock that another process keeps, which it waits for
+// once, or a refusal it remembers.
+func TestRefreshCarryTakesTheFilesAnswer(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	quitOn503(t, f, a, "", "30")
+	if err := os.Remove(a.tokenFile); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if _, err := a.AccessToken(ctx); !errors.Is(err, ErrNotLoggedIn) {
+		t.Errorf("with the token file gone: %v, want ErrNotLoggedIn", err)
+	}
+
+	f = newFakeOAuth(t)
+	a = loggedInAuth(t, f)
+	a.cfg.LockWait = 500 * time.Millisecond
+	quitOn503(t, f, a, "", "30")
+	l, ok, err := filelock.TryAcquire(a.tokenFile + ".lock")
+	if err != nil || !ok {
+		t.Fatalf("taking the lock: %v, %v", ok, err)
+	}
+	defer l.Release()
+	start := time.Now()
+	if _, err := a.AccessToken(t.Context()); !errors.Is(err, filelock.ErrTimeout) {
+		t.Errorf("with the lock kept: %v, want ErrTimeout", err)
+	}
+	if d := time.Since(start); d > 900*time.Millisecond {
+		t.Errorf("waited %v for a lock wait of %v", d, a.cfg.LockWait)
+	}
+	l.Release()
+
+	f = newFakeOAuth(t)
+	c := &clock{now: testNow}
+	a = newTestAuth(t, f, filepath.Join(t.TempDir(), "token.json"), c)
+	if err := a.Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	var w waits
+	a.sleep = w.sleep
+	c.advance(2 * freshTokenAge)
+	quitOn503(t, f, a, "access-1", "30") // a Refresh after a 401 for access-1
+	// The login then lapses, and a renewal finds out and remembers.
+	f.mu.Lock()
+	clear(f.refresh)
+	f.mu.Unlock()
+	c.advance(time.Hour)
+	if _, err := a.AccessToken(t.Context()); !errors.Is(err, ErrLoginExpired) {
+		t.Fatalf("the renewal that finds the login lapsed: %v", err)
+	}
+	ctx, cancel = context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if _, err := a.Refresh(ctx, "access-1"); !errors.Is(err, ErrLoginExpired) {
+		t.Errorf("a Refresh with a wait carried: %v, want the remembered refusal", err)
+	}
+}
+
+// A carried wait is kept only while it is due, and those whose wait is over
+// are dropped, so that the Auth keeps none for tokens long retired.
+func TestRefreshCarryIsPruned(t *testing.T) {
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	a := newTestAuth(t, f, filepath.Join(t.TempDir(), "token.json"), c)
+	if err := a.Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	// A renewal whose caller has gone, with no wait due, carries nothing.
+	c.advance(time.Hour)
+	gone, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := a.AccessToken(gone); !errors.Is(err, context.Canceled) {
+		t.Fatalf("AccessToken after the cancel: %v", err)
+	}
+	a.mu.Lock()
+	n := len(a.carry)
+	a.mu.Unlock()
+	if n != 0 {
+		t.Errorf("%d waits carried after a caller that had gone, want none", n)
+	}
+	for range 5 {
+		tok, err := a.AccessToken(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.advance(2 * freshTokenAge)
+		quitOn503(t, f, a, tok, "1") // a Refresh after a 401 for tok, carried
+		c.advance(time.Hour)
+		if _, err := a.AccessToken(t.Context()); err != nil { // and tok is retired
+			t.Fatal(err)
+		}
+	}
+	a.mu.Lock()
+	n = len(a.carry)
+	a.mu.Unlock()
+	if n != 5 {
+		t.Fatalf("%d waits carried, want 5 while they are due", n)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	c.advance(time.Hour)
+	if _, err := a.AccessToken(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.carry) != 0 {
+		t.Errorf("%d waits carried after all were over, want none", len(a.carry))
+	}
+}
+
+// until takes the sooner of the two clocks.
+func TestUntil(t *testing.T) {
+	if d := until(time.Now().Add(time.Minute)); d <= 59*time.Second || d > time.Minute {
+		t.Errorf("a minute ahead: %v", d)
+	}
+	if d := until(time.Now().Add(-time.Second).Round(0)); d >= 0 {
+		t.Errorf("a second past, by the wall clock only: %v", d)
 	}
 }

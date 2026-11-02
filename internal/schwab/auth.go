@@ -58,8 +58,8 @@ const (
 
 	// refreshTries is how many times a refresh that fails for a while is
 	// sent before its failure is returned, and refreshWait is the wait after
-	// the first. A look at the token file after a refusal can send it once
-	// more.
+	// the first. The second look at the token file after a refusal can send
+	// it once more.
 	refreshTries = 4
 	refreshWait  = time.Second
 
@@ -180,10 +180,11 @@ type flight struct {
 	// made it gave up or had no time left for the next try, or a panic.
 	// Then one of those waiting carries on its tries from next.
 	quit bool
-	// next is how far its tries have got: while it runs, as of the last
-	// wait it began, guarded by Auth.mu; once done is closed, as it ended.
-	// noted is closed, and replaced, whenever next changes, so that those
-	// waiting see a wait that their deadline would cut short.
+	// next is how far its tries have got, guarded by Auth.mu: while it runs,
+	// as of the last wait it began; once done is closed, as it ended, or
+	// after a panic as of that last wait. noted is closed, and replaced, as
+	// each wait begins, so that those waiting see one that their deadline
+	// would cut short.
 	next  series
 	noted chan struct{}
 	// followers is how many others have waited for it, for tests.
@@ -487,6 +488,17 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 	var from series
 	looked := false
+	// lookOnce is look, the first time renew would wait for a renewal's wait
+	// or give up for lack of time: another process may have saved a token
+	// meanwhile. done reports an answer.
+	lookOnce := func(s series) (tok string, done bool, err error) {
+		looked = true
+		tok, done, err = a.look(ctx, rejected, !s.rechecked)
+		if !done && err != nil {
+			return "", true, withLast(err, s.last) // the wait for the lock was cut short
+		}
+		return tok, done, err
+	}
 	for {
 		a.mu.Lock()
 		f, follow := a.flights[rejected]
@@ -495,16 +507,16 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 		} else {
 			// Carry on a renewal that ended without an answer while its wait
 			// is due, whoever began it.
-			if c, ok := a.carry[rejected]; ok && from == (series{}) && time.Until(c.due) > 0 {
-				from = c
+			if c, ok := a.carry[rejected]; ok && from == (series{}) {
+				if left := until(c.due); left > 0 {
+					from = c
+					from.due = time.Now().Add(left)
+				}
 			}
 			if time.Until(from.due) > 0 && !looked {
-				// Before waiting for it, or giving up for lack of time, see
-				// whether another process has saved a token meanwhile.
 				a.mu.Unlock()
-				looked = true
-				if tok, ok := a.look(ctx, rejected); ok {
-					return tok, nil
+				if tok, done, err := lookOnce(from); done {
+					return tok, err
 				}
 				continue
 			}
@@ -526,10 +538,18 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 			a.mu.Lock()
 			sofar, noted := f.next, f.noted
 			a.mu.Unlock()
-			// A wait that the renewal has begun and that this caller's
-			// deadline would cut short is not waited for.
-			if wait := time.Until(sofar.due); wait > 0 && sofar.last != nil && !fits(ctx, wait) {
-				return "", sofar.last
+			if wait := time.Until(sofar.due); wait > 0 && sofar.last != nil {
+				if !looked {
+					if tok, done, err := lookOnce(sofar); done {
+						return tok, err
+					}
+					continue
+				}
+				// A wait that the renewal has begun and that this caller's
+				// deadline would cut short is not waited for.
+				if !fits(ctx, wait) {
+					return "", sofar.last
+				}
 			}
 			select {
 			case <-f.done:
@@ -545,34 +565,63 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 		if !f.quit {
 			return f.tok, f.err
 		}
-		// The renewal ended without an answer: carry on its tries, if this
-		// caller has the time for the wait it was due. Its last failure, not
-		// its own error, which may carry its caller's cancel, is the one
-		// that counts.
+		// The renewal ended without an answer: carry on its tries, after the
+		// look and the check of the time above. Its last failure, not its own
+		// error, which may carry its caller's cancel, is the one that counts.
 		from = f.next
-		if wait := time.Until(from.due); wait > 0 && from.last != nil && !fits(ctx, wait) {
-			return "", from.last
-		}
 		if err := ctx.Err(); err != nil {
 			return "", withLast(err, from.last)
 		}
 	}
 }
 
-// look reads the token file under the lock and returns its access token if
-// that is fresh and not rejected, with no token request.
-func (a *Auth) look(ctx context.Context, rejected string) (string, bool) {
+// look is renewOnce without its token request: it reports, with done, what
+// renewOnce would answer without one, such as a token that another process
+// saved, a remembered refusal (when refusal is set) or a problem with the
+// token file. A wait for the lock that ctx cut short is no answer.
+func (a *Auth) look(ctx context.Context, rejected string, refusal bool) (tok string, done bool, err error) {
 	release, err := a.hold(ctx)
 	if err != nil {
-		return "", false
+		return "", ctx.Err() == nil, err
 	}
 	defer release()
-	t, err := a.read()
+	_, tok, done, err = a.check(rejected, refusal)
+	return tok, done, err
+}
+
+// check is renewOnce up to its token request, under the lock: it reads the
+// file and reports, with done, an answer that needs no request; otherwise t
+// is the login to refresh. The remembered refusal is an answer only when
+// refusal is set.
+func (a *Auth) check(rejected string, refusal bool) (t *token, tok string, done bool, err error) {
+	t, err = a.read()
 	if err != nil {
-		return "", false
+		return nil, "", true, err
 	}
 	a.set(t)
-	return a.fresh(rejected)
+	if fresh, ok := a.fresh(rejected); ok {
+		return t, fresh, true, nil
+	}
+	a.mu.Lock()
+	refused, refusedErr := a.refused, a.refusedErr
+	a.mu.Unlock()
+	if refusal && t.RefreshToken == refused {
+		return t, "", true, refusedErr
+	}
+	// An issue time still to come, from a clock that has been set back
+	// since, says nothing, so that token gets its refresh.
+	if age := a.now().Sub(t.AccessObtainedAt); rejected != "" && t.AccessToken == rejected &&
+		!t.AccessObtainedAt.IsZero() && age >= 0 && age < freshTokenAge {
+		return t, "", true, ErrTokenRefused
+	}
+	return t, "", false, nil
+}
+
+// until is how long until due by the monotonic clock or the wall clock,
+// whichever is sooner: the first may stop while the computer sleeps, and the
+// second may be set back.
+func until(due time.Time) time.Duration {
+	return min(time.Until(due), time.Until(due.Round(0)))
 }
 
 // lead makes the renewal f, which others may wait for, from where from left
@@ -594,7 +643,12 @@ func (a *Auth) lead(ctx context.Context, rejected string, f *flight, from series
 		} // after a panic, next stays as last noted
 		f.quit = !finished || err != nil && quit // a panic is no answer for the others
 		delete(a.flights, rejected)
-		if f.quit {
+		for k, c := range a.carry {
+			if until(c.due) <= 0 {
+				delete(a.carry, k) // its wait is over, so it carries nothing
+			}
+		}
+		if f.quit && until(f.next.due) > 0 {
 			if a.carry == nil {
 				a.carry = map[string]series{}
 			}
@@ -710,25 +764,9 @@ func (a *Auth) renewOnce(ctx context.Context, rejected string, n int) (tok strin
 		return "", false, err
 	}
 	defer release()
-	t, err := a.read()
-	if err != nil {
-		return "", false, err
-	}
-	a.set(t)
-	if fresh, ok := a.fresh(rejected); ok {
-		return fresh, false, nil
-	}
-	a.mu.Lock()
-	refused, refusedErr := a.refused, a.refusedErr
-	a.mu.Unlock()
-	if t.RefreshToken == refused {
-		return "", false, refusedErr
-	}
-	// An issue time still to come, from a clock that has been set back
-	// since, says nothing, so that token gets its refresh.
-	if age := a.now().Sub(t.AccessObtainedAt); rejected != "" && t.AccessToken == rejected &&
-		!t.AccessObtainedAt.IsZero() && age >= 0 && age < freshTokenAge {
-		return "", false, ErrTokenRefused
+	t, tok, done, err := a.check(rejected, true)
+	if done {
+		return tok, false, err
 	}
 	tok, err = a.refresh(ctx, t, n)
 	return tok, true, err
