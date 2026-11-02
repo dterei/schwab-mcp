@@ -43,8 +43,8 @@ type fakeSchwab struct {
 	failDetails   int       // answer this many GET /accounts calls with 403
 	// accountsReply, if set, answers GET /accounts/accountNumbers instead.
 	accountsReply http.HandlerFunc
-	detailsFields string    // fields= of the last GET /accounts
-	detailsBody   string    // what the last GET /accounts returned
+	detailsFields string // fields= of the last GET /accounts
+	detailsBody   string // what the last GET /accounts returned
 }
 
 type fakeTx struct {
@@ -732,12 +732,21 @@ func TestSchwabErrorsSayWhatToDo(t *testing.T) {
 		want   []string
 	}{
 		{"rate limited", http.StatusTooManyRequests, " \n", []string{"HTTP 429 from Schwab after 4 tries", "wait a minute"}},
-		{"an app not yet Ready For Use", http.StatusInternalServerError,
+		{
+			"an app not yet Ready For Use", http.StatusInternalServerError,
 			`<html><body><h1>Whitelabel Error Page</h1><p>This application has no configured error view.</p></body></html>`,
-			[]string{"Whitelabel Error Page", `until the app says "Ready For Use"`}},
-		{"turned away by Schwab's network", http.StatusForbidden,
+			[]string{"Whitelabel Error Page", `until the app says "Ready For Use"`},
+		},
+		{
+			"turned away by Schwab's network", http.StatusForbidden,
 			"<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY>Reference&#32;&#35;18&#46;9efa3f17&#46;1792539138</BODY></HTML>",
-			[]string{"Access Denied (reference #18.9efa3f17.1792539138)", "traderapi@schwab.com"}},
+			[]string{"Access Denied (reference #18.9efa3f17.1792539138)", "traderapi@schwab.com"},
+		},
+		{
+			"Schwab's network, with its servers not answering", http.StatusServiceUnavailable,
+			"<HTML><HEAD><TITLE>Service Unavailable</TITLE></HEAD><BODY>Reference&#32;&#35;18&#46;77</BODY></HTML>",
+			[]string{"after 4 tries: an HTML page, Service Unavailable (reference #18.77)"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := setup(t)
@@ -751,6 +760,9 @@ func TestSchwabErrorsSayWhatToDo(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), want) {
 					t.Errorf("got %v, want %q in it", err, want)
 				}
+			}
+			if tc.status != http.StatusForbidden && err != nil && strings.Contains(err.Error(), "turned the request away") {
+				t.Errorf("got %v, which says the request was turned away", err)
 			}
 		})
 	}

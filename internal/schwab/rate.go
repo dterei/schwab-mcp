@@ -42,7 +42,18 @@ const (
 	rateLockWait = 5 * time.Second
 	// maxPause bounds how long a 429 holds back every process.
 	maxPause = time.Minute
+	// maxLead is how far ahead of now a TAT can be that a process using
+	// the file put there: a request leaves at most tolerance + interval, and
+	// a 429 at most maxPause + tolerance, where NewClient keeps the interval
+	// and the tolerance each to a minute, so two minutes, and one to spare.
+	// It is the same for every process, whatever its rate and burst, so that
+	// none takes another's valid TAT for a corrupt one.
+	maxLead = 3 * time.Minute
 )
+
+// errBusy is the error for a rate file whose lock another process holds,
+// once a wait for it has run out.
+var errBusy = errors.New("another process holds its lock")
 
 // rateState is the shared state of the rate limit.
 type rateState struct {
@@ -82,17 +93,16 @@ func parseRate(b []byte) rateState {
 //
 // When now is before the last write, the clock was set back by at least
 // that much, so the TAT moves back with it; the state must then be saved,
-// so that the move is made once. A TAT further ahead than any request or
-// 429 could have put it, or one that is unknown, becomes now + tolerance: no
-// burst, but no long wait.
-func (s rateState) settle(now time.Time, interval, tolerance time.Duration) rateState {
+// so that the move is made once. A TAT further ahead than maxLead, or one
+// that is unknown, becomes now + tolerance: no burst, but no long wait.
+func (s rateState) settle(now time.Time, tolerance time.Duration) rateState {
 	if s.bad {
 		return rateState{tat: now.Add(tolerance)}
 	}
 	if now.Before(s.last) {
 		s.tat = s.tat.Add(-s.last.Sub(now))
 	}
-	if s.tat.Sub(now) > maxPause+tolerance+interval+time.Minute {
+	if s.tat.Sub(now) > maxLead {
 		s.tat = now.Add(tolerance)
 	}
 	return s
@@ -115,6 +125,16 @@ func (s rateState) pause(now time.Time, d, tolerance time.Duration) rateState {
 	return s
 }
 
+// merge returns s with what other holds that is further on: its TAT, if
+// later, and its time of last write, if later.
+func (s rateState) merge(other rateState) rateState {
+	if s.bad || other.tat.After(s.tat) {
+		s.tat, s.bad = other.tat, false
+	}
+	s.last = later(s.last, other.last)
+	return s
+}
+
 func later(a, b time.Time) time.Time {
 	if a.After(b) {
 		return a
@@ -130,11 +150,23 @@ type limiter struct {
 	// some network volumes the lock does not keep out a second open in the
 	// same process.
 	sem chan struct{}
+	// lock and tryLock take the file's lock; tests replace them.
+	lock    func(ctx context.Context, path string, wait time.Duration) (*filelock.Lock, error)
+	tryLock func(path string) (*filelock.Lock, bool, error)
 
 	// Guarded by sem:
 	// mem is the state as last read or written, used when the file cannot
 	// be, so that the process keeps its own limit then.
 	mem rateState
+	// unsaved is set while mem holds what the file does not, from a time
+	// the file could not be used, such as a 429's pause. The file takes it
+	// in at its next write.
+	unsaved bool
+	// busy is set once a wait for the file's lock has run out, as when the
+	// process that holds it is stopped. Until the lock is taken again, a
+	// check looks once rather than waits, so that only one wait in all, not
+	// one for each request, runs out.
+	busy bool
 	// noFile is set once the file system has turned out not to lock files.
 	noFile bool
 	// warned is set once a problem with the file has been reported.
@@ -153,7 +185,7 @@ func limiterFor(path string) *limiter {
 	defer limitersMu.Unlock()
 	l, ok := limiters[path]
 	if !ok {
-		l = &limiter{path: path, sem: make(chan struct{}, 1)}
+		l = &limiter{path: path, sem: make(chan struct{}, 1), lock: filelock.Acquire, tryLock: filelock.TryAcquire}
 		limiters[path] = l
 	}
 	return l
@@ -175,10 +207,14 @@ func defaultRateFile(appKey, tokenFile string) string {
 // change applies f to the shared state, and saves what f returns, stamped
 // with the time, when f says to. f gets the wall-clock time, read once both
 // locks are held, and may be called a second time with the process's own
-// state if the file cannot be used. The only errors are ctx's.
+// state if the file cannot be used. The only errors are ctx's; a ctx that
+// has ended changes nothing.
 func (l *limiter) change(ctx context.Context, now func() time.Time, warn func(string),
 	f func(s rateState, now time.Time) (next rateState, save bool),
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	select {
 	case l.sem <- struct{}{}:
 	case <-ctx.Done():
@@ -194,15 +230,17 @@ func (l *limiter) change(ctx context.Context, now func() time.Time, warn func(st
 			return ctx.Err()
 		}
 		l.noFile = errors.Is(err, filelock.ErrUnsupported)
+		l.busy = errors.Is(err, filelock.ErrTimeout) || errors.Is(err, errBusy)
 		if !l.warned {
 			l.warned = true
-			warn(fmt.Sprintf("%s cannot be used (%v), so this process keeps its own rate limit for Schwab's API, apart from other processes using the app key", l.path, err))
+			warn(fmt.Sprintf("%s cannot be used (%v), so until it can, this process keeps its own rate limit for Schwab's API, apart from other processes using the app key", l.path, err))
 		}
 	}
 	t := now().Round(0)
 	if next, save := f(l.mem, t); save {
 		next.last = t
 		l.mem = next
+		l.unsaved = true
 	}
 	return nil
 }
@@ -213,7 +251,7 @@ func (l *limiter) change(ctx context.Context, now func() time.Time, warn func(st
 func (l *limiter) changeFile(ctx context.Context, now func() time.Time,
 	f func(s rateState, now time.Time) (rateState, bool),
 ) error {
-	lk, err := filelock.Acquire(ctx, l.path, rateLockWait)
+	lk, err := l.take(ctx)
 	if err != nil {
 		return err
 	}
@@ -224,7 +262,11 @@ func (l *limiter) changeFile(ctx context.Context, now func() time.Time,
 		return fmt.Errorf("reading: %w", err)
 	}
 	t := now().Round(0)
-	next, save := f(parseRate(buf[:n]), t)
+	s := parseRate(buf[:n])
+	if l.unsaved {
+		s = s.merge(l.mem)
+	}
+	next, save := f(s, t)
 	if !save {
 		return nil
 	}
@@ -232,6 +274,23 @@ func (l *limiter) changeFile(ctx context.Context, now func() time.Time,
 	if _, err := lk.WriteAt(next.record(), 0); err != nil {
 		return fmt.Errorf("writing: %w", err)
 	}
-	l.mem = next
+	l.mem, l.unsaved = next, false
 	return nil
+}
+
+// take takes the file's lock: with a wait of rateLockWait, or once a wait
+// has run out, with a look.
+func (l *limiter) take(ctx context.Context) (*filelock.Lock, error) {
+	if !l.busy {
+		return l.lock(ctx, l.path, rateLockWait)
+	}
+	lk, ok, err := l.tryLock(l.path)
+	switch {
+	case err != nil:
+		return nil, err
+	case !ok:
+		return nil, errBusy
+	}
+	l.busy = false
+	return lk, nil
 }

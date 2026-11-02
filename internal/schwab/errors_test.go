@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // akamaiPage is the page Schwab's edge network, Akamai, sends when it
@@ -73,6 +74,18 @@ func TestErrorFormats(t *testing.T) {
 			want:   "HTTP 400 from Schwab: Search combination should not exceed 500. (parameter symbols)",
 		},
 		{
+			name: "Market Data, with the attributes at fault, as its spec gives them", status: 400,
+			body:   `{"errors":[{"id":"a208a739-0000","status":"400","title":"Bad Request","detail":"Search combination should have min of 1.","source":{"pointer":["/data/attributes/symbols","/data/attributes/cusips","/data/attributes/ssids"]}}]}`,
+			errors: []string{"Search combination should have min of 1. (at /data/attributes/symbols, /data/attributes/cusips, /data/attributes/ssids)"},
+			want:   "HTTP 400 from Schwab: Search combination should have min of 1. (at /data/attributes/symbols, /data/attributes/cusips, /data/attributes/ssids)",
+		},
+		{
+			name: "Market Data, with an entry in another form among the others", status: 400,
+			body:   `{"errors":[{"detail":"Bad field","source":{"parameter":"fields"}},42,{"title":"Unauthorized","source":{"header":"Authorization"}}]}`,
+			errors: []string{"Bad field (parameter fields)", "Unauthorized (header Authorization)"},
+			want:   "HTTP 400 from Schwab: Bad field (parameter fields); Unauthorized (header Authorization)",
+		},
+		{
 			name: "Market Data, with the status as a number and only a title", status: 404,
 			body:   `{"errors":[{"id":"7a1","status":404,"title":"Not Found"}]}`,
 			errors: []string{"Not Found"},
@@ -137,6 +150,19 @@ func TestErrorFormats(t *testing.T) {
 	long := newError(http.StatusInternalServerError, http.Header{}, []byte(strings.Repeat("x", 600)))
 	if got := long.Error(); !strings.HasSuffix(got, strings.Repeat("x", 500)+"...") {
 		t.Errorf("a long body: %q, want its first 500 bytes", got)
+	}
+	// Cut where a character begins, so that the text stays UTF-8.
+	accents := newError(http.StatusInternalServerError, http.Header{}, []byte("x"+strings.Repeat("é", 300)))
+	if got := accents.Error(); !utf8.ValidString(got) || !strings.HasSuffix(got, "é...") {
+		t.Errorf("a long body of accents: %q, want it cut before a character", got)
+	}
+	// A large HTML page is read for what it is about only near its start.
+	page := "<html><body><p>Something went wrong</p>" + strings.Repeat("<p>filler</p>", 1<<20) + "<title>Late</title></body></html>"
+	if got := newError(http.StatusBadGateway, http.Header{}, []byte(page)).Error(); !strings.HasPrefix(got, "HTTP 502 from Schwab: an HTML page, Something went wrong filler") {
+		t.Errorf("a large page: %.100q", got)
+	}
+	if e := newError(http.StatusForbidden, http.Header{}, []byte("<html>Reference #18.abc.</html>")); e.Reference != "18.abc" {
+		t.Errorf("a reference at the end of a sentence: %q", e.Reference)
 	}
 }
 

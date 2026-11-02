@@ -3,14 +3,17 @@ package schwab
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -179,6 +182,7 @@ func TestGetSchwabsTooManyRequests(t *testing.T) {
 	f.script = append(f.script, tooMany, tooMany, tooMany, tooMany)
 	ft := &fakeTime{now: testNow}
 	cl := newTestClient(t, f, &clock{now: testNow}, ft)
+	cl.jitter = func(d time.Duration) time.Duration { return d / 2 } // which a 429's wait does not take
 	_, err := cl.Get(t.Context(), "/trader/v1/test", nil)
 	if !errors.Is(err, ErrRateLimited) || err.Error() != "HTTP 429 from Schwab after 4 tries (correlation ID corr-429)" {
 		t.Errorf("after four 429s: %v", err)
@@ -234,11 +238,13 @@ func TestGetStopsWaitingWhenCancelled(t *testing.T) {
 	f := newFakeOAuth(t)
 	f.script = append(f.script, answer(http.StatusServiceUnavailable, ""))
 	cl := newTestClient(t, f, &clock{now: testNow}, &fakeTime{now: testNow})
-	cl.sleep = sleep
+	ctx, cancel := context.WithCancel(t.Context())
+	cl.sleep = func(ctx context.Context, d time.Duration) error {
+		time.AfterFunc(50*time.Millisecond, cancel) // once the wait has begun
+		return sleep(ctx, d)
+	}
 	cl.firstWait = time.Hour
 	cl.maxWait = time.Hour
-	ctx, cancel := context.WithCancel(t.Context())
-	time.AfterFunc(50*time.Millisecond, cancel)
 	start := time.Now()
 	_, err := cl.Get(ctx, "/trader/v1/test", nil)
 	if se, ok := errors.AsType[*Error](err); !errors.Is(err, context.Canceled) || !ok || se.Status != http.StatusServiceUnavailable {
@@ -318,20 +324,55 @@ func TestGetHTTP2StreamReset(t *testing.T) {
 }
 
 // A path that could reach another endpoint than the one its caller built is
-// refused before any request.
+// refused before any request, and so is one that is not a URL path.
 func TestGetRefusesPathsThatLeadElsewhere(t *testing.T) {
 	f := newFakeOAuth(t)
 	cl := newTestClient(t, f, &clock{now: testNow}, &fakeTime{now: testNow})
+	before := f.requestsOfAnyKind()
 	for _, path := range []string{
 		"/trader/v1/accounts/..", "/trader/v1/accounts/%2e%2E/x", "/trader/v1/./test",
-		"/trader/v1/test?x=1", "/trader/v1/test#x", "trader/v1/test", "/trader/v1/%zz",
+		"/marketdata/v1/..%2F..%2Ftrader%2Fv1%2Faccounts/quotes", "/marketdata/v1/..%5C..%5Cx/quotes", `/marketdata/v1/..\x`,
+		"/trader/v1/test?x=1", "/trader/v1/test#x", "trader/v1/test", "@127.0.0.1:1/x",
+		"/trader/v1/%zz", "/trader/v1/test\n",
 	} {
-		if _, err := cl.Get(t.Context(), path, nil); err == nil {
-			t.Errorf("%q: no error", path)
+		if _, err := cl.Get(t.Context(), path, nil); err == nil || !strings.HasPrefix(err.Error(), "API path ") {
+			t.Errorf("%q: %v, want it refused", path, err)
 		}
 	}
-	if f.calls() != 0 {
-		t.Errorf("%d requests, want none", f.calls())
+	if n := f.requestsOfAnyKind() - before; n != 0 {
+		t.Errorf("%d requests, want none", n)
+	}
+}
+
+// Paths that Schwab's endpoints take are let through.
+func TestCheckPathTakesSchwabsPaths(t *testing.T) {
+	for _, path := range []string{
+		"/trader/v1/accounts/0123456789ABCDEF0123456789ABCDEF/transactions",
+		"/trader/v1/accounts/0123456789ABCDEF/transactions/98765432101",
+		"/marketdata/v1/%24SPX/quotes", "/marketdata/v1/$SPX/quotes", "/marketdata/v1/BRK.B/quotes",
+		"/marketdata/v1/BRK%2FB/quotes", "/marketdata/v1/%2FESZ24/quotes", "/marketdata/v1/instruments/037833100",
+		"/marketdata/v1/AAPL%20%20261218C00200000/quotes", "/marketdata/v1/.hidden",
+	} {
+		if err := checkPath(path); err != nil {
+			t.Errorf("%q: %v", path, err)
+		}
+	}
+}
+
+// A base URL that would send the token elsewhere, or is not one, is refused.
+func TestNewAuthChecksTheBaseURL(t *testing.T) {
+	for _, base := range []string{
+		"api.schwabapi.com", "ftp://api.schwabapi.com", "https://", "https://user@api.schwabapi.com",
+		"https://api.schwabapi.com/?x=1", "https://api.schwabapi.com/#", "https://api.schwabapi.com/%zz",
+	} {
+		if _, err := NewAuth(Config{AppKey: testKey, AppSecret: testSecret, BaseURL: base, TokenFile: filepath.Join(t.TempDir(), "t.json")}); err == nil {
+			t.Errorf("%q: no error", base)
+		}
+	}
+	for _, base := range []string{"https://api.schwabapi.com", "http://127.0.0.1:8080", "https://example.com/prefix/"} {
+		if _, err := NewAuth(Config{AppKey: testKey, AppSecret: testSecret, BaseURL: base, TokenFile: filepath.Join(t.TempDir(), "t.json")}); err != nil {
+			t.Errorf("%q: %v", base, err)
+		}
 	}
 }
 
@@ -403,6 +444,19 @@ func TestRefreshRetryAfter(t *testing.T) {
 	if want := []time.Duration{3 * time.Second}; !slices.Equal(w.got(), want) {
 		t.Errorf("waited %v, want %v", w.got(), want)
 	}
+
+	// One that asks for longer than a 429 may hold everyone back ends the
+	// tries.
+	c.advance(time.Hour)
+	f.mu.Lock()
+	f.tokenFailures = []int{http.StatusServiceUnavailable}
+	f.tokenRetryAfter = "3600"
+	f.mu.Unlock()
+	before := f.tokenRequests()
+	if _, err := a.AccessToken(t.Context()); err == nil || f.tokenRequests()-before != 1 || len(w.got()) != 1 {
+		t.Errorf("with Retry-After 3600: %v after %d token requests and waits %v, want the 503 after 1 and no wait",
+			err, f.tokenRequests()-before, w.got())
+	}
 }
 
 // While a refresh waits to try again it does not hold the lock, so another
@@ -433,7 +487,7 @@ func TestRefreshWaitsWithoutTheLock(t *testing.T) {
 	a.sleep = func(ctx context.Context, _ time.Duration) error {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		_, _, err := other.renewOnce(ctx, "")
+		_, _, err := other.renewOnce(ctx, "", 1)
 		return err
 	}
 	if tok, err := a.AccessToken(t.Context()); err != nil || tok != "access-2" {
@@ -460,9 +514,10 @@ func TestRefreshRefusalIsNotTriedAgain(t *testing.T) {
 	if want := []time.Duration{recheckWait}; f.tokenRequests() != 1 || !slices.Equal(w.got(), want) {
 		t.Errorf("%d token requests and waits %v, want 1 and %v", f.tokenRequests(), w.got(), want)
 	}
-	// The next call knows the refusal, and makes no request.
-	if _, err := a.AccessToken(t.Context()); !errors.Is(err, ErrLoginExpired) || f.tokenRequests() != 1 {
-		t.Errorf("AccessToken again: %v after %d token requests, want ErrLoginExpired after 1", err, f.tokenRequests())
+	// The next call knows the refusal, makes no request, and does not wait.
+	if _, err := a.AccessToken(t.Context()); !errors.Is(err, ErrLoginExpired) || f.tokenRequests() != 1 || len(w.got()) != 1 {
+		t.Errorf("AccessToken again: %v after %d token requests and waits %v, want ErrLoginExpired after 1 and no more waits",
+			err, f.tokenRequests(), w.got())
 	}
 }
 
@@ -610,5 +665,518 @@ func TestRefreshOutlivesTheGoroutineThatBeganIt(t *testing.T) {
 	}
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Errorf("the goroutine that gave up: %v, want context.Canceled", err)
+	}
+}
+
+// A 401 that a new access token answers does not count as a try, and a 401
+// after the new token is reported, with no second refresh.
+func TestGet401(t *testing.T) {
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	ft := &fakeTime{now: testNow}
+	cl := newTestClient(t, f, c, ft)
+	c.advance(2 * freshTokenAge) // so that Schwab refusing the token calls for a new one
+	f.script = append(f.script, answer(http.StatusUnauthorized, `{"message":"expired"}`))
+	for range 4 {
+		f.script = append(f.script, answer(http.StatusServiceUnavailable, `{"message":"down"}`))
+	}
+	_, err := cl.Get(t.Context(), "/trader/v1/test", nil)
+	if se, ok := errors.AsType[*Error](err); !ok || se.Status != http.StatusServiceUnavailable || se.Tries != 4 || f.calls() != 5 {
+		t.Errorf("a 401, then four 503s: %v after %d requests, want the 503 after 4 tries and 5 requests", err, f.calls())
+	}
+
+	// The second 401 comes when the new token is old enough to be refreshed
+	// again, which Get must not do.
+	f = newFakeOAuth(t)
+	c = &clock{now: testNow}
+	cl = newTestClient(t, f, c, ft)
+	c.advance(2 * freshTokenAge)
+	f.script = append(f.script,
+		answer(http.StatusUnauthorized, `{"message":"expired"}`),
+		func(w http.ResponseWriter, r *http.Request) {
+			c.advance(2 * freshTokenAge)
+			answer(http.StatusUnauthorized, `{"message":"expired"}`)(w, r)
+		})
+	_, err = cl.Get(t.Context(), "/trader/v1/test", nil)
+	if se, ok := errors.AsType[*Error](err); !ok || se.Status != http.StatusUnauthorized || f.calls() != 2 {
+		t.Errorf("a 401 after a new token: %v after %d requests, want the 401 after 2", err, f.calls())
+	}
+	if _, refresh := f.grants(); refresh != 1 {
+		t.Errorf("%d refreshes, want 1", refresh)
+	}
+}
+
+// An answer too big to read is refused, and not tried again.
+func TestGetAnswerTooBig(t *testing.T) {
+	defer func(n int) { maxBody = n }(maxBody)
+	maxBody = 1 << 20
+	f := newFakeOAuth(t)
+	f.script = append(f.script, func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, strings.Repeat("x", maxBody+1))
+	})
+	ft := &fakeTime{now: testNow}
+	cl := newTestClient(t, f, &clock{now: testNow}, ft)
+	_, err := cl.Get(t.Context(), "/trader/v1/test", nil)
+	if !errors.Is(err, errTooLong) || f.calls() != 1 || len(ft.got()) != 0 {
+		t.Errorf("an answer over %d bytes: %v after %d requests and waits %v, want errTooLong after 1 and none", maxBody, err, f.calls(), ft.got())
+	}
+}
+
+// An answer cut short part way through is tried again.
+func TestGetAnswerCutShort(t *testing.T) {
+	f := newFakeOAuth(t)
+	f.script = append(f.script, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"partial":`)
+		w.(http.Flusher).Flush()
+		cut(w)
+	})
+	ft := &fakeTime{now: testNow}
+	cl := newTestClient(t, f, &clock{now: testNow}, ft)
+	body, err := cl.Get(t.Context(), "/trader/v1/test", nil)
+	if err != nil || string(body) != `{"ok":true}` || f.calls() != 2 || len(ft.got()) != 1 {
+		t.Errorf("Get: %q, %v after %d requests and waits %v; want the second answer", body, err, f.calls(), ft.got())
+	}
+}
+
+// An https base URL at a server that answers plain HTTP fails at once.
+func TestGetSchemeMismatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(srv.Close)
+	tokenFile := filepath.Join(t.TempDir(), "token.json")
+	writeTestToken(t, tokenFile, token{AccessToken: "a", RefreshToken: "r", AccessExpiresAt: testNow.Add(time.Hour), RefreshObtainedAt: testNow})
+	c := &clock{now: testNow}
+	a, err := NewAuth(Config{AppKey: testKey, AppSecret: testSecret, BaseURL: "https://" + srv.Listener.Addr().String(), TokenFile: tokenFile, Now: c.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ft := &fakeTime{now: testNow}
+	cl := NewClient(a, ClientConfig{RateFile: filepath.Join(t.TempDir(), "rate")})
+	cl.now, cl.sleep = ft.Now, ft.Sleep
+	if _, err := cl.Get(t.Context(), "/trader/v1/test", nil); err == nil || len(ft.got()) != 0 {
+		t.Errorf("Get over https from an http server: %v, waits %v; want an error at once", err, ft.got())
+	}
+}
+
+// A 5xx's Retry-After is waited for when it is longer than the backoff, and
+// one longer than a minute ends the tries; a backoff that the deadline would
+// cut short is not begun.
+func TestGet5xxWaits(t *testing.T) {
+	f := newFakeOAuth(t)
+	f.script = append(f.script, answer(http.StatusServiceUnavailable, "", "Retry-After", "9"))
+	ft := &fakeTime{now: testNow}
+	cl := newTestClient(t, f, &clock{now: testNow}, ft)
+	if _, err := cl.Get(t.Context(), "/trader/v1/test", nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := []time.Duration{9 * time.Second}; !slices.Equal(ft.got(), want) {
+		t.Errorf("a 503 with Retry-After 9: waited %v, want %v", ft.got(), want)
+	}
+
+	f = newFakeOAuth(t)
+	f.script = append(f.script, answer(http.StatusServiceUnavailable, "", "Retry-After", "3600"))
+	ft = &fakeTime{now: testNow}
+	cl = newTestClient(t, f, &clock{now: testNow}, ft)
+	if _, err := cl.Get(t.Context(), "/trader/v1/test", nil); err == nil || f.calls() != 1 || len(ft.got()) != 0 {
+		t.Errorf("a 503 with Retry-After 3600: %v after %d requests and waits %v, want the 503 at once", err, f.calls(), ft.got())
+	}
+
+	f = newFakeOAuth(t)
+	f.script = append(f.script, answer(http.StatusServiceUnavailable, ""))
+	ft = &fakeTime{now: testNow}
+	cl = newTestClient(t, f, &clock{now: testNow}, ft)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	_, err := cl.Get(ctx, "/trader/v1/test", nil)
+	if se, ok := errors.AsType[*Error](err); !ok || se.Status != http.StatusServiceUnavailable || f.calls() != 1 || len(ft.got()) != 0 {
+		t.Errorf("a 503 with half a second left: %v after %d requests and waits %v, want the 503 at once", err, f.calls(), ft.got())
+	}
+}
+
+// When the wait for a later try ends without it, Get still says what the
+// last try got, with its correlation ID.
+func TestGetKeepsTheLastAnswer(t *testing.T) {
+	// A cancel during a 429's wait, which is in the rate limit.
+	f := newFakeOAuth(t)
+	f.script = append(f.script, tooMany)
+	ft := &fakeTime{now: testNow}
+	cl := newTestClient(t, f, &clock{now: testNow}, ft)
+	ctx, cancel := context.WithCancel(t.Context())
+	ft.onSleep = func(time.Duration) { cancel() }
+	_, err := cl.Get(ctx, "/trader/v1/test", nil)
+	if se, ok := errors.AsType[*Error](err); !errors.Is(err, context.Canceled) || !ok || se.CorrelID != "corr-429" {
+		t.Errorf("a cancel during a 429's wait: %v, want context.Canceled and the 429", err)
+	}
+
+	// A 503, and while its backoff runs another process's 429 pauses
+	// everyone for longer than the deadline leaves: the 503 is the answer,
+	// not the rate limit.
+	f = newFakeOAuth(t)
+	f.script = append(f.script, answer(http.StatusServiceUnavailable, `{"message":"down"}`, "Schwab-Client-CorrelId", "corr-503"))
+	ft = &fakeTime{now: testNow}
+	cl = newTestClient(t, f, &clock{now: testNow}, ft)
+	ft.onSleep = func(time.Duration) {
+		ft.onSleep = nil
+		if err := cl.pause(t.Context(), 30*time.Second); err != nil {
+			t.Error(err)
+		}
+	}
+	ctx, cancel = context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	_, err = cl.Get(ctx, "/trader/v1/test", nil)
+	if se, ok := errors.AsType[*Error](err); !ok || se.Status != http.StatusServiceUnavailable || se.CorrelID != "corr-503" || errors.Is(err, ErrRateLimited) {
+		t.Errorf("a 503, then a pause past the deadline: %v, want the 503", err)
+	}
+}
+
+// The default HTTP client checks a quiet HTTP/2 connection with a ping.
+func TestDefaultTransportChecksQuietConnections(t *testing.T) {
+	a, err := NewAuth(Config{AppKey: testKey, AppSecret: testSecret, TokenFile: filepath.Join(t.TempDir(), "t.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, ok := a.cfg.HTTPClient.Transport.(*http.Transport)
+	if !ok || tr.HTTP2 == nil || tr.HTTP2.SendPingTimeout != 15*time.Second || tr.HTTP2.PingTimeout != 10*time.Second || a.cfg.HTTPClient.Timeout != 30*time.Second {
+		t.Errorf("the default client: %+v", a.cfg.HTTPClient)
+	}
+	if http.DefaultTransport.(*http.Transport).HTTP2 != nil {
+		t.Error("Go's default transport was changed")
+	}
+}
+
+// stallProxy passes TCP connections on to a server until told to stall,
+// after which the connections it has stop passing anything, as when the
+// network changes under them; new ones still pass.
+type stallProxy struct {
+	ln     net.Listener
+	target string
+	mu     sync.Mutex
+	stall  chan struct{} // closed to stall the connections made so far
+	dials  int
+}
+
+func newStallProxy(t *testing.T, target string) *stallProxy {
+	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &stallProxy{ln: ln, target: target, stall: make(chan struct{})}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			in, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			out, err := new(net.Dialer).DialContext(t.Context(), "tcp", target)
+			if err != nil {
+				in.Close()
+				continue
+			}
+			p.mu.Lock()
+			p.dials++
+			stall := p.stall
+			p.mu.Unlock()
+			t.Cleanup(func() { in.Close(); out.Close() })
+			pass := func(dst, src net.Conn) {
+				buf := make([]byte, 32<<10)
+				for {
+					n, err := src.Read(buf)
+					select {
+					case <-stall:
+						return // what comes now goes nowhere
+					default:
+					}
+					if n > 0 {
+						if _, err := dst.Write(buf[:n]); err != nil {
+							return
+						}
+					}
+					if err != nil {
+						return
+					}
+				}
+			}
+			go pass(out, in)
+			go pass(in, out)
+		}
+	}()
+	return p
+}
+
+func (p *stallProxy) stallNow() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	close(p.stall)
+	p.stall = make(chan struct{})
+}
+
+func (p *stallProxy) connections() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.dials
+}
+
+// An HTTP/2 connection that stops answering is not used for the next try.
+func TestGetDropsAConnectionThatStoppedAnswering(t *testing.T) {
+	f := newFakeOAuthH2(t)
+	proxy := newStallProxy(t, f.srv.Listener.Addr().String())
+	c := &clock{now: testNow}
+	a, err := NewAuth(Config{
+		AppKey: testKey, AppSecret: testSecret, BaseURL: "https://" + proxy.ln.Addr().String(),
+		TokenFile: filepath.Join(t.TempDir(), "token.json"), Now: c.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := f.srv.Client()
+	client.Timeout = 500 * time.Millisecond
+	a.cfg.HTTPClient = client
+	if err := a.Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	cl := NewClient(a, ClientConfig{RateFile: filepath.Join(t.TempDir(), "rate"), Backoff: 500 * time.Millisecond})
+	cl.jitter = func(d time.Duration) time.Duration { return d }
+	if _, err := cl.Get(t.Context(), "/trader/v1/test", nil); err != nil {
+		t.Fatal(err)
+	}
+	proxy.stallNow()
+	if _, err := cl.Get(t.Context(), "/trader/v1/test", nil); err != nil {
+		t.Errorf("Get after the connection stopped answering: %v", err)
+	}
+	if n := proxy.connections(); n != 2 {
+		t.Errorf("%d connections, want 2: the one that stopped and a new one", n)
+	}
+}
+
+// followersOf returns how many goroutines wait for a's renewal for rejected.
+func followersOf(a *Auth, rejected string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if fl := a.flights[rejected]; fl != nil {
+		return fl.followers
+	}
+	return 0
+}
+
+// waitFor polls cond until it holds.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); !cond(); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+}
+
+// loggedInAuth returns an Auth logged in to f whose access token is stale.
+func loggedInAuth(t *testing.T, f *fakeOAuth) *Auth {
+	t.Helper()
+	c := &clock{now: testNow}
+	a := newTestAuth(t, f, filepath.Join(t.TempDir(), "token.json"), c)
+	if err := a.Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	c.advance(time.Hour)
+	return a
+}
+
+// A goroutine that waits for another's renewal stops waiting when its own
+// caller gives up.
+func TestRefreshFollowerGivesUp(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	f.mu.Lock()
+	f.tokenFailures = []int{http.StatusServiceUnavailable}
+	f.mu.Unlock()
+	release := make(chan struct{})
+	a.sleep = func(ctx context.Context, _ time.Duration) error {
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	leader := make(chan error, 1)
+	go func() {
+		_, err := a.AccessToken(t.Context())
+		leader <- err
+	}()
+	waitFor(t, "the renewal", func() bool { a.mu.Lock(); defer a.mu.Unlock(); return a.flights[""] != nil })
+	ctx, cancel := context.WithCancel(t.Context())
+	follower := make(chan error, 1)
+	go func() {
+		_, err := a.AccessToken(ctx)
+		follower <- err
+	}()
+	waitFor(t, "the follower", func() bool { return followersOf(a, "") == 1 })
+	cancel()
+	select {
+	case err := <-follower:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("the follower: %v, want context.Canceled", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the follower kept waiting after its cancel")
+	}
+	close(release)
+	if err := <-leader; err != nil {
+		t.Errorf("the leader: %v", err)
+	}
+}
+
+// A goroutine that stops its tries because its own deadline leaves no time
+// for the next one does not give its failure to one with more time, which
+// tries for itself.
+func TestRefreshLeaderOutOfTime(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	a.jitter = func(d time.Duration) time.Duration { return d }
+	var once sync.Once
+	f.mu.Lock()
+	f.tokenFailures = []int{http.StatusServiceUnavailable}
+	f.onToken = func() {
+		once.Do(func() { waitFor(t, "the follower", func() bool { return followersOf(a, "") == 1 }) })
+	}
+	f.mu.Unlock()
+	short, cancel := context.WithTimeout(t.Context(), 900*time.Millisecond) // shorter than the first wait, a second
+	defer cancel()
+	leader := make(chan error, 1)
+	go func() {
+		_, err := a.AccessToken(short)
+		leader <- err
+	}()
+	waitFor(t, "the renewal", func() bool { a.mu.Lock(); defer a.mu.Unlock(); return a.flights[""] != nil })
+	if tok, err := a.AccessToken(t.Context()); err != nil || tok != "access-2" {
+		t.Errorf("the goroutine with more time: %q, %v; want access-2", tok, err)
+	}
+	if se, ok := errors.AsType[*Error](<-leader); !ok || se.Status != http.StatusServiceUnavailable {
+		t.Error("the goroutine out of time did not get the 503")
+	}
+}
+
+// panicky is a transport whose first request waits for a condition and
+// panics.
+type panicky struct {
+	ready func() bool
+	once  sync.Once
+}
+
+func (p *panicky) RoundTrip(req *http.Request) (*http.Response, error) {
+	first := false
+	p.once.Do(func() { first = true })
+	if first {
+		for !p.ready() {
+			time.Sleep(time.Millisecond)
+		}
+		panic("the transport broke")
+	}
+	return http.DefaultTransport.RoundTrip(req)
+}
+
+// A renewal that panics does not leave those waiting for it waiting forever:
+// one of them renews.
+func TestRefreshLeaderPanics(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	a.cfg.HTTPClient = &http.Client{Transport: &panicky{ready: func() bool { return followersOf(a, "") == 1 }}}
+	leader := make(chan any, 1)
+	go func() {
+		defer func() { leader <- recover() }()
+		_, _ = a.AccessToken(t.Context())
+	}()
+	waitFor(t, "the renewal", func() bool { a.mu.Lock(); defer a.mu.Unlock(); return a.flights[""] != nil })
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	if tok, err := a.AccessToken(ctx); err != nil || tok != "access-2" {
+		t.Errorf("the goroutine that waited: %q, %v; want access-2", tok, err)
+	}
+	if p := <-leader; p == nil {
+		t.Error("the transport did not panic")
+	}
+}
+
+// A token request that times out is tried once more, not three times, since
+// each try holds the lock until it times out.
+func TestRefreshTimeoutTriedOnce(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	var w waits
+	a.sleep = w.sleep
+	a.cfg.HTTPClient = &http.Client{Timeout: 100 * time.Millisecond}
+	var arrived atomic.Int32
+	f.mu.Lock()
+	f.delay = 300 * time.Millisecond
+	f.onToken = func() { arrived.Add(1) }
+	f.mu.Unlock()
+	if _, err := a.AccessToken(t.Context()); !timedOut(err) {
+		t.Errorf("AccessToken: %v, want a timeout", err)
+	}
+	if n := arrived.Load(); n != 2 {
+		t.Errorf("%d token requests, want 2", n)
+	}
+}
+
+// A refresh that fails each time says how many times it was sent.
+func TestRefreshTriesCounted(t *testing.T) {
+	f := newFakeOAuth(t)
+	a := loggedInAuth(t, f)
+	var w waits
+	a.sleep = w.sleep
+	f.mu.Lock()
+	f.tokenFailures = []int{503, 503, 503, 503}
+	f.mu.Unlock()
+	_, err := a.AccessToken(t.Context())
+	if se, ok := errors.AsType[*Error](err); !ok || se.Tries != refreshTries || !strings.Contains(err.Error(), fmt.Sprintf("after %d tries", refreshTries)) {
+		t.Errorf("after %d failures: %v", refreshTries, err)
+	}
+}
+
+// A refresh after Schwab refused a token does not take the outcome of a
+// renewal that may hand back that same token.
+func TestRefreshAfterA401DoesNotJoinAccessToken(t *testing.T) {
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	tokenFile := filepath.Join(t.TempDir(), "token.json")
+	if err := newTestAuth(t, f, tokenFile, c).Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	c.advance(2 * freshTokenAge)
+	// Another view of the login, with nothing read yet, whose first look at
+	// the lock waits until it is let go.
+	b := newTestAuth(t, f, tokenFile, c)
+	entered, letGo := make(chan struct{}), make(chan struct{})
+	firstLock := true
+	b.lock = func(ctx context.Context, path string, wait time.Duration) (*filelock.Lock, error) {
+		if firstLock {
+			firstLock = false
+			close(entered)
+			<-letGo
+		}
+		return filelock.Acquire(ctx, path, wait)
+	}
+	reader := make(chan string, 1)
+	go func() {
+		tok, _ := b.AccessToken(t.Context())
+		reader <- tok
+	}()
+	<-entered
+	refreshed := make(chan string, 1)
+	go func() {
+		tok, err := b.Refresh(t.Context(), "access-1")
+		if err != nil {
+			t.Error(err)
+		}
+		refreshed <- tok
+	}()
+	time.Sleep(50 * time.Millisecond) // for the Refresh to wait, if it wrongly would, for the renewal
+	close(letGo)
+	if tok := <-refreshed; tok != "access-2" {
+		t.Errorf("Refresh after a 401 for access-1 gave %q, want access-2", tok)
+	}
+	if tok := <-reader; tok != "access-1" {
+		t.Errorf("AccessToken gave %q, want access-1", tok)
 	}
 }

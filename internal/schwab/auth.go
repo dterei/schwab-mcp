@@ -56,8 +56,10 @@ const (
 	// refreshed.
 	refreshMargin = time.Minute
 
-	// refreshTries is how many times a refresh is sent before its failure
-	// is returned, and refreshWait is the wait after the first.
+	// refreshTries is how many times a refresh that fails for a while is
+	// sent before its failure is returned, and refreshWait is the wait after
+	// the first. A look at the token file after a refusal can send it once
+	// more.
 	refreshTries = 4
 	refreshWait  = time.Second
 
@@ -155,7 +157,7 @@ type Auth struct {
 	refused    string
 	refusedErr error
 
-	// flights are the renewals in progress in this process, by the access
+	// flights are the renewals in progress through this Auth, by the access
 	// token that they replace after Schwab refused it, or "". Goroutines that
 	// need the same renewal wait for it rather than make their own.
 	flights map[string]*flight
@@ -200,8 +202,9 @@ func NewAuth(cfg Config) (*Auth, error) {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = DefaultBaseURL
 	}
-	if u, err := url.Parse(cfg.BaseURL); err != nil || u.Scheme != "https" && u.Scheme != "http" || u.Host == "" {
-		return nil, fmt.Errorf("the base URL %q is not an https or http address", cfg.BaseURL)
+	if u, err := url.Parse(cfg.BaseURL); err != nil || u.Scheme != "https" && u.Scheme != "http" || u.Host == "" ||
+		u.User != nil || strings.ContainsAny(cfg.BaseURL, "?#") {
+		return nil, fmt.Errorf("the base URL %q is not an https or http address without a user, query or fragment", cfg.BaseURL)
 	}
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: 30 * time.Second, Transport: newTransport()}
@@ -455,7 +458,7 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 
 // renew re-reads the token file under the lock, and returns its access token
 // if that is fresh and not rejected; otherwise it refreshes the token and
-// saves the result. Goroutines of this process that renew at once, for the
+// saves the result. Goroutines that renew through this Auth at once, for the
 // same rejected token, share one renewal.
 func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 	for {
@@ -472,13 +475,7 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 		}
 		a.mu.Unlock()
 		if !follow {
-			f.tok, f.err = a.renewTries(ctx, rejected)
-			f.quit = f.err != nil && ctx.Err() != nil
-			a.mu.Lock()
-			delete(a.flights, rejected)
-			a.mu.Unlock()
-			close(f.done)
-			return f.tok, f.err
+			return a.lead(ctx, rejected, f)
 		}
 		select {
 		case <-f.done:
@@ -494,49 +491,83 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 	}
 }
 
+// lead makes the renewal f, which others may wait for, and ends it whatever
+// happens, a panic included, so that they do not wait forever.
+func (a *Auth) lead(ctx context.Context, rejected string, f *flight) (string, error) {
+	finished := false
+	defer func() {
+		if !finished {
+			f.quit = true // a panic is no answer for the others
+		}
+		a.mu.Lock()
+		delete(a.flights, rejected)
+		a.mu.Unlock()
+		close(f.done)
+	}()
+	tok, gaveUp, err := a.renewTries(ctx, rejected)
+	f.tok, f.err = tok, err
+	f.quit = err != nil && (gaveUp || ctx.Err() != nil)
+	finished = true
+	return tok, err
+}
+
 // renewTries is renew for one goroutine. A refresh that fails for a while,
 // on the network or at Schwab, is tried again, up to refreshTries times in
-// all. Between tries the lock is let go and the wait comes without it, since
-// another process may refresh meanwhile, and the next try re-reads the file
-// to find out. A refresh that Schwab refuses looks at the file once more,
-// since a login that was waiting for the lock may just have saved.
-func (a *Auth) renewTries(ctx context.Context, rejected string) (string, error) {
+// all, but one that times out only once more, as a read is. Between tries
+// the lock is let go and the wait comes without it, since another process
+// may refresh meanwhile, and the next try re-reads the file to find out. A
+// refresh that Schwab refuses looks at the file once more, since a login
+// that was waiting for the lock may just have saved. gaveUp reports that
+// the tries ended because ctx's deadline left no time for the next one,
+// which is no answer for a caller with more time.
+func (a *Auth) renewTries(ctx context.Context, rejected string) (tok string, gaveUp bool, err error) {
 	rechecked := false
+	requests, timeouts := 0, 0
 	for try := 1; ; {
 		// A token request runs to its end whatever ctx says, so none begins
 		// for a caller that has gone.
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return "", false, err
 		}
-		tok, requested, err := a.renewOnce(ctx, rejected)
+		tok, requested, err := a.renewOnce(ctx, rejected, requests+1)
+		if requested {
+			requests++
+		}
 		switch {
 		case err == nil:
-			return tok, nil
+			return tok, false, nil
 		case requested && !rechecked && errors.Is(err, ErrLoginExpired):
 			rechecked = true
 			if a.sleep(ctx, recheckWait) != nil {
-				return "", err
+				return "", false, err
 			}
 			continue
-		case try >= refreshTries || !refreshTransient(ctx, err):
-			return "", err
+		case !refreshTransient(ctx, err):
+			return "", false, err
+		}
+		if timedOut(err) {
+			timeouts++
 		}
 		wait := a.backoff(try)
-		if se, ok := errors.AsType[*Error](err); ok && se.RetryAfter > wait {
-			wait = min(se.RetryAfter, maxPause)
+		if se, ok := errors.AsType[*Error](err); ok {
+			wait = max(wait, se.RetryAfter)
 		}
-		if !fits(ctx, wait) {
-			return "", err
+		switch {
+		case try >= refreshTries || timeouts > 1 || wait > maxPause:
+			return "", false, err
+		case !fits(ctx, wait):
+			return "", true, err
 		}
 		if serr := a.sleep(ctx, wait); serr != nil {
-			return "", fmt.Errorf("%w while waiting to try again; the last try got: %w", serr, err)
+			return "", false, fmt.Errorf("%w while waiting to try again; the last try got: %w", serr, err)
 		}
 		try++
 	}
 }
 
-// renewOnce is one try of renew. It reports whether it made a token request.
-func (a *Auth) renewOnce(ctx context.Context, rejected string) (tok string, requested bool, err error) {
+// renewOnce is one try of renew. It reports whether it made a token request,
+// which would be the renewal's nth.
+func (a *Auth) renewOnce(ctx context.Context, rejected string, n int) (tok string, requested bool, err error) {
 	release, err := a.hold(ctx)
 	if err != nil {
 		return "", false, err
@@ -562,19 +593,23 @@ func (a *Auth) renewOnce(ctx context.Context, rejected string) (tok string, requ
 		!t.AccessObtainedAt.IsZero() && age >= 0 && age < freshTokenAge {
 		return "", false, ErrTokenRefused
 	}
-	tok, err = a.refresh(ctx, t)
+	tok, err = a.refresh(ctx, t, n)
 	return tok, true, err
 }
 
 // refresh trades t's refresh token for a new access token and saves the
-// result. The caller holds the lock and has just read t from the file.
-func (a *Auth) refresh(ctx context.Context, t *token) (string, error) {
+// result. The caller holds the lock and has just read t from the file. This
+// is the nth token request of the renewal, which an error from Schwab says.
+func (a *Auth) refresh(ctx context.Context, t *token, n int) (string, error) {
 	start := a.now()
 	res, err := a.tokenRequest(ctx, url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {t.RefreshToken},
 	})
 	if err != nil {
+		if se, ok := errors.AsType[*Error](err); ok && n > 1 {
+			se.Tries = n // before the error is wrapped, which writes its message
+		}
 		final, err := refreshError(err)
 		if final {
 			a.mu.Lock()
@@ -685,6 +720,9 @@ func (a *Auth) set(t *token) {
 // hold takes the in-process semaphore and then the lock file, waiting while
 // another holds either, and returns what lets go of both.
 func (a *Auth) hold(ctx context.Context) (release func(), err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err // rather than take the semaphore half the time
+	}
 	select {
 	case a.sem <- struct{}{}:
 	case <-ctx.Done():

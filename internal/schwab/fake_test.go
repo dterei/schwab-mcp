@@ -26,14 +26,17 @@ type fakeOAuth struct {
 	t   *testing.T
 	srv *httptest.Server
 
-	mu            sync.Mutex
-	refresh       map[string]bool // refresh tokens that still work
-	access        map[string]bool // access tokens that still work
-	rotate        bool            // a refresh issues a new refresh token and retires the old one
-	revokeOlder   bool            // issuing an access token retires the earlier ones
-	delay         time.Duration   // how long each grant takes, to widen races
-	onGrant       func()          // called as each grant is made, before the answer
-	requests      int             // token requests, granted or not
+	mu          sync.Mutex
+	refresh     map[string]bool // refresh tokens that still work
+	access      map[string]bool // access tokens that still work
+	rotate      bool            // a refresh issues a new refresh token and retires the old one
+	revokeOlder bool            // issuing an access token retires the earlier ones
+	delay       time.Duration   // how long each grant takes, to widen races
+	onGrant     func()          // called as each grant is made, before the answer
+	// onToken, if set, is called as each token request arrives, before
+	// anything else, without the fake's lock.
+	onToken       func()
+	requests      int // token requests, granted or not
 	issued        int
 	codeGrants    int
 	refreshGrants int
@@ -48,11 +51,12 @@ type fakeOAuth struct {
 	script    []func(w http.ResponseWriter, r *http.Request)
 	apiCalls  int
 	lastToken string // the access token of the last API request
+	all       int    // requests of any kind, to any path
 }
 
 func newFakeOAuth(t *testing.T) *fakeOAuth {
 	f := &fakeOAuth{t: t, refresh: map[string]bool{}, access: map[string]bool{}}
-	f.srv = httptest.NewServer(f.mux())
+	f.srv = httptest.NewServer(f.handler())
 	t.Cleanup(f.srv.Close)
 	return f
 }
@@ -61,22 +65,40 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 // gets from f.srv.Client().
 func newFakeOAuthH2(t *testing.T) *fakeOAuth {
 	f := &fakeOAuth{t: t, refresh: map[string]bool{}, access: map[string]bool{}}
-	f.srv = httptest.NewUnstartedServer(f.mux())
+	f.srv = httptest.NewUnstartedServer(f.handler())
 	f.srv.EnableHTTP2 = true
 	f.srv.StartTLS()
 	t.Cleanup(f.srv.Close)
 	return f
 }
 
-func (f *fakeOAuth) mux() *http.ServeMux {
+func (f *fakeOAuth) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/oauth/token", f.handleToken)
 	mux.HandleFunc("GET /whoami", f.handleWhoami)
 	mux.HandleFunc("GET /trader/v1/test", f.handleAPI)
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.all++
+		f.mu.Unlock()
+		mux.ServeHTTP(w, r)
+	})
+}
+
+// requestsOfAnyKind returns how many requests the fake has had, to any path.
+func (f *fakeOAuth) requestsOfAnyKind() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.all
 }
 
 func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	onToken := f.onToken
+	f.mu.Unlock()
+	if onToken != nil {
+		onToken()
+	}
 	if f.delay > 0 {
 		time.Sleep(f.delay)
 	}

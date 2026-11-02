@@ -16,12 +16,12 @@ import (
 	"time"
 )
 
-// maxBody bounds the size of an answer that is read.
-const maxBody = 64 << 20
+// maxBody bounds the size of an answer that is read; tests make it smaller.
+var maxBody = 64 << 20
 
 var (
 	// errTooLong is the error for an answer larger than maxBody.
-	errTooLong = fmt.Errorf("the answer was over %d MB", maxBody>>20)
+	errTooLong = errors.New("the answer was too big to read")
 	// errReading marks a failure to read an answer, such as a connection
 	// cut part way through it.
 	errReading = errors.New("reading the answer")
@@ -33,8 +33,8 @@ type ClientConfig struct {
 	// computer that uses the app key may make together. Zero means
 	// DefaultRatePerMinute.
 	RatePerMinute int
-	// Burst is how many of them may go at once after a quiet spell. Zero
-	// means DefaultBurst.
+	// Burst is how many of them may go at once after a quiet spell, at most
+	// a minute's worth, RatePerMinute + 1. Zero means DefaultBurst.
 	Burst int
 	// RateFile is where the processes keep the rate limit they share. Empty
 	// means a file named for the app key in the user cache directory,
@@ -81,6 +81,7 @@ func NewClient(a *Auth, cfg ClientConfig) *Client {
 	if burst <= 0 {
 		burst = DefaultBurst
 	}
+	burst = min(burst, rate+1) // a tolerance of at most a minute, as maxLead takes
 	rateFile := cfg.RateFile
 	if rateFile == "" {
 		rateFile = defaultRateFile(a.cfg.AppKey, a.tokenFile)
@@ -120,13 +121,17 @@ func equalJitter(d time.Duration) time.Duration {
 // the body of the answer.
 //
 // Each try waits its turn under the rate limit. A read is safe to send
-// again, so Get tries again, up to four times in all, after a 429 or 5xx
-// answer or a failure of the network, waiting longer each time: 1, 2, then 4
-// seconds, jittered, or what Schwab asks in Retry-After. A 429 holds back
-// every process that shares the rate limit for that long, not only this
-// one. A try that times out is tried once more, not three times. After a
-// 401 Get gets a new access token once. A wait that the caller's deadline
-// would cut short is not begun. Other answers come back as an *Error.
+// again, so Get tries again, up to four tries in all, after a 429 or 5xx
+// answer or a failure of the network. After a 5xx or a failure of the
+// network it waits 1, 2, then 4 seconds, jittered, or what Retry-After asks
+// if that is longer. A 429 holds back every process that shares the rate
+// limit, for what Retry-After asks or else for 1, 2, then 4 seconds, and the
+// next try then waits its turn; the limit spaces those tries out, so their
+// waits are not jittered. A Retry-After of more than a minute ends the
+// tries. A try that times out is tried once more, not three times. After a
+// 401 Get gets a new access token once, and that try does not count. A wait
+// that the caller's deadline would cut short is not begun. Other answers
+// come back as an *Error.
 func (c *Client) Get(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	if err := checkPath(path); err != nil {
 		return nil, err
@@ -135,12 +140,16 @@ func (c *Client) Get(ctx context.Context, path string, query url.Values) ([]byte
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
+	if _, err := url.Parse(u); err != nil {
+		return nil, fmt.Errorf("API path %q: %w", path, err)
+	}
 	refreshed := false
 	timeouts := 0
+	var last error // the last try's failure
 	for try := 1; ; try++ {
 		tok, err := c.admit(ctx)
 		if err != nil {
-			return nil, err
+			return nil, withLast(err, last)
 		}
 		r, err := c.send(ctx, u, tok)
 		if err != nil {
@@ -153,15 +162,18 @@ func (c *Client) Get(ctx context.Context, path string, query url.Values) ([]byte
 			} else {
 				err = fmt.Errorf("GET %s: %w", path, err)
 			}
+			last = err
 			if final {
 				return nil, err
 			}
-			// A connection that stopped answering stays in the pool, so drop
-			// the idle ones before the next try.
-			c.auth.cfg.HTTPClient.CloseIdleConnections()
 			if err := c.wait(ctx, c.backoff(try), err); err != nil {
 				return nil, err
 			}
+			// A connection that stopped answering, as after a change of
+			// network, may still be in the pool. By now its request has let go
+			// of it, so it is idle: drop it, so that the next try connects
+			// afresh.
+			c.auth.cfg.HTTPClient.CloseIdleConnections()
 			continue
 		}
 		if r.status == http.StatusOK {
@@ -181,6 +193,7 @@ func (c *Client) Get(ctx context.Context, path string, query url.Values) ([]byte
 		}
 		e := newError(r.status, r.header, r.body)
 		e.Tries = try
+		last = e
 		switch {
 		case r.status == http.StatusTooManyRequests:
 			asked, ok := retryAfter(r.header, c.now())
@@ -197,7 +210,14 @@ func (c *Client) Get(ctx context.Context, path string, query url.Values) ([]byte
 				return nil, e
 			}
 		case retryableStatus(e) && try < c.tries:
-			if err := c.wait(ctx, c.backoff(try), e); err != nil {
+			wait := c.backoff(try)
+			if e.RetryAfter > wait {
+				if e.RetryAfter > c.maxWait {
+					return nil, e
+				}
+				wait = e.RetryAfter
+			}
+			if err := c.wait(ctx, wait, e); err != nil {
 				return nil, err
 			}
 		default:
@@ -206,8 +226,24 @@ func (c *Client) Get(ctx context.Context, path string, query url.Values) ([]byte
 	}
 }
 
+// withLast returns err, which ended the wait for a later try, with last, the
+// failure of the try before, so that what Schwab answered then, and its
+// correlation ID, are not lost. When the rate limit would have let the try go
+// only after the deadline, the try was not begun, so last alone is returned,
+// as when a backoff would outlast the deadline.
+func withLast(err, last error) error {
+	if last == nil {
+		return err
+	}
+	if _, ok := errors.AsType[*limitWait](err); ok {
+		return last
+	}
+	return fmt.Errorf("%w while waiting to try again; the last try got: %w", err, last)
+}
+
 // admit returns an access token for a request once the rate limit lets the
-// request go, so that it can go at once: nothing that can block comes
+// request go, so that it can go at once. Only when the wait outlived the
+// token, as when the computer slept through it, does getting a new one come
 // between the two.
 func (c *Client) admit(ctx context.Context) (string, error) {
 	if _, err := c.auth.AccessToken(ctx); err != nil {
@@ -219,7 +255,6 @@ func (c *Client) admit(ctx context.Context) (string, error) {
 	if fresh, ok := c.auth.fresh(""); ok {
 		return fresh, nil
 	}
-	// The wait outlived the token, as when the computer slept through it.
 	return c.auth.AccessToken(ctx)
 }
 
@@ -238,7 +273,7 @@ func (c *Client) takeAt(ctx context.Context) (time.Time, error) {
 		// The state is saved even when the request must wait, since settle
 		// may have moved the TAT for a clock that was set back.
 		err := c.limit.change(ctx, c.now, c.auth.warn, func(s rateState, now time.Time) (rateState, bool) {
-			s, wait = s.settle(now, c.interval, c.tolerance).admit(now, c.interval, c.tolerance)
+			s, wait = s.settle(now, c.tolerance).admit(now, c.interval, c.tolerance)
 			at = now
 			return s, true
 		})
@@ -257,10 +292,14 @@ func (c *Client) takeAt(ctx context.Context) (time.Time, error) {
 	}
 }
 
-// pause holds back every request that shares the rate limit for d.
+// pause holds back every request that shares the rate limit for d. It does
+// so even if ctx has ended, since it is for the others, but waits at most
+// rateLockWait for its turn at the limit.
 func (c *Client) pause(ctx context.Context, d time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rateLockWait)
+	defer cancel()
 	return c.limit.change(ctx, c.now, c.auth.warn, func(s rateState, now time.Time) (rateState, bool) {
-		return s.settle(now, c.interval, c.tolerance).pause(now, d, c.tolerance), true
+		return s.settle(now, c.tolerance).pause(now, d, c.tolerance), true
 	})
 }
 
@@ -317,12 +356,12 @@ func (c *Client) send(ctx context.Context, u, tok string) (*reply, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxBody)+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errReading, err)
 	}
 	if len(body) > maxBody {
-		return nil, errTooLong
+		return nil, fmt.Errorf("%w: over %d bytes", errTooLong, maxBody)
 	}
 	return &reply{status: resp.StatusCode, header: resp.Header, body: body}, nil
 }
@@ -389,23 +428,32 @@ func retryable(ctx context.Context, err error) bool {
 		!errors.Is(err, http.ErrSchemeMismatch) && !errors.Is(err, errTooLong)
 }
 
-// timedOut reports whether err is a try that ran out of time, by the HTTP
-// client's own limit rather than the caller's.
+// timedOut reports whether err is a try that ran out of time: by the HTTP
+// client's own limit, or by the caller's deadline, which Get leaves out
+// through retryable.
 func timedOut(err error) bool {
 	ne, ok := errors.AsType[net.Error](err)
 	return ok && ne.Timeout()
 }
 
 // checkPath refuses an API path that could reach another endpoint than the
-// one its caller built: one with a query, a fragment, or a "." or ".."
-// segment, which a gateway may resolve, even when escaped.
+// one its caller built: one that is relative, has a query or a fragment, or
+// has a "." or ".." segment, which a gateway may resolve, even escaped, or
+// behind an escaped slash or a backslash, which some servers take for a
+// slash.
 func checkPath(path string) error {
 	if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "?#") {
 		return fmt.Errorf("API path %q: want an absolute path without a query", path)
 	}
 	for seg := range strings.SplitSeq(path, "/") {
-		if s, err := url.PathUnescape(seg); err != nil || s == "." || s == ".." {
-			return fmt.Errorf("API path %q: a segment is not a name", path)
+		s, err := url.PathUnescape(seg)
+		if err != nil {
+			return fmt.Errorf("API path %q: %w", path, err)
+		}
+		for part := range strings.FieldsFuncSeq(s, func(r rune) bool { return r == '/' || r == '\\' }) {
+			if part == "." || part == ".." {
+				return fmt.Errorf("API path %q: a segment is not a name", path)
+			}
 		}
 	}
 	return nil

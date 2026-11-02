@@ -136,10 +136,11 @@ its `fetched_at`.
   meanwhile, or a refresh. A 401 for a token that Schwab issued moments ago is
   reported as it is, since a new token would not help.
 - After a 429, a 5xx answer or a failure of the network it tries again, up to
-  four times in all, waiting 1, 2, then 4 seconds. A 429 holds back every
-  process that shares the rate limit for that long, not only this one. A
-  request that times out is tried once more, not three times; a refresh of
-  the login that fails on the network or at Schwab is tried again too.
+  four times in all, waiting 1, 2, then 4 seconds, or longer if Schwab asks.
+  A 429 holds back every process that shares the rate limit for that long,
+  not only this one. A request that times out is tried once more, not three
+  times; a refresh of the login that fails on the network or at Schwab is
+  tried again too.
 
 ## Tests
 
@@ -190,7 +191,7 @@ scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
   within hours; if it does not, write to traderapi@schwab.com with the
   reference.
 - `HTTP 500 from Schwab: an HTML page, Whitelabel Error Page`: the app is not
-  "Ready For Use" yet.
+  "Ready For Use" yet, or an account is of a type the API does not serve.
 - `0 transactions` although the account has activity: the account is
   probably not enabled for thinkorswim (see the
   [top-level README](../../README.md#one-time-setup)). An account you did not

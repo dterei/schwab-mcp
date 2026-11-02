@@ -9,12 +9,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/filelock"
 )
 
 // fakeTime is a wall clock that moves only when something sleeps on it: each
@@ -228,7 +231,8 @@ func TestRateTakesNoSlotForAWaitCutShort(t *testing.T) {
 }
 
 // Where the rate file cannot be used, the process keeps its own limit, and
-// says so once.
+// says so once. Once the file can be used again, it is, with what the
+// process did meanwhile.
 func TestRateFileUnusable(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(notADir, nil, 0o600); err != nil {
@@ -236,14 +240,243 @@ func TestRateFileUnusable(t *testing.T) {
 	}
 	var warnings []string
 	ft := &fakeTime{now: testNow}
-	c := newRateClient(t, filepath.Join(notADir, "rate"), ClientConfig{}, ft)
+	path := filepath.Join(notADir, "rate")
+	c := newRateClient(t, path, ClientConfig{}, ft)
 	c.auth.cfg.Warn = func(msg string) { warnings = append(warnings, msg) }
 	got := takeTimes(t, c, 7, testNow)
 	if want := []time.Duration{0, 0, 0, 0, 0, 600 * time.Millisecond, 1200 * time.Millisecond}; !slices.Equal(got, want) {
 		t.Errorf("let go at %v, want %v", got, want)
 	}
+	if err := c.pause(t.Context(), 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Remove(notADir); err != nil {
+		t.Fatal(err)
+	}
+	got = takeTimes(t, c, 1, testNow)
+	if want := 1200*time.Millisecond + 10*time.Second; got[0] != want {
+		t.Errorf("with the file back, let go at %v, want %v: after the pause made without it", got[0], want)
+	}
+	b, err := os.ReadFile(c.limit.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := parseRate(b); s.bad || len(b) != rateRecordLen || !s.tat.After(testNow.Add(10*time.Second)) {
+		t.Errorf("the file holds %q, want the pause in its record", b)
+	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "keeps its own rate limit") {
 		t.Errorf("warnings %q, want one that says the process keeps its own limit", warnings)
+	}
+}
+
+// A lock on the rate file that another process keeps, as a process stopped
+// while it held it would, costs one wait, not one for each request; the
+// requests meanwhile keep this process's own limit, and the file takes in
+// what they did once its lock is free.
+func TestRateLockKeptByAnother(t *testing.T) {
+	ft := &fakeTime{now: testNow}
+	c := newRateClient(t, filepath.Join(t.TempDir(), "rate"), ClientConfig{}, ft)
+	var warnings []string
+	c.auth.cfg.Warn = func(msg string) { warnings = append(warnings, msg) }
+	waits, looks := 0, 0
+	held := true
+	c.limit.lock = func(context.Context, string, time.Duration) (*filelock.Lock, error) {
+		waits++
+		return nil, fmt.Errorf("waited %v: %w", rateLockWait, filelock.ErrTimeout)
+	}
+	c.limit.tryLock = func(path string) (*filelock.Lock, bool, error) {
+		looks++
+		if held {
+			return nil, false, nil
+		}
+		return filelock.TryAcquire(path)
+	}
+	got := takeTimes(t, c, 6, testNow)
+	if err := c.pause(t.Context(), 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if want := []time.Duration{0, 0, 0, 0, 0, 600 * time.Millisecond}; !slices.Equal(got, want) {
+		t.Errorf("while the lock was kept, let go at %v, want %v", got, want)
+	}
+	if waits != 1 || looks != 7 {
+		t.Errorf("%d waits for the lock and %d looks, want 1 and 7", waits, looks)
+	}
+	held = false
+	if got := takeTimes(t, c, 1, testNow); got[0] != 600*time.Millisecond+10*time.Second {
+		t.Errorf("once the lock was free, let go at %v, want after the pause made meanwhile", got[0])
+	}
+	if len(warnings) != 1 {
+		t.Errorf("warnings %q, want one", warnings)
+	}
+	b, err := os.ReadFile(c.limit.path)
+	if err != nil || parseRate(b).bad || len(b) != rateRecordLen {
+		t.Errorf("the file holds %q, %v; want a record", b, err)
+	}
+}
+
+// A file system that cannot lock files is not tried again.
+func TestRateFileSystemWithoutLocks(t *testing.T) {
+	ft := &fakeTime{now: testNow}
+	c := newRateClient(t, filepath.Join(t.TempDir(), "rate"), ClientConfig{}, ft)
+	calls := 0
+	c.limit.lock = func(context.Context, string, time.Duration) (*filelock.Lock, error) {
+		calls++
+		return nil, fmt.Errorf("lock: %w", filelock.ErrUnsupported)
+	}
+	if got := takeTimes(t, c, 7, testNow); got[6] != 1200*time.Millisecond {
+		t.Errorf("let go at %v, want the process's own limit", got)
+	}
+	if calls != 1 {
+		t.Errorf("%d tries of the lock, want 1", calls)
+	}
+}
+
+// Goroutines that share a client keep its limit together.
+func TestRateGoroutinesShareOneLimiter(t *testing.T) {
+	c := newRateClient(t, filepath.Join(t.TempDir(), "rate"), testRateConfig(""), nil)
+	var mu sync.Mutex
+	var times []int64
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for range 10 {
+				at, err := c.takeAt(t.Context())
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				mu.Lock()
+				times = append(times, at.UnixNano())
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	slices.Sort(times)
+	var tat time.Time
+	for _, n := range times {
+		at := time.Unix(0, n)
+		if at.Before(tat.Add(-c.tolerance)) {
+			t.Fatalf("a request went at %v, %v before the limit let it", at.Format(time.StampMicro), tat.Add(-c.tolerance).Sub(at))
+		}
+		tat = later(tat, at).Add(c.interval)
+	}
+}
+
+// A TAT that a process with a slower rate put far ahead is not taken for a
+// corrupt one by a process with the defaults, and a burst is at most a
+// minute's worth.
+func TestRateBoundIsTheSameForEveryProcess(t *testing.T) {
+	ft := &fakeTime{now: testNow}
+	path := filepath.Join(t.TempDir(), "rate")
+	slow := newRateClient(t, path, ClientConfig{RatePerMinute: 1, Burst: 2}, ft)
+	if got := takeTimes(t, slow, 2, testNow); got[1] != 0 {
+		t.Fatalf("a burst of 2 went at %v", got)
+	}
+	// The TAT is now two minutes ahead. A default process's check, which its
+	// deadline cuts short, must leave it there.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if _, err := newRateClient(t, path, ClientConfig{}, ft).takeAt(ctx); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("the default process's check: %v, want ErrRateLimited", err)
+	}
+	if got := takeTimes(t, slow, 1, testNow); got[0] != time.Minute {
+		t.Errorf("after the default process's check, the slow one went again at %v, want 1m0s", got[0])
+	}
+	for _, cfg := range []ClientConfig{{RatePerMinute: 10, Burst: 30}, {Burst: 1 << 40}} {
+		c := newRateClient(t, path, cfg, ft)
+		if c.tolerance > time.Minute || c.tolerance < 0 {
+			t.Errorf("%+v has a tolerance of %v, want at most a minute", cfg, c.tolerance)
+		}
+	}
+}
+
+// A pause right after the clock was set back counts from the new time.
+func TestRatePauseAfterTheClockWentBack(t *testing.T) {
+	ft := &fakeTime{now: testNow}
+	c := newRateClient(t, filepath.Join(t.TempDir(), "rate"), ClientConfig{}, ft)
+	takeTimes(t, c, 1, testNow)
+	back := testNow.Add(-30 * time.Second)
+	ft.set(back)
+	if err := c.pause(t.Context(), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if got := takeTimes(t, c, 1, back); got[0] != time.Second {
+		t.Errorf("let go %v after the pause began, want 1s", got[0])
+	}
+}
+
+// A caller that has gone takes no slot, and a pause is made all the same.
+func TestRateCallerGone(t *testing.T) {
+	ft := &fakeTime{now: testNow}
+	c := newRateClient(t, filepath.Join(t.TempDir(), "rate"), ClientConfig{}, ft)
+	gone, cancel := context.WithCancel(t.Context())
+	cancel()
+	for range 20 {
+		if _, err := c.takeAt(gone); !errors.Is(err, context.Canceled) {
+			t.Fatalf("takeAt after the cancel: %v", err)
+		}
+	}
+	if got := takeTimes(t, c, DefaultBurst, testNow); got[DefaultBurst-1] != 0 {
+		t.Errorf("after 20 takes that had gone, a burst went at %v, want all at once", got)
+	}
+	if err := c.pause(gone, 10*time.Second); err != nil {
+		t.Fatalf("a pause after the cancel: %v", err)
+	}
+	if got := takeTimes(t, c, 1, testNow); got[0] != 10*time.Second {
+		t.Errorf("after a pause by a caller that had gone, let go at %v, want 10s", got[0])
+	}
+}
+
+// The limit is kept by app key, in the user cache directory, or next to the
+// token file without one: logins on one app key share it.
+func TestDefaultRateFile(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache) // Linux and other Unix systems
+	t.Setenv("HOME", cache)           // macOS: Library/Caches in it
+	t.Setenv("LocalAppData", cache)   // Windows
+	newClientFor := func(key, tokenFile string) *Client {
+		a, err := NewAuth(Config{AppKey: key, AppSecret: testSecret, TokenFile: tokenFile})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return NewClient(a, ClientConfig{})
+	}
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir, err = resolve(dir); err != nil {
+		t.Fatal(err)
+	}
+	one := newClientFor(testKey, filepath.Join(t.TempDir(), "a.json"))
+	two := newClientFor(testKey, filepath.Join(t.TempDir(), "b.json"))
+	other := newClientFor("another-key", filepath.Join(t.TempDir(), "a.json"))
+	if one.limit != two.limit || one.limit == other.limit {
+		t.Errorf("rate files %s, %s and %s; want the first two the same, for one app key", one.limit.path, two.limit.path, other.limit.path)
+	}
+	if got := filepath.Dir(one.limit.path); got != filepath.Join(dir, "schwabtx") {
+		t.Errorf("rate file %s, want it in %s", one.limit.path, filepath.Join(dir, "schwabtx"))
+	}
+	if name := filepath.Base(one.limit.path); len(name) != len("rate-")+16 || !strings.HasPrefix(name, "rate-") || strings.Contains(name, testKey) {
+		t.Errorf("rate file named %s, want rate- and 16 hex digits of a hash of the key", name)
+	}
+
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	t.Setenv("LocalAppData", "")
+	if _, err := os.UserCacheDir(); err == nil {
+		t.Skip("this system has a cache directory without HOME")
+	}
+	tokenFile := filepath.Join(t.TempDir(), "token.json")
+	c := newClientFor(testKey, tokenFile)
+	resolvedToken, err := resolve(tokenFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := filepath.Dir(c.limit.path); got != filepath.Dir(resolvedToken) {
+		t.Errorf("without a cache directory, the rate file is %s, want it next to %s", c.limit.path, resolvedToken)
 	}
 }
 
@@ -287,6 +520,9 @@ func testRateConfig(rateFile string) ClientConfig {
 // Processes that share a rate file keep its limit together, and a pause that
 // one of them makes holds back the others.
 func TestRateManyProcesses(t *testing.T) {
+	if !filelock.Supported {
+		t.Skip("no file locks on " + runtime.GOOS)
+	}
 	const procs, each = 3, 30
 	path := filepath.Join(t.TempDir(), "rate")
 	type helper struct {
@@ -358,17 +594,19 @@ func TestRateManyProcesses(t *testing.T) {
 
 	// Replayed in order, the times must keep the limit: none before TAT -
 	// tolerance, with the pause, which this process made between before and
-	// after, putting the TAT at least at before + pause + tolerance.
+	// after, putting the TAT at least at before + pause + tolerance. Each
+	// time was read under the lock, so a request let go before the pause has
+	// a time of at most after, even on a clock as coarse as Windows', and one
+	// let go after it a time at least pause later.
 	cfg := testRateConfig("")
 	interval := time.Minute / time.Duration(cfg.RatePerMinute)
 	tolerance := time.Duration(cfg.Burst-1) * interval
-	const slack = time.Millisecond // for clocks read in a different order than the lock was taken
 	slices.Sort(times)
 	var tat time.Time
 	paused, early, late := false, 0, 0
 	for _, n := range times {
 		at := time.Unix(0, n)
-		if !paused && !at.Before(after) {
+		if !paused && at.After(after) {
 			paused = true
 			tat = later(tat, before.Add(pause+tolerance))
 		}
@@ -377,7 +615,7 @@ func TestRateManyProcesses(t *testing.T) {
 		} else {
 			early++
 		}
-		if at.Add(slack).Before(tat.Add(-tolerance)) {
+		if at.Before(tat.Add(-tolerance)) {
 			t.Fatalf("a request went at %v, %v before the limit let it", at.Format(time.StampMicro), tat.Add(-tolerance).Sub(at))
 		}
 		tat = later(tat, at).Add(interval)

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // correlationHeader is the response header that carries the ID by which
@@ -56,8 +57,9 @@ type Error struct {
 	// RetryAfter is how long the response's Retry-After header asked to
 	// wait, or zero.
 	RetryAfter time.Duration
-	// Tries is how many times the request was sent, when it was tried more
-	// than once.
+	// Tries is how many tries the request had: Get's tries, which leave out
+	// a send whose 401 a new access token answered, or a refresh's token
+	// requests. Error mentions it when there was more than one.
 	Tries int
 	// Header is the response's header, without its cookies.
 	Header http.Header
@@ -105,8 +107,9 @@ func (e *Error) Is(target error) bool {
 }
 
 // says returns what the body says, short: the message and errors, else what
-// an HTML page is about, else the start of the body. An OAuth error says
-// nothing here, since its description may quote a digest of the token.
+// an HTML page is about, else the start of the body. An OAuth error's
+// description is never shown, since it may quote a digest of the token; a
+// message or errors beside its code are.
 func (e *Error) says() string {
 	parts := make([]string, 0, 1+len(e.Errors))
 	if e.Message != "" {
@@ -125,7 +128,9 @@ func (e *Error) says() string {
 	}
 	body := strings.TrimSpace(e.Body)
 	if strings.HasPrefix(body, "<") {
-		if about := htmlAbout(body); about != "" {
+		// What a page is about is near its start; a large one is not read
+		// through each time the error is shown.
+		if about := htmlAbout(clip(body, 64<<10)); about != "" {
 			return "an HTML page, " + about
 		}
 		return "an HTML page"
@@ -162,11 +167,14 @@ func htmlText(s string) string {
 	return strings.Join(strings.Fields(html.UnescapeString(htmlTag.ReplaceAllString(s, " "))), " ")
 }
 
-// clip returns s, cut to at most n bytes with "..." after it if it was
-// longer.
+// clip returns s, cut to at most n bytes, at the start of a character, with
+// "..." after it if it was longer.
 func clip(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "..."
 }
@@ -207,8 +215,8 @@ func newError(status int, header http.Header, body []byte) *Error {
 		}
 	}
 	if trimmed := strings.TrimSpace(e.Body); strings.HasPrefix(trimmed, "<") {
-		if m := edgeRef.FindStringSubmatch(html.UnescapeString(trimmed)); m != nil {
-			e.Reference = m[1]
+		if m := edgeRef.FindStringSubmatch(html.UnescapeString(clip(trimmed, 64<<10))); m != nil {
+			e.Reference = strings.TrimRight(m[1], ".")
 		}
 	}
 	return e
@@ -216,30 +224,35 @@ func newError(status int, header http.Header, body []byte) *Error {
 
 // errorList reads the errors of an error body: strings, as the Accounts and
 // Trading API sends them, or objects, as the Market Data API does, whose
-// status may be a number or a string. An object's source, the parameter or
-// header at fault, is kept with it.
+// status may be a number or a string. An object's source, the parameter,
+// header or attributes at fault, is kept with it. Each entry is read on its
+// own, so that one in another form does not lose the others.
 func errorList(raw json.RawMessage) []string {
-	if len(raw) == 0 {
-		return nil
-	}
-	var strs []string
-	if json.Unmarshal(raw, &strs) == nil {
-		return strs
-	}
-	var objects []struct {
-		Title  string `json:"title"`
-		Detail string `json:"detail"`
-		Source struct {
-			Parameter string `json:"parameter"`
-			Header    string `json:"header"`
-			Pointer   string `json:"pointer"`
-		} `json:"source"`
-	}
-	if json.Unmarshal(raw, &objects) != nil {
+	var entries []json.RawMessage
+	if json.Unmarshal(raw, &entries) != nil {
 		return nil
 	}
 	var list []string
-	for _, o := range objects {
+	for _, entry := range entries {
+		var str string
+		if json.Unmarshal(entry, &str) == nil {
+			if str != "" {
+				list = append(list, str)
+			}
+			continue
+		}
+		var o struct {
+			Title  string `json:"title"`
+			Detail string `json:"detail"`
+			Source struct {
+				Parameter string          `json:"parameter"`
+				Header    string          `json:"header"`
+				Pointer   json.RawMessage `json:"pointer"`
+			} `json:"source"`
+		}
+		if json.Unmarshal(entry, &o) != nil {
+			continue
+		}
 		s := o.Detail
 		if s == "" {
 			s = o.Title
@@ -252,12 +265,26 @@ func errorList(raw json.RawMessage) []string {
 			s += " (parameter " + src.Parameter + ")"
 		case src.Header != "":
 			s += " (header " + src.Header + ")"
-		case src.Pointer != "":
-			s += " (at " + src.Pointer + ")"
+		case len(pointers(src.Pointer)) > 0:
+			s += " (at " + strings.Join(pointers(src.Pointer), ", ") + ")"
 		}
 		list = append(list, s)
 	}
 	return list
+}
+
+// pointers reads a source's pointer, the attributes at fault: a list, as
+// Schwab's Market Data spec has it, or one string.
+func pointers(raw json.RawMessage) []string {
+	var list []string
+	if json.Unmarshal(raw, &list) == nil {
+		return list
+	}
+	var one string
+	if json.Unmarshal(raw, &one) == nil && one != "" {
+		return []string{one}
+	}
+	return nil
 }
 
 // oauthError reads an OAuth error, {"error": ..., "error_description": ...},

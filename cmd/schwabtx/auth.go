@@ -66,8 +66,10 @@ func hint(err error) error {
 	case errors.Is(err, schwab.ErrRateLimited):
 		what = "Schwab is limiting requests from your app key, counting every program that uses it; wait a minute and try again"
 	case fromSchwab && se.Status == http.StatusInternalServerError && strings.Contains(se.Body, "Whitelabel Error Page"):
-		what = `Schwab answers this way until the app says "Ready For Use" on developer.schwab.com`
-	case fromSchwab && se.Reference != "":
+		what = `Schwab answers this way until the app says "Ready For Use" on developer.schwab.com, and for an account type its API does not serve`
+	case fromSchwab && se.Status == http.StatusForbidden && se.Reference != "":
+		// Akamai's other pages, such as a 503, mean that Schwab's servers did
+		// not answer it, which the message says without a hint.
 		what = "Schwab's network turned the request away; that usually passes within hours, and if it does not, write to traderapi@schwab.com with the reference"
 	default:
 		return err
