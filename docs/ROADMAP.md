@@ -84,6 +84,7 @@ cmd/schwabtx/            CLI: login, snapshot, sync, export, quick lookups
 cmd/schwab-mcp/          MCP server (stdio; streamable HTTP later)
 
 internal/filelock/       file locks across processes, for the token file
+                         and the rate limit
 internal/schwab/         Schwab API client: OAuth, token store, HTTP with
                          retries and rate limiting, typed models + raw JSON
 internal/schwab/schwabtest/
@@ -100,8 +101,10 @@ has no mature, maintained Schwab client library today.
 The CLI and the server share one token file. A file lock keeps them from
 refreshing at the same time, and each re-reads the file before refreshing,
 because another process may have refreshed meanwhile, or logged in again,
-which ends the earlier login's refresh token. Schwab's single streamer
-connection (milestone 6) is shared the same way.
+which ends the earlier login's refresh token. They share the rate limit too,
+which Schwab counts by app key, through a small file that each request locks,
+reads and rewrites. Schwab's single streamer connection (milestone 6) is
+shared the same way.
 
 ## Milestones
 
@@ -148,16 +151,19 @@ and HTTP code into `internal/schwab` with what the history store needs.
       The token file keeps its format, now with a version, and keeps fields
       that a newer version adds; `Status` reads it without a request, for
       the M3 `auth_status` tool
-- [ ] Client-side rate limiting (Schwab publishes 120 requests a minute plus
-      the order limit set for the app, shared by every process using the
-      login); backoff on 429 and 5xx for reads only; retries for network
-      errors and for the token refresh, which today fail a run at once and
-      leave it to the scheduler scripts to try again a minute later. A
-      refresh that waits to try again lets go of the token file's lock
-      meanwhile and re-reads the file after, since another process may have
-      refreshed in between; errors
-      that understand each of Schwab's error formats and carry its
-      correlation ID for support tickets
+- [x] A client-side rate limit, retries, and Schwab's errors read in full.
+      Schwab counts 120 requests a minute for each app key, orders apart, so
+      every process on the computer that uses the key keeps one limit
+      together, 100 a minute with bursts of 5, through a small file in the
+      user cache directory that each request locks, reads and rewrites. A
+      429 holds all of them back. Reads are tried again after a 429, a 5xx
+      or a failure of the network, up to four times, and so is a token
+      refresh, which lets go of the token file's lock while it waits and
+      re-reads the file after, since another process may have refreshed in
+      between; goroutines that refresh at once share one refresh. Errors read
+      each of Schwab's error formats, the gateway's faults and the edge
+      network's pages included, and carry the correlation ID, or the edge's
+      reference number, for support requests
 - [ ] Typed models with the raw JSON kept, for account numbers, accounts with
       balances and positions, transactions and user preferences. Written by
       hand, since the spec is wrong in places (see
@@ -316,6 +322,12 @@ Copies the safety design of jkoelker/schwab-mcp and adds limits.
 - [ ] An order goes out only with an access token that has at least five
       minutes left, refreshed first if need be, since a 401 would call for a
       retry, which orders never get
+- [ ] Order requests wait their turn under the order limit set for the app,
+      which Schwab counts for each account and only for PUT, POST and DELETE;
+      reading orders shares the limit for reads. An order refused with 429
+      never reached the order engine, so it is reported as not placed. The
+      request is built so that Go's HTTP/2 transport cannot send it again
+      by itself either: without a GetBody
 
 ### M6. Streaming
 
@@ -415,7 +427,7 @@ Everything planned, by area.
 | Login | Automatic redirect capture on `127.0.0.1` | Later |
 | Login | Token in the OS keychain | Later |
 | Client | Accounts, balances, positions, transactions and preferences, typed, raw JSON kept | M1 |
-| Client | Rate limiting, retries for reads, correlation IDs in errors | M1 |
+| Client | Rate limiting, retries for reads, correlation IDs in errors | done |
 | Client | Orders and every Market Data endpoint, typed, raw JSON kept | M3 |
 | History | Recent transactions across all accounts (`schwabtx`) | done |
 | History | Position and balance snapshots (`schwabtx snapshot`) | done |
@@ -477,8 +489,10 @@ milestone 1.
 - **How soon after a fill does the trade appear in transactions?** This
   decides whether a sync triggered by a stream event needs a delayed
   re-check.
-- **What are the real rate limits for this app, and how does Schwab signal
-  them?**
+- **How far under 120 a minute does Schwab refuse requests, and are bursts
+  what it refuses?** It answers 429 with no Retry-After, and has done so to a
+  client sending 19 a minute (see [the API notes](schwab-api.md#rate-limits)).
+  This decides the limit's rate and burst.
 - **Does a refresh end the older access tokens, and does it ever change the
   refresh token?** Community clients suggest that it does not change the
   refresh token. The login code copes either way, but each answer saves

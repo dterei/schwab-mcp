@@ -36,8 +36,9 @@ spec, it says so. Things nobody has pinned down are collected under
   through the API. The reported symptom is not an error: transactions come
   back empty with HTTP 200 while positions still load. See
   [transactions](#transactions).
-- The **order limit** (0 to 120 order requests a minute) is set when you
-  register the app. schwab-py recommends 120.
+- The **order limit**, 0 to 120 order requests a minute for each account, is
+  set when you register the app (see [rate limits](#rate-limits)). schwab-py
+  recommends 120.
 - **No money movement.** The API has no transfer endpoints. Orders are the
   only writes.
 - App key and secret lengths have changed without notice before, so do not
@@ -260,14 +261,29 @@ Indexes take a `$` prefix wherever the index itself is named: quotes
 
 ## Rate limits
 
-- **Neither spec states a limit.** Schwab's Trader API page, seen through
-  search excerpts, gives 120 requests a minute for everything except orders,
-  plus the order limit you chose for the app.
-- **Schwabdev** adds 4000 order-related calls a day and 500 streamed symbols.
-  Going over the request limits returns HTTP 429; going over the symbol limit
-  is reported on the stream as code 19 (see [streaming](#streaming)).
-- **Bursts can be refused** even under the per-minute rate, so limit on the
-  client side and back off on 429, honoring `Retry-After`.
+- **120 requests a minute for each app**, for everything but orders. Neither
+  spec states it. TD Ameritrade's
+  [Schwab integration guide](https://raw.githubusercontent.com/kaizhu256/tdameritrade-dev-mirror/gh-pages/developer.tdameritrade.com/content/trader-api-schwab-integration-guide-june-2023-update.html)
+  (June 2023) says "Non-order related throttles are set to 120 requests per
+  minute on an application level". So the limit belongs to the app key, not
+  to a login: every program that uses the key draws from it, on any computer.
+- **Orders are limited for each account**: "the number of PUT/POST/DELETE
+  order requests per minute per account", from 0 to 120 as set at
+  registration, and "Get order requests are unthrottled", in Schwab's
+  Accounts and Trading documentation as
+  [captured](https://github.com/DistortionPoint/dp-exchange-schwab/tree/main/docs/reference/schwab)
+  in August 2026. Schwabdev adds 4000 order calls a day, which no Schwab
+  document states.
+- **A 429 has no Retry-After.** In 24 rate-limit answers that
+  [marketlake](https://github.com/l3a0/marketlake/blob/main/docs/design.md)
+  recorded in October 2026, the body was whitespace, and the headers had no
+  Retry-After or rate-limit field, only the correlation IDs.
+- **429s come well under the limit**: marketlake got them while it sent 19
+  requests a minute, one with a single request in flight
+  ([marketlake#533](https://github.com/l3a0/marketlake/issues/533)). So no
+  client-side limit prevents every 429; back off and try again. Whether
+  bursts are what Schwab refuses is not known.
+- **The stream** has its own limits (see [streaming](#streaming)).
 
 ## Streaming
 
@@ -293,17 +309,40 @@ Indexes take a `$` prefix wherever the index itself is named: quotes
 
 ## Errors
 
-- **Error bodies vary by API**:
-  - Accounts and Trading sends `{message, errors: [string]}`;
-  - Market Data sends `{errors: [{id, status, title, detail, source}]}`;
-  - OAuth sends `{error, error_description}`;
-  - the gateway sometimes sends `{fault: {...}}`.
+- **Error bodies vary**, and not only by API:
+  - Accounts and Trading documents `{message, errors: [string]}`. It also
+    sends a message alone, such as `{"message": "Invalid account number"}`,
+    and 401s in the Market Data format, as the real ones that
+    [z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/tree/main/tests/model/Trader)
+    keeps show.
+  - Market Data sends `{errors: [{id, status, title, detail, source}]}`.
+    `status` is sometimes a number and sometimes a string, and `source` names
+    the `parameter`, `header` or `pointer` at fault.
+  - OAuth sends `{error, error_description}`, with the real reason of a
+    refusal nested in the description (see [OAuth](#oauth)).
+  - The gateway, Apigee, sends `{fault: {faultstring, detail: {errorcode}}}`.
+    An answer too big for it gets 502 "Body buffer overflow" with
+    `protocol.http.TooBigBody`, the same on every try.
+  - Schwab's edge network, Akamai, sends an "Access Denied" HTML page with 403.
+    Its text is written in character references, and it carries a
+    "Reference #" number and no correlation ID. It has come from the token
+    endpoint ([Schwabdev#61](https://github.com/tylerebowers/Schwabdev/issues/61),
+    a "blip" that cleared the same day) and from API requests during a
+    re-import of a year of history
+    ([strat-journal-app#51](https://github.com/alynnyree/strat-journal-app/pull/51),
+    which advises waiting about fifteen minutes).
+  - An app that is not yet "Ready For Use" gets Spring's "Whitelabel Error
+    Page" with 500 (Schwabdev's
+    [troubleshooting](https://github.com/tylerebowers/Schwabdev/blob/main/docs/pages-raw/troubleshooting.md)).
+  - A 429 has a body of whitespace (see [rate limits](#rate-limits)).
 
-  `status` is sometimes a number and sometimes a string. Keep the raw body.
-- **Correlation IDs**: responses carry a `Schwab-Client-CorrelId` header.
-  Include it in errors, so a failed request can be traced with Schwab's
-  Trader API team (traderapi@schwab.com).
-- **Rate limiting**: the spec documents 400, 401, 403, 404, 500 and 503 for
+  So read a body by its shape, not by which API sent it, and keep it raw.
+- **Correlation IDs**: API responses carry a `Schwab-Client-CorrelId` header,
+  which parts of the spec spell `Schwab-Client-CorrelID`, the same name to
+  HTTP. Include it in errors, so a failed request can be traced with Schwab's
+  Trader API team (traderapi@schwab.com). Akamai's pages give their reference
+  number instead.
+- **Statuses**: the spec documents 400, 401, 403, 404, 500 and 503 for
   transactions. 429 is not documented, but it happens.
 
 ## Where the spec is wrong
@@ -349,3 +388,12 @@ JSON.
   (`previewOrder` on live accounts),
   [Schwabdev#110](https://github.com/tylerebowers/Schwabdev/issues/110)
   (fractional shares)
+- Rate limits and errors: TD Ameritrade's
+  [Schwab integration guide](https://raw.githubusercontent.com/kaizhu256/tdameritrade-dev-mirror/gh-pages/developer.tdameritrade.com/content/trader-api-schwab-integration-guide-june-2023-update.html)
+  (June 2023),
+  [dp-exchange-schwab](https://github.com/DistortionPoint/dp-exchange-schwab/tree/main/docs/reference/schwab)
+  (Schwab's documentation as captured in August 2026),
+  [marketlake](https://github.com/l3a0/marketlake/blob/main/docs/design.md)
+  (429s and timeouts measured in 2026),
+  [z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/tree/main/tests/model)
+  (real error bodies)

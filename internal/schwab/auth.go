@@ -1,6 +1,8 @@
-// Package schwab is a client for the Charles Schwab Trader API. So far it
-// holds the login: the browser login, the refresh of the access token, and
-// the token file that every process using the login shares.
+// Package schwab is a client for the Charles Schwab Trader API: the browser
+// login, the refresh of the access token, the token file that every process
+// using the login shares, and a Client that reads from the API, trying again
+// after a failure where that is safe, under a rate limit that every process
+// using the app key shares.
 //
 // Processes share the login through the token file. A lock file next to it
 // lets one process at a time decide whether to refresh, refresh, or replace
@@ -8,6 +10,9 @@
 // another process may have refreshed the token, or logged in again, since it
 // last looked. The lock is held for a file read, at most one token request
 // and a file write, and nothing else is locked while it is held.
+//
+// They share the rate limit through a small file of its own, which each
+// request locks, reads and rewrites; see ClientConfig.
 package schwab
 
 import (
