@@ -50,8 +50,8 @@ type Error struct {
 	Code, Detail string
 	// Message and Errors are what Schwab's other error responses say: the
 	// Accounts and Trading API's message and errors, the Market Data API's
-	// errors (each one's detail, or else its title, with the parameter or
-	// header at fault), or the gateway's fault.
+	// errors (each one's detail, or else its title, with the parameter,
+	// header or attributes at fault), or the gateway's fault.
 	Message string
 	Errors  []string
 	// RetryAfter is how long the response's Retry-After header asked to
@@ -142,8 +142,10 @@ var (
 	htmlTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 	htmlH1    = regexp.MustCompile(`(?is)<h1[^>]*>(.*?)</h1>`)
 	htmlTag   = regexp.MustCompile(`(?s)<[^>]*>`)
-	// htmlNoise is what an HTML page's text holds that is not its content.
-	htmlNoise = regexp.MustCompile(`(?is)<(head|script|style)[^>]*>.*?</(head|script|style)>`)
+	// htmlNoise is what an HTML page's text holds that is not its content:
+	// scripts and styles, each to its own end tag, or to the end of a page
+	// cut short. The head's only text is its title, which comes first.
+	htmlNoise = regexp.MustCompile(`(?is)<script\b[^>]*>.*?(?:</script\s*>|$)|<style\b[^>]*>.*?(?:</style\s*>|$)`)
 	// edgeRef is the reference number on a page from Akamai, Schwab's edge
 	// network.
 	edgeRef = regexp.MustCompile(`Reference #([0-9A-Za-z.]+)`)

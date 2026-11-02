@@ -173,11 +173,24 @@ type flight struct {
 	done chan struct{}
 	tok  string
 	err  error
-	// quit means that it failed because the caller who made it gave up,
-	// which is no answer for the others.
+	// quit means that it ended without an answer, because the caller who
+	// made it gave up or had no time left for the next try, or a panic.
+	// Then one of those waiting carries on its tries from next.
 	quit bool
+	next series
 	// followers is how many others have waited for it, for tests.
 	followers int
+}
+
+// series is how far a renewal's tries have got, so that a goroutine that
+// takes it over carries on rather than starts over.
+type series struct {
+	try, requests, timeouts int
+	rechecked               bool
+	// due is when the next try may go, by the system clock, or zero.
+	due time.Time
+	// last is the last try's failure.
+	last error
 }
 
 // NewAuth returns an Auth for cfg. It does not read the token file yet.
@@ -461,6 +474,7 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 // saves the result. Goroutines that renew through this Auth at once, for the
 // same rejected token, share one renewal.
 func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
+	var from series
 	for {
 		a.mu.Lock()
 		f, follow := a.flights[rejected]
@@ -475,7 +489,7 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 		}
 		a.mu.Unlock()
 		if !follow {
-			return a.lead(ctx, rejected, f)
+			return a.lead(ctx, rejected, f, from)
 		}
 		select {
 		case <-f.done:
@@ -485,15 +499,27 @@ func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
 		if !f.quit {
 			return f.tok, f.err
 		}
+		// The renewal ended without an answer. Carry on its tries, after the
+		// wait it was due, if this caller has the time for it.
+		from = f.next
+		if wait := time.Until(from.due); wait > 0 {
+			if !fits(ctx, wait) {
+				return "", f.err // no more time than the one that gave up
+			}
+			if err := a.sleep(ctx, wait); err != nil {
+				return "", withLast(err, f.err)
+			}
+		}
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return "", withLast(err, f.err)
 		}
 	}
 }
 
-// lead makes the renewal f, which others may wait for, and ends it whatever
-// happens, a panic included, so that they do not wait forever.
-func (a *Auth) lead(ctx context.Context, rejected string, f *flight) (string, error) {
+// lead makes the renewal f, which others may wait for, from where from left
+// off, and ends it whatever happens, a panic included, so that they do not
+// wait forever.
+func (a *Auth) lead(ctx context.Context, rejected string, f *flight, from series) (string, error) {
 	finished := false
 	defer func() {
 		if !finished {
@@ -504,64 +530,73 @@ func (a *Auth) lead(ctx context.Context, rejected string, f *flight) (string, er
 		a.mu.Unlock()
 		close(f.done)
 	}()
-	tok, gaveUp, err := a.renewTries(ctx, rejected)
-	f.tok, f.err = tok, err
-	f.quit = err != nil && (gaveUp || ctx.Err() != nil)
+	tok, next, quit, err := a.renewTries(ctx, rejected, from)
+	f.tok, f.err, f.next, f.quit = tok, err, next, err != nil && quit
 	finished = true
 	return tok, err
 }
 
-// renewTries is renew for one goroutine. A refresh that fails for a while,
-// on the network or at Schwab, is tried again, up to refreshTries times in
-// all, but one that times out only once more, as a read is. Between tries
-// the lock is let go and the wait comes without it, since another process
-// may refresh meanwhile, and the next try re-reads the file to find out. A
-// refresh that Schwab refuses looks at the file once more, since a login
-// that was waiting for the lock may just have saved. gaveUp reports that
-// the tries ended because ctx's deadline left no time for the next one,
-// which is no answer for a caller with more time.
-func (a *Auth) renewTries(ctx context.Context, rejected string) (tok string, gaveUp bool, err error) {
-	rechecked := false
-	requests, timeouts := 0, 0
-	for try := 1; ; {
+// renewTries is renew for one goroutine, from where s left off. A refresh
+// that fails for a while, on the network or at Schwab, is tried again, up to
+// refreshTries times in all, but one that times out only once more, as a
+// read is. Between tries the lock is let go and the wait comes without it,
+// since another process may refresh meanwhile, and the next try re-reads the
+// file to find out. A refresh that Schwab refuses looks at the file once
+// more, since a login that was waiting for the lock may just have saved.
+//
+// quit reports that the tries ended without an answer, because ctx ended or
+// its deadline left no time for the next try; then next says where they
+// stopped, for another caller with more time to carry on from.
+func (a *Auth) renewTries(ctx context.Context, rejected string, s series) (tok string, next series, quit bool, err error) {
+	if s.try == 0 {
+		s.try = 1
+	}
+	for {
 		// A token request runs to its end whatever ctx says, so none begins
 		// for a caller that has gone.
 		if err := ctx.Err(); err != nil {
-			return "", false, err
+			return "", s, true, withLast(err, s.last)
 		}
-		tok, requested, err := a.renewOnce(ctx, rejected, requests+1)
+		s.due = time.Time{}
+		tok, requested, err := a.renewOnce(ctx, rejected, s.requests+1)
 		if requested {
-			requests++
+			s.requests++
 		}
 		switch {
 		case err == nil:
-			return tok, false, nil
-		case requested && !rechecked && errors.Is(err, ErrLoginExpired):
-			rechecked = true
-			if a.sleep(ctx, recheckWait) != nil {
-				return "", false, err
+			return tok, s, false, nil
+		case !requested && ctx.Err() != nil:
+			return "", s, true, withLast(err, s.last) // the wait for the lock was cut short
+		case requested && !s.rechecked && errors.Is(err, ErrLoginExpired):
+			s.rechecked, s.last = true, err
+			if serr := a.sleep(ctx, recheckWait); serr != nil {
+				return "", s, true, err
 			}
 			continue
-		case !refreshTransient(ctx, err):
-			return "", false, err
+		case !refreshTransient(context.WithoutCancel(ctx), err):
+			// Final. A token request does not see ctx, so its failure says
+			// the same whatever ctx has done meanwhile.
+			return "", s, false, err
 		}
 		if timedOut(err) {
-			timeouts++
+			s.timeouts++
 		}
-		wait := a.backoff(try)
+		wait := a.backoff(s.try)
 		if se, ok := errors.AsType[*Error](err); ok {
 			wait = max(wait, se.RetryAfter)
 		}
-		switch {
-		case try >= refreshTries || timeouts > 1 || wait > maxPause:
-			return "", false, err
-		case !fits(ctx, wait):
-			return "", true, err
+		s.last = err
+		if s.try >= refreshTries || s.timeouts > 1 || wait > maxPause {
+			return "", s, false, err
+		}
+		s.try++
+		s.due = time.Now().Add(wait)
+		if ctx.Err() != nil || !fits(ctx, wait) {
+			return "", s, true, err
 		}
 		if serr := a.sleep(ctx, wait); serr != nil {
-			return "", false, fmt.Errorf("%w while waiting to try again; the last try got: %w", serr, err)
+			return "", s, true, fmt.Errorf("%w while waiting to try again; the last try got: %w", serr, err)
 		}
-		try++
 	}
 }
 
@@ -607,16 +642,20 @@ func (a *Auth) refresh(ctx context.Context, t *token, n int) (string, error) {
 		"refresh_token": {t.RefreshToken},
 	})
 	if err != nil {
+		final, wrapped := refreshError(err, 1)
+		if final {
+			// Remembered without a count of tries, since those who meet it
+			// later sent nothing.
+			a.mu.Lock()
+			a.refused, a.refusedErr = t.RefreshToken, wrapped
+			a.mu.Unlock()
+			return "", wrapped
+		}
 		if se, ok := errors.AsType[*Error](err); ok && n > 1 {
 			se.Tries = n // before the error is wrapped, which writes its message
 		}
-		final, err := refreshError(err)
-		if final {
-			a.mu.Lock()
-			a.refused, a.refusedErr = t.RefreshToken, err
-			a.mu.Unlock()
-		}
-		return "", err
+		_, wrapped = refreshError(err, n)
+		return "", wrapped
 	}
 	next := *t
 	next.AccessToken = res.AccessToken
@@ -668,11 +707,15 @@ func (a *Auth) backoff(try int) time.Duration {
 // invalid_client with "refresh token invalid". A wrong app key or secret
 // gets invalid_client and "Unauthorized". The codes decide, whatever the
 // status. Another 400 is taken as a refused login too, but only for this
-// try: it may be a gateway's.
-func refreshError(err error) (final bool, _ error) {
+// try: it may be a gateway's. n is how many token requests the renewal has
+// made, this one included, which a failure other than Schwab's answer says.
+func refreshError(err error, n int) (final bool, _ error) {
 	se, ok := errors.AsType[*Error](err)
 	switch {
 	case !ok:
+		if n > 1 {
+			return false, fmt.Errorf("refreshing the access token after %d tries: %w", n, err)
+		}
 	case loginCodes[se.Code], loginCodes[se.Detail],
 		(se.Status == http.StatusBadRequest || se.Status == http.StatusUnauthorized) && strings.Contains(strings.ToLower(se.Body), "refresh token"):
 		return true, fmt.Errorf("%w: %w", ErrLoginExpired, err)

@@ -43,6 +43,9 @@ type fakeSchwab struct {
 	failDetails   int       // answer this many GET /accounts calls with 403
 	// accountsReply, if set, answers GET /accounts/accountNumbers instead.
 	accountsReply http.HandlerFunc
+	// afterTx, if set, runs after each transactions call, under mu.
+	afterTx       func()
+	refuseRefresh bool   // refuse every refresh, as for a login that lapsed
 	detailsFields string // fields= of the last GET /accounts
 	detailsBody   string // what the last GET /accounts returned
 }
@@ -93,7 +96,7 @@ func (f *fakeSchwab) handleToken(w http.ResponseWriter, r *http.Request) {
 		}
 		f.codeGrants++
 	case "refresh_token":
-		if r.FormValue("refresh_token") != testRefresh {
+		if r.FormValue("refresh_token") != testRefresh || f.refuseRefresh {
 			http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
 			return
 		}
@@ -190,6 +193,9 @@ func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	f.txCalls++
+	if f.afterTx != nil {
+		defer f.afterTx()
+	}
 	if f.rateLimitNext > 0 {
 		// As Schwab answers: a body of whitespace, and no Retry-After.
 		f.rateLimitNext--
@@ -597,6 +603,26 @@ func TestOlderWindowRefusedKeepsWhatWeHave(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "older ones are missing") {
 		t.Errorf("no warning about the missing history: %q", stderr)
+	}
+}
+
+// A login that lapses part way through a run is reported as such, not taken
+// for Schwab refusing older history.
+func TestLoginLapsesDuringARun(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+	doLogin(t)
+	timeNow = func() time.Time { return testNow.Add(2 * time.Minute) } // a token not just issued, nor stale
+	f.afterTx = func() {
+		f.validAccess = "revoked"
+		f.refuseRefresh = true
+	}
+	_, stderr, err := runTx(t)
+	if err == nil || !strings.Contains(err.Error(), "schwabtx login") {
+		t.Errorf("got %v, want the refused login", err)
+	}
+	if strings.Contains(stderr, "older ones are missing") {
+		t.Errorf("took the refused login for refused history: %q", stderr)
 	}
 }
 

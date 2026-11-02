@@ -117,6 +117,16 @@ func TestErrorFormats(t *testing.T) {
 			want: "HTTP 502 from Schwab: an HTML page, Bad gateway try later",
 		},
 		{
+			name: "an HTML page with a header element and a script", status: 503,
+			body: "<html><body><header><img src=logo.png></header><p>Down for maintenance until 6 a.m.</p><script>track()</script></body></html>",
+			want: "HTTP 503 from Schwab: an HTML page, Down for maintenance until 6 a.m.",
+		},
+		{
+			name: "an HTML page whose head is not closed", status: 503,
+			body: "<html><head><meta charset=utf-8><body><p>Service unavailable</p></body></html>",
+			want: "HTTP 503 from Schwab: an HTML page, Service unavailable",
+		},
+		{
 			name: "plain text", status: 500, body: "  oops  ",
 			want: "HTTP 500 from Schwab: oops",
 		},
@@ -160,6 +170,11 @@ func TestErrorFormats(t *testing.T) {
 	page := "<html><body><p>Something went wrong</p>" + strings.Repeat("<p>filler</p>", 1<<20) + "<title>Late</title></body></html>"
 	if got := newError(http.StatusBadGateway, http.Header{}, []byte(page)).Error(); !strings.HasPrefix(got, "HTTP 502 from Schwab: an HTML page, Something went wrong filler") {
 		t.Errorf("a large page: %.100q", got)
+	}
+	// A style that runs past what is read is not taken for the page's text.
+	styled := "<html><head><style>" + strings.Repeat(".c{color:red}", 6<<10) + "</style></head><body><p>Unavailable</p></body></html>"
+	if got := newError(http.StatusBadGateway, http.Header{}, []byte(styled)).Error(); got != "HTTP 502 from Schwab: an HTML page" {
+		t.Errorf("a page with a long style: %.100q", got)
 	}
 	if e := newError(http.StatusForbidden, http.Header{}, []byte("<html>Reference #18.abc.</html>")); e.Reference != "18.abc" {
 		t.Errorf("a reference at the end of a sentence: %q", e.Reference)

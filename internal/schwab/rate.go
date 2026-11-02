@@ -89,21 +89,27 @@ func parseRate(b []byte) rateState {
 	return rateState{tat: time.Unix(0, tat), last: time.Unix(0, last)}
 }
 
-// settle makes s fit now, the wall clock read under the locks.
-//
-// When now is before the last write, the clock was set back by at least
-// that much, so the TAT moves back with it; the state must then be saved,
-// so that the move is made once. A TAT further ahead than maxLead, or one
-// that is unknown, becomes now + tolerance: no burst, but no long wait.
+// settle makes s fit now, the wall clock read under the locks: it moves s
+// to now's clock, and a TAT further ahead than maxLead, or one that is
+// unknown, becomes now + tolerance: no burst, but no long wait.
 func (s rateState) settle(now time.Time, tolerance time.Duration) rateState {
 	if s.bad {
-		return rateState{tat: now.Add(tolerance)}
+		return rateState{tat: now.Add(tolerance), last: now}
 	}
-	if now.Before(s.last) {
-		s.tat = s.tat.Add(-s.last.Sub(now))
-	}
+	s = s.at(now)
 	if s.tat.Sub(now) > maxLead {
 		s.tat = now.Add(tolerance)
+	}
+	return s
+}
+
+// at moves s to now's clock. When now is before the last write, the clock
+// was set back by at least that much, so the TAT moves back with it, and the
+// state, saved, makes the move only once.
+func (s rateState) at(now time.Time) rateState {
+	if !s.bad && now.Before(s.last) {
+		s.tat = s.tat.Add(-s.last.Sub(now))
+		s.last = now
 	}
 	return s
 }
@@ -126,7 +132,8 @@ func (s rateState) pause(now time.Time, d, tolerance time.Duration) rateState {
 }
 
 // merge returns s with what other holds that is further on: its TAT, if
-// later, and its time of last write, if later.
+// later, and its time of last write, if later. Both must be on one clock,
+// as at makes them.
 func (s rateState) merge(other rateState) rateState {
 	if s.bad || other.tat.After(s.tat) {
 		s.tat, s.bad = other.tat, false
@@ -150,9 +157,11 @@ type limiter struct {
 	// some network volumes the lock does not keep out a second open in the
 	// same process.
 	sem chan struct{}
-	// lock and tryLock take the file's lock; tests replace them.
+	// lock and tryLock take the file's lock, and wait is how long a process
+	// waits for it in all; tests replace them.
 	lock    func(ctx context.Context, path string, wait time.Duration) (*filelock.Lock, error)
 	tryLock func(path string) (*filelock.Lock, bool, error)
+	wait    time.Duration
 
 	// Guarded by sem:
 	// mem is the state as last read or written, used when the file cannot
@@ -167,6 +176,11 @@ type limiter struct {
 	// check looks once rather than waits, so that only one wait in all, not
 	// one for each request, runs out.
 	busy bool
+	// waited is how long checks have waited for the lock since it was last
+	// taken, when their callers' deadlines cut the waits short. Together
+	// they count as one wait, so that callers with short deadlines also end
+	// it.
+	waited time.Duration
 	// noFile is set once the file system has turned out not to lock files.
 	noFile bool
 	// warned is set once a problem with the file has been reported.
@@ -185,7 +199,7 @@ func limiterFor(path string) *limiter {
 	defer limitersMu.Unlock()
 	l, ok := limiters[path]
 	if !ok {
-		l = &limiter{path: path, sem: make(chan struct{}, 1), lock: filelock.Acquire, tryLock: filelock.TryAcquire}
+		l = &limiter{path: path, sem: make(chan struct{}, 1), lock: filelock.Acquire, tryLock: filelock.TryAcquire, wait: rateLockWait}
 		limiters[path] = l
 	}
 	return l
@@ -264,7 +278,7 @@ func (l *limiter) changeFile(ctx context.Context, now func() time.Time,
 	t := now().Round(0)
 	s := parseRate(buf[:n])
 	if l.unsaved {
-		s = s.merge(l.mem)
+		s = s.at(t).merge(l.mem.at(t))
 	}
 	next, save := f(s, t)
 	if !save {
@@ -278,11 +292,19 @@ func (l *limiter) changeFile(ctx context.Context, now func() time.Time,
 	return nil
 }
 
-// take takes the file's lock: with a wait of rateLockWait, or once a wait
-// has run out, with a look.
+// take takes the file's lock: with a wait of what is left of l.wait, or
+// once a wait has run out, with a look.
 func (l *limiter) take(ctx context.Context) (*filelock.Lock, error) {
 	if !l.busy {
-		return l.lock(ctx, l.path, rateLockWait)
+		start := time.Now()
+		lk, err := l.lock(ctx, l.path, l.wait-l.waited)
+		switch {
+		case err == nil:
+			l.waited = 0
+		case ctx.Err() != nil:
+			l.waited += time.Since(start)
+		}
+		return lk, err
 	}
 	lk, ok, err := l.tryLock(l.path)
 	switch {
@@ -291,6 +313,6 @@ func (l *limiter) take(ctx context.Context) (*filelock.Lock, error) {
 	case !ok:
 		return nil, errBusy
 	}
-	l.busy = false
+	l.busy, l.waited = false, 0
 	return lk, nil
 }

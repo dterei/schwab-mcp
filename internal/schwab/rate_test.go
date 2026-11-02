@@ -281,9 +281,12 @@ func TestRateLockKeptByAnother(t *testing.T) {
 	c.auth.cfg.Warn = func(msg string) { warnings = append(warnings, msg) }
 	waits, looks := 0, 0
 	held := true
-	c.limit.lock = func(context.Context, string, time.Duration) (*filelock.Lock, error) {
+	c.limit.lock = func(ctx context.Context, path string, wait time.Duration) (*filelock.Lock, error) {
 		waits++
-		return nil, fmt.Errorf("waited %v: %w", rateLockWait, filelock.ErrTimeout)
+		if held {
+			return nil, fmt.Errorf("waited %v: %w", wait, filelock.ErrTimeout)
+		}
+		return filelock.Acquire(ctx, path, wait)
 	}
 	c.limit.tryLock = func(path string) (*filelock.Lock, bool, error) {
 		looks++
@@ -306,12 +309,87 @@ func TestRateLockKeptByAnother(t *testing.T) {
 	if got := takeTimes(t, c, 1, testNow); got[0] != 600*time.Millisecond+10*time.Second {
 		t.Errorf("once the lock was free, let go at %v, want after the pause made meanwhile", got[0])
 	}
+	// And later checks wait for the lock again, as before, rather than look.
+	before := waits
+	takeTimes(t, c, 1, testNow)
+	if waits == before || looks != 8 {
+		t.Errorf("after the lock was free: %d more waits for it and %d looks, want some and still 8", waits-before, looks)
+	}
 	if len(warnings) != 1 {
 		t.Errorf("warnings %q, want one", warnings)
 	}
 	b, err := os.ReadFile(c.limit.path)
 	if err != nil || parseRate(b).bad || len(b) != rateRecordLen {
 		t.Errorf("the file holds %q, %v; want a record", b, err)
+	}
+}
+
+// Callers whose deadlines are too short for the whole wait for a kept lock
+// end it together, and then keep the process's own limit.
+func TestRateShortDeadlinesReachBusyMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rate")
+	c := newRateClient(t, path, ClientConfig{}, nil)
+	c.limit.wait = 300 * time.Millisecond
+	var warnings []string
+	c.auth.cfg.Warn = func(msg string) { warnings = append(warnings, msg) }
+	if _, err := c.takeAt(t.Context()); err != nil { // makes the file
+		t.Fatal(err)
+	}
+	l, ok, err := filelock.TryAcquire(c.limit.path)
+	if err != nil || !ok {
+		t.Fatalf("taking the lock: %v, %v", ok, err)
+	}
+	defer l.Release()
+	for i := 1; ; i++ {
+		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		_, err := c.takeAt(ctx)
+		cancel()
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, context.DeadlineExceeded) || i == 10 {
+			t.Fatalf("check %d: %v", i, err)
+		}
+	}
+	if len(warnings) != 1 {
+		t.Errorf("warnings %q, want one", warnings)
+	}
+}
+
+// A clock set back while the process kept its own limit is taken into
+// account once, not twice, when the file can be used again.
+func TestRateClockSetBackWhileKeptApart(t *testing.T) {
+	ft := &fakeTime{now: testNow}
+	c := newRateClient(t, filepath.Join(t.TempDir(), "rate"), ClientConfig{}, ft)
+	takeTimes(t, c, 1, testNow) // the file's last write, before the clock goes back
+	held := true
+	c.limit.lock = func(ctx context.Context, path string, wait time.Duration) (*filelock.Lock, error) {
+		if held {
+			return nil, filelock.ErrTimeout
+		}
+		return filelock.Acquire(ctx, path, wait)
+	}
+	c.limit.tryLock = func(path string) (*filelock.Lock, bool, error) {
+		if held {
+			return nil, false, nil
+		}
+		return filelock.TryAcquire(path)
+	}
+	if err := c.pause(t.Context(), time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	back := testNow.Add(-30 * time.Second)
+	ft.set(back)
+	// A check with no time to wait moves the process's own limit to the
+	// new clock.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if _, err := c.takeAt(ctx); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("a check during the pause: %v, want ErrRateLimited", err)
+	}
+	held = false
+	if got := takeTimes(t, c, 1, back); got[0] != time.Minute {
+		t.Errorf("let go %v after the clock went back, want the minute that was left of the pause", got[0])
 	}
 }
 

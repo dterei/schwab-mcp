@@ -940,7 +940,7 @@ func TestRefreshErrors(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newError(tc.status, http.Header{}, []byte(tc.body))
-			final, err := refreshError(e)
+			final, err := refreshError(e, 1)
 			if tc.want != nil && !errors.Is(err, tc.want) || tc.want == nil && (errors.Is(err, ErrLoginExpired) || errors.Is(err, ErrAppRejected)) {
 				t.Errorf("got %v, want %v", err, tc.want)
 			}

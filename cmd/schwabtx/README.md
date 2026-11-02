@@ -136,7 +136,8 @@ its `fetched_at`.
   meanwhile, or a refresh. A 401 for a token that Schwab issued moments ago is
   reported as it is, since a new token would not help.
 - After a 429, a 5xx answer or a failure of the network it tries again, up to
-  four times in all, waiting 1, 2, then 4 seconds, or longer if Schwab asks.
+  four times in all, waiting 1, 2, then 4 seconds, or what Schwab asks in
+  Retry-After.
   A 429 holds back every process that shares the rate limit for that long,
   not only this one. A request that times out is tried once more, not three
   times; a refresh of the login that fails on the network or at Schwab is
@@ -180,7 +181,7 @@ scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
 - "keeps its own rate limit" (a warning): the rate limit's file in your user
   cache directory cannot be used, so this run keeps the limit by itself, apart
   from other processes. The warning says why.
-- An error from Schwab ends with "(correlation ID ...)" when Schwab gave one.
+- An error from Schwab includes "(correlation ID ...)" when Schwab gave one.
   Quote it when you ask Schwab's Trader API team (traderapi@schwab.com) about
   a failed request.
 - `HTTP 429 from Schwab after 4 tries`: Schwab kept refusing requests from
@@ -190,8 +191,9 @@ scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
   Schwab's network turned the request away, not its API. It usually passes
   within hours; if it does not, write to traderapi@schwab.com with the
   reference.
-- `HTTP 500 from Schwab: an HTML page, Whitelabel Error Page`: the app is not
-  "Ready For Use" yet, or an account is of a type the API does not serve.
+- `HTTP 500 from Schwab after 4 tries: an HTML page, Whitelabel Error Page`:
+  the app is not "Ready For Use" yet, or an account is of a type the API does
+  not serve.
 - `0 transactions` although the account has activity: the account is
   probably not enabled for thinkorswim (see the
   [top-level README](../../README.md#one-time-setup)). An account you did not

@@ -187,7 +187,11 @@ func (c *Client) Get(ctx context.Context, path string, query url.Values) ([]byte
 				continue
 			}
 			if !errors.Is(err, ErrTokenRefused) {
-				return nil, err
+				// Keep Schwab's 401, and its correlation ID, with why the
+				// new token did not come.
+				e := newError(r.status, r.header, r.body)
+				e.Tries = try
+				return nil, fmt.Errorf("%w, after the request got: %w", err, e)
 			}
 			// A new token would not help, so report Schwab's answer.
 		}
@@ -293,10 +297,12 @@ func (c *Client) takeAt(ctx context.Context) (time.Time, error) {
 }
 
 // pause holds back every request that shares the rate limit for d. It does
-// so even if ctx has ended, since it is for the others, but waits at most
-// rateLockWait for its turn at the limit.
+// so even if ctx has ended, since it is for the others. When another
+// process keeps the rate file's lock, the lock's own wait runs out first and
+// the pause is kept in this process's own limit; the longer bound here is
+// for a turn at the limit that never comes.
 func (c *Client) pause(ctx context.Context, d time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rateLockWait)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*c.limit.wait)
 	defer cancel()
 	return c.limit.change(ctx, c.now, c.auth.warn, func(s rateState, now time.Time) (rateState, bool) {
 		return s.settle(now, c.tolerance).pause(now, d, c.tolerance), true
@@ -440,7 +446,7 @@ func timedOut(err error) bool {
 // one its caller built: one that is relative, has a query or a fragment, or
 // has a "." or ".." segment, which a gateway may resolve, even escaped, or
 // behind an escaped slash or a backslash, which some servers take for a
-// slash.
+// slash, or before path parameters (";..."), which some servers drop.
 func checkPath(path string) error {
 	if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "?#") {
 		return fmt.Errorf("API path %q: want an absolute path without a query", path)
@@ -451,7 +457,7 @@ func checkPath(path string) error {
 			return fmt.Errorf("API path %q: %w", path, err)
 		}
 		for part := range strings.FieldsFuncSeq(s, func(r rune) bool { return r == '/' || r == '\\' }) {
-			if part == "." || part == ".." {
+			if name, _, _ := strings.Cut(part, ";"); name == "." || name == ".." {
 				return fmt.Errorf("API path %q: a segment is not a name", path)
 			}
 		}

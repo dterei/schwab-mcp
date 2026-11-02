@@ -331,8 +331,9 @@ Indexes take a `$` prefix wherever the index itself is named: quotes
     re-import of a year of history
     ([strat-journal-app#51](https://github.com/alynnyree/strat-journal-app/pull/51),
     which advises waiting about fifteen minutes).
-  - An app that is not yet "Ready For Use" gets Spring's "Whitelabel Error
-    Page" with 500 (Schwabdev's
+  - An app that is not yet "Ready For Use", or an account of a type the API
+    does not serve, gets Spring's "Whitelabel Error Page" with 500
+    (Schwabdev's
     [troubleshooting](https://github.com/tylerebowers/Schwabdev/blob/main/docs/pages-raw/troubleshooting.md)).
   - A 429 has a body of whitespace (see [rate limits](#rate-limits)).
 
