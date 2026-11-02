@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -105,6 +106,9 @@ type Config struct {
 	// LockWait is how long to wait for another process to finish with the
 	// token file. Zero means DefaultLockWait.
 	LockWait time.Duration
+	// Warn is told of problems that do not stop the login from working, such
+	// as a token file that others could read. Nil means they go untold.
+	Warn func(msg string)
 }
 
 // Auth is one process's view of the login in the token file. It is safe for
@@ -116,9 +120,15 @@ type Auth struct {
 	// replaces the file rather than a link to it.
 	tokenFile string
 
-	// sem lets one goroutine at a time take the lock file, so that the
-	// others wait for its result rather than poll.
+	// sem lets one goroutine of this process at a time take the lock file.
+	// Every Auth on the same file shares it, since on some network volumes
+	// the lock file does not keep out a second open in the same process.
 	sem chan struct{}
+	// lock and tryLock take the lock file; tests replace them.
+	lock    func(ctx context.Context, path string, wait time.Duration) (*filelock.Lock, error)
+	tryLock func(path string) (*filelock.Lock, bool, error)
+	// unlocked says, once, that the file system cannot lock files.
+	unlocked sync.Once
 
 	mu  sync.Mutex
 	tok *token // as last read or written; nil before that
@@ -159,7 +169,28 @@ func NewAuth(cfg Config) (*Auth, error) {
 	if cfg.LockWait <= 0 {
 		cfg.LockWait = DefaultLockWait
 	}
-	return &Auth{cfg: cfg, tokenFile: tokenFile, sem: make(chan struct{}, 1)}, nil
+	return &Auth{
+		cfg: cfg, tokenFile: tokenFile, sem: semFor(tokenFile),
+		lock: filelock.Acquire, tryLock: filelock.TryAcquire,
+	}, nil
+}
+
+var (
+	semsMu sync.Mutex
+	sems   = map[string]chan struct{}{} // by token file
+)
+
+// semFor returns the semaphore for the token file at path, which every Auth
+// on that file in this process shares.
+func semFor(path string) chan struct{} {
+	semsMu.Lock()
+	defer semsMu.Unlock()
+	sem, ok := sems[path]
+	if !ok {
+		sem = make(chan struct{}, 1)
+		sems[path] = sem
+	}
+	return sem
 }
 
 // resolve returns path made absolute, with links followed, and on Windows
@@ -205,7 +236,7 @@ type Status struct {
 // request to Schwab, and does not wait for a refresh in progress.
 func (a *Auth) Status() (Status, error) {
 	st := Status{TokenFile: a.tokenFile}
-	t, err := readToken(a.tokenFile)
+	t, err := a.read()
 	if errors.Is(err, ErrNotLoggedIn) {
 		return st, nil
 	}
@@ -253,14 +284,14 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 	// that no refresh with the old login is at Schwab while it is replaced.
 	// Otherwise exchange first anyway: the code lapses about 30 seconds
 	// after the browser login.
-	lockPath := a.tokenFile + ".lock"
-	l, held, err := filelock.TryAcquire(lockPath)
+	release, held, err := a.tryHold()
 	if err != nil {
 		return err
 	}
 	if held {
-		defer l.Release()
+		defer release()
 	}
+	start := a.now()
 	res, err := a.tokenRequest(ctx, url.Values{
 		"grant_type":   {"authorization_code"},
 		"code":         {code},
@@ -275,21 +306,22 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 	if res.RefreshToken == "" {
 		return errors.New("Schwab's token response had no refresh token")
 	}
-	now := a.now()
+	// The tokens' lifetimes are counted from before the request, so that a
+	// slow answer does not stretch them.
 	t := &token{
 		AccessToken:       res.AccessToken,
 		RefreshToken:      res.RefreshToken,
-		AccessObtainedAt:  now,
-		AccessExpiresAt:   now.Add(time.Duration(res.ExpiresIn) * time.Second),
-		RefreshObtainedAt: now,
+		AccessObtainedAt:  start,
+		AccessExpiresAt:   start.Add(time.Duration(res.ExpiresIn) * time.Second),
+		RefreshObtainedAt: start,
 		Scope:             res.Scope,
 	}
 	if !held {
 		// The code is spent, so save the login whatever ctx says now.
-		if l, err = filelock.Acquire(context.WithoutCancel(ctx), lockPath, a.cfg.LockWait); err != nil {
+		if release, err = a.hold(context.WithoutCancel(ctx)); err != nil {
 			return fmt.Errorf("saving the login: %w", err)
 		}
-		defer l.Release()
+		defer release()
 	}
 	// A login that another process saved after this one began is the newer
 	// one, so it stays.
@@ -308,36 +340,36 @@ func (a *Auth) Login(ctx context.Context, code string) error {
 // if that is fresh and not rejected; otherwise it refreshes the token and
 // saves the result.
 func (a *Auth) renew(ctx context.Context, rejected string) (string, error) {
-	var tok string
-	err := a.locked(ctx, func() error {
-		t, err := readToken(a.tokenFile)
-		if err != nil {
-			return err
-		}
-		a.set(t)
-		if fresh, ok := a.fresh(rejected); ok {
-			tok = fresh
-			return nil
-		}
-		a.mu.Lock()
-		refused, refusedErr := a.refused, a.refusedErr
-		a.mu.Unlock()
-		if t.RefreshToken == refused {
-			return refusedErr
-		}
-		if rejected != "" && t.AccessToken == rejected && !t.AccessObtainedAt.IsZero() &&
-			a.now().Sub(t.AccessObtainedAt) < freshTokenAge {
-			return ErrTokenRefused
-		}
-		tok, err = a.refresh(ctx, t)
-		return err
-	})
-	return tok, err
+	release, err := a.hold(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	t, err := a.read()
+	if err != nil {
+		return "", err
+	}
+	a.set(t)
+	if fresh, ok := a.fresh(rejected); ok {
+		return fresh, nil
+	}
+	a.mu.Lock()
+	refused, refusedErr := a.refused, a.refusedErr
+	a.mu.Unlock()
+	if t.RefreshToken == refused {
+		return "", refusedErr
+	}
+	if rejected != "" && t.AccessToken == rejected && !t.AccessObtainedAt.IsZero() &&
+		a.now().Sub(t.AccessObtainedAt) < freshTokenAge {
+		return "", ErrTokenRefused
+	}
+	return a.refresh(ctx, t)
 }
 
 // refresh trades t's refresh token for a new access token and saves the
 // result. The caller holds the lock and has just read t from the file.
 func (a *Auth) refresh(ctx context.Context, t *token) (string, error) {
+	start := a.now()
 	res, err := a.tokenRequest(ctx, url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {t.RefreshToken},
@@ -351,11 +383,10 @@ func (a *Auth) refresh(ctx context.Context, t *token) (string, error) {
 		}
 		return "", err
 	}
-	now := a.now()
 	next := *t
 	next.AccessToken = res.AccessToken
-	next.AccessObtainedAt = now
-	next.AccessExpiresAt = now.Add(time.Duration(res.ExpiresIn) * time.Second)
+	next.AccessObtainedAt = start
+	next.AccessExpiresAt = start.Add(time.Duration(res.ExpiresIn) * time.Second)
 	if res.RefreshToken != "" {
 		next.RefreshToken = res.RefreshToken
 	}
@@ -369,22 +400,29 @@ func (a *Auth) refresh(ctx context.Context, t *token) (string, error) {
 	return next.AccessToken, nil
 }
 
-// refreshError says what a failed refresh means, going by Schwab's error code
-// where there is one, and its HTTP status otherwise.
+// refreshError says what a failed refresh means. Schwab refuses a lapsed or
+// replaced refresh token with HTTP 400 and unsupported_token_type, nesting
+// the real reason, invalid_grant or refresh_token_authentication_error;
+// older reports also show invalid_client with "refresh token invalid". A
+// wrong app key or secret gets invalid_client and "Unauthorized".
 func refreshError(err error) error {
-	if se, ok := errors.AsType[*Error](err); ok {
-		switch {
-		case se.Code == "invalid_client":
-			return fmt.Errorf("%w: %w", ErrAppRejected, err)
-		case se.Code == "invalid_grant", se.Code == "unsupported_token_type", se.Code == "refresh_token_authentication_error":
-			return fmt.Errorf("%w: %w", ErrLoginExpired, err)
-		case se.Status == http.StatusUnauthorized:
-			return fmt.Errorf("%w: %w", ErrAppRejected, err)
-		case se.Status == http.StatusBadRequest:
-			return fmt.Errorf("%w: %w", ErrLoginExpired, err)
-		}
+	se, ok := errors.AsType[*Error](err)
+	if !ok || se.Status != http.StatusBadRequest && se.Status != http.StatusUnauthorized {
+		return fmt.Errorf("refreshing the access token: %w", err)
 	}
-	return fmt.Errorf("refreshing the access token: %w", err)
+	switch {
+	case loginCodes[se.Code], loginCodes[se.Detail], strings.Contains(strings.ToLower(se.Body), "refresh token"):
+		return fmt.Errorf("%w: %w", ErrLoginExpired, err)
+	case se.Code == "invalid_client", se.Status == http.StatusUnauthorized:
+		return fmt.Errorf("%w: %w", ErrAppRejected, err)
+	}
+	return fmt.Errorf("%w: %w", ErrLoginExpired, err)
+}
+
+// loginCodes are the OAuth error codes with which Schwab refuses a refresh
+// token that no longer works.
+var loginCodes = map[string]bool{
+	"invalid_grant": true, "unsupported_token_type": true, "refresh_token_authentication_error": true,
 }
 
 // fresh returns the access token last seen if it is not rejected and does
@@ -414,22 +452,73 @@ func (a *Auth) set(t *token) {
 	a.tok = t
 }
 
-// locked runs fn while holding both the in-process semaphore and the lock
-// file.
-func (a *Auth) locked(ctx context.Context, fn func() error) error {
+// hold takes the in-process semaphore and then the lock file, waiting while
+// another holds either, and returns what lets go of both.
+func (a *Auth) hold(ctx context.Context) (release func(), err error) {
 	select {
 	case a.sem <- struct{}{}:
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
-	defer func() { <-a.sem }()
-	l, err := filelock.Acquire(ctx, a.tokenFile+".lock", a.cfg.LockWait)
-	if errors.Is(err, filelock.ErrTimeout) {
-		return fmt.Errorf("another process kept the Schwab login locked for %v: %w", a.cfg.LockWait, err)
+	l, err := a.lock(ctx, a.tokenFile+".lock", a.cfg.LockWait)
+	return a.held(l, err)
+}
+
+// tryHold is hold without the wait: it reports whether it took both.
+func (a *Auth) tryHold() (release func(), ok bool, err error) {
+	select {
+	case a.sem <- struct{}{}:
+	default:
+		return nil, false, nil
 	}
-	if err != nil {
-		return err
+	l, ok, err := a.tryLock(a.tokenFile + ".lock")
+	if err == nil && !ok {
+		<-a.sem
+		return nil, false, nil
 	}
-	defer l.Release()
-	return fn()
+	release, err = a.held(l, err)
+	return release, err == nil, err
+}
+
+// held finishes hold and tryHold once the semaphore is taken: l is the lock
+// file, or err why it is not held.
+func (a *Auth) held(l *filelock.Lock, err error) (func(), error) {
+	switch {
+	case err == nil:
+		return func() { l.Release(); <-a.sem }, nil
+	case errors.Is(err, filelock.ErrUnsupported):
+		// A refresh race cannot end the login, and a login and a refresh
+		// racing is rare, so carry on as before there were locks.
+		a.unlocked.Do(func() {
+			a.warn(fmt.Sprintf("%s cannot be locked (%v), so processes that use the login may refresh it at once; keep it on a local disk", a.tokenFile, err))
+		})
+		return func() { <-a.sem }, nil
+	case errors.Is(err, filelock.ErrTimeout):
+		err = fmt.Errorf("another process kept the Schwab login locked for %v: %w", a.cfg.LockWait, err)
+	}
+	<-a.sem
+	return nil, err
+}
+
+// read reads the token file. On Linux and macOS a file that others can read,
+// such as one copied in by hand, is made private, with a warning.
+func (a *Auth) read() (*token, error) {
+	t, err := readToken(a.tokenFile)
+	if err != nil || runtime.GOOS == "windows" {
+		return t, err
+	}
+	if info, err := os.Stat(a.tokenFile); err == nil && info.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(a.tokenFile, 0o600); err != nil {
+			a.warn(fmt.Sprintf("%s can be read by others and could not be made private: %v", a.tokenFile, err))
+		} else {
+			a.warn(a.tokenFile + " could be read by others; it is now readable only by you")
+		}
+	}
+	return t, nil
+}
+
+func (a *Auth) warn(msg string) {
+	if a.cfg.Warn != nil {
+		a.cfg.Warn(msg)
+	}
 }

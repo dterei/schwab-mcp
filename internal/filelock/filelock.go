@@ -12,18 +12,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
 )
 
 // Supported reports whether this system has file locks. Where it has not,
-// Acquire and TryAcquire always succeed.
+// Acquire and TryAcquire return ErrUnsupported.
 const Supported = supported
 
-// ErrTimeout is what Acquire returns, wrapped, when another process held the
-// lock for the whole wait.
-var ErrTimeout = errors.New("another process kept the lock")
+var (
+	// ErrTimeout is what Acquire returns, wrapped, when another process held
+	// the lock for the whole wait.
+	ErrTimeout = errors.New("another process kept the lock")
+	// ErrUnsupported is what Acquire and TryAcquire return, wrapped, when the
+	// lock file's file system cannot lock files, as some network file
+	// systems cannot, or is read-only.
+	ErrUnsupported = errors.New("the file system cannot lock files")
+)
 
 // Lock is a lock that this process holds.
 type Lock struct{ f *os.File }
@@ -63,7 +70,15 @@ func TryAcquire(path string) (*Lock, bool, error) {
 	}
 	for {
 		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // G703: the path is the caller's own setting.
-		if err != nil {
+		switch {
+		case err == nil:
+		case openBusy(err):
+			return nil, false, nil
+		case openUnsupported(err):
+			return nil, false, fmt.Errorf("%w: %w", ErrUnsupported, err)
+		case errors.Is(err, fs.ErrPermission):
+			return nil, false, fmt.Errorf("opening the lock file: %w; if another user, such as root, made it, remove it while nothing is using it", err)
+		default:
 			return nil, false, fmt.Errorf("opening the lock file: %w", err)
 		}
 		ok, err := tryLock(f)

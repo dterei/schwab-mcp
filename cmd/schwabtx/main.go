@@ -94,7 +94,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		if err != nil {
 			return err
 		}
-		auth, err := newAuth(cfg, newHTTPClient())
+		auth, err := newAuth(cfg, newHTTPClient(), stderr)
 		if err != nil {
 			return err
 		}

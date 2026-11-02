@@ -50,8 +50,9 @@ current as of October 2026.
   unknown fields and keeps enums as open strings.
 - **Orders are never retried automatically.** A retried order request can be
   a second order.
-- **Few dependencies.** The standard library, an MCP SDK and, from milestone
-  2, SQLite. Each new dependency has to earn its place.
+- **Few dependencies.** The standard library and golang.org/x/sys, for file
+  locks on Windows, an MCP SDK and, from milestone 2, SQLite, whose driver
+  needs x/sys too. Each new dependency has to earn its place.
 - **Tested against a fake Schwab.** Every endpoint the code uses is imitated by
   an in-process fake server that enforces Schwab's auth rules, as the CLI's
   tests already do. Nothing in CI talks to the real API.
@@ -98,8 +99,9 @@ has no mature, maintained Schwab client library today.
 
 The CLI and the server share one token file. A file lock keeps them from
 refreshing at the same time, and each re-reads the file before refreshing,
-because a refresh by one process can invalidate the other's copy. Schwab's
-single streamer connection (milestone 6) is shared the same way.
+because another process may have refreshed meanwhile, or logged in again,
+which ends the earlier login's refresh token. Schwab's single streamer
+connection (milestone 6) is shared the same way.
 
 ## Milestones
 
@@ -311,6 +313,9 @@ Copies the safety design of jkoelker/schwab-mcp and adds limits.
 - [ ] `readOnlyHint` on `preview_order` and `destructiveHint` on
       `place_order`, `replace_order` and `cancel_order`; an append-only local
       audit log of every preview, order, replacement and cancellation
+- [ ] An order goes out only with an access token that has at least five
+      minutes left, refreshed first if need be, since a 401 would call for a
+      retry, which orders never get
 
 ### M6. Streaming
 
@@ -474,6 +479,10 @@ milestone 1.
   re-check.
 - **What are the real rate limits for this app, and how does Schwab signal
   them?**
+- **Does a refresh end the older access tokens, and does it ever change the
+  refresh token?** Community clients suggest that it does not change the
+  refresh token. The login code copes either way, but each answer saves
+  requests.
 
 ## Risks
 

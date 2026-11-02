@@ -18,8 +18,10 @@ const (
 )
 
 // fakeOAuth imitates Schwab's token endpoint and an API endpoint that checks
-// the access token. It can rotate refresh tokens and revoke older access
-// tokens, the two ways a refresh by one process can lock another out.
+// the access token. As Schwab does, a login retires the refresh tokens of
+// earlier ones, while a refresh keeps the refresh token. It can also rotate
+// refresh tokens and retire older access tokens, which Schwab is not known
+// to do, to check that the coordination would cope.
 type fakeOAuth struct {
 	t   *testing.T
 	srv *httptest.Server
@@ -30,6 +32,7 @@ type fakeOAuth struct {
 	rotate        bool            // a refresh issues a new refresh token and retires the old one
 	revokeOlder   bool            // issuing an access token retires the earlier ones
 	delay         time.Duration   // how long each grant takes, to widen races
+	onGrant       func()          // called as each grant is made, before the answer
 	requests      int             // token requests, granted or not
 	issued        int
 	codeGrants    int
@@ -55,7 +58,7 @@ func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
 	f.requests++
 	user, pass, ok := r.BasicAuth()
 	if !ok || user != testKey || pass != testSecret {
-		http.Error(w, `{"error":"invalid_client"}`, http.StatusUnauthorized)
+		http.Error(w, `{"error":"invalid_client","error_description":"Unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
 	if ct := r.Header.Get("Content-Type"); ct != "application/x-www-form-urlencoded" {
@@ -72,11 +75,13 @@ func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
 		f.codeGrants++
 		f.issued++
 		refresh = fmt.Sprintf("refresh-%d", f.issued)
+		clear(f.refresh)
 		f.refresh[refresh] = true
 	case "refresh_token":
 		refresh = r.FormValue("refresh_token")
 		if !f.refresh[refresh] {
-			http.Error(w, `{"error":"unsupported_token_type","error_description":"refresh token invalid"}`, http.StatusBadRequest)
+			http.Error(w, `{"error":"unsupported_token_type","error_description":"400 Bad Request: {\"error_description\":\"Refresh token is invalid, expired or revoked\",\"error\":\"invalid_grant\"}"}`,
+				http.StatusBadRequest)
 			return
 		}
 		f.refreshGrants++
@@ -89,6 +94,9 @@ func (f *fakeOAuth) handleToken(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, `{"error":"unsupported_grant_type"}`, http.StatusBadRequest)
 		return
+	}
+	if f.onGrant != nil {
+		f.onGrant()
 	}
 	access := fmt.Sprintf("access-%d", f.issued)
 	if f.revokeOlder {
@@ -122,14 +130,6 @@ func (f *fakeOAuth) allow(refresh string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.refresh[refresh] = true
-}
-
-// retire makes the fake refuse refresh, as Schwab does once a later login
-// replaces it.
-func (f *fakeOAuth) retire(refresh string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	delete(f.refresh, refresh)
 }
 
 // tokenRequests returns how many token requests the fake has had.

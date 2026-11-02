@@ -19,8 +19,8 @@ import (
 const expiryWarningWindow = 48 * time.Hour
 
 // newAuth returns the login for cfg, kept in cfg.TokenFile and shared with
-// any other process using that file.
-func newAuth(cfg config, httpClient *http.Client) (*schwab.Auth, error) {
+// any other process using that file. Its warnings go to stderr.
+func newAuth(cfg config, httpClient *http.Client, stderr io.Writer) (*schwab.Auth, error) {
 	return schwab.NewAuth(schwab.Config{
 		AppKey:      cfg.AppKey,
 		AppSecret:   cfg.AppSecret,
@@ -29,13 +29,14 @@ func newAuth(cfg config, httpClient *http.Client) (*schwab.Auth, error) {
 		TokenFile:   cfg.TokenFile,
 		HTTPClient:  httpClient,
 		Now:         func() time.Time { return timeNow() },
+		Warn:        func(msg string) { fmt.Fprintln(stderr, "warning:", msg) },
 	})
 }
 
 // openLogin checks that there is a saved login, warning on stderr when it
 // lapses soon.
 func openLogin(cfg config, httpClient *http.Client, stderr io.Writer) (*schwab.Auth, error) {
-	auth, err := newAuth(cfg, httpClient)
+	auth, err := newAuth(cfg, httpClient, stderr)
 	if err != nil {
 		return nil, err
 	}

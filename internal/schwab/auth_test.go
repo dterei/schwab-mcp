@@ -249,7 +249,6 @@ func TestRefreshUsesTheLatestLogin(t *testing.T) {
 	if err := cli.Login(t.Context(), testCode); err != nil {
 		t.Fatal(err)
 	}
-	f.retire("refresh-1") // the new login replaced the old one
 
 	if tok := call(t, f, server); tok != "access-2" {
 		t.Errorf("the server got %q, want the new login's access-2", tok)
@@ -466,7 +465,7 @@ func TestErrors(t *testing.T) {
 	_, err = newTestAuth(t, f, stale, c).AccessToken(t.Context())
 	se, ok := errors.AsType[*Error](err)
 	if !errors.Is(err, ErrLoginExpired) || !ok || se.Status != http.StatusBadRequest || se.Code != "unsupported_token_type" ||
-		err.Error() != "Schwab rejected the saved login: HTTP 400 from Schwab: unsupported_token_type" {
+		err.Error() != "Schwab rejected the saved login: HTTP 400 from Schwab: unsupported_token_type (invalid_grant)" {
 		t.Errorf("stale refresh token: %v, want ErrLoginExpired with the HTTP 400 and its code", err)
 	}
 	if after, err := os.ReadFile(stale); err != nil || string(after) != string(before) {
@@ -884,5 +883,167 @@ func TestTokenFileUnderALinkedFolder(t *testing.T) {
 	}
 	if want = filepath.Join(want, "cfg", "token.json"); st.TokenFile != want {
 		t.Errorf("token file %s, want %s", st.TokenFile, want)
+	}
+}
+
+// The refusals below are as community clients logged them: Schwab nests the
+// real reason in the description, in more than one way.
+func TestRefreshErrors(t *testing.T) {
+	expired2026 := `{"error":"unsupported_token_type","error_description":"400 Bad Request: {\"error_description\":\"Refresh token is invalid, expired or revoked\",\"error\":\"invalid_grant\"}"}`
+	replaced2024 := `{"error":"unsupported_token_type","error_description":"400 Bad Request: \"{\\\"error_description\\\":\\\"Exception while authenticating refresh token [tokenDigest=abc], Exception=Failed refresh token authentication [tokenDigest=abc]]\\\",\\\"error\\\":\\\"refresh_token_authentication_error\\\"}\""}`
+	for _, tc := range []struct {
+		name       string
+		status     int
+		body       string
+		want       error
+		wantDetail string
+		wantText   string
+	}{
+		{"lapsed, 2026", 400, expired2026, ErrLoginExpired, "invalid_grant", "HTTP 400 from Schwab: unsupported_token_type (invalid_grant)"},
+		{"replaced by a later login, 2024", 400, replaced2024, ErrLoginExpired, "refresh_token_authentication_error", "HTTP 400 from Schwab: unsupported_token_type (refresh_token_authentication_error)"},
+		{"lapsed, as an older report has it", 400, `{"error":"invalid_client","error_description":"refresh token invalid"}`, ErrLoginExpired, "", "invalid_client"},
+		{"lapsed, older report, with a 401", 401, `{"error":"invalid_client","error_description":"refresh token invalid"}`, ErrLoginExpired, "", "invalid_client"},
+		{"wrong app key or secret", 401, `{"error":"invalid_client","error_description":"Unauthorized"}`, ErrAppRejected, "", "HTTP 401 from Schwab: invalid_client"},
+		{"a bare 401", 401, ``, ErrAppRejected, "", "HTTP 401"},
+		{"a bare 400", 400, `{"message":"bad request"}`, ErrLoginExpired, "", "bad request"},
+		{"a server error", 503, `{"error":"server_error"}`, nil, "", "refreshing the access token"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, desc := oauthError(tc.body)
+			detail, _ := oauthError(desc)
+			err := refreshError(&Error{Status: tc.status, Code: code, Detail: detail, Body: tc.body})
+			if tc.want != nil && !errors.Is(err, tc.want) || tc.want == nil && (errors.Is(err, ErrLoginExpired) || errors.Is(err, ErrAppRejected)) {
+				t.Errorf("got %v, want %v", err, tc.want)
+			}
+			if detail != tc.wantDetail || !strings.Contains(err.Error(), tc.wantText) {
+				t.Errorf("got %q with detail %q, want %q in it and detail %q", err, detail, tc.wantText, tc.wantDetail)
+			}
+			if strings.Contains(err.Error(), "tokenDigest") {
+				t.Errorf("the message shows the token digest: %v", err)
+			}
+		})
+	}
+}
+
+// Where the file system cannot lock files, the login works without the
+// lock, as it did before there was one, and says so once.
+func TestUnsupportedFileSystem(t *testing.T) {
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	tokenFile := filepath.Join(t.TempDir(), "token.json")
+	var warnings []string
+	a, err := NewAuth(Config{
+		AppKey: testKey, AppSecret: testSecret, BaseURL: f.srv.URL, TokenFile: tokenFile, Now: c.Now,
+		Warn: func(msg string) { warnings = append(warnings, msg) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsupported := fmt.Errorf("%w: flock: no locks available", filelock.ErrUnsupported)
+	a.lock = func(context.Context, string, time.Duration) (*filelock.Lock, error) { return nil, unsupported }
+	a.tryLock = func(string) (*filelock.Lock, bool, error) { return nil, false, unsupported }
+
+	if err := a.Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	c.advance(time.Hour)
+	for range 2 {
+		c.advance(time.Hour)
+		if _, err := a.AccessToken(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "cannot be locked") || !strings.Contains(warnings[0], "local disk") {
+		t.Errorf("warnings %q, want one saying that the file cannot be locked", warnings)
+	}
+}
+
+// Every Auth on one file in a process waits for the others, even where the
+// lock file would not keep out a second open in the same process, as on
+// some network volumes.
+func TestOneRefreshPerProcessWithoutFileLocks(t *testing.T) {
+	f := newFakeOAuth(t)
+	f.delay = 50 * time.Millisecond
+	c := &clock{now: testNow}
+	tokenFile := filepath.Join(t.TempDir(), "token.json")
+	if err := newTestAuth(t, f, tokenFile, c).Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	c.advance(time.Hour)
+	var wg sync.WaitGroup
+	for range 6 {
+		a := newTestAuth(t, f, tokenFile, c)
+		a.lock = func(context.Context, string, time.Duration) (*filelock.Lock, error) {
+			return nil, filelock.ErrUnsupported // the OS lets every open in
+		}
+		wg.Go(func() {
+			if _, err := a.AccessToken(t.Context()); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	if _, refresh := f.grants(); refresh != 1 {
+		t.Errorf("%d refresh grants, want 1", refresh)
+	}
+}
+
+// A token file that others can read, such as one copied in by hand, is
+// made private, with a warning.
+func TestTokenFileOthersCanReadIsMadePrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no Unix permission bits on Windows")
+	}
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	tokenFile := filepath.Join(t.TempDir(), "token.json")
+	if err := newTestAuth(t, f, tokenFile, c).Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(tokenFile, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var warnings []string
+	a, err := NewAuth(Config{
+		AppKey: testKey, AppSecret: testSecret, BaseURL: f.srv.URL, TokenFile: tokenFile, Now: c.Now,
+		Warn: func(msg string) { warnings = append(warnings, msg) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Status(); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(tokenFile); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("the token file's mode is %v (%v), want 0600", info.Mode().Perm(), err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "readable only by you") {
+		t.Errorf("warnings %q, want one saying that the file is now private", warnings)
+	}
+}
+
+// A token's lifetime counts from before the request for it, so that a slow
+// answer does not stretch it.
+func TestLifetimeCountsFromTheRequest(t *testing.T) {
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	f.onGrant = func() { c.advance(20 * time.Second) }
+	tokenFile := filepath.Join(t.TempDir(), "token.json")
+	a := newTestAuth(t, f, tokenFile, c)
+	if err := a.Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	saved := readTestToken(t, tokenFile)
+	if !saved.AccessExpiresAt.Equal(testNow.Add(30*time.Minute)) || !saved.RefreshObtainedAt.Equal(testNow) {
+		t.Errorf("login saved with the access token expiring at %v and the login at %v; want %v and %v",
+			saved.AccessExpiresAt, saved.RefreshObtainedAt, testNow.Add(30*time.Minute), testNow)
+	}
+	c.advance(time.Hour)
+	asked := c.Now()
+	if _, err := a.AccessToken(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if saved := readTestToken(t, tokenFile); !saved.AccessExpiresAt.Equal(asked.Add(30 * time.Minute)) {
+		t.Errorf("refresh saved the access token expiring at %v, want %v", saved.AccessExpiresAt, asked.Add(30*time.Minute))
 	}
 }

@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -208,4 +210,20 @@ func TestLockFileReplaced(t *testing.T) {
 		t.Errorf("TryAcquire while the new file is held: %v, %v; want false", ok, err)
 	}
 	third.Release()
+}
+
+// A lock file that this user cannot open, such as one that root made, gets
+// an error that says what to do.
+func TestLockFileOfAnotherUser(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs Unix permissions, and a user that they apply to")
+	}
+	path := filepath.Join(t.TempDir(), "x.lock")
+	if err := os.WriteFile(path, nil, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	_, ok, err := TryAcquire(path)
+	if ok || !errors.Is(err, fs.ErrPermission) || !strings.Contains(err.Error(), "remove it while nothing is using it") {
+		t.Errorf("TryAcquire on a lock file this user cannot open: %v, %v; want a permission error that says what to do", ok, err)
+	}
 }

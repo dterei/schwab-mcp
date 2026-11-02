@@ -70,10 +70,13 @@ spec, it says so. Things nobody has pinned down are collected under
   `access_token`, `refresh_token`, `id_token`, `expires_in` (1800),
   `token_type` and `scope` (`api` in the samples community clients test
   against).
-- **Lifetimes**: access tokens last 30 minutes. A refresh token works for 7
-  days from the browser login, and refreshing does not extend that. It can
-  stop sooner, for example after a login somewhere else. schwab-py forces a
-  new login at 6.5 days and jkoelker/schwab-mcp at 5.
+- **Lifetimes**: access tokens last 30 minutes (`expires_in` has been 1800 in
+  every response reported). A refresh token works for 7 days from the browser
+  login, and refreshing does not extend that. A refresh gives back the same
+  refresh token, or at least never ends the old one: community clients send
+  the login's original refresh token all week. It can stop sooner, after a
+  later login (below). schwab-py forces a new login at 6.5 days and
+  jkoelker/schwab-mcp at 5.
 - **Callback URLs** must be `https`, match the registered value exactly
   (a trailing slash difference gives an "Access Denied" page) and use
   `127.0.0.1`, not `localhost`. An app may register several, comma-separated.
@@ -81,11 +84,23 @@ spec, it says so. Things nobody has pinned down are collected under
   cannot use on Linux without root, so catching the redirect automatically
   needs a registered callback with a port above 1023; schwab-py uses
   `https://127.0.0.1:8182`.
-- **One refresher at a time.** schwab-py warns that when two applications
-  share a token file, "one of them will beat the other to refreshing, locking
-  the slower one out". Schwabdev serializes refreshes with a database lock.
-  `unsupported_token_type` means the refresh token is no longer valid,
-  possibly replaced by a login elsewhere.
+- **One login at a time.** A new browser login with the same app ends the
+  refresh token of every earlier login ("There can only be one valid refresh
+  token at a time", Schwabdev's maintainer in
+  [Schwabdev#40](https://github.com/tylerebowers/Schwabdev/issues/40)). So
+  processes that use one login share its token file and re-read it before they
+  refresh. Whether a refresh ends older access tokens is not known. schwab-py's
+  warning that two programs sharing a token file lock each other out was
+  copied from its TD Ameritrade predecessor, whose refresh tokens did change.
+  Schwabdev serializes refreshes with a database lock.
+- **A refused refresh token** gets HTTP 400 with `unsupported_token_type`. The
+  real reason is nested, as JSON, in `error_description`: `invalid_grant`,
+  "Refresh token is invalid, expired or revoked", in 2026 reports, and
+  `refresh_token_authentication_error`, with a digest of the token, in 2024
+  ones. An older schwab-py document shows `invalid_client`, "refresh token
+  invalid". A refused token stays refused until a new login, so sending it
+  again only adds load: one daemon sent two token requests a second for 16
+  hours. A wrong app key or secret gets `invalid_client`, "Unauthorized".
 - **Revocation**: an unreleased schwab-py branch posts to `/v1/oauth/revoke`.
   Not documented by Schwab as far as we know.
 

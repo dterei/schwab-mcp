@@ -17,15 +17,20 @@ import (
 type Error struct {
 	Status int // the HTTP status code
 	// Code is the error code of an OAuth error response, such as
-	// invalid_grant; it is empty for other responses.
-	Code string
-	Body string // the response body as sent
+	// invalid_grant; it is empty for other responses. Detail is the code of
+	// another OAuth error that Schwab sometimes nests in the description.
+	Code, Detail string
+	// Body is the response body as sent. An OAuth error's can quote
+	// Schwab's internal errors, with a digest of the token, so it is not
+	// shown.
+	Body string
 }
 
 func (e *Error) Error() string {
-	// An OAuth error's description can quote Schwab's internal errors at
-	// length, so only its code is shown.
-	if e.Code != "" {
+	switch {
+	case e.Detail != "":
+		return fmt.Sprintf("HTTP %d from Schwab: %s (%s)", e.Status, e.Code, e.Detail)
+	case e.Code != "":
 		return fmt.Sprintf("HTTP %d from Schwab: %s", e.Status, e.Code)
 	}
 	body := strings.TrimSpace(e.Body)
@@ -98,6 +103,27 @@ func CodeFromRedirect(pasted, wantState string) (string, error) {
 	return code, nil
 }
 
+// oauthError reads an OAuth error, {"error": ..., "error_description": ...},
+// from s, which may have text before it, such as "400 Bad Request: ", and
+// may hold it as a JSON string, as Schwab does when it nests one in another's
+// description. It returns empty strings when there is none.
+func oauthError(s string) (code, description string) {
+	var e struct {
+		Code        string `json:"error"`
+		Description string `json:"error_description"`
+	}
+	if i := strings.IndexByte(s, '{'); i >= 0 && json.NewDecoder(strings.NewReader(s[i:])).Decode(&e) == nil {
+		return e.Code, e.Description
+	}
+	if i := strings.IndexByte(s, '"'); i >= 0 {
+		var inner string
+		if json.NewDecoder(strings.NewReader(s[i:])).Decode(&inner) == nil && inner != s {
+			return oauthError(inner)
+		}
+	}
+	return "", ""
+}
+
 // tokenResponse is the part of Schwab's token response that is kept.
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
@@ -133,11 +159,9 @@ func (a *Auth) tokenRequest(ctx context.Context, form url.Values) (tokenResponse
 		return out, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		var oauthErr struct {
-			Code string `json:"error"`
-		}
-		_ = json.Unmarshal(body, &oauthErr) // a body that is not an OAuth error leaves Code empty
-		return out, &Error{Status: resp.StatusCode, Code: oauthErr.Code, Body: string(body)}
+		code, desc := oauthError(string(body))
+		detail, _ := oauthError(desc)
+		return out, &Error{Status: resp.StatusCode, Code: code, Detail: detail, Body: string(body)}
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
 		return out, fmt.Errorf("decoding token response: %w", err)

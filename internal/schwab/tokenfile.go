@@ -49,7 +49,11 @@ var tokenFields = []string{
 
 // readToken reads the token file at path.
 func readToken(path string) (*token, error) {
-	b, err := os.ReadFile(path)
+	var b []byte
+	err := retry(func() (err error) {
+		b, err = os.ReadFile(path)
+		return err
+	})
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ErrNotLoggedIn
 	}
@@ -132,17 +136,20 @@ func writeToken(path string, t *token) error {
 	return nil
 }
 
-// rename moves oldpath over newpath. On Windows that fails while another
-// program has newpath open, as antivirus and search indexers do for a moment,
-// so there it is tried again for about two seconds.
+// rename moves oldpath over newpath.
 func rename(oldpath, newpath string) error {
-	err := os.Rename(oldpath, newpath)
-	if runtime.GOOS != "windows" {
-		return err
-	}
-	for wait := 10 * time.Millisecond; err != nil && wait <= 640*time.Millisecond; wait *= 2 {
+	return retry(func() error { return os.Rename(oldpath, newpath) })
+}
+
+// retry runs op, and again for about two seconds while it fails because
+// another program has the file open for a moment. Only Windows refuses a
+// read or a rename for that; there a rename cannot replace a file that
+// anyone has open.
+func retry(op func() error) error {
+	err := op()
+	for wait := 10 * time.Millisecond; busy(err) && wait <= 640*time.Millisecond; wait *= 2 {
 		time.Sleep(wait)
-		err = os.Rename(oldpath, newpath)
+		err = op()
 	}
 	return err
 }

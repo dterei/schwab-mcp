@@ -3,7 +3,7 @@
 A small CLI that logs in to the Charles Schwab Trader API, prints your most
 recent transactions across every account you share with it, and saves
 snapshots of those accounts' positions and balances. It uses only the Go
-standard library.
+standard library, and golang.org/x/sys for file locks on Windows.
 
 Before the first run, set up a Schwab developer app as described in the
 [top-level README](../../README.md#one-time-setup).
@@ -55,10 +55,13 @@ an overridden path inside your user profile.
 
 Every process that uses the login shares that file: the scheduled snapshot,
 a `schwabtx` you run by hand and, later, the MCP server. Next to it,
-`token.json.lock` lets one of them at a time refresh the login, so that they
-do not refresh at once and lock each other out. Leave the lock file in place;
-it stays empty. It needs a file system that can lock files, which a local
-disk can; some network file systems cannot.
+`token.json.lock` lets one of them at a time refresh the login or replace it.
+Leave the lock file in place; it stays empty. Keep the token file on a local
+disk of the one machine that uses it, not in iCloud Drive, Dropbox, OneDrive
+or another synced folder: the lock does not reach other machines, a login on
+one machine ends the login on the other, and the sync provider would hold
+your token. If others can read the token file, as one copied in by hand may,
+`schwabtx` makes it private and says so.
 
 ## Snapshots
 
@@ -156,9 +159,11 @@ scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
 - "another process kept the Schwab login locked": another `schwabtx`, or the
   MCP server, was still refreshing the login after two minutes, which it
   should never take. Find and stop the stuck process.
-- "cannot lock files": the token file is on a file system that cannot lock,
-  as some network ones cannot. Set `SCHWAB_TOKEN_FILE` to a file on a local
-  disk.
+- "cannot be locked" (a warning): the token file is on a file system that
+  cannot lock, as some network ones cannot. `schwabtx` carries on without the
+  lock, but set `SCHWAB_TOKEN_FILE` to a file on a local disk.
+- "opening the lock file: ... permission denied": another user, often root
+  after a `sudo`, made `token.json.lock`. Remove it while no `schwabtx` runs.
 - `0 transactions` although the account has activity: the account is
   probably not enabled for thinkorswim (see the
   [top-level README](../../README.md#one-time-setup)). An account you did not

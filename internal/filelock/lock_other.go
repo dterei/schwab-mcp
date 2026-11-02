@@ -4,10 +4,15 @@ package filelock
 
 import "os"
 
-// This system has no file locks that this package knows how to use, so locks
-// always succeed.
+// This system has no file locks that this package knows how to use.
 const supported = false
 
-func tryLock(*os.File) (bool, error) { return true, nil }
+func tryLock(f *os.File) (bool, error) {
+	return false, &os.PathError{Op: "lock", Path: f.Name(), Err: ErrUnsupported}
+}
 
 func unlock(*os.File) {}
+
+func openBusy(error) bool { return false }
+
+func openUnsupported(error) bool { return false }
