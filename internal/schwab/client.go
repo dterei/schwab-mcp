@@ -125,10 +125,10 @@ func equalJitter(d time.Duration) time.Duration {
 // answer or a failure of the network. After a 5xx or a failure of the
 // network it waits 1, 2, then 4 seconds, jittered, or what Retry-After asks
 // if that is longer. A 429 holds back every process that shares the rate
-// limit, for what Retry-After asks or else for 1, 2, then 4 seconds, and the
-// next try then waits its turn; the limit spaces those tries out, so their
-// waits are not jittered. A Retry-After of more than a minute ends the
-// tries. A try that times out is tried once more, not three times. After a
+// limit, for what Retry-After asks or else for a second, doubled with each
+// 429, the last one included, and the next try then waits its turn; the
+// limit spaces those tries out, so their waits are not jittered. A
+// Retry-After of more than a minute ends the tries. A try that times out is tried once more, not three times. After a
 // 401 Get gets a new access token once, and that try does not count. A wait
 // that the caller's deadline would cut short is not begun. Other answers
 // come back as an *Error.
