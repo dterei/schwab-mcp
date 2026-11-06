@@ -34,11 +34,14 @@ func TestMain(m *testing.M) {
 }
 
 // helper is the other process. "access" prints an access token; "hold" takes
-// the lock on the login, says so and keeps it until its stdin closes.
+// the lock on the login, says so and keeps it until its stdin closes; "rate"
+// is rateHelper.
 func helper(role string) int {
 	ctx := context.Background()
 	tokenFile := os.Getenv("SCHWAB_TEST_TOKEN_FILE")
 	switch role {
+	case "rate":
+		return rateHelper()
 	case "access":
 		a, err := NewAuth(Config{AppKey: testKey, AppSecret: testSecret, BaseURL: os.Getenv("SCHWAB_TEST_URL"), TokenFile: tokenFile})
 		if err == nil {
@@ -910,7 +913,8 @@ func TestTokenFileUnderALinkedFolder(t *testing.T) {
 }
 
 // The refusals below are as community clients logged them: Schwab nests the
-// real reason in the description, in more than one way.
+// real reason in the description, in more than one way. Only a refusal that
+// says why is kept, so that the refresh token is not sent again.
 func TestRefreshErrors(t *testing.T) {
 	expired2026 := `{"error":"unsupported_token_type","error_description":"400 Bad Request: {\"error_description\":\"Refresh token is invalid, expired or revoked\",\"error\":\"invalid_grant\"}"}`
 	replaced2024 := `{"error":"unsupported_token_type","error_description":"400 Bad Request: \"{\\\"error_description\\\":\\\"Exception while authenticating refresh token [tokenDigest=abc], Exception=Failed refresh token authentication [tokenDigest=abc]]\\\",\\\"error\\\":\\\"refresh_token_authentication_error\\\"}\""}`
@@ -919,27 +923,32 @@ func TestRefreshErrors(t *testing.T) {
 		status     int
 		body       string
 		want       error
+		final      bool
 		wantDetail string
 		wantText   string
 	}{
-		{"lapsed, 2026", 400, expired2026, ErrLoginExpired, "invalid_grant", "HTTP 400 from Schwab: unsupported_token_type (invalid_grant)"},
-		{"replaced by a later login, 2024", 400, replaced2024, ErrLoginExpired, "refresh_token_authentication_error", "HTTP 400 from Schwab: unsupported_token_type (refresh_token_authentication_error)"},
-		{"lapsed, as an older report has it", 400, `{"error":"invalid_client","error_description":"refresh token invalid"}`, ErrLoginExpired, "", "invalid_client"},
-		{"lapsed, older report, with a 401", 401, `{"error":"invalid_client","error_description":"refresh token invalid"}`, ErrLoginExpired, "", "invalid_client"},
-		{"wrong app key or secret", 401, `{"error":"invalid_client","error_description":"Unauthorized"}`, ErrAppRejected, "", "HTTP 401 from Schwab: invalid_client"},
-		{"a bare 401", 401, ``, ErrAppRejected, "", "HTTP 401"},
-		{"a bare 400", 400, `{"message":"bad request"}`, ErrLoginExpired, "", "bad request"},
-		{"a server error", 503, `{"error":"server_error"}`, nil, "", "refreshing the access token"},
+		{"lapsed, 2026", 400, expired2026, ErrLoginExpired, true, "invalid_grant", "HTTP 400 from Schwab: unsupported_token_type (invalid_grant)"},
+		{"replaced by a later login, 2024", 400, replaced2024, ErrLoginExpired, true, "refresh_token_authentication_error", "HTTP 400 from Schwab: unsupported_token_type (refresh_token_authentication_error)"},
+		{"lapsed, as an older report has it", 400, `{"error":"invalid_client","error_description":"refresh token invalid"}`, ErrLoginExpired, true, "", "invalid_client"},
+		{"lapsed, older report, with a 401", 401, `{"error":"invalid_client","error_description":"refresh token invalid"}`, ErrLoginExpired, true, "", "invalid_client"},
+		{"a refusal code with a 5xx", 500, `{"error":"invalid_grant"}`, ErrLoginExpired, true, "", "HTTP 500 from Schwab: invalid_grant"},
+		{"wrong app key or secret", 401, `{"error":"invalid_client","error_description":"Unauthorized"}`, ErrAppRejected, false, "", "HTTP 401 from Schwab: invalid_client"},
+		{"a bare 401", 401, ``, ErrAppRejected, false, "", "HTTP 401"},
+		{"a bare 400", 400, `{"message":"bad request"}`, ErrLoginExpired, false, "", "bad request"},
+		{"a gateway's page with a 400", 400, `<html><title>Bad Request</title></html>`, ErrLoginExpired, false, "", "an HTML page, Bad Request"},
+		{"a server error", 503, `{"error":"server_error"}`, nil, false, "", "refreshing the access token"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			code, desc := oauthError(tc.body)
-			detail, _ := oauthError(desc)
-			err := refreshError(&Error{Status: tc.status, Code: code, Detail: detail, Body: tc.body})
+			e := newError(tc.status, http.Header{}, []byte(tc.body))
+			final, err := refreshError(e, 1)
 			if tc.want != nil && !errors.Is(err, tc.want) || tc.want == nil && (errors.Is(err, ErrLoginExpired) || errors.Is(err, ErrAppRejected)) {
 				t.Errorf("got %v, want %v", err, tc.want)
 			}
-			if detail != tc.wantDetail || !strings.Contains(err.Error(), tc.wantText) {
-				t.Errorf("got %q with detail %q, want %q in it and detail %q", err, detail, tc.wantText, tc.wantDetail)
+			if final != tc.final {
+				t.Errorf("final = %v, want %v", final, tc.final)
+			}
+			if e.Detail != tc.wantDetail || !strings.Contains(err.Error(), tc.wantText) {
+				t.Errorf("got %q with detail %q, want %q in it and detail %q", err, e.Detail, tc.wantText, tc.wantDetail)
 			}
 			if strings.Contains(err.Error(), "tokenDigest") {
 				t.Errorf("the message shows the token digest: %v", err)

@@ -175,9 +175,12 @@ func fetchAccount(ctx context.Context, c *client, acct account, opt fetchOptions
 		if err != nil {
 			// Schwab limits how far back it will serve. If an older window is
 			// refused after newer ones worked, halve the window to get as close
-			// to that limit as we can, then keep what we have.
+			// to that limit as we can, then keep what we have. A login refused
+			// meanwhile is a 400 too, from the token endpoint, which no window
+			// would get past.
 			var ae *schwab.Error
-			if !end.Equal(opt.Now) && errors.As(err, &ae) && ae.Status == http.StatusBadRequest {
+			if !end.Equal(opt.Now) && errors.As(err, &ae) && ae.Status == http.StatusBadRequest &&
+				!errors.Is(err, schwab.ErrLoginExpired) && !errors.Is(err, schwab.ErrAppRejected) {
 				if span := end.Sub(start); span > 24*time.Hour {
 					window = span / 2
 					continue

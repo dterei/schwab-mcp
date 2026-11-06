@@ -3,12 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,83 +14,28 @@ import (
 // Schwab caps a transactions response at 3000 entries.
 const schwabMaxTransactions = 3000
 
-const maxRetries = 3
-
+// client is the CLI's view of Schwab's Trader API.
 type client struct {
-	cfg  config
-	auth *schwab.Auth
-	http *http.Client
-
+	api *schwab.Client
 	// pageCap is the response size at which a result may have been cut short.
 	pageCap int
-	// retryWait is the first backoff delay after a 429 or 5xx.
-	retryWait time.Duration
 }
 
-func newClient(cfg config, auth *schwab.Auth, httpClient *http.Client) *client {
-	return &client{cfg: cfg, auth: auth, http: httpClient, pageCap: schwabMaxTransactions, retryWait: 2 * time.Second}
+// clientConfig tunes the client. Tests set a fast rate and short waits.
+var clientConfig schwab.ClientConfig
+
+func newClient(auth *schwab.Auth) *client {
+	return &client{api: schwab.NewClient(auth, clientConfig), pageCap: schwabMaxTransactions}
 }
 
-// get fetches a Trader API path and returns the response body. On a 401 it
-// gets a new access token once, and it backs off on 429 and 5xx.
+// get fetches a Trader API path and returns the response body. Its errors
+// say what to do about a problem with the login.
 func (c *client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
-	u := c.cfg.BaseURL + "/trader/v1" + path
-	if len(query) > 0 {
-		u += "?" + query.Encode()
+	body, err := c.api.Get(ctx, "/trader/v1"+path, query)
+	if err != nil {
+		return nil, hint(err)
 	}
-
-	refreshed := false
-	wait := c.retryWait
-	for attempt := 0; ; attempt++ {
-		tok, err := c.auth.AccessToken(ctx)
-		if err != nil {
-			return nil, hint(err)
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Authorization", "Bearer "+tok)
-		req.Header.Set("Accept", "application/json")
-
-		resp, err := c.http.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
-		resp.Body.Close()
-		if err != nil {
-			return nil, err
-		}
-
-		switch {
-		case resp.StatusCode == http.StatusOK:
-			return body, nil
-		case resp.StatusCode == http.StatusUnauthorized && !refreshed:
-			refreshed = true
-			_, err := c.auth.Refresh(ctx, tok)
-			if errors.Is(err, schwab.ErrTokenRefused) {
-				break // a new token would not help, so report Schwab's answer
-			}
-			if err != nil {
-				return nil, hint(err)
-			}
-			continue
-		case (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) && attempt < maxRetries:
-			delay := wait
-			if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 && s <= 120 {
-				delay = time.Duration(s) * time.Second
-			}
-			wait *= 2
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(delay):
-			}
-			continue
-		}
-		return nil, &schwab.Error{Status: resp.StatusCode, Body: string(body)}
-	}
+	return body, nil
 }
 
 type account struct {

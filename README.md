@@ -146,11 +146,14 @@ cmd/schwabtx/   the CLI and its tests, which run it against a fake Schwab server
 cmd/schwabtx/schedule/
                 scripts and steps for running snapshots daily
 internal/schwab/
-                the Schwab client: so far the login, its refresh and the token
-                file that every process using the login shares
+                the Schwab client: the login, its refresh and the token file
+                that every process using the login shares, and reads that are
+                tried again after a failure, under a rate limit that every
+                process using the app key shares
 internal/filelock/
                 file locks across processes, which keep two processes from
-                refreshing the login at once
+                refreshing the login at once, or from going over the rate
+                limit together
 docs/           roadmap, notes on the Schwab API and a survey of prior art
 .github/        CI and Dependabot
 ```

@@ -58,7 +58,9 @@ func Acquire(ctx context.Context, path string, wait time.Duration) (*Lock, error
 		if !time.Now().Before(deadline) {
 			return nil, fmt.Errorf("waited %v for %s: %w", wait, path, ErrTimeout)
 		}
-		timer := time.NewTimer(delay)
+		// The last sleep ends at the deadline, so that the wait is wait,
+		// not up to a poll longer.
+		timer := time.NewTimer(min(delay, time.Until(deadline)))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -122,6 +124,19 @@ func lockOpened(f *os.File) (bool, error) {
 func (l *Lock) Release() {
 	unlock(l.f)
 	l.f.Close()
+}
+
+// ReadAt reads the locked file, as io.ReaderAt does. While the lock is held,
+// read and write the file only through the Lock: Windows refuses every other
+// handle, and where a lock belongs to the process, as on some network
+// volumes, closing another handle to the file can drop the lock.
+func (l *Lock) ReadAt(p []byte, off int64) (int, error) {
+	return l.f.ReadAt(p, off)
+}
+
+// WriteAt writes the locked file, as io.WriterAt does. See ReadAt.
+func (l *Lock) WriteAt(p []byte, off int64) (int, error) {
+	return l.f.WriteAt(p, off)
 }
 
 // sameFile reports whether f is still the file at path.

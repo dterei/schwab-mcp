@@ -19,6 +19,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
 // fakeSchwab imitates the OAuth token endpoint and the Trader API endpoints
@@ -39,8 +41,13 @@ type fakeSchwab struct {
 	oldestAllowed time.Time // startDate before this gets a 400
 	rateLimitNext int       // answer this many transaction calls with 429
 	failDetails   int       // answer this many GET /accounts calls with 403
-	detailsFields string    // fields= of the last GET /accounts
-	detailsBody   string    // what the last GET /accounts returned
+	// accountsReply, if set, answers GET /accounts/accountNumbers instead.
+	accountsReply http.HandlerFunc
+	// afterTx, if set, runs after each transactions call, under mu.
+	afterTx       func()
+	refuseRefresh bool   // refuse every refresh, as for a login that lapsed
+	detailsFields string // fields= of the last GET /accounts
+	detailsBody   string // what the last GET /accounts returned
 }
 
 type fakeTx struct {
@@ -89,7 +96,7 @@ func (f *fakeSchwab) handleToken(w http.ResponseWriter, r *http.Request) {
 		}
 		f.codeGrants++
 	case "refresh_token":
-		if r.FormValue("refresh_token") != testRefresh {
+		if r.FormValue("refresh_token") != testRefresh || f.refuseRefresh {
 			http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
 			return
 		}
@@ -124,6 +131,10 @@ func (f *fakeSchwab) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.authed(w, r) {
+		return
+	}
+	if f.accountsReply != nil {
+		f.accountsReply(w, r)
 		return
 	}
 	f.writeJSON(w, f.accounts)
@@ -182,9 +193,15 @@ func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	f.txCalls++
+	if f.afterTx != nil {
+		defer f.afterTx()
+	}
 	if f.rateLimitNext > 0 {
+		// As Schwab answers: a body of whitespace, and no Retry-After.
 		f.rateLimitNext--
-		http.Error(w, `{"error":"too many requests"}`, http.StatusTooManyRequests)
+		w.Header().Set("Schwab-Client-CorrelId", "corr-429")
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, " \n")
 		return
 	}
 	q := r.URL.Query()
@@ -278,8 +295,14 @@ func setup(t *testing.T) (*fakeSchwab, string) {
 	t.Setenv("HOME", home)            // macOS
 	t.Setenv("XDG_CONFIG_HOME", home) // Linux and other Unix systems
 	t.Setenv("AppData", home)         // Windows
+	// And the user cache directory, which holds the rate limit.
+	t.Setenv("XDG_CACHE_HOME", home)
+	t.Setenv("LocalAppData", home)
 	timeNow = func() time.Time { return testNow }
 	t.Cleanup(func() { timeNow = time.Now })
+	// Tests make many requests, so let them go fast, and try again at once.
+	clientConfig = schwab.ClientConfig{RatePerMinute: 60_000, Burst: 100, Backoff: time.Millisecond}
+	t.Cleanup(func() { clientConfig = schwab.ClientConfig{} })
 	return f, tokenFile
 }
 
@@ -538,11 +561,11 @@ func TestTruncatedResponsesAreSplit(t *testing.T) {
 
 	// The cap is Schwab's 3000 in real life; shrink it to match the fake.
 	cfg, _ := loadConfig()
-	auth, err := openLogin(cfg, newHTTPClient(), io.Discard)
+	auth, err := openLogin(cfg, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := newClient(cfg, auth, newHTTPClient())
+	c := newClient(auth)
 	c.pageCap = 50
 	accounts, err := c.accountNumbers(context.Background())
 	if err != nil {
@@ -580,6 +603,26 @@ func TestOlderWindowRefusedKeepsWhatWeHave(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "older ones are missing") {
 		t.Errorf("no warning about the missing history: %q", stderr)
+	}
+}
+
+// A login that lapses part way through a run is reported as such, not taken
+// for Schwab refusing older history.
+func TestLoginLapsesDuringARun(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+	doLogin(t)
+	timeNow = func() time.Time { return testNow.Add(2 * time.Minute) } // a token not just issued, nor stale
+	f.afterTx = func() {
+		f.validAccess = "revoked"
+		f.refuseRefresh = true
+	}
+	_, stderr, err := runTx(t)
+	if err == nil || !strings.Contains(err.Error(), "schwabtx login") {
+		t.Errorf("got %v, want the refused login", err)
+	}
+	if strings.Contains(stderr, "older ones are missing") {
+		t.Errorf("took the refused login for refused history: %q", stderr)
 	}
 }
 
@@ -692,18 +735,62 @@ func TestRateLimitIsRetried(t *testing.T) {
 	f.rateLimitNext = 2
 
 	cfg, _ := loadConfig()
-	auth, err := openLogin(cfg, newHTTPClient(), io.Discard)
+	auth, err := openLogin(cfg, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := newClient(cfg, auth, newHTTPClient())
-	c.retryWait = time.Millisecond
+	c := newClient(auth)
 	txs, err := c.transactions(context.Background(), "HASH11112222", testNow.Add(-24*time.Hour), testNow, allTransactionTypes)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(txs) != 5 || f.txCalls != 3 {
 		t.Fatalf("got %d transactions in %d calls, want 5 in 3", len(txs), f.txCalls)
+	}
+}
+
+// Schwab's answers that the tool cannot get past say what to do about them.
+func TestSchwabErrorsSayWhatToDo(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		want   []string
+	}{
+		{"rate limited", http.StatusTooManyRequests, " \n", []string{"HTTP 429 from Schwab after 4 tries", "wait a minute"}},
+		{
+			"an app not yet Ready For Use", http.StatusInternalServerError,
+			`<html><body><h1>Whitelabel Error Page</h1><p>This application has no configured error view.</p></body></html>`,
+			[]string{"Whitelabel Error Page", `until the app says "Ready For Use"`},
+		},
+		{
+			"turned away by Schwab's network", http.StatusForbidden,
+			"<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY>Reference&#32;&#35;18&#46;9efa3f17&#46;1792539138</BODY></HTML>",
+			[]string{"Access Denied (reference #18.9efa3f17.1792539138)", "traderapi@schwab.com"},
+		},
+		{
+			"Schwab's network, with its servers not answering", http.StatusServiceUnavailable,
+			"<HTML><HEAD><TITLE>Service Unavailable</TITLE></HEAD><BODY>Reference&#32;&#35;18&#46;77</BODY></HTML>",
+			[]string{"after 4 tries: an HTML page, Service Unavailable (reference #18.77)"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := setup(t)
+			doLogin(t)
+			f.accountsReply = func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				fmt.Fprint(w, tc.body)
+			}
+			_, _, err := runTx(t)
+			for _, want := range tc.want {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Errorf("got %v, want %q in it", err, want)
+				}
+			}
+			if tc.status != http.StatusForbidden && err != nil && strings.Contains(err.Error(), "turned the request away") {
+				t.Errorf("got %v, which says the request was turned away", err)
+			}
+		})
 	}
 }
 

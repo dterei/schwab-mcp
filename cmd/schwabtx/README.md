@@ -63,6 +63,14 @@ one machine ends the login on the other, and the sync provider would hold
 your token. If others can read the token file, as one copied in by hand may,
 `schwabtx` makes it private and says so.
 
+Schwab limits each app key to 120 requests a minute, whichever program
+sends them, so the processes on your computer that use the key keep to 100 a
+minute together, with bursts of 5. They share that limit through a small file
+in your user cache directory, `schwabtx/rate-` followed by a hash of the app
+key; it holds only two times. Another program that uses the same key, or the
+key used on another computer, draws from Schwab's 120 too, which the 20 left
+over leave room for.
+
 ## Snapshots
 
 Schwab reports positions and balances only as of now. Holdings on a past
@@ -126,8 +134,16 @@ its `fetched_at`.
   that window in half and asks again.
 - On a 401 it gets a new access token once: one that another process saved
   meanwhile, or a refresh. A 401 for a token that Schwab issued moments ago is
-  reported as it is, since a new token would not help. On a 429 or 5xx it
-  backs off and retries.
+  reported as it is, since a new token would not help.
+- After a 429, a 5xx answer or a failure of the network it tries again, up to
+  four times in all. It waits 1, 2, then 4 seconds (after a 5xx or a failure
+  of the network, between half and all of that, at random), or what Schwab
+  asks in Retry-After: after a 429 always, after a 5xx only if that is longer.
+  If Schwab asks for more than a minute, it stops at once. A 429 holds back
+  every process that shares the rate limit for that wait, at most a minute,
+  not only this one, and the last one, after which it stops, for 8 seconds.
+  A request that times out is tried once more, not three times; a refresh of
+  the login that fails on the network or at Schwab is tried again too.
 
 ## Tests
 
@@ -164,6 +180,22 @@ scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
   lock, but set `SCHWAB_TOKEN_FILE` to a file on a local disk.
 - "opening the lock file: ... permission denied": another user, often root
   after a `sudo`, made `token.json.lock`. Remove it while no `schwabtx` runs.
+- "keeps its own rate limit" (a warning): the rate limit's file in your user
+  cache directory cannot be used, so this run keeps the limit by itself, apart
+  from other processes. The warning says why.
+- An error from Schwab includes "(correlation ID ...)" when Schwab gave one.
+  Quote it when you ask Schwab's Trader API team (traderapi@schwab.com) about
+  a failed request.
+- `HTTP 429 from Schwab after 4 tries`: Schwab kept refusing requests from
+  your app key. It counts every program that uses the key; wait a minute and
+  try again.
+- `HTTP 403 from Schwab: an HTML page, Access Denied (reference #...)`:
+  Schwab's network turned the request away, not its API. It usually passes
+  within hours; if it does not, write to traderapi@schwab.com with the
+  reference.
+- `HTTP 500 from Schwab after 4 tries: an HTML page, Whitelabel Error Page`:
+  the app is not "Ready For Use" yet, or an account is of a type the API does
+  not serve.
 - `0 transactions` although the account has activity: the account is
   probably not enabled for thinkorswim (see the
   [top-level README](../../README.md#one-time-setup)). An account you did not
