@@ -141,9 +141,9 @@ its `fetched_at`.
   asks in Retry-After: after a 429 always, after a 5xx only if that is longer.
   If Schwab asks for more than a minute, it stops at once. A 429 holds back
   every process that shares the rate limit for that wait, at most a minute,
-  not only this one, and the last one, after which it stops, for 8 seconds. A request that times out is tried once more, not three
-  times; a refresh of the login that fails on the network or at Schwab is
-  tried again too.
+  not only this one, and the last one, after which it stops, for 8 seconds.
+  A request that times out is tried once more, not three times; a refresh of
+  the login that fails on the network or at Schwab is tried again too.
 
 ## Tests
 
