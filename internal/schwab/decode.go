@@ -92,16 +92,18 @@ var (
 // it for a number, string or boolean that fits its field; the walk sets
 // the field to zero where a last copy of the wrong kind, or null, left it
 // as an earlier copy set it. An earlier copy of the wrong kind is a problem
-// too, and a copy that is null is no copy, for counting an object or array
-// sent twice.
+// too. An object or array whose last copy is null is absent: what its
+// earlier copies held is not checked, and a copy that is null is no copy,
+// for counting one sent twice.
 //
 // A nested value whose type has its own UnmarshalJSON checks itself, and is
 // passed over.
 type walker struct {
 	ps []Problem
 	// mismatched is whether the walk found what explains an error of
-	// encoding/json's: a value of the wrong JSON kind, or an object or array
-	// sent twice, whose earlier copies are not walked.
+	// encoding/json's: a value of the wrong JSON kind, an object or array
+	// sent twice, whose earlier copies are not walked, or one that a later
+	// null discards.
 	mismatched bool
 }
 
@@ -207,10 +209,11 @@ func (w *walker) object(raw []byte, v reflect.Value, path string, skip []string)
 			continue
 		}
 		n, set, last := keys[j].n, keys[j].set, keys[j].last
-		if n > 1 && !f.composite {
-			// encoding/json keeps the last copy of a number, string or
-			// boolean that fits; an earlier one that does not, whatever the
-			// last copy is, is still a problem.
+		if n > 1 {
+			// An earlier copy of the wrong kind is a problem, whatever the
+			// last copy is: encoding/json skipped it, or the last copy
+			// replaced it. Of an earlier object or array, only its kind is
+			// checked.
 			t := derefType(v.Field(f.index).Type())
 			s, earlier := scan(raw, '{'), n-1
 			for key, value, ok := s.member(); ok && earlier > 0; key, value, ok = s.member() {

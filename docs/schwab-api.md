@@ -547,8 +547,10 @@ Indexes take a `$` prefix wherever the index itself is named: quotes
   noise (`-236.999999999999`): they are doubles, which a float64 holds
   exactly.
 - **Duplicate keys.** One captured instrument named `assetType` twice. Go's
-  `encoding/json` takes the last value; strict parsers and Go's experimental
-  json/v2 refuse the object.
+  `encoding/json` takes the last value; strict parsers and Go's
+  `encoding/json/v2` (built by default from Go 1.27, behind
+  `GOEXPERIMENT=jsonv2` in 1.26) refuse the object unless given
+  `jsontext.AllowDuplicateNames(true)`.
 - **Keep the raw bytes.** Re-encoding Schwab's JSON changes it: Go's
   `json.Marshal` escapes `&`, `<` and `>`, a `json.Encoder` on Go 1.27
   escapes U+2028 and U+2029 even with HTML escaping off, and decoding into a

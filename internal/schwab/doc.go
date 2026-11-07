@@ -38,7 +38,8 @@
 //   - Times are in UTC.
 //   - Where a key appears twice in an object, the last copy counts. An
 //     object or array sent twice is also a problem, since encoding/json may
-//     combine the copies into a value that Schwab did not send.
+//     combine the copies into a value that Schwab did not send; one whose
+//     last copy is null is absent, whatever its earlier copies held.
 //
 // A record's Problems cover its own JSON and the objects nested in it, at
 // every depth, but not the Positions inside an Account, which have their

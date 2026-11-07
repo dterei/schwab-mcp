@@ -1451,14 +1451,25 @@ func TestNullElements(t *testing.T) {
 	var tx Transaction
 	in := `{"assetType":"OPTION","symbol":"X","optionDeliverables":[null]}`
 	if err := json.Unmarshal([]byte(withKeys(baseTransaction, "transferItems",
-		"["+baseLeg+",null,"+withKeys(baseLeg, "instrument", in)+"]")), &tx); err != nil {
+		"["+baseLeg+",null,"+withKeys(baseLeg, "instrument", in, "cost", `"x"`)+"]")), &tx); err != nil {
 		t.Fatal(err)
 	}
+	// The walk goes on past the null, to the leg after it.
 	if got, want := problemStrings(tx.Problems), []string{
 		"transferItems: Schwab sent null where an object was expected",
+		"transferItems.cost: Schwab sent a string where a number was expected",
 		"transferItems.instrument.optionDeliverables: Schwab sent null where an object was expected",
 	}; !slices.Equal(got, want) {
 		t.Errorf("transaction's problems:\n got %q\nwant %q", got, want)
+	}
+	// A null position is a problem of the position, not of its account.
+	var a Account
+	if err := json.Unmarshal([]byte(`{"securitiesAccount":`+withKeys(baseSecuritiesAccount, "positions", "["+basePosition+",null]")+"}"), &a); err != nil {
+		t.Fatal(err)
+	}
+	if ps := a.SecuritiesAccount.Positions; len(a.Problems) != 0 || len(ps) != 2 ||
+		!slices.Equal(problemStrings(ps[1].Problems), []string{"Schwab sent null where an object was expected"}) {
+		t.Errorf("a null position: account's problems %q, positions %+v", a.Problems, ps)
 	}
 	var u UserPreference
 	if err := json.Unmarshal([]byte(`{"accounts":[null],"streamerInfo":[null],"offers":[null]}`), &u); err != nil {
@@ -1617,7 +1628,27 @@ func TestDuplicateKeys(t *testing.T) {
 		{
 			"a number where a list belongs, then null", &Transaction{},
 			`{"transferItems":5,` + withKeys(baseTransaction, "transferItems", "null", "type", `""`)[1:],
-			[]string{missing("transferItems")[0], missing("type")[0]},
+			[]string{
+				"transferItems: Schwab sent a number where an array was expected", missing("transferItems")[0], missing("type")[0],
+			},
+		},
+		{
+			"a number where an object belongs, then null, for an object Schwab sends only sometimes", &Account{},
+			`{"securitiesAccount":` + baseSecuritiesAccount + `,"aggregatedBalance":5,"aggregatedBalance":null}`,
+			[]string{"aggregatedBalance: Schwab sent a number where an object was expected"},
+		},
+		{
+			"a number, then a boolean, then a string", &Transaction{},
+			`{"subAccount":5,"subAccount":true,` + baseTransaction[1:],
+			[]string{
+				"subAccount: Schwab sent a number where a string was expected", "subAccount: Schwab sent a boolean where a string was expected",
+			},
+		},
+		{
+			"two balances, then null", &Account{},
+			`{"securitiesAccount":{"currentBalances":{"liquidationValue":7},"currentBalances":{"cashBalance":1},` +
+				withKeys(baseSecuritiesAccount, "currentBalances", "null")[1:] + "}",
+			missing("securitiesAccount.currentBalances"),
 		},
 		{
 			"balances with a bad value, then good ones", &Account{},
@@ -1648,6 +1679,24 @@ func TestDuplicateKeys(t *testing.T) {
 	}
 	if v := a.SecuritiesAccount.CurrentBalances.LiquidationValue; v != nil {
 		t.Errorf("liquidationValue = %v, though the last copy of its balances was a number", *v)
+	}
+	a = Account{}
+	if err := json.Unmarshal([]byte(`{"securitiesAccount":{"currentBalances":{"liquidationValue":7},`+
+		withKeys(baseSecuritiesAccount, "currentBalances", "null")[1:]+`,"aggregatedBalance":{"liquidationValue":1},"aggregatedBalance":null}`), &a); err != nil {
+		t.Fatal(err)
+	}
+	if a.SecuritiesAccount.CurrentBalances.LiquidationValue != nil || a.AggregatedBalance.LiquidationValue != nil {
+		t.Errorf("balances = %+v, %+v, though the last copy of each was null", a.SecuritiesAccount.CurrentBalances, a.AggregatedBalance)
+	}
+	if got, want := problemStrings(a.Problems), missing("securitiesAccount.currentBalances"); !slices.Equal(got, want) {
+		t.Errorf("account's problems:\n got %q\nwant %q", got, want)
+	}
+	tx = Transaction{}
+	if err := json.Unmarshal([]byte(`{"transferItems":[`+baseLeg+`],`+withKeys(baseTransaction, "transferItems", "{}")[1:]), &tx); err != nil {
+		t.Fatal(err)
+	}
+	if tx.TransferItems != nil {
+		t.Errorf("legs = %+v, though the last copy of transferItems was an object", tx.TransferItems)
 	}
 	tx = Transaction{}
 	in := `{"assetType":"OPTION","symbol":"X","optionDeliverables":[{"deliverableUnits":100,` +

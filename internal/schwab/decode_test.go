@@ -139,7 +139,7 @@ func TestScannerWhiteSpace(t *testing.T) {
 	if err := json.Indent(&indented, []byte(withKeys(baseTransaction, "transferItems", "["+baseLeg+"]")), "", "\t"); err != nil {
 		t.Fatal(err)
 	}
-	body := strings.NewReplacer("\n", "\r\n", `": `, "\"\t:\t", ",", "\t,").Replace(indented.String())
+	body := strings.NewReplacer("\n", "\r\n", `": `, "\" \t:\t", ",", "\t,").Replace(indented.String())
 	var tx Transaction
 	if err := json.Unmarshal([]byte(body), &tx); err != nil {
 		t.Fatal(err)
