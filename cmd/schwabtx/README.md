@@ -40,7 +40,7 @@ Flags:
 ```
 -n 100             how many transactions to print
 -lookback 365      how many days back to search
--window 60         days per API request
+-window 60         days per API request, at most 365
 -types TRADE,...   only these transaction types (default: all)
 -json              Schwab's raw JSON instead of a table (best input for calculators;
                    includes full account numbers)
@@ -129,7 +129,9 @@ its `fetched_at`.
 - History is served in limited date windows, so the tool walks backwards 60
   days at a time (`-window`) up to one year (`-lookback`). If Schwab refuses an
   older window the tool narrows it to get as close to the limit as it can,
-  prints what it got and warns you.
+  prints what it got and warns you. Schwab has also been seen to answer a
+  window past an account's history with no transactions, rather than refuse
+  it.
 - A response with 3000 transactions may have been cut short, so the tool splits
   that window in half and asks again.
 - On a 401 it gets a new access token once: one that another process saved
@@ -183,6 +185,15 @@ scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
 - "keeps its own rate limit" (a warning): the rate limit's file in your user
   cache directory cannot be used, so this run keeps the limit by itself, apart
   from other processes. The warning says why.
+- "differed from what Schwab has sent before" (a warning): Schwab sent a
+  value in a form it has not sent before, such as a string where a number
+  belongs, left out a key that it has always sent, or sent an object or
+  array twice. The table may show such a field as 0 or blank or, for one
+  sent twice, as a mix of the copies; `-json` prints Schwab's own JSON, and
+  the snapshot keeps it. The warning names the fields.
+- "Invalid account number" (`HTTP 400`): Schwab refused an account that it
+  had just listed, for a reason not known. Run the command again; if it
+  keeps failing, write to Schwab with the correlation ID.
 - An error from Schwab includes "(correlation ID ...)" when Schwab gave one.
   Quote it when you ask Schwab's Trader API team (traderapi@schwab.com) about
   a failed request.

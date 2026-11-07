@@ -1,0 +1,495 @@
+[
+  {
+    "activityId": 73508261941,
+    "time": "2026-08-04T15:22:41+0000",
+    "accountNumber": "61803398",
+    "type": "TRADE",
+    "status": "VALID",
+    "subAccount": "MARGIN",
+    "tradeDate": "2026-08-04T15:22:41+0000",
+    "positionId": 3926184750,
+    "orderId": 1004517638295,
+    "netAmount": 311.31,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.65,
+        "cost": -0.65,
+        "feeType": "COMMISSION"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.01,
+        "cost": -0.01,
+        "feeType": "SEC_FEE"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.02,
+        "cost": -0.02,
+        "feeType": "OPT_REG_FEE"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.01,
+        "cost": -0.01,
+        "feeType": "TAF_FEE"
+      },
+      {
+        "instrument": {
+          "assetType": "OPTION",
+          "status": "ACTIVE",
+          "symbol": "XYZ   260918C00050000",
+          "uniformSymbol": "XYZ   260918C00050000",
+          "description": "XYZ 09/18/2026 50.00 C",
+          "instrumentId": 219834765,
+          "closingPrice": 3.05,
+          "expirationDate": "2026-09-18T04:00:00+0000",
+          "optionDeliverables": [
+            {
+              "rootSymbol": "XYZ",
+              "strikePercent": 100,
+              "deliverableNumber": 1,
+              "deliverableUnits": 100.0,
+              "deliverable": {
+                "assetType": "EQUITY",
+                "status": "ACTIVE",
+                "symbol": "XYZ",
+                "uniformSymbol": "XYZ",
+                "description": "XYZ CORP COMMON STOCK",
+                "instrumentId": 1854092,
+                "closingPrice": 52.18,
+                "type": "COMMON_STOCK"
+              }
+            }
+          ],
+          "optionPremiumMultiplier": 100,
+          "putCall": "CALL",
+          "strikePrice": 50.0,
+          "type": "VANILLA",
+          "underlyingSymbol": "XYZ",
+          "underlyingCusip": "98389B100"
+        },
+        "amount": -1.0,
+        "cost": 312.0,
+        "price": 3.12,
+        "positionEffect": "CLOSING"
+      }
+    ]
+  },
+  {
+    "activityId": 73508261942,
+    "time": "2026-03-13T13:55:09+0000",
+    "accountNumber": "61803398",
+    "type": "TRADE",
+    "status": "VALID",
+    "subAccount": "MARGIN",
+    "tradeDate": "2026-03-13T04:00:00+0000",
+    "positionId": 3926184815,
+    "orderId": 1004517688020,
+    "netAmount": 603.36,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.0,
+        "cost": 0.0,
+        "feeType": "COMMISSION"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.03,
+        "cost": -0.03,
+        "feeType": "SEC_FEE"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.0,
+        "cost": 0.0,
+        "feeType": "OPT_REG_FEE"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.01,
+        "cost": -0.01,
+        "feeType": "TAF_FEE"
+      },
+      {
+        "instrument": {"assetType": "EQUITY", "status": "ACTIVE", "symbol": "META", "uniformSymbol": "META", "description": "META PLATFORMS INC CLASS A", "instrumentId": 1940083512, "closingPrice": 598.7, "type": "COMMON_STOCK"},
+        "amount": -1.0,
+        "cost": 603.4,
+        "price": 603.4,
+        "positionEffect": "CLOSING"
+      }
+    ]
+  },
+  {
+    "activityId": 73508261943,
+    "time": "2025-06-02T14:30:27+0000",
+    "accountNumber": "29470135",
+    "type": "TRADE",
+    "status": "VALID",
+    "subAccount": "CASH",
+    "tradeDate": "2025-06-02T14:30:27+0000",
+    "positionId": 3926184802,
+    "orderId": 1004517639411,
+    "netAmount": -605.46,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0},
+        "amount": 0,
+        "cost": 0,
+        "feeType": "COMMISSION"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0},
+        "amount": 0,
+        "cost": 0,
+        "feeType": "SEC_FEE"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0},
+        "amount": 0,
+        "cost": 0,
+        "feeType": "OPT_REG_FEE"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0},
+        "amount": 0,
+        "cost": 0,
+        "feeType": "TAF_FEE"
+      },
+      {
+        "instrument": {"assetType": "EQUITY", "status": "ACTIVE", "symbol": "AAPL", "instrumentId": 1973757747, "closingPrice": 227.51, "type": "COMMON_STOCK"},
+        "amount": 3,
+        "cost": -605.46,
+        "price": 201.82,
+        "positionEffect": "OPENING"
+      }
+    ]
+  },
+  {
+    "activityId": 73508261944,
+    "time": "2025-01-21T16:05:12+0000",
+    "accountNumber": "61803398",
+    "type": "TRADE",
+    "status": "VALID",
+    "subAccount": "MARGIN",
+    "tradeDate": "2025-01-21T16:05:12+0000",
+    "positionId": 3926184766,
+    "orderId": 1004517601177,
+    "netAmount": -400.67,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.65,
+        "cost": -0.65,
+        "feeType": "COMMISSION"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.0,
+        "cost": 0.0,
+        "feeType": "SEC_FEE"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.02,
+        "cost": -0.02,
+        "feeType": "OPT_REG_FEE"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.0,
+        "cost": 0.0,
+        "feeType": "TAF_FEE"
+      },
+      {
+        "instrument": {
+          "assetType": "OPTION",
+          "status": "ACTIVE",
+          "symbol": "XYZ   250221P00040000",
+          "description": "XYZ 02/21/2025 40.00 P",
+          "instrumentId": 219771034,
+          "closingPrice": 1.85,
+          "expirationDate": "2025-02-21T05:00:00+0000",
+          "optionDeliverables": [
+            {"rootSymbol": "XYZ", "strikePercent": 100, "deliverableNumber": 1, "deliverableUnits": 100.0}
+          ],
+          "optionPremiumMultiplier": 100,
+          "putCall": "PUT",
+          "strikePrice": 40.0,
+          "type": "VANILLA",
+          "underlyingSymbol": "XYZ"
+        },
+        "amount": 2.0,
+        "cost": -400.0,
+        "price": 2.0,
+        "positionEffect": "OPENING"
+      }
+    ]
+  },
+  {
+    "activityId": 73508261945,
+    "time": "2025-01-14T05:15:12+0000",
+    "accountNumber": "61803398",
+    "type": "TRADE",
+    "status": "VALID",
+    "subAccount": "MARGIN",
+    "tradeDate": "2025-01-14T05:15:12+0000",
+    "positionId": 3926184779,
+    "orderId": 1004517592340,
+    "netAmount": -1052.82,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 1.5,
+        "cost": -1.5,
+        "feeType": "COMMISSION"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 1.3,
+        "cost": -1.3,
+        "feeType": "FUTURES_EXCHANGE_FEE"
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.0,
+        "cost": 0.0
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.0,
+        "cost": 0.0
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.02,
+        "cost": -0.02
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.0,
+        "cost": 0.0
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.0,
+        "cost": 0.0
+      },
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 0.0,
+        "cost": 0.0
+      },
+      {
+        "instrument": {
+          "assetType": "OPTION",
+          "status": "ACTIVE",
+          "symbol": "/ESH25_P5050:XCME",
+          "description": "E-MINI S&P 500 OPTIONS MAR 25 5050 PUT",
+          "instrumentId": 205187341,
+          "closingPrice": 21.0,
+          "expirationDate": "2025-03-21T04:00:00+0000",
+          "optionDeliverables": [
+            {"rootSymbol": "/ESH25:XCME", "strikePercent": 0, "deliverableNumber": 1, "deliverableUnits": 1}
+          ],
+          "optionPremiumMultiplier": 50,
+          "putCall": "PUT",
+          "strikePrice": 5050,
+          "type": "VANILLA",
+          "underlyingSymbol": ".ESH25:XCME"
+        },
+        "amount": 1.0,
+        "cost": -1050.0,
+        "price": 21.0,
+        "positionEffect": "OPENING"
+      }
+    ]
+  },
+  {
+    "activityId": 73508261946,
+    "time": "2024-04-04T15:56:07+0000",
+    "description": "Dividend Reinvest",
+    "accountNumber": "29470135",
+    "type": "TRADE",
+    "status": "VALID",
+    "subAccount": "CASH",
+    "tradeDate": "2024-04-04T04:00:00+0000",
+    "settlementDate": "2024-04-08T04:00:00+0000",
+    "positionId": 3926184811,
+    "netAmount": -2.7,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "COLLECTIVE_INVESTMENT", "status": "ACTIVE", "symbol": "BND", "description": "VANGUARD TOTAL BOND MARKET ETF", "instrumentId": 4417302, "closingPrice": 71.59, "type": "EXCHANGE_TRADED_FUND"},
+        "amount": 0.0378,
+        "cost": -2.7,
+        "price": 71.42857,
+        "positionEffect": "OPENING"
+      }
+    ]
+  },
+  {
+    "activityId": 73508261947,
+    "time": "2024-03-15T23:36:04+0000",
+    "description": "Sell Trade",
+    "accountNumber": "29470135",
+    "type": "TRADE",
+    "status": "VALID",
+    "subAccount": "CASH",
+    "tradeDate": "2024-03-15T04:00:00+0000",
+    "settlementDate": "2024-03-19T04:00:00+0000",
+    "positionId": 3926184833,
+    "netAmount": 83.27,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "COLLECTIVE_INVESTMENT", "status": "ACTIVE", "symbol": "VBR", "description": "VANGUARD SMALL-CAP VALUE ETF", "instrumentId": 4417355, "closingPrice": 186.2, "type": "EXCHANGE_TRADED_FUND"},
+        "amount": -0.4513,
+        "cost": 83.27,
+        "price": 184.51,
+        "positionEffect": "CLOSING"
+      }
+    ]
+  },
+  {
+    "activityId": 73508261948,
+    "time": "2026-07-15T14:40:03+0000",
+    "description": "Ordinary Dividend~XYZ",
+    "accountNumber": "61803398",
+    "type": "DIVIDEND_OR_INTEREST",
+    "status": "VALID",
+    "subAccount": "CASH",
+    "tradeDate": "2026-07-15T04:00:00+0000",
+    "settlementDate": "2026-07-15T04:00:00+0000",
+    "netAmount": 25,
+    "qualifiedDividend": false,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 25,
+        "cost": 0.0,
+        "price": 0.0
+      }
+    ]
+  },
+  {
+    "activityId": 73508261949,
+    "time": "2024-05-01T01:18:44+0000",
+    "description": "Free Balance Interest Adjustment",
+    "accountNumber": "29470135",
+    "type": "DIVIDEND_OR_INTEREST",
+    "status": "VALID",
+    "subAccount": "CASH",
+    "tradeDate": "2024-04-30T04:00:00+0000",
+    "settlementDate": "2024-04-30T04:00:00+0000",
+    "netAmount": 0.42,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0},
+        "amount": 0.42,
+        "cost": 0,
+        "price": 0
+      }
+    ]
+  },
+  {
+    "activityId": 73508261950,
+    "time": "2024-04-04T15:54:14+0000",
+    "description": "Ordinary Dividend~BND",
+    "accountNumber": "29470135",
+    "type": "DIVIDEND_OR_INTEREST",
+    "status": "VALID",
+    "subAccount": "CASH",
+    "tradeDate": "2024-04-04T04:00:00+0000",
+    "settlementDate": "2024-04-04T04:00:00+0000",
+    "netAmount": 3.86,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0},
+        "amount": 3.86,
+        "cost": 0,
+        "price": 0
+      }
+    ]
+  },
+  {
+    "activityId": 73508261951,
+    "time": "2023-12-15T16:02:55+0000",
+    "description": "Wire Incoming",
+    "accountNumber": "29470135",
+    "type": "WIRE_IN",
+    "status": "VALID",
+    "subAccount": "CASH",
+    "tradeDate": "2023-12-15T05:00:00+0000",
+    "settlementDate": "2023-12-15T05:00:00+0000",
+    "netAmount": 10000.0,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0},
+        "amount": 10000.0,
+        "cost": 0,
+        "price": 0
+      }
+    ]
+  },
+  {
+    "activityId": 73508261952,
+    "time": "2023-07-19T07:32:10+0000",
+    "description": "ACH Credit Received",
+    "accountNumber": "29470135",
+    "type": "ELECTRONIC_FUND",
+    "status": "VALID",
+    "subAccount": "CASH",
+    "tradeDate": "2023-07-19T04:00:00+0000",
+    "settlementDate": "2023-07-19T04:00:00+0000",
+    "netAmount": 2500,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0},
+        "amount": 2500,
+        "cost": 0,
+        "price": 0
+      }
+    ]
+  },
+  {
+    "activityId": 73508261953,
+    "time": "2023-06-12T14:20:31+0000",
+    "description": "Funds Received",
+    "accountNumber": "29470135",
+    "type": "CASH_RECEIPT",
+    "status": "VALID",
+    "subAccount": "CASH",
+    "tradeDate": "2023-06-12T04:00:00+0000",
+    "settlementDate": "2023-06-12T04:00:00+0000",
+    "netAmount": 150.0,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0.0},
+        "amount": 150.0,
+        "cost": 0.0,
+        "price": 0.0
+      }
+    ]
+  },
+  {
+    "activityId": 73508261954,
+    "time": "2024-04-04T15:54:15+0000",
+    "description": "W-8 Withholding~BND",
+    "accountNumber": "29470135",
+    "type": "JOURNAL",
+    "status": "VALID",
+    "subAccount": "CASH",
+    "tradeDate": "2024-04-04T04:00:00+0000",
+    "settlementDate": "2024-04-04T04:00:00+0000",
+    "netAmount": -1.16,
+    "transferItems": [
+      {
+        "instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency", "instrumentId": 1, "closingPrice": 0},
+        "amount": -1.16,
+        "cost": 0,
+        "price": 0
+      }
+    ]
+  }
+]

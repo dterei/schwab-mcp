@@ -219,6 +219,36 @@ func TestSnapshotWarnsWhenAnAccountGoesMissing(t *testing.T) {
 	if lines := snapshotLines(t, os.Getenv("SCHWAB_SNAPSHOT_FILE")); len(lines) != 2 {
 		t.Errorf("got %d snapshots, want 2", len(lines))
 	}
+
+	// An account whose number cannot be read is not taken for another one
+	// gone missing.
+	f.accounts = f.accounts[:1]
+	f.numberJSON = `11112222`
+	_, stderr, err = runTx(t, "snapshot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stderr, "did not return") || !strings.Contains(stderr, "securitiesAccount.accountNumber: ") {
+		t.Errorf("warnings about an account whose number cannot be read: %q", stderr)
+	}
+}
+
+// The snapshot's warning names the account's own values, and a position that
+// is not an object, as well as values inside positions.
+func TestSnapshotWarnsOfUnreadableAccounts(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 1, testNow, time.Hour)
+	f.balancesJSON = `{"liquidationValue":"12345.60","cashBalance":100.0}`
+	f.positionsJSON = `5`
+	doLogin(t)
+	_, stderr, err := runTx(t, "snapshot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "1 account differed from what Schwab has sent before (securitiesAccount.currentBalances.liquidationValue: " +
+		"Schwab sent a string where a number was expected; securitiesAccount.positions: Schwab sent a number where an object was expected)"; !strings.Contains(stderr, want) {
+		t.Errorf("warning: %q\nwant it to hold %q", stderr, want)
+	}
 }
 
 func TestSnapshotMakesAnExistingFilePrivate(t *testing.T) {
@@ -308,5 +338,31 @@ func TestLastLine(t *testing.T) {
 		if got := string(lastLine(path)); got != tc.want {
 			t.Errorf("%s: got %d bytes %.20q..., want %d bytes %.20q...", tc.name, len(got), got, len(tc.want), tc.want)
 		}
+	}
+}
+
+// A position that Schwab sends in an unexpected form is saved as it came,
+// with a warning that names it.
+func TestSnapshotWarnsOfUnreadablePositions(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 1, testNow, time.Hour)
+	f.positionsJSON = `{"shortQuantity":0,"averagePrice":246.91,"currentDayProfitLoss":0,"currentDayProfitLossPercentage":0,` +
+		`"longQuantity":5,"settledLongQuantity":5,"settledShortQuantity":0,"instrument":{"assetType":"EQUITY","symbol":"VTI"},` +
+		`"marketValue":"1300.5","maintenanceRequirement":0,"currentDayCost":0}`
+	doLogin(t)
+	out, stderr, err := runTx(t, "snapshot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "1 account differed from what Schwab has sent before (securitiesAccount.positions.marketValue: ") ||
+		!strings.Contains(stderr, "the snapshot keeps Schwab's own JSON") {
+		t.Errorf("warning: %q", stderr)
+	}
+	if !strings.Contains(out, "with 1 positions") {
+		t.Errorf("output: %q", out)
+	}
+	lines := snapshotLines(t, os.Getenv("SCHWAB_SNAPSHOT_FILE"))
+	if len(lines) != 1 || !strings.Contains(lines[0], `"marketValue":"1300.5"`) {
+		t.Errorf("the snapshot does not keep Schwab's value: %q", lines)
 	}
 }

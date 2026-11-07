@@ -24,8 +24,11 @@ import (
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
-// maxDays bounds -lookback and -window so they cannot overflow a Duration.
+// maxDays bounds -lookback so it cannot overflow a Duration.
 const maxDays = 36500
+
+// maxWindowDays bounds -window to the longest window Schwab serves.
+const maxWindowDays = int(schwab.MaxTransactionWindow / (24 * time.Hour))
 
 // timeNow is swapped out in tests.
 var timeNow = time.Now
@@ -129,7 +132,7 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 	fs.SetOutput(stderr)
 	n := fs.Int("n", 100, "how many of the most recent transactions to print")
 	lookback := fs.Int("lookback", 365, "how many days back to search")
-	window := fs.Int("window", 60, "days per API request")
+	window := fs.Int("window", 60, "days per API request, at most 365")
 	types := fs.String("types", "", "comma-separated transaction types (default: all)")
 	asJSON := fs.Bool("json", false, "print Schwab's raw JSON instead of a table (includes full account numbers)")
 	showAccounts := fs.Bool("show-accounts", false, "print full account numbers in the table instead of the last 4 digits")
@@ -142,8 +145,11 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 	if *n < 1 || *lookback < 1 || *window < 1 {
 		return errors.New("-n, -lookback and -window must be at least 1")
 	}
-	if *lookback > maxDays || *window > maxDays {
-		return fmt.Errorf("-lookback and -window must be at most %d days", maxDays)
+	if *lookback > maxDays {
+		return fmt.Errorf("-lookback must be at most %d days", maxDays)
+	}
+	if *window > maxWindowDays {
+		return fmt.Errorf("-window must be at most %d days, the most Schwab serves in one request", maxWindowDays)
 	}
 	typeList, err := parseTypes(*types)
 	if err != nil {
@@ -167,6 +173,13 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 	if len(accounts) == 0 {
 		return errors.New("Schwab returned no accounts; run `schwabtx login` again and tick the accounts to share")
 	}
+	numberProblems := make([][]schwab.Problem, len(accounts))
+	for i, a := range accounts {
+		numberProblems[i] = a.Problems
+	}
+	if w := problemsWarning("account number", numberProblems); w != "" {
+		fmt.Fprintln(stderr, "warning:", w)
+	}
 
 	txs, err := fetchRecent(ctx, c, accounts, fetchOptions{
 		N:        *n,
@@ -179,6 +192,13 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 	if err != nil {
 		return err
 	}
+	problems := make([][]schwab.Problem, len(txs))
+	for i, tx := range txs {
+		problems[i] = tx.Problems
+	}
+	if w := problemsWarning("transaction", problems); w != "" {
+		fmt.Fprintln(stderr, "warning:", w+"; the table may not show those fields as Schwab sent them, and -json prints Schwab's own JSON")
+	}
 
 	if *asJSON {
 		return printJSON(stdout, txs)
@@ -188,18 +208,23 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 }
 
 // parseTypes turns the -types flag into a list, defaulting to every type.
-func parseTypes(flagValue string) ([]string, error) {
+func parseTypes(flagValue string) ([]schwab.TransactionType, error) {
+	all := schwab.AllTransactionTypes()
 	if strings.TrimSpace(flagValue) == "" {
-		return allTransactionTypes, nil
+		return all, nil
 	}
-	var list []string
+	var list []schwab.TransactionType
 	for t := range strings.SplitSeq(flagValue, ",") {
-		t = strings.ToUpper(strings.TrimSpace(t))
+		t := schwab.TransactionType(strings.ToUpper(strings.TrimSpace(t)))
 		if t == "" {
 			continue
 		}
-		if !slices.Contains(allTransactionTypes, t) {
-			return nil, fmt.Errorf("unknown transaction type %q in -types; valid types: %s", t, strings.Join(allTransactionTypes, ", "))
+		if !slices.Contains(all, t) {
+			names := make([]string, len(all))
+			for i, a := range all {
+				names[i] = string(a)
+			}
+			return nil, fmt.Errorf("unknown transaction type %q in -types; valid types: %s", t, strings.Join(names, ", "))
 		}
 		list = append(list, t)
 	}

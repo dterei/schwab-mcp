@@ -56,6 +56,12 @@ func TestErrorFormats(t *testing.T) {
 			want:    "HTTP 400 from Schwab: Invalid account number (correlation ID c-2)",
 		},
 		{
+			name: "Accounts and Trading, a message in a list of one", status: 400,
+			body:    `[{"message":"Invalid account number"}]`,
+			message: "Invalid account number",
+			want:    "HTTP 400 from Schwab: Invalid account number",
+		},
+		{
 			name: "Accounts and Trading, a 401 in the Market Data format", status: 401,
 			body:   `{"errors":[{"id":"1a2345b6-0000-0000-0000-000000000000","status":401,"title":"Unauthorized","detail":"Client not authorized"}]}`,
 			errors: []string{"Client not authorized"},

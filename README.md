@@ -22,7 +22,7 @@ Schwab & Co.
 | --- | --- |
 | [`schwabtx`](cmd/schwabtx): log in and print recent transactions across all accounts | Works |
 | [`schwabtx snapshot`](cmd/schwabtx/README.md#snapshots): save your current positions and balances; [run it daily](cmd/schwabtx/schedule) with launchd, cron or Task Scheduler | Works |
-| Reusable Go client for Schwab's API (milestone 1) | Planned |
+| Go client for Schwab's API (milestone 1): the login, retries under a shared rate limit, and the account records | In progress, internal for now |
 | Full transaction history, stored locally and exported for your calculators (milestone 2) | Planned |
 | MCP server, read-only first (milestone 3) | Planned |
 
@@ -147,9 +147,11 @@ cmd/schwabtx/schedule/
                 scripts and steps for running snapshots daily
 internal/schwab/
                 the Schwab client: the login, its refresh and the token file
-                that every process using the login shares, and reads that are
+                that every process using the login shares, reads that are
                 tried again after a failure, under a rate limit that every
-                process using the app key shares
+                process using the app key shares, and the accounts,
+                positions, transactions and preferences they return, with
+                Schwab's JSON kept
 internal/filelock/
                 file locks across processes, which keep two processes from
                 refreshing the login at once, or from going over the rate

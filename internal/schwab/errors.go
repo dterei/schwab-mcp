@@ -31,6 +31,12 @@ var (
 	// gateway passes on, so the request has to ask for less, as with a
 	// narrower option chain. Check for it with errors.Is.
 	ErrResponseTooBig = errors.New("the answer was too big")
+	// ErrInvalidAccount means that Schwab refused the account in the
+	// request's path with 400 "Invalid account number". It answers so for
+	// an account number given where its hash belongs, and may for a hash it
+	// no longer accepts; look the hash up again with AccountNumbers. Check
+	// for it with errors.Is.
+	ErrInvalidAccount = errors.New("invalid account")
 )
 
 // Error is an error response from Schwab.
@@ -94,14 +100,17 @@ func (e *Error) Error() string {
 	return b.String()
 }
 
-// Is makes a 429 match ErrRateLimited, and the gateway's refusal of a large
-// answer ErrResponseTooBig.
+// Is makes a 429 match ErrRateLimited, the gateway's refusal of a large
+// answer ErrResponseTooBig, and Schwab's refusal of an account
+// ErrInvalidAccount.
 func (e *Error) Is(target error) bool {
 	switch target {
 	case ErrRateLimited:
 		return e.Status == http.StatusTooManyRequests
 	case ErrResponseTooBig:
 		return e.Code == tooBigCode
+	case ErrInvalidAccount:
+		return e.Status == http.StatusBadRequest && strings.EqualFold(strings.TrimSpace(e.Message), "Invalid account number")
 	}
 	return false
 }
@@ -199,7 +208,13 @@ func newError(status int, header http.Header, body []byte) *Error {
 			} `json:"detail"`
 		} `json:"fault"`
 	}
-	if json.Unmarshal(body, &v) == nil {
+	// One report shows the body as a list holding the one object, perhaps
+	// as the reporter's own code printed it; that form is read too.
+	inner := body
+	if one := []json.RawMessage(nil); json.Unmarshal(body, &one) == nil && len(one) == 1 {
+		inner = one[0]
+	}
+	if json.Unmarshal(inner, &v) == nil {
 		e.Message = v.Message
 		e.Errors = errorList(v.Errors)
 		if v.Fault != nil {

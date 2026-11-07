@@ -1,0 +1,48 @@
+{
+  "accounts": [
+    {
+      "accountNumber": "29470135",
+      "primaryAccount": true,
+      "type": "BROKERAGE",
+      "nickName": "Individual",
+      "displayAcctId": "...135",
+      "autoPositionEffect": false,
+      "accountColor": "Green",
+      "lotSelectionMethod": "FIFO"
+    },
+    {
+      "accountNumber": "61803398",
+      "primaryAccount": false,
+      "type": "BROKERAGE",
+      "nickName": "Options & Margin",
+      "displayAcctId": "...398",
+      "autoPositionEffect": false,
+      "accountColor": "Green",
+      "lotSelectionMethod": "FIFO"
+    },
+    {
+      "accountNumber": "40221783",
+      "primaryAccount": false,
+      "type": "BROKERAGE",
+      "nickName": "Contributory",
+      "displayAcctId": "...783",
+      "autoPositionEffect": false,
+      "accountColor": "Green"
+    }
+  ],
+  "streamerInfo": [
+    {
+      "streamerSocketUrl": "wss://streamer-api.schwab.com/ws",
+      "schwabClientCustomerId": "5f0c2e9a8b7d4e31a6c9f2b0d8e7a4c15f0c2e9a8b7d4e31a6c9f2b0d8e7a4c1",
+      "schwabClientCorrelId": "c3a9e2f4-7b1d-4e8a-9f6c-2d5b8a1e0f7c",
+      "schwabClientChannel": "N9",
+      "schwabClientFunctionId": "APIAPP"
+    }
+  ],
+  "offers": [
+    {
+      "level2Permissions": true,
+      "mktDataPermission": "NP"
+    }
+  ]
+}

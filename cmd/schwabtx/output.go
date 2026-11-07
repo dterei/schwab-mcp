@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
+
+	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
 func maskAccount(number string) string {
@@ -16,17 +20,19 @@ func maskAccount(number string) string {
 	return "..." + number[len(number)-4:]
 }
 
-func printTable(w io.Writer, txs []transaction, showAccounts bool) error {
+// printTable prints txs as a table. A transaction whose time is absent, or
+// midnight in New York, as a date without a time reads, shows its trade day,
+// without a time of day.
+func printTable(w io.Writer, txs []schwab.Transaction, showAccounts bool) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "#\tDATE\tACCOUNT\tTYPE\tSTATUS\tSYMBOL\tQTY\tPRICE\tNET AMOUNT\tDESCRIPTION")
 	for i, tx := range txs {
 		date := "?"
 		switch {
-		case tx.When.IsZero():
-		case tx.DateOnly:
-			date = tx.When.Format("2006-01-02")
-		default:
-			date = tx.When.Local().Format("2006-01-02 15:04")
+		case !tx.Time.IsZero() && !newYorkMidnight(tx.Time):
+			date = tx.Time.Local().Format("2006-01-02 15:04")
+		case tx.TradeDay() != "":
+			date = string(tx.TradeDay())
 		}
 		acct := tx.AccountNumber
 		if !showAccounts {
@@ -34,7 +40,7 @@ func printTable(w io.Writer, txs []transaction, showAccounts bool) error {
 		}
 		symbol, qty, price := "", "", ""
 		desc := tx.Description
-		if it, ok := tx.primaryItem(); ok {
+		if it, ok := primaryItem(tx); ok {
 			symbol = it.Instrument.Symbol
 			qty = formatNumber(it.Amount)
 			if it.Price != 0 {
@@ -50,17 +56,34 @@ func printTable(w io.Writer, txs []transaction, showAccounts bool) error {
 	return tw.Flush()
 }
 
-// printJSON writes Schwab's own JSON for each transaction, re-indented but
-// otherwise as received. That includes full account numbers.
-func printJSON(w io.Writer, txs []transaction) error {
-	raws := make([]json.RawMessage, len(txs))
+// printJSON writes Schwab's own JSON for each transaction, as a list,
+// re-indented but otherwise as received. That includes full account
+// numbers. It indents by hand, as json.Encoder lays a list out, since an
+// encoder on Go 1.27 escapes U+2028 and U+2029 and json.Indent does not.
+func printJSON(w io.Writer, txs []schwab.Transaction) error {
+	var out bytes.Buffer
+	out.WriteByte('[')
 	for i, tx := range txs {
-		raws[i] = tx.Raw
+		if i > 0 {
+			out.WriteByte(',')
+		}
+		out.WriteString("\n  ")
+		if err := json.Indent(&out, tx.Raw, "  ", "  "); err != nil {
+			return err
+		}
 	}
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	return enc.Encode(raws)
+	if len(txs) > 0 {
+		out.WriteByte('\n')
+	}
+	out.WriteString("]\n")
+	_, err := w.Write(out.Bytes())
+	return err
+}
+
+// newYorkMidnight reports whether t is midnight in New York: the instant
+// before it is on another date there.
+func newYorkMidnight(t time.Time) bool {
+	return schwab.DateInNewYork(t) != schwab.DateInNewYork(t.Add(-time.Nanosecond))
 }
 
 func formatNumber(f float64) string {

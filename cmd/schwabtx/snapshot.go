@@ -8,12 +8,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
 // snapshotVersion identifies the format of a snapshot line. Change it if the
@@ -27,15 +29,6 @@ type snapshot struct {
 	Version   int             `json:"version"`
 	FetchedAt time.Time       `json:"fetched_at"`
 	Accounts  json.RawMessage `json:"accounts"`
-}
-
-// snapshotAccount is the part of an account in Schwab's response that the
-// command reads.
-type snapshotAccount struct {
-	SecuritiesAccount struct {
-		AccountNumber string            `json:"accountNumber"`
-		Positions     []json.RawMessage `json:"positions"`
-	} `json:"securitiesAccount"`
 }
 
 // runSnapshot appends the current positions and balances of every account
@@ -67,47 +60,70 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	}
 	c := newClient(auth)
 
-	body, err := c.get(ctx, "/accounts", url.Values{"fields": {"positions"}})
+	accounts, err := c.accounts(ctx)
 	if err != nil {
 		return fmt.Errorf("fetching accounts: %w", err)
 	}
 	fetchedAt := timeNow().UTC().Truncate(time.Second)
-
-	var accounts []snapshotAccount
-	if err := json.Unmarshal(body, &accounts); err != nil {
-		return fmt.Errorf("decoding accounts: %w", err)
-	}
 	if len(accounts) == 0 {
 		return errors.New("Schwab returned no accounts; run `schwabtx login` again and tick the accounts to share")
 	}
 	positions := 0
 	current := map[string]bool{}
-	for _, a := range accounts {
+	raws := make([][]byte, len(accounts))
+	problems := make([][]schwab.Problem, len(accounts))
+	for i, a := range accounts {
 		positions += len(a.SecuritiesAccount.Positions)
 		current[a.SecuritiesAccount.AccountNumber] = true
+		raws[i], problems[i] = a.Raw, accountProblems(a)
 	}
 	warn := func(msg string) { fmt.Fprintln(stderr, "warning:", msg) }
+	if w := problemsWarning("account", problems); w != "" {
+		warn(w + "; the snapshot keeps Schwab's own JSON")
+	}
 
 	// An account not ticked at the last login is simply missing from the
-	// response, so compare with the previous snapshot.
-	for _, number := range missingAccounts(lastLine(path), current) {
-		warn(fmt.Sprintf("Schwab did not return account %s, which the last snapshot has; "+
-			"to keep saving it, run `schwabtx login` and tick it", maskAccount(number)))
+	// response, so compare with the previous snapshot, unless an account's
+	// number could not be read, which the comparison would take for missing.
+	if !current[""] {
+		for _, number := range missingAccounts(lastLine(path), current) {
+			warn(fmt.Sprintf("Schwab did not return account %s, which the last snapshot has; "+
+				"to keep saving it, run `schwabtx login` and tick it", maskAccount(number)))
+		}
 	}
 
-	// The encoder puts Schwab's JSON on one line and, with HTML escaping off,
-	// leaves characters such as "&" as Schwab sent them.
+	// Schwab's answer is the list of the accounts' JSON as received, joined
+	// and put on one line by hand, since json.Marshal would escape "&" and
+	// the like, and a json.Encoder on Go 1.27 still escapes U+2028 and
+	// U+2029. json.Compact escapes nothing, so the line is the same whatever
+	// Go built the tool.
+	body := slices.Concat([]byte("["), bytes.Join(raws, []byte(",")), []byte("]"))
 	var line bytes.Buffer
-	enc := json.NewEncoder(&line)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(snapshot{Version: snapshotVersion, FetchedAt: fetchedAt, Accounts: body}); err != nil {
+	fmt.Fprintf(&line, `{"version":%d,"fetched_at":%q,"accounts":`, snapshotVersion, fetchedAt.Format(time.RFC3339))
+	if err := json.Compact(&line, body); err != nil {
 		return fmt.Errorf("encoding the snapshot: %w", err)
 	}
+	line.WriteString("}\n")
 	if err := appendLine(path, line.Bytes(), warn); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Saved a snapshot of %d accounts with %d positions to %s\n", len(accounts), positions, path)
 	return nil
+}
+
+// accountProblems returns the problems of a and of its positions.
+func accountProblems(a schwab.Account) []schwab.Problem {
+	ps := slices.Clone(a.Problems)
+	for _, pos := range a.SecuritiesAccount.Positions {
+		for _, p := range pos.Problems {
+			path := "securitiesAccount.positions"
+			if p.Path != "" {
+				path += "." + p.Path
+			}
+			ps = append(ps, schwab.Problem{Path: path, What: p.What})
+		}
+	}
+	return ps
 }
 
 // snapshotPath picks the snapshot file: the -file flag, then
@@ -225,7 +241,7 @@ func missingAccounts(prev []byte, current map[string]bool) []string {
 	if prev == nil || json.Unmarshal(prev, &s) != nil {
 		return nil
 	}
-	var accounts []snapshotAccount
+	var accounts []schwab.Account
 	if json.Unmarshal(s.Accounts, &accounts) != nil {
 		return nil
 	}
