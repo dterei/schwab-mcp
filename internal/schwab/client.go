@@ -133,6 +133,15 @@ func equalJitter(d time.Duration) time.Duration {
 // once, and that try does not count. A wait that the caller's deadline would
 // cut short is not begun. Other answers come back as an *Error.
 func (c *Client) Get(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	r, err := c.get(ctx, path, query)
+	if err != nil {
+		return nil, err
+	}
+	return r.body, nil
+}
+
+// get is Get, returning the whole answer, header included.
+func (c *Client) get(ctx context.Context, path string, query url.Values) (*reply, error) {
 	if err := checkPath(path); err != nil {
 		return nil, err
 	}
@@ -182,7 +191,7 @@ func (c *Client) Get(ctx context.Context, path string, query url.Values) ([]byte
 			continue
 		}
 		if r.status == http.StatusOK {
-			return r.body, nil
+			return r, nil
 		}
 		if r.status == http.StatusUnauthorized && !refreshed {
 			refreshed = true

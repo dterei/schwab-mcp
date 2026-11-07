@@ -51,8 +51,9 @@ type fakeOAuth struct {
 	// order; after it, the API answers 200.
 	script    []func(w http.ResponseWriter, r *http.Request)
 	apiCalls  int
-	lastToken string // the access token of the last API request
-	all       int    // requests of any kind, to any path
+	lastToken string   // the access token of the last API request
+	urls      []string // the path and query of each API request with a working token
+	all       int      // requests of any kind, to any path
 }
 
 func newFakeOAuth(t *testing.T) *fakeOAuth {
@@ -78,6 +79,7 @@ func (f *fakeOAuth) handler() http.Handler {
 	mux.HandleFunc("POST /v1/oauth/token", f.handleToken)
 	mux.HandleFunc("GET /whoami", f.handleWhoami)
 	mux.HandleFunc("GET /trader/v1/test", f.handleAPI)
+	mux.HandleFunc("GET /trader/v1/", f.handleAPI)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.all++
@@ -205,6 +207,7 @@ func (f *fakeOAuth) handleAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.lastToken = auth[len(prefix):]
+	f.urls = append(f.urls, r.URL.String())
 	var answer func(w http.ResponseWriter, r *http.Request)
 	if len(f.script) > 0 {
 		answer = f.script[0]

@@ -1,0 +1,31 @@
+{
+    "activityId": 73508261946,
+    "time": "2024-04-04T15:56:07+0000",
+    "description": "Dividend Reinvest",
+    "accountNumber": "29470135",
+    "type": "TRADE",
+    "status": "VALID",
+    "subAccount": "CASH",
+    "tradeDate": "2024-04-04T04:00:00+0000",
+    "settlementDate": "2024-04-08T04:00:00+0000",
+    "positionId": 3926184811,
+    "netAmount": -2.7,
+    "transferItems": [
+        {
+            "instrument": {
+                "assetType": "COLLECTIVE_INVESTMENT",
+                "status": "ACTIVE",
+                "symbol": "BND",
+                "description": "VANGUARD TOTAL BOND MARKET ETF",
+                "instrumentId": 4417302,
+                "closingPrice": 72.04,
+                "type": "EXCHANGE_TRADED_FUND",
+                "assetType": "COLLECTIVE_INVESTMENT"
+            },
+            "amount": 0.0378,
+            "cost": -2.7,
+            "price": 71.42857,
+            "positionEffect": "OPENING"
+        }
+    ]
+}

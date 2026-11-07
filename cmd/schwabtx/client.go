@@ -2,17 +2,10 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
-
-// Schwab caps a transactions response at 3000 entries.
-const schwabMaxTransactions = 3000
 
 // client is the CLI's view of Schwab's Trader API.
 type client struct {
@@ -25,49 +18,35 @@ type client struct {
 var clientConfig schwab.ClientConfig
 
 func newClient(auth *schwab.Auth) *client {
-	return &client{api: schwab.NewClient(auth, clientConfig), pageCap: schwabMaxTransactions}
-}
-
-// get fetches a Trader API path and returns the response body. Its errors
-// say what to do about a problem with the login.
-func (c *client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
-	body, err := c.api.Get(ctx, "/trader/v1"+path, query)
-	if err != nil {
-		return nil, hint(err)
-	}
-	return body, nil
-}
-
-type account struct {
-	AccountNumber string `json:"accountNumber"`
-	HashValue     string `json:"hashValue"`
+	return &client{api: schwab.NewClient(auth, clientConfig), pageCap: schwab.MaxTransactions}
 }
 
 // accountNumbers lists the accounts shared at login. Every other endpoint
-// takes the hash value, not the plain account number.
-func (c *client) accountNumbers(ctx context.Context) ([]account, error) {
-	body, err := c.get(ctx, "/accounts/accountNumbers", nil)
+// takes the hash value, not the plain account number. Its errors, as the
+// other methods', say what to do about a problem with the login.
+func (c *client) accountNumbers(ctx context.Context) ([]schwab.AccountNumber, error) {
+	accounts, err := c.api.AccountNumbers(ctx)
 	if err != nil {
-		return nil, err
-	}
-	var accounts []account
-	if err := json.Unmarshal(body, &accounts); err != nil {
-		return nil, fmt.Errorf("decoding account list: %w", err)
+		return nil, hint(err)
 	}
 	return accounts, nil
 }
 
-const schwabTimeFormat = "2006-01-02T15:04:05.000Z"
-
-func (c *client) transactions(ctx context.Context, accountHash string, start, end time.Time, types []string) ([]transaction, error) {
-	q := url.Values{
-		"startDate": {start.UTC().Format(schwabTimeFormat)},
-		"endDate":   {end.UTC().Format(schwabTimeFormat)},
-		"types":     {strings.Join(types, ",")},
-	}
-	body, err := c.get(ctx, "/accounts/"+url.PathEscape(accountHash)+"/transactions", q)
+// accounts returns every account with its balances and positions.
+func (c *client) accounts(ctx context.Context) ([]schwab.Account, error) {
+	accounts, err := c.api.Accounts(ctx, schwab.AccountFieldPositions)
 	if err != nil {
-		return nil, err
+		return nil, hint(err)
 	}
-	return decodeTransactions(body)
+	return accounts, nil
+}
+
+// transactions returns one account's transactions of the given types between
+// start and end.
+func (c *client) transactions(ctx context.Context, accountHash schwab.AccountHash, start, end time.Time, types []schwab.TransactionType) ([]schwab.Transaction, error) {
+	txs, err := c.api.Transactions(ctx, accountHash, schwab.TransactionQuery{Start: start, End: end, Types: types})
+	if err != nil {
+		return nil, hint(err)
+	}
+	return txs, nil
 }

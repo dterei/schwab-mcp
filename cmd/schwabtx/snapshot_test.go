@@ -310,3 +310,27 @@ func TestLastLine(t *testing.T) {
 		}
 	}
 }
+
+// A position that Schwab sends in an unexpected form is saved as it came,
+// with a warning that names it.
+func TestSnapshotWarnsOfUnreadablePositions(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 1, testNow, time.Hour)
+	f.positionsJSON = `{"shortQuantity":0,"longQuantity":5,"marketValue":"1300.5","instrument":{"assetType":"EQUITY","symbol":"VTI"}}`
+	doLogin(t)
+	out, stderr, err := runTx(t, "snapshot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "1 account held values that could not be read (securitiesAccount.positions.marketValue: ") ||
+		!strings.Contains(stderr, "the snapshot keeps Schwab's own JSON") {
+		t.Errorf("warning: %q", stderr)
+	}
+	if !strings.Contains(out, "with 1 positions") {
+		t.Errorf("output: %q", out)
+	}
+	lines := snapshotLines(t, os.Getenv("SCHWAB_SNAPSHOT_FILE"))
+	if len(lines) != 1 || !strings.Contains(lines[0], `"marketValue":"1300.5"`) {
+		t.Errorf("the snapshot does not keep Schwab's value: %q", lines)
+	}
+}

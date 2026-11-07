@@ -30,7 +30,7 @@ type fakeSchwab struct {
 	srv *httptest.Server
 
 	mu            sync.Mutex
-	accounts      []account
+	accounts      []schwab.AccountNumber
 	txs           map[string][]fakeTx // by account hash
 	validAccess   string
 	issued        int
@@ -48,6 +48,7 @@ type fakeSchwab struct {
 	refuseRefresh bool   // refuse every refresh, as for a login that lapsed
 	detailsFields string // fields= of the last GET /accounts
 	detailsBody   string // what the last GET /accounts returned
+	positionsJSON string // if set, the positions of every account instead of fakePositions
 }
 
 type fakeTx struct {
@@ -55,6 +56,9 @@ type fakeTx struct {
 	When time.Time
 	JSON string
 }
+
+// schwabTimeFormat is how Schwab takes instants in a query.
+const schwabTimeFormat = "2006-01-02T15:04:05.000Z"
 
 const (
 	testKey      = "test-app-key"
@@ -167,7 +171,11 @@ func (f *fakeSchwab) handleAccountDetails(w http.ResponseWriter, r *http.Request
 	for i, a := range f.accounts {
 		positions := ""
 		if f.detailsFields == "positions" {
-			positions = `"positions":[` + fakePositions + `],`
+			pos := fakePositions
+			if f.positionsJSON != "" {
+				pos = f.positionsJSON
+			}
+			positions = `"positions":[` + pos + `],`
 		}
 		parts[i] = fmt.Sprintf(`{"securitiesAccount":{"type":"MARGIN","accountNumber":%q,%s`+
 			`"currentBalances":{"liquidationValue":12345.60,"cashBalance":100.0}},`+
@@ -239,7 +247,7 @@ func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) 
 // newest and each one step older than the last.
 func (f *fakeSchwab) addAccount(number string, idBase int64, count int, newest time.Time, step time.Duration) {
 	hash := "HASH" + number
-	f.accounts = append(f.accounts, account{AccountNumber: number, HashValue: hash})
+	f.accounts = append(f.accounts, schwab.AccountNumber{AccountNumber: number, HashValue: schwab.AccountHash(hash)})
 	f.txs[hash] = nil
 	for i := range count {
 		when := newest.Add(-time.Duration(i) * step)
@@ -573,14 +581,14 @@ func TestTruncatedResponsesAreSplit(t *testing.T) {
 	}
 	txs, err := fetchRecent(context.Background(), c, accounts, fetchOptions{
 		N: 100, Lookback: 365 * 24 * time.Hour, Window: 60 * 24 * time.Hour,
-		Types: allTransactionTypes, Now: testNow, Warn: func(s string) { t.Errorf("unexpected warning: %s", s) },
+		Types: schwab.AllTransactionTypes(), Now: testNow, Warn: func(s string) { t.Errorf("unexpected warning: %s", s) },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := make([]string, len(txs))
 	for i, tx := range txs {
-		got[i] = tx.ActivityID.String()
+		got[i] = strconv.FormatInt(tx.ActivityID, 10)
 	}
 	if want := f.expected(100, time.Time{}); !equal(got, want) {
 		t.Fatalf("got %v\nwant %v", got, want)
@@ -678,6 +686,7 @@ func TestBadFlagsFailBeforeAnyRequest(t *testing.T) {
 		{"-types", ","},
 		{"-lookback", "200000"},
 		{"-window", "200000"},
+		{"-window", "366"},
 		{"-n", "0"},
 	} {
 		if out, _, err := runTx(t, args...); err == nil {
@@ -693,8 +702,8 @@ func TestBadFlagsFailBeforeAnyRequest(t *testing.T) {
 }
 
 func TestDateOnlyTransactionKeepsItsDate(t *testing.T) {
-	txs, err := decodeTransactions([]byte(`[{"activityId":1,"tradeDate":"2024-03-28","type":"JOURNAL","status":"VALID","netAmount":10,"description":"AT&T <x>"}]`))
-	if err != nil {
+	var txs []schwab.Transaction
+	if err := json.Unmarshal([]byte(`[{"activityId":1,"tradeDate":"2024-03-28","type":"JOURNAL","status":"VALID","netAmount":10,"description":"AT&T <x>"}]`), &txs); err != nil {
 		t.Fatal(err)
 	}
 	old := time.Local
@@ -740,7 +749,7 @@ func TestRateLimitIsRetried(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := newClient(auth)
-	txs, err := c.transactions(context.Background(), "HASH11112222", testNow.Add(-24*time.Hour), testNow, allTransactionTypes)
+	txs, err := c.transactions(context.Background(), "HASH11112222", testNow.Add(-24*time.Hour), testNow, schwab.AllTransactionTypes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -794,28 +803,6 @@ func TestSchwabErrorsSayWhatToDo(t *testing.T) {
 	}
 }
 
-func TestParseSchwabTime(t *testing.T) {
-	want := time.Date(2024, 3, 28, 21, 10, 42, 0, time.UTC)
-	for _, in := range []string{
-		"2024-03-28T21:10:42+0000",
-		"2024-03-28T21:10:42.000+0000",
-		"2024-03-28T21:10:42Z",
-		"2024-03-28T21:10:42.000Z",
-		"2024-03-28T17:10:42-04:00",
-		"2024-03-28T17:10:42-0400",
-	} {
-		if got, dateOnly := parseSchwabTime(in); !got.Equal(want) || dateOnly {
-			t.Errorf("parseSchwabTime(%q) = %v, %v; want %v, false", in, got, dateOnly, want)
-		}
-	}
-	if got, dateOnly := parseSchwabTime("2024-03-28"); !dateOnly || got.Format("2006-01-02") != "2024-03-28" {
-		t.Errorf("date-only parsed as %v, %v", got, dateOnly)
-	}
-	if got, _ := parseSchwabTime("garbage"); !got.IsZero() {
-		t.Errorf("garbage parsed as %v", got)
-	}
-}
-
 func TestMissingCredentials(t *testing.T) {
 	setup(t)
 	t.Setenv("SCHWAB_APP_SECRET", "")
@@ -850,5 +837,65 @@ func TestExpiryWarning(t *testing.T) {
 	}
 	if got := expiryWarning(time.Time{}); got != "" {
 		t.Errorf("warned %q without a saved login", got)
+	}
+}
+
+// A time that is a date alone keeps its date in the table, wherever the
+// machine is, as a transaction without a time does.
+func TestDateOnlyTimeKeepsItsDate(t *testing.T) {
+	var txs []schwab.Transaction
+	if err := json.Unmarshal([]byte(`[{"activityId":1,"time":"2024-03-28","type":"JOURNAL","status":"VALID","netAmount":10}]`), &txs); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Local
+	time.Local = time.FixedZone("west", -8*3600)
+	defer func() { time.Local = old }()
+	var table bytes.Buffer
+	if err := printTable(&table, txs, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(table.String(), "2024-03-28 ") || strings.Contains(table.String(), "2024-03-27") {
+		t.Errorf("date shifted: %s", table.String())
+	}
+}
+
+// The warning about values that could not be read names each place once.
+func TestProblemsWarning(t *testing.T) {
+	if w := problemsWarning("transaction", [][]schwab.Problem{nil, nil}); w != "" {
+		t.Errorf("a warning without problems: %q", w)
+	}
+	bad := func(what string) []schwab.Problem {
+		return []schwab.Problem{{Path: "time", What: what}, {Path: "netAmount", What: "Schwab sent a string where a number was expected"}}
+	}
+	w := problemsWarning("transaction", [][]schwab.Problem{bad(`Schwab sent "x", which is not a time`), nil, bad(`Schwab sent "y", which is not a time`)})
+	want := `2 transactions held values that could not be read (time: Schwab sent "x", which is not a time; ` +
+		`netAmount: Schwab sent a string where a number was expected)`
+	if w != want {
+		t.Errorf("warning:\n got %q\nwant %q", w, want)
+	}
+	many := []schwab.Problem{{Path: "a", What: "w"}, {Path: "b", What: "w"}, {Path: "c", What: "w"}, {Path: "d", What: "w"}, {Path: "e", What: "w"}}
+	if w := problemsWarning("account", [][]schwab.Problem{many}); !strings.HasPrefix(w, "1 account held") || !strings.Contains(w, "c: w; and 2 more)") {
+		t.Errorf("warning about many: %q", w)
+	}
+}
+
+// A transaction that Schwab sends in an unexpected form is listed, with a
+// warning, rather than failing the run.
+func TestUnreadableTransactionWarns(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 3, testNow.Add(-time.Hour), time.Hour)
+	tx := f.txs["HASH11112222"][0]
+	tx.JSON = strings.Replace(tx.JSON, `"netAmount":-1234.56`, `"netAmount":"-1234.56"`, 1)
+	f.txs["HASH11112222"][0] = tx
+	doLogin(t)
+	out, stderr, err := runTx(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "1 transaction held values that could not be read (netAmount:") || !strings.Contains(stderr, "-json prints Schwab's own") {
+		t.Errorf("no warning: %q", stderr)
+	}
+	if strings.Count(out, "VTI") != 3 {
+		t.Errorf("table:\n%s", out)
 	}
 }
