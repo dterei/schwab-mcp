@@ -187,9 +187,10 @@ scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
   from other processes. The warning says why.
 - "differed from what Schwab has sent before" (a warning): Schwab sent a
   value in a form it has not sent before, such as a string where a number
-  belongs, or left out a key that it has always sent. The table may show
-  such a field as 0 or blank; `-json` prints Schwab's own JSON, and the
-  snapshot keeps it. The warning names the fields.
+  belongs, left out a key that it has always sent, or sent an object or
+  array twice. The table may show such a field as 0 or blank or, for one
+  sent twice, as a mix of the copies; `-json` prints Schwab's own JSON, and
+  the snapshot keeps it. The warning names the fields.
 - "Invalid account number" (`HTTP 400`): Schwab refused an account that it
   had just listed, for a reason not known. Run the command again; if it
   keeps failing, write to Schwab with the correlation ID.

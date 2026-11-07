@@ -197,7 +197,7 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 		problems[i] = tx.Problems
 	}
 	if w := problemsWarning("transaction", problems); w != "" {
-		fmt.Fprintln(stderr, "warning:", w+"; the table may show those fields as 0 or blank, and -json prints Schwab's own JSON")
+		fmt.Fprintln(stderr, "warning:", w+"; the table may not show those fields as Schwab sent them, and -json prints Schwab's own JSON")
 	}
 
 	if *asJSON {

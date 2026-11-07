@@ -260,7 +260,8 @@ type AccountField string
 const AccountFieldPositions AccountField = "positions"
 
 // AccountNumbers lists the accounts shared at login, each with the hash
-// that the other account endpoints take in its place.
+// that the endpoints for one account, such as Account and Transactions,
+// take in place of its number.
 func (c *Client) AccountNumbers(ctx context.Context) ([]AccountNumber, error) {
 	r, err := c.get(ctx, "/trader/v1/accounts/accountNumbers", nil)
 	if err != nil {

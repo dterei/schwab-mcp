@@ -150,8 +150,8 @@ func fetchRange(ctx context.Context, c *client, hash schwab.AccountHash, start, 
 }
 
 // problemsWarning returns a warning about records with problems, values of
-// a type that Schwab has not sent before or keys that it has always sent and
-// left out, or "" if there were none. noun names one record, such as
+// a type that Schwab has not sent before, keys that it has always sent and
+// left out, or objects and arrays sent twice, or "" if there were none. noun names one record, such as
 // "transaction". It names the first few places, with one problem each,
 // since one change at Schwab tends to repeat on every record.
 func problemsWarning(noun string, problems [][]schwab.Problem) string {

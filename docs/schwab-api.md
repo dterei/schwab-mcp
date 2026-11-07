@@ -249,8 +249,9 @@ retention period.
   `instrumentId` (1 for cash) and, beyond the spec, `closingPrice` and
   `status` (only ACTIVE seen), and no `cusip`. Options carry `expirationDate`
   (midnight in New York), `strikePrice`, `putCall`, `underlyingSymbol` and
-  `optionDeliverables`, and in 2026 also `uniformSymbol`, `underlyingCusip`
-  and, in each deliverable, the delivered instrument.
+  `optionDeliverables`, and, in a capture of August 2026 (not in fills of
+  January 2025), also `uniformSymbol`, `underlyingCusip` and, in each
+  deliverable, the delivered instrument.
 - **Kinds of row**, as seen:
   - an ACH deposit came as ELECTRONIC_FUND "ACH Credit Received", not
     ACH_RECEIPT, and a wire as WIRE_IN "Wire Incoming";
@@ -353,11 +354,14 @@ retention period.
   option's multiplier, which positions do not carry.
 - Position instruments carry `cusip` but no `instrumentId`. Equities have no
   `description`. Options carry `putCall`, `underlyingSymbol`, `type` and
-  `netChange`, but no strike, expiration or multiplier. The symbol gives the
-  strike and expiration: an OCC symbol for an option on a stock or fund, and
-  Schwab's own form, such as `/ESH25_P5050:XCME`, for an option on a future.
-  The multiplier, the cost basis over `averagePrice` times the quantity, is
-  100 in every sample.
+  `netChange`, but no strike, expiration or multiplier. An option on a
+  stock, fund or index has an OCC symbol, which gives the strike and
+  expiration, as does its description. In transactions, an option on a
+  future has Schwab's own form, such as `/ESH25_P5050:XCME`, which gives the
+  strike and the future's contract month but not the day: that fill's
+  `expirationDate` and description say 2025-03-21. No futures-option
+  position has been seen. The multiplier, the cost basis over
+  `averagePrice` times the quantity, is 100 in every sample.
 - Positions' `maintenanceRequirement` adds up to the account's; a spread's
   is booked on one of its legs.
 - **No lots.** There are no lot IDs, no acquisition dates and no realized
@@ -378,8 +382,8 @@ retention period.
   `accountNumber`, `primaryAccount` (which can be false for every account),
   `type` (BROKERAGE, retirement accounts included), `nickName` (the name set
   on schwab.com, which need not be unique), `displayAcctId` (`...` and the
-  last three digits), `autoPositionEffect`, `accountColor` and, since 2025,
-  `lotSelectionMethod`. `streamerInfo`'s customer and correlation IDs
+  last three digits), `autoPositionEffect`, `accountColor` and, in a capture
+  of 2025 (not in 2024 ones), `lotSelectionMethod`. `streamerInfo`'s customer and correlation IDs
   identify the user and the session; they are not credentials, but keep them
   out of logs.
 - In `GET /accounts/accountNumbers`, `accountNumber` is an 8-digit string and

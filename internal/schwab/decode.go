@@ -84,18 +84,25 @@ var (
 //   - a key that every record of its kind has, a field whose tag has no omit
 //     option, that is absent or null;
 //   - an object or array sent twice under one key, since encoding/json may
-//     then combine the copies into a value that Schwab did not send.
+//     then combine the copies into a value that Schwab did not send;
+//   - null as an element of an array of objects, which encoding/json takes
+//     for an object without a single key.
 //
 // Of a key sent more than once, the last copy counts, as encoding/json has
 // it for a number, string or boolean that fits its field; the walk sets
 // the field to zero where a last copy of the wrong kind, or null, left it
-// as an earlier copy set it.
+// as an earlier copy set it. An earlier copy of the wrong kind is a problem
+// too, and a copy that is null is no copy, for counting an object or array
+// sent twice.
 //
 // A nested value whose type has its own UnmarshalJSON checks itself, and is
 // passed over.
 type walker struct {
-	ps         []Problem
-	mismatched bool // a value of the wrong JSON kind was found
+	ps []Problem
+	// mismatched is whether the walk found what explains an error of
+	// encoding/json's: a value of the wrong JSON kind, or an object or array
+	// sent twice, whose earlier copies are not walked.
+	mismatched bool
 }
 
 func (w *walker) add(path, what string) {
@@ -129,21 +136,32 @@ func (w *walker) value(raw []byte, v reflect.Value, parent, key string, skip []s
 		}
 	case reflect.Struct:
 		if what := mismatch(raw, t); what != "" {
+			// encoding/json left the field zero, or as an earlier copy of
+			// the key set it.
+			v.SetZero()
 			w.mismatch(joinPath(parent, key), what)
 			return
 		}
 		w.object(raw, v, joinPath(parent, key), skip)
 	case reflect.Slice:
 		if what := mismatch(raw, t); what != "" {
+			v.SetZero()
 			w.mismatch(joinPath(parent, key), what)
 			return
 		}
 		at := joinPath(parent, key)
+		elem := t.Elem()
 		s := scan(raw, '[')
 		for i := range v.Len() {
 			e, ok := s.element()
 			if !ok {
 				break
+			}
+			if isNull(e) && elem.Kind() == reflect.Struct && !decodesItself(elem) {
+				// encoding/json leaves such an element zero, without the keys
+				// that every one of its kind has, and raises no error.
+				w.add(at, sent(e, "an object"))
+				continue
 			}
 			w.value(e, v.Index(i), at, "", nil, false)
 		}
@@ -161,10 +179,11 @@ func (w *walker) value(raw []byte, v reflect.Value, parent, key string, skip []s
 // path.
 func (w *walker) object(raw []byte, v reflect.Value, path string, skip []string) {
 	si := infoOf(v.Type())
-	// How many times each field's key came, and its last value.
+	// How many times each field's key came, how many of those were not
+	// null, and its last value.
 	type sent struct {
-		n    int
-		last []byte
+		n, set int
+		last   []byte
 	}
 	var buf [64]sent
 	var keys []sent
@@ -177,6 +196,9 @@ func (w *walker) object(raw []byte, v reflect.Value, path string, skip []string)
 	for key, value, ok := s.member(); ok; key, value, ok = s.member() {
 		if j := si.field(key); j >= 0 {
 			keys[j].n++
+			if !isNull(value) {
+				keys[j].set++
+			}
 			keys[j].last = value
 		}
 	}
@@ -184,37 +206,42 @@ func (w *walker) object(raw []byte, v reflect.Value, path string, skip []string)
 		if slices.Contains(skip, f.name) {
 			continue
 		}
-		n, last := keys[j].n, keys[j].last
+		n, set, last := keys[j].n, keys[j].set, keys[j].last
+		if n > 1 && !f.composite {
+			// encoding/json keeps the last copy of a number, string or
+			// boolean that fits; an earlier one that does not, whatever the
+			// last copy is, is still a problem.
+			t := derefType(v.Field(f.index).Type())
+			s, earlier := scan(raw, '{'), n-1
+			for key, value, ok := s.member(); ok && earlier > 0; key, value, ok = s.member() {
+				if si.field(key) != j {
+					continue
+				}
+				earlier--
+				if what := mismatch(value, t); what != "" && !isNull(value) {
+					w.mismatch(joinPath(path, f.name), what)
+				}
+			}
+		}
 		if n == 0 || isNull(last) {
 			if n > 1 {
 				// encoding/json lets a null leave a field as an earlier copy
-				// set it.
+				// set it. Zeroing the field discards that copy, and with it
+				// whatever encoding/json could not read of an object or
+				// array in it.
 				v.Field(f.index).SetZero()
+				w.mismatched = w.mismatched || (f.composite && set > 0)
 			}
 			if !f.optional {
 				w.add(joinPath(path, f.name), "missing, though Schwab sends it on every record of its kind")
 			}
 			continue
 		}
-		if n > 1 {
-			if f.composite {
-				w.add(joinPath(path, f.name), "Schwab sent it more than once, so what it holds is uncertain")
-			} else {
-				// encoding/json keeps the last copy of a number, string or
-				// boolean that fits; an earlier one that does not is still a
-				// problem.
-				t := derefType(v.Field(f.index).Type())
-				s, earlier := scan(raw, '{'), n-1
-				for key, value, ok := s.member(); ok && earlier > 0; key, value, ok = s.member() {
-					if si.field(key) != j {
-						continue
-					}
-					earlier--
-					if what := mismatch(value, t); what != "" && !isNull(value) {
-						w.mismatch(joinPath(path, f.name), what)
-					}
-				}
-			}
+		if f.composite && set > 1 {
+			// encoding/json may have combined the copies. Their walk is
+			// skipped, and this problem stands for whatever it could not
+			// read of the earlier ones.
+			w.mismatch(joinPath(path, f.name), "Schwab sent it more than once, so what it holds is uncertain")
 		}
 		w.value(last, v.Field(f.index), path, f.name, nil, false)
 	}

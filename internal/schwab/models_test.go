@@ -1257,6 +1257,11 @@ func TestEveryTimeFieldIsReadByHand(t *testing.T) {
 			if holdsTime(f.Type) && !reflect.PointerTo(typ).Implements(reflect.TypeFor[json.Unmarshaler]()) {
 				t.Errorf("%s.%s is a time in a type that does not decode itself, so nothing reads it by hand", typ.Name(), f.Name)
 			}
+			// The records read a time.Time by hand; time.Time itself would
+			// decode a pointer to one, or a list of them.
+			if holdsTime(f.Type) && f.Type != timeType {
+				t.Errorf("%s.%s holds times by pointer or in a list, which no record reads by hand", typ.Name(), f.Name)
+			}
 		}
 	}
 
@@ -1384,6 +1389,88 @@ func TestEveryMismatchIsNamed(t *testing.T) {
 	if v := cb.LiquidationValue; v == nil || *v != 9 {
 		t.Errorf("liquidationValue = %v, want 9", v)
 	}
+
+	// Objects, and objects in a list, of the wrong kind.
+	a = Account{}
+	if err := json.Unmarshal([]byte(`{"securitiesAccount":`+withKeys(baseSecuritiesAccount, "currentBalances", `"x"`)+
+		`,"aggregatedBalance":5}`), &a); err != nil {
+		t.Fatal(err)
+	}
+	want = []string{
+		"securitiesAccount.currentBalances: Schwab sent a string where an object was expected",
+		"aggregatedBalance: Schwab sent a number where an object was expected",
+	}
+	if got := problemStrings(a.Problems); !slices.Equal(got, want) {
+		t.Errorf("problems:\n got %q\nwant %q", got, want)
+	}
+	tx = Transaction{}
+	if err := json.Unmarshal([]byte(withKeys(baseTransaction, "transferItems", "["+baseLeg+",5]")), &tx); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(tx.Problems), []string{"transferItems: Schwab sent a number where an object was expected"}; !slices.Equal(got, want) {
+		t.Errorf("problems:\n got %q\nwant %q", got, want)
+	}
+}
+
+// An instrument that is not an object is named once, as itself, in a
+// position and in a leg; the same problem in two legs is named once, and two
+// problems at one path are both named.
+func TestProblemsNamedOnce(t *testing.T) {
+	var p Position
+	if err := json.Unmarshal([]byte(withKeys(basePosition, "instrument", `"X"`)), &p); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(p.Problems), []string{"instrument: Schwab sent a string where an object was expected"}; !slices.Equal(got, want) {
+		t.Errorf("position's problems:\n got %q\nwant %q", got, want)
+	}
+	var tx Transaction
+	if err := json.Unmarshal([]byte(withKeys(baseTransaction, "transferItems", "["+withKeys(baseLeg, "instrument", "7")+"]")), &tx); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(tx.Problems), []string{"transferItems.instrument: Schwab sent a number where an object was expected"}; !slices.Equal(got, want) {
+		t.Errorf("transaction's problems:\n got %q\nwant %q", got, want)
+	}
+	legs := "[" + withKeys(baseLeg, "cost", `"x"`) + "," + withKeys(baseLeg, "cost", `"y"`) + "," +
+		withKeys(baseLeg, "instrument", `{"assetType":"EQUITY","symbol":"X","closingPrice":"x"}`) + "," +
+		withKeys(baseLeg, "instrument", `{"assetType":"EQUITY","symbol":"X","closingPrice":true}`) + "]"
+	tx = Transaction{}
+	if err := json.Unmarshal([]byte(withKeys(baseTransaction, "transferItems", legs)), &tx); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(tx.Problems), []string{
+		"transferItems.cost: Schwab sent a string where a number was expected",
+		"transferItems.instrument.closingPrice: Schwab sent a string where a number was expected",
+		"transferItems.instrument.closingPrice: Schwab sent a boolean where a number was expected",
+	}; !slices.Equal(got, want) {
+		t.Errorf("transaction's problems:\n got %q\nwant %q", got, want)
+	}
+}
+
+// null in a list of objects is not taken for an object without keys.
+func TestNullElements(t *testing.T) {
+	var tx Transaction
+	in := `{"assetType":"OPTION","symbol":"X","optionDeliverables":[null]}`
+	if err := json.Unmarshal([]byte(withKeys(baseTransaction, "transferItems",
+		"["+baseLeg+",null,"+withKeys(baseLeg, "instrument", in)+"]")), &tx); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(tx.Problems), []string{
+		"transferItems: Schwab sent null where an object was expected",
+		"transferItems.instrument.optionDeliverables: Schwab sent null where an object was expected",
+	}; !slices.Equal(got, want) {
+		t.Errorf("transaction's problems:\n got %q\nwant %q", got, want)
+	}
+	var u UserPreference
+	if err := json.Unmarshal([]byte(`{"accounts":[null],"streamerInfo":[null],"offers":[null]}`), &u); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(u.Problems), []string{
+		"accounts: Schwab sent null where an object was expected",
+		"streamerInfo: Schwab sent null where an object was expected",
+		"offers: Schwab sent null where an object was expected",
+	}; !slices.Equal(got, want) {
+		t.Errorf("preferences' problems:\n got %q\nwant %q", got, want)
+	}
 }
 
 func TestOffsetsOutOfRange(t *testing.T) {
@@ -1464,6 +1551,123 @@ func TestDuplicateKeys(t *testing.T) {
 	if got, want := problemStrings(tx.Problems), []string{
 		sentTwice("transferItems"), sentTwice("transferItems.instrument"),
 	}; !slices.Equal(got, want) {
+		t.Errorf("transaction's problems:\n got %q\nwant %q", got, want)
+	}
+
+	// An earlier copy of the wrong kind is named, in any place in its
+	// object and through a pointer, and an earlier null is no problem.
+	a = Account{}
+	if err := json.Unmarshal([]byte(`{"securitiesAccount":`+withKeys(baseSecuritiesAccount,
+		"currentBalances", `{"cashBalance":1,"liquidationValue":"x","liquidationValue":5}`)+"}"), &a); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(a.Problems), []string{
+		"securitiesAccount.currentBalances.liquidationValue: Schwab sent a string where a number was expected",
+	}; !slices.Equal(got, want) {
+		t.Errorf("account's problems:\n got %q\nwant %q", got, want)
+	}
+	if v := a.SecuritiesAccount.CurrentBalances.LiquidationValue; v == nil || *v != 5 {
+		t.Errorf("liquidationValue = %v, want the last copy, 5", v)
+	}
+	tx = Transaction{}
+	if err := json.Unmarshal([]byte(`{"subAccount":null,`+baseTransaction[1:]), &tx); err != nil {
+		t.Fatal(err)
+	}
+	if len(tx.Problems) != 0 || tx.SubAccount != "CASH" {
+		t.Errorf("an earlier null: subAccount %q, problems %q", tx.SubAccount, tx.Problems)
+	}
+
+	// Each problem is the same on every Go version, with none of
+	// encoding/json's own text, and the keys that are missing are named too:
+	// a bad copy then null, in either case; an object or array whose earlier
+	// copy holds a bad value, or is not an object at all; and one whose last
+	// copy is null, which leaves it missing rather than uncertain.
+	inside := func(obj string) string { return obj[1 : len(obj)-1] } // an object's members, without its braces
+	cases := []struct {
+		name string
+		rec  any
+		body string
+		want []string
+	}{
+		{
+			"a number, then null", &Transaction{},
+			`{"subAccount":5,` + inside(withKeys(baseTransaction, "subAccount", "", "activityId", "0")) + `,"subAccount":null}`,
+			[]string{
+				"subAccount: Schwab sent a number where a string was expected", missing("subAccount")[0], missing("activityId")[0],
+			},
+		},
+		{
+			"a number in another case, then null", &Transaction{},
+			`{"SUBACCOUNT":5,` + inside(withKeys(baseTransaction, "subAccount", "", "status", `""`)) + `,"subAccount":null}`,
+			[]string{
+				"subAccount: Schwab sent a number where a string was expected", missing("subAccount")[0], missing("status")[0],
+			},
+		},
+		{
+			"a list with a bad leg, then a good one", &Transaction{},
+			`{"transferItems":[` + withKeys(baseLeg, "amount", `"x"`) + `],` + withKeys(baseTransaction, "type", `""`,
+				"transferItems", "["+baseLeg+"]")[1:],
+			[]string{sentTwice("transferItems"), missing("type")[0]},
+		},
+		{
+			"a list with a bad leg, then null", &Transaction{},
+			`{"transferItems":[` + withKeys(baseLeg, "cost", `"x"`) + `],` + withKeys(baseTransaction, "transferItems", "null")[1:],
+			missing("transferItems"),
+		},
+		{
+			"a number where a list belongs, then null", &Transaction{},
+			`{"transferItems":5,` + withKeys(baseTransaction, "transferItems", "null", "type", `""`)[1:],
+			[]string{missing("transferItems")[0], missing("type")[0]},
+		},
+		{
+			"balances with a bad value, then good ones", &Account{},
+			`{"securitiesAccount":{"currentBalances":{"cashBalance":"x"},` + withKeys(baseSecuritiesAccount, "accountNumber", `""`)[1:] + "}",
+			[]string{sentTwice("securitiesAccount.currentBalances"), missing("securitiesAccount.accountNumber")[0]},
+		},
+		{
+			"balances with a bad value, then null", &Account{},
+			`{"securitiesAccount":{"currentBalances":{"cashBalance":"x"},` + withKeys(baseSecuritiesAccount, "currentBalances", "null")[1:] + "}",
+			missing("securitiesAccount.currentBalances"),
+		},
+	}
+	for _, c := range cases {
+		if err := json.Unmarshal([]byte(c.body), c.rec); err != nil {
+			t.Fatal(err)
+		}
+		if got := problemStrings(problemsField(reflect.ValueOf(c.rec).Elem())); !slices.Equal(got, c.want) {
+			t.Errorf("%s: problems\n got %q\nwant %q", c.name, got, c.want)
+		}
+	}
+
+	// The last copy counts for an object too: one of the wrong kind leaves
+	// it zero, and a null before the only object is no second copy.
+	a = Account{}
+	if err := json.Unmarshal([]byte(`{"securitiesAccount":{"currentBalances":{"liquidationValue":7},`+
+		withKeys(baseSecuritiesAccount, "currentBalances", "5")[1:]+"}"), &a); err != nil {
+		t.Fatal(err)
+	}
+	if v := a.SecuritiesAccount.CurrentBalances.LiquidationValue; v != nil {
+		t.Errorf("liquidationValue = %v, though the last copy of its balances was a number", *v)
+	}
+	tx = Transaction{}
+	in := `{"assetType":"OPTION","symbol":"X","optionDeliverables":[{"deliverableUnits":100,` +
+		`"deliverable":null,"deliverable":{"assetType":"EQUITY","symbol":"A"}}]}`
+	if err := json.Unmarshal([]byte(`{"transferItems":null,`+withKeys(baseTransaction, "transferItems",
+		"["+withKeys(baseLeg, "instrument", in)+"]")[1:]), &tx); err != nil {
+		t.Fatal(err)
+	}
+	if len(tx.Problems) != 0 {
+		t.Errorf("a null before an object or list: problems %q", tx.Problems)
+	}
+
+	// A deliverable, a pointer to an object, sent twice is a problem.
+	tx = Transaction{}
+	in = `{"assetType":"OPTION","symbol":"X","optionDeliverables":[{"deliverableUnits":100,` +
+		`"deliverable":{"assetType":"EQUITY","symbol":"A"},"deliverable":{"assetType":"EQUITY","symbol":"B"}}]}`
+	if err := json.Unmarshal([]byte(withKeys(baseTransaction, "transferItems", "["+withKeys(baseLeg, "instrument", in)+"]")), &tx); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(tx.Problems), []string{sentTwice("transferItems.instrument.optionDeliverables.deliverable")}; !slices.Equal(got, want) {
 		t.Errorf("transaction's problems:\n got %q\nwant %q", got, want)
 	}
 }

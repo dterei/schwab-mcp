@@ -38,9 +38,10 @@ const (
 type Instrument struct {
 	AssetType AssetType `json:"assetType"`
 	// Symbol is the ticker, CURRENCY_USD for cash and fees, or an option's
-	// symbol: for an option on a stock or fund, its OCC symbol, the root
-	// padded to six characters (AAPL  260320C00180000), and for an option on
-	// a future, Schwab's own form (/ESH25_P5050:XCME).
+	// symbol: for an option on a stock, fund or index, its OCC symbol, the
+	// root padded to six characters (AAPL  260320C00180000), and for an
+	// option on a future, Schwab's own form (/ESH25_P5050:XCME), which gives
+	// the future's month but not the day of expiration.
 	Symbol        string `json:"symbol"`
 	UniformSymbol string `json:"uniformSymbol,omitzero"`
 	// CUSIP is on positions, not on transactions.
@@ -62,8 +63,8 @@ type Instrument struct {
 	ClosingPrice float64 `json:"closingPrice,omitzero"`
 
 	// The rest describe options. A position's option carries only PutCall
-	// and UnderlyingSymbol of them: the strike and expiration are in its
-	// Symbol, and the multiplier is not sent.
+	// and UnderlyingSymbol of them; an OCC symbol holds the strike and
+	// expiration, and the multiplier is not sent.
 	PutCall     string  `json:"putCall,omitzero"`
 	StrikePrice float64 `json:"strikePrice,omitzero"`
 	// ExpirationDate is midnight in New York on the day of expiration.
@@ -103,8 +104,8 @@ func (in *Instrument) UnmarshalJSON(b []byte) error {
 
 // OptionDeliverable is what one option contract delivers. Transactions send
 // the root symbol, the strike percent, the deliverable number and units,
-// and, since 2026, the deliverable itself; order legs send a symbol and
-// units.
+// and, in a capture of August 2026 though not in fills of January 2025, the
+// deliverable itself; order legs send a symbol and units.
 type OptionDeliverable struct {
 	RootSymbol        string       `json:"rootSymbol,omitzero"`
 	StrikePercent     float64      `json:"strikePercent,omitzero"`

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"unicode/utf8"
 )
@@ -73,6 +74,8 @@ func FuzzScanner(f *testing.F) {
 		`{"a":1,"a":"twice","A":[2]}`,
 		`[1, "a,b", {"b": [2, "]"]}, [], {}, null, -0.0, 1E9]`,
 		`{"a":"AT&T <x>","b":"\u2028"}`,
+		"{\r\n\t\"a\"\t:\t1\t,\r\n\t\"b\" :\r\n[\t2\r\n,\"x\"\t]\r\n,\"c\":true\r\n}",
+		"[\t1\r\n,\tnull\r,\r\nfalse\t]",
 		`"x"`, `5`, `null`, `true`,
 		`{"a":`, `{"a" 1}`, `{"a":1,}`, `[1,`, `{"a":"\"}`, `{"a":"x`, `[{]`, `{"a":1 "b":2}`, `{,}`, `[,1]`, `{"a":[}`, `{"\`,
 	} {
@@ -127,4 +130,45 @@ func TestRecordTypesSuitTheWalk(t *testing.T) {
 			keys = append(keys, name)
 		}
 	}
+}
+
+// A record written with every kind of JSON white space, tabs and carriage
+// returns included, decodes as one without.
+func TestScannerWhiteSpace(t *testing.T) {
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, []byte(withKeys(baseTransaction, "transferItems", "["+baseLeg+"]")), "", "\t"); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.NewReplacer("\n", "\r\n", `": `, "\"\t:\t", ",", "\t,").Replace(indented.String())
+	var tx Transaction
+	if err := json.Unmarshal([]byte(body), &tx); err != nil {
+		t.Fatal(err)
+	}
+	if len(tx.Problems) != 0 || tx.SubAccount != "CASH" || len(tx.TransferItems) != 1 || tx.TransferItems[0].Cost != -1 {
+		t.Errorf("a transaction with tabs and CRLF: %+v", tx)
+	}
+}
+
+// concurrencyProbe is a type that no other test walks, so that the walk in
+// TestWalkConcurrently is the first to cache it.
+type concurrencyProbe struct {
+	A int `json:"a"`
+	B []struct {
+		C string `json:"c"`
+	} `json:"b"`
+}
+
+// Records decode at once from several goroutines, as a Client's callers
+// may: the race detector checks the walk's cache of struct types.
+func TestWalkConcurrently(t *testing.T) {
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			var v concurrencyProbe
+			if ps := recordProblems([]byte(`{"a":1,"b":[{"c":"x"}]}`), &v, true, nil); len(ps) != 0 {
+				t.Errorf("problems: %q", ps)
+			}
+		})
+	}
+	wg.Wait()
 }

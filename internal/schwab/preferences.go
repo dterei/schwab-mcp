@@ -44,7 +44,8 @@ type PreferenceAccount struct {
 	DisplayAcctID      string `json:"displayAcctId"`
 	AutoPositionEffect bool   `json:"autoPositionEffect"`
 	AccountColor       string `json:"accountColor"`
-	// LotSelectionMethod, such as FIFO, appeared in 2025.
+	// LotSelectionMethod, such as FIFO, has been seen in a capture of 2025
+	// but not in those of 2024; it may depend on the account.
 	LotSelectionMethod string `json:"lotSelectionMethod,omitzero"`
 }
 
