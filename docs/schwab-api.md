@@ -213,8 +213,12 @@ retention period.
   `tradeDate` is the fill again on an execution, and midnight in New York,
   written in UTC (`T04:00:00+0000` in summer, `T05:00:00+0000` in winter), on
   every other row; some executions carry the midnight as well. So a row's day
-  is the New York date of its `tradeDate`, and rows are ordered by `time`:
-  ordering by `tradeDate` puts sales before the purchases they close. Monthly
+  is the New York date of its `tradeDate` on every row seen, a futures fill
+  at 00:15 in New York included. A fill between 6 PM and midnight there
+  (CME's evening session, or Schwab's overnight session from 8 PM), which no
+  sample shows, may be booked on the next trading day (see the roadmap's
+  open questions). Rows are ordered by `time`: ordering by `tradeDate` puts
+  sales before the purchases they close. Monthly
   interest is posted around 9 PM in New York on the last business day of the
   month, which is the next day in UTC. `settlementDate` is midnight in New
   York, and absent on executions. All are `2024-04-04T15:56:07+0000`: no
@@ -383,9 +387,9 @@ retention period.
   `type` (BROKERAGE, retirement accounts included), `nickName` (the name set
   on schwab.com, which need not be unique), `displayAcctId` (`...` and the
   last three digits), `autoPositionEffect`, `accountColor` and, in a capture
-  of 2025 (not in 2024 ones), `lotSelectionMethod`. `streamerInfo`'s customer and correlation IDs
-  identify the user and the session; they are not credentials, but keep them
-  out of logs.
+  of 2025 (not in 2024 ones), `lotSelectionMethod`. `streamerInfo`'s
+  customer and correlation IDs identify the user and the session; they are
+  not credentials, but keep them out of logs.
 - In `GET /accounts/accountNumbers`, `accountNumber` is an 8-digit string and
   `hashValue` 64 characters. Schwabdev's maintainer believes the hash changes
   with the refresh token

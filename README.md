@@ -22,7 +22,7 @@ Schwab & Co.
 | --- | --- |
 | [`schwabtx`](cmd/schwabtx): log in and print recent transactions across all accounts | Works |
 | [`schwabtx snapshot`](cmd/schwabtx/README.md#snapshots): save your current positions and balances; [run it daily](cmd/schwabtx/schedule) with launchd, cron or Task Scheduler | Works |
-| Reusable Go client for Schwab's API (milestone 1) | Planned |
+| Go client for Schwab's API (milestone 1): the login, retries under a shared rate limit, and the account records | In progress, internal for now |
 | Full transaction history, stored locally and exported for your calculators (milestone 2) | Planned |
 | MCP server, read-only first (milestone 3) | Planned |
 

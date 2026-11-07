@@ -519,15 +519,10 @@ milestone 1.
   Another, in 2026, got empty lists for windows past an account's history
   ([schwab-cli](https://github.com/piekstra/schwab-cli/blob/main/docs/api.md)),
   so an empty window does not show that the history has ended.
-- **Does an account's hash change with a new login?** Schwabdev's maintainer
-  believes so; other clients treat it as stable. The store keeps data by
-  account number either way.
-- **What do expirations, assignments, transfers in kind and corporate
-  actions look like?** No public sample has one; they are probably
-  RECEIVE_AND_DELIVER rows.
-- **Does a fill in the overnight or futures sessions carry its instant in
-  `tradeDate`, or the next day's midnight?** It decides which day such a fill
-  is booked on.
+- **Does a fill between 6 PM and midnight in New York, in the futures or
+  overnight sessions, carry its instant in `tradeDate`, or the next day's
+  midnight?** A futures fill at 00:15 carried its instant. It decides which
+  day such a fill is booked on.
 - **When do initial balances move to the new session**, and do they then
   hold the close? A snapshot taken after that could stand for the close.
 - **Does the transactions `symbol` filter keep dividends and withholdings**,
@@ -551,9 +546,14 @@ milestone 1.
   command in your own terminal is simpler, but an assistant that can run
   shell commands, as coding agents can, could run it itself.
 - **Are account hashes stable across logins and across developer apps?**
-- **How do corporate actions, option expirations and assignments, money
-  market sweeps and transfers show up in transactions?** This decides the
-  classification rules in milestone 2.
+  Schwabdev's maintainer believes a new login changes them; other clients
+  treat them as stable. The store keeps data by account number either way.
+- **How do option expirations and assignments, transfers in kind, corporate
+  actions, money market sweeps and other transfers show up in
+  transactions?** No public sample shows an expiration, an assignment, a
+  transfer in kind or a corporate action; those are probably
+  RECEIVE_AND_DELIVER rows. This decides the classification rules in
+  milestone 2.
 - **Do transactions change after they post (pending to valid,
   cancellations), and how long after?** This decides the overlap for
   incremental syncs.

@@ -161,8 +161,9 @@ func (t *Transaction) UnmarshalJSON(b []byte) error {
 
 // TradeDay returns the New York date of the transaction's TradeDate, or of
 // its Time if it has none. On every row seen, that is the day that Schwab
-// booked it on; a fill in the evening futures or overnight sessions, which
-// no sample shows, may be booked on the next trading day. Use it to group
+// booked it on; a fill between 6 PM and midnight in New York, in the
+// evening futures or overnight sessions, which no sample shows, may be
+// booked on the next trading day. Use it to group
 // transactions by day or month. To place a transaction between two
 // snapshots, compare its Time with theirs instead: a row booked on a day can
 // be posted that evening, after the day's snapshot.

@@ -1023,8 +1023,8 @@ func TestDateInNewYork(t *testing.T) {
 		{time.Date(2024, 3, 11, 4, 0, 0, 0, time.UTC), "2024-03-11"},
 		{time.Date(2024, 11, 1, 4, 0, 0, 0, time.UTC), "2024-11-01"},
 		{time.Date(2024, 11, 4, 5, 0, 0, 0, time.UTC), "2024-11-04"},
-		// An evening execution belongs to its day in New York, not to the next
-		// day in UTC, in winter and in summer.
+		// An evening execution has its date in New York, not the next day's in
+		// UTC, in winter and in summer.
 		{time.Date(2024, 3, 1, 1, 30, 0, 0, time.UTC), "2024-02-29"},
 		{time.Date(2024, 7, 2, 3, 59, 0, 0, time.UTC), "2024-07-01"},
 		{time.Date(2024, 7, 2, 4, 0, 0, 0, time.UTC), "2024-07-02"},
@@ -1054,8 +1054,9 @@ func TestTransactionDays(t *testing.T) {
 	if (Transaction{}).TradeDay() != "" {
 		t.Error("a transaction without times has a trade day")
 	}
-	// An execution in the evening in New York is booked on that day there,
-	// which in UTC is the next.
+	// An execution at 20:30 in New York has that day's date there, which in
+	// UTC is the next; which day Schwab books such a fill on is an open
+	// question.
 	evening := time.Date(2025, 6, 3, 0, 30, 27, 0, time.UTC)
 	if d := (Transaction{Time: evening, TradeDate: evening}).TradeDay(); d != "2025-06-02" {
 		t.Errorf("an execution at 20:30 in New York is on %s", d)
@@ -1636,6 +1637,23 @@ func TestDuplicateKeys(t *testing.T) {
 			"a number where an object belongs, then null, for an object Schwab sends only sometimes", &Account{},
 			`{"securitiesAccount":` + baseSecuritiesAccount + `,"aggregatedBalance":5,"aggregatedBalance":null}`,
 			[]string{"aggregatedBalance: Schwab sent a number where an object was expected"},
+		},
+		{
+			"a number where a list belongs, then a list", &Transaction{},
+			`{"transferItems":5,` + withKeys(baseTransaction, "transferItems", "["+baseLeg+"]")[1:],
+			[]string{"transferItems: Schwab sent a number where an array was expected", sentTwice("transferItems")},
+		},
+		{
+			// An instrument decodes itself, but only the walk of its position
+			// sees an earlier copy.
+			"a number where an instrument belongs, then null", &Position{},
+			`{"instrument":5,"instrument":null,` + withKeys(basePosition, "instrument", "")[1:],
+			[]string{"instrument: Schwab sent a number where an object was expected", missing("instrument")[0]},
+		},
+		{
+			"a number where an instrument belongs, then an instrument", &Position{},
+			`{"instrument":5,` + basePosition[1:],
+			[]string{"instrument: Schwab sent a number where an object was expected", sentTwice("instrument")},
 		},
 		{
 			"a number, then a boolean, then a string", &Transaction{},
