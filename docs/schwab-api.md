@@ -213,14 +213,14 @@ retention period.
   `tradeDate` is the fill again on an execution, and midnight in New York,
   written in UTC (`T04:00:00+0000` in summer, `T05:00:00+0000` in winter), on
   every other row; some executions carry the midnight as well. So a row's day
-  is the New York date of its `tradeDate` on every row seen, a futures fill
-  at 00:15 in New York included. A fill between 6 PM and midnight there
-  (CME's evening session, or Schwab's overnight session from 8 PM), which no
-  sample shows, may be booked on the next trading day (see the roadmap's
-  open questions). Rows are ordered by `time`: ordering by `tradeDate` puts
-  sales before the purchases they close. Monthly
-  interest is posted around 9 PM in New York on the last business day of the
-  month, which is the next day in UTC. `settlementDate` is midnight in New
+  is the New York date of its `tradeDate` on every row seen, a
+  futures-option fill at 00:15 in New York included. A fill between 6 PM and
+  midnight there (CME's evening session, or Schwab's overnight session from
+  8 PM), which no sample shows, may be booked on the next trading day (see
+  the roadmap's open questions). Order rows by `time`: ordering by
+  `tradeDate` puts sales before the purchases they close. Monthly interest
+  is posted around 9 PM in New York on the last business day of the month,
+  which is the next day in UTC. `settlementDate` is midnight in New
   York, and absent on executions. All are `2024-04-04T15:56:07+0000`: no
   fraction and an offset without a colon (see [encodings](#encodings)).
 - **Legs.** Each transfer item has `instrument`, `amount` and `cost`, and
@@ -277,8 +277,10 @@ retention period.
 
   No public sample shows expirations, assignments, transfers in kind or
   corporate actions; they are probably RECEIVE_AND_DELIVER.
-- Rows are not in time order across types: sort by `time`, then
-  `activityId`.
+- Rows are not in time order, even within one type: jwplatta's twelve TRADE
+  fills of January 2025 come in no order, and z-Wind's history, grouped by
+  type and newest first within each, may be one answer per type joined.
+  Sort by `time`, then `activityId`.
 - Fees are separate transfer items with instrument `CURRENCY_USD`. The spec
   lists COMMISSION, SEC_FEE, STR_FEE, R_FEE, CDSC_FEE, OPT_REG_FEE, TAF_FEE,
   INDEX_OPTION_FEE and others; COMMISSION, SEC_FEE, OPT_REG_FEE, TAF_FEE and
@@ -572,12 +574,13 @@ is identical to the 2024 one, so none of this has been fixed.
   `GET /transactions/{id}` are documented as arrays but return objects.
 - **Field mismatches.** The only fields the spec marks required are an
   instrument's `assetType` and a `name` that does not exist. Fields appear
-  that the spec lacks: `aggregatedBalance` beside each account,
-  balance figures such as `savings` and `longMarketValue`, instruments'
+  that the spec lacks: `aggregatedBalance` beside each account, balance
+  figures such as `savings` and `longMarketValue`, instruments'
   `closingPrice`, `status` and `uniformSymbol`, `qualifiedDividend`,
-  `lotSelectionMethod` and `expirationDate` in Market Data. More appear over
-  time. The spec's `activityType` and `user` have not been seen, transaction
-  instruments have no `cusip`, and position instruments no `instrumentId`.
+  `lotSelectionMethod`, and the expiration chain's `expirationDate`, which
+  the spec names `expiration`. More appear over time. The spec's
+  `activityType` and `user` have not been seen, transaction instruments have
+  no `cusip`, and position instruments no `instrumentId`.
 - **Type mismatches.** `isInCall` is a boolean, not a number. A position
   option's deliverable `symbol` is declared a string of format int64.
 - **Enum mismatches.** Enum lists disagree between schemas (16 fee types in

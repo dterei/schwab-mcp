@@ -521,8 +521,8 @@ milestone 1.
   so an empty window does not show that the history has ended.
 - **Does a fill between 6 PM and midnight in New York, in the futures or
   overnight sessions, carry its instant in `tradeDate`, or the next day's
-  midnight?** A futures fill at 00:15 carried its instant. It decides which
-  day such a fill is booked on.
+  midnight?** A futures-option fill at 00:15 carried its instant. It decides
+  which day such a fill is booked on.
 - **When do initial balances move to the new session**, and do they then
   hold the close? A snapshot taken after that could stand for the close.
 - **Does the transactions `symbol` filter keep dividends and withholdings**,

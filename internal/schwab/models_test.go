@@ -218,7 +218,7 @@ func TestDecodeTransactions(t *testing.T) {
 		}
 	}
 	if named != 2 || unnamed != 6 || !near(futuresFees, 2.82) || !near(cost, futures.NetAmount) {
-		t.Errorf("futures fill: %d named and %d unnamed fee legs, fees %v, legs' cost %v against %v", named, unnamed, futuresFees, cost, futures.NetAmount)
+		t.Errorf("futures-option fill: %d named and %d unnamed fee legs, fees %v, legs' cost %v against %v", named, unnamed, futuresFees, cost, futures.NetAmount)
 	}
 	if futures.TradeDay() != "2025-01-14" {
 		t.Errorf("an overnight fill at 00:15 in New York is on %s", futures.TradeDay())
