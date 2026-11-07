@@ -164,15 +164,24 @@ and HTTP code into `internal/schwab` with what the history store needs.
       each of Schwab's error formats, the gateway's faults and the edge
       network's pages included, and carry the correlation ID, or the edge's
       reference number, for support requests
-- [ ] Typed models with the raw JSON kept, for account numbers, accounts with
-      balances and positions, transactions and user preferences. Written by
-      hand, since the spec is wrong in places (see
-      [the API notes](schwab-api.md#where-the-spec-is-wrong))
+- [x] Typed records with the raw JSON kept, for account numbers, accounts
+      with balances and positions, transactions and user preferences, and
+      the Client methods that fetch them. Written by hand from real answers
+      that other projects keep, since the spec is wrong in places (see
+      [the API notes](schwab-api.md#where-the-spec-is-wrong)). They decode
+      leniently and never fail: a value of the wrong type is named in the
+      record's Problems, at its key path, and costs only its field, and a
+      balance or flag that Schwab sends only sometimes is nil when absent.
+      Transactions give their trade day as a New York date, through the
+      system's time zone or an embedded copy of New York's
 - [ ] `internal/schwab/schwabtest`: the fake Schwab server for those
       endpoints, plus scrubbed recordings of real responses as fixtures
 - [ ] Fuzz tests for the parsers (Schwab timestamps, pasted redirect
       addresses, transaction JSON)
-- [ ] A manual `-live` test mode for probing the real API, never run in CI
+- [ ] A manual `-live` test mode for probing the real API, never run in CI,
+      that also checks each real answer against the records: every key a
+      field takes, every key that a field marked as always present needs,
+      and no key repeated in an object
 - [ ] Answer the open questions below that a probe can settle, starting with
       how far back transactions go and what Schwab returns past that point
 
@@ -182,7 +191,14 @@ The data your return calculators need, kept complete and current.
 
 - [ ] SQLite store (pure-Go driver, so cross-compiling stays easy) holding
       transactions with their raw JSON, transfer items, sync state per
-      account, and snapshots of positions and balances
+      account, and snapshots of positions and balances. Money as integer
+      cents and quantities in millionths, from the records' float64s, which
+      is exact while the value times its scale stays under 2^51; prices and
+      averages can stay REAL. Accounts keyed by account number behind a local
+      id, never by hash, which may change between logins: the hashes are
+      looked up again on each run, and a 400 "Invalid account number"
+      (`schwab.ErrInvalidAccount`) means a stale hash, to look up again and
+      retry once, never Schwab refusing a window
 - [ ] `schwabtx sync`: first a backfill that walks back in windows of at most
       365 days (see [the API notes](schwab-api.md#transactions)), splitting
       any window that returns 3000 transactions. It stops when Schwab refuses
@@ -191,18 +207,40 @@ The data your return calculators need, kept complete and current.
       and why it stopped: an empty window does not prove there is no older
       history. Afterwards incremental syncs re-read a trailing overlap to
       catch transactions that change status
-- [ ] Idempotent upserts by Schwab's activity ID, with status changes and
-      cancellations recorded rather than lost
+- [ ] Idempotent upserts by account and Schwab's activity ID, with status
+      changes and cancellations recorded rather than lost. An instrument in
+      a transaction is Schwab's reference data as of the request, not the
+      trade's: `closingPrice` is the latest close, at the leg and in an
+      option's deliverable, and a delisted equity comes back under its
+      CUSIP. So a re-read row is a revision only if it differs once each
+      instrument is cut to its asset type and `instrumentId`; the first raw
+      JSON seen is kept beside the latest, and instruments go in a table of
+      securities with the symbols and CUSIPs each has had. A row without an
+      activity ID is kept and flagged, never keyed by its bytes, and a row
+      missing from a later complete re-read (every type, no symbol, fewer
+      than 3000 rows) is recorded as gone, never deleted
 - [ ] A snapshot on every sync, and the files from `schwabtx snapshot`
       imported, each kept with its time and the market date it stands for;
-      days without one are recorded as gaps. Snapshots are Schwab's own
+      days without one are recorded as gaps. A snapshot taken after a close
+      stands for the last session that closed at or before its time, from a
+      trading calendar with the early closes, not for the New York date of
+      its time: the scheduled 9:05 PM run is past midnight in New York for a
+      user in Pacific time. Its initial balances are the start of the
+      session, while its current ones keep moving in the evening and on
+      Sunday, so both liquidation values are kept. Snapshots are Schwab's own
       record of each day's holdings and values: a check on what milestone 4
       rebuilds from transactions, and for mutual funds, options and bonds,
       which price history does not cover, the only source of past values.
       The daily scheduled run becomes `schwabtx sync`
 - [ ] Every transaction classified (deposit or withdrawal, in-kind transfer in
       or out, journal between your own accounts, buy, sell, dividend,
-      interest, fee, tax, other), with overrides you can edit
+      interest, fee, tax, other), with overrides you can edit, by the
+      conventions in [the API notes](schwab-api.md#transactions): a trade's
+      fees are all its CURRENCY legs, named or not; a cash row carries its
+      cash in the leg's amount; a dividend's or withholding's security is
+      after the `~` in its description; and sweep journals are not
+      deposits. A row whose legs' cash does not add up to `netAmount`, or
+      that has problems, is flagged
 - [ ] CSV import of the History and Realized Gain/Loss exports you download
       from schwab.com, for history the API does not serve (schwab.com shows
       four years) and for the cost basis of each closed lot. An account's
@@ -233,11 +271,23 @@ The data your return calculators need, kept complete and current.
       input and output schemas, structured results and `readOnlyHint`. The
       SDK checks every result against its tool's output schema, and the
       schemas it infers describe `json.RawMessage` and `json.Number` wrongly,
-      so those types get schema overrides or hand-written schemas
+      so those types get schema overrides or hand-written schemas. The
+      records of `internal/schwab` infer cleanly as they are: no custom
+      marshalers, maps, enum lists or recursive types, `Raw` left out, and
+      `Problems` carried along. Build output types around a record with a
+      named field, never by embedding it, since its UnmarshalJSON would come
+      along
 - [ ] Compact results by default with a `detail` option; pagination for
       transactions; option chains always bounded
 - [ ] Account numbers masked everywhere a tool or resource returns data,
-      Schwab's JSON included
+      Schwab's JSON included: inside each handler, before the result is
+      returned, since the SDK checks results and quotes a failing value in
+      its error. Mask deep copies of the records, and Schwab's JSON decoded
+      as `any`; replace only string values, whole or in part, and never
+      change a value's type or delete a key, which would break the listed
+      schema. Masked numbers take Schwab's own form, `...` and the last
+      three digits. `StreamerInfo` is never returned. Encode Schwab's JSON
+      with HTML escaping off, since `json.Marshal` escapes `&`
 - [ ] Transactions served from the local store once milestone 2 has synced
       it, from the API otherwise; store-backed results say which dates they
       cover, per account
@@ -426,7 +476,7 @@ Everything planned, by area.
 | Login | Token shared safely between the CLI and the server | done |
 | Login | Automatic redirect capture on `127.0.0.1` | Later |
 | Login | Token in the OS keychain | Later |
-| Client | Accounts, balances, positions, transactions and preferences, typed, raw JSON kept | M1 |
+| Client | Accounts, balances, positions, transactions and preferences, typed, raw JSON kept | done |
 | Client | Rate limiting, retries for reads, correlation IDs in errors | done |
 | Client | Orders and every Market Data endpoint, typed, raw JSON kept | M3 |
 | History | Recent transactions across all accounts (`schwabtx`) | done |
@@ -461,6 +511,22 @@ milestone 1.
   year per request but not how far back history reaches. One report
   ([regress#125](https://github.com/ssandy33/regress/issues/125)) quotes
   Schwab saying it starts when the account was enabled for thinkorswim.
+  Another, in 2026, got empty lists for windows past an account's history
+  ([schwab-cli](https://github.com/piekstra/schwab-cli/blob/main/docs/api.md)),
+  so an empty window does not show that the history has ended.
+- **Does an account's hash change with a new login?** Schwabdev's maintainer
+  believes so; other clients treat it as stable. The store keeps data by
+  account number either way.
+- **What do expirations, assignments, transfers in kind and corporate
+  actions look like?** No public sample has one; they are probably
+  RECEIVE_AND_DELIVER rows.
+- **Does a fill in the overnight or futures sessions carry its instant in
+  `tradeDate`, or the next day's midnight?** It decides which day such a fill
+  is booked on.
+- **When do initial balances move to the new session**, and do they then
+  hold the close? A snapshot taken after that could stand for the close.
+- **Does the transactions `symbol` filter keep dividends and withholdings**,
+  which name their security only in their description?
 - **Does the per-account orders endpoint serve a year or only 60 days?** The
   spec and community clients disagree.
 - **Does `scope=readonly` give a token that cannot trade?** It appears in
