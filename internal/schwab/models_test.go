@@ -5,23 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"os"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
 
-// readTestdata returns the contents of testdata/name.
-func readTestdata(t *testing.T, name string) []byte {
+// readTestdata returns the fixture with the given name, from the fake
+// Schwab's embedded testdata.
+func readTestdata(t testing.TB, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile("testdata/" + name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
+	return schwabtest.Fixture(t, name)
 }
 
 // elements returns the bytes of each element of the JSON array in b, as
