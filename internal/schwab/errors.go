@@ -208,7 +208,8 @@ func newError(status int, header http.Header, body []byte) *Error {
 			} `json:"detail"`
 		} `json:"fault"`
 	}
-	// The body has also been seen as a list holding the one object.
+	// One report shows the body as a list holding the one object, perhaps
+	// as the reporter's own code printed it; that form is read too.
 	inner := body
 	if one := []json.RawMessage(nil); json.Unmarshal(body, &one) == nil && len(one) == 1 {
 		inner = one[0]

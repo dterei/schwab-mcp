@@ -641,8 +641,8 @@ func TestOlderWindowRefusedKeepsWhatWeHave(t *testing.T) {
 }
 
 // An account that Schwab stops taking part way through a run fails the run;
-// it is not taken for the end of the account's history. Schwab has sent the
-// refusal both alone and in a list of one.
+// it is not taken for the end of the account's history, whether the refusal
+// comes alone or, as one report shows it, in a list of one.
 func TestRefusedAccountFailsTheRun(t *testing.T) {
 	for _, body := range []string{`{"message":"Invalid account number"}`, `[{"message":"Invalid account number"}]`} {
 		f, _ := setup(t)

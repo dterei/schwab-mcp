@@ -492,9 +492,10 @@ Indexes take a `$` prefix wherever the index itself is named: quotes
 
 - **Error bodies vary**, and not only by API:
   - Accounts and Trading documents `{message, errors: [string]}`. It also
-    sends a message alone, such as `{"message": "Invalid account number"}`,
-    which one report shows as the one element of a list
-    ([schwab-py#203](https://github.com/alexgolec/schwab-py/issues/203)),
+    sends a message alone, such as `{"message": "Invalid account number"}`
+    (one report shows it inside a list of one, perhaps as the reporter's
+    own code printed it:
+    [schwab-py#203](https://github.com/alexgolec/schwab-py/issues/203)),
     and 401s in the Market Data format, as the real ones that
     [z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/tree/main/tests/model/Trader)
     keeps show.
