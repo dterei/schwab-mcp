@@ -364,8 +364,6 @@
         "availableFunds": 4355.0,
         "availableFundsNonMarginableTrade": 4355.0,
         "buyingPower": 8710.0,
-        "cashAvailableForTrading": 0.0,
-        "cashAvailableForWithdrawal": 0.0,
         "dayTradingBuyingPower": 18304.0,
         "dayTradingBuyingPowerCall": 0.0,
         "isInCall": false,

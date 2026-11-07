@@ -83,23 +83,27 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	}
 
 	// An account not ticked at the last login is simply missing from the
-	// response, so compare with the previous snapshot.
-	for _, number := range missingAccounts(lastLine(path), current) {
-		warn(fmt.Sprintf("Schwab did not return account %s, which the last snapshot has; "+
-			"to keep saving it, run `schwabtx login` and tick it", maskAccount(number)))
+	// response, so compare with the previous snapshot, unless an account's
+	// number could not be read, which the comparison would take for missing.
+	if !current[""] {
+		for _, number := range missingAccounts(lastLine(path), current) {
+			warn(fmt.Sprintf("Schwab did not return account %s, which the last snapshot has; "+
+				"to keep saving it, run `schwabtx login` and tick it", maskAccount(number)))
+		}
 	}
 
 	// Schwab's answer is the list of the accounts' JSON as received, joined
-	// by hand, since json.Marshal would escape "&" and the like. The encoder
-	// puts it on one line and, with HTML escaping off, leaves such characters
-	// as Schwab sent them.
+	// and put on one line by hand, since json.Marshal would escape "&" and
+	// the like, and a json.Encoder on Go 1.27 still escapes U+2028 and
+	// U+2029. json.Compact escapes nothing, so the line is the same whatever
+	// Go built the tool.
 	body := slices.Concat([]byte("["), bytes.Join(raws, []byte(",")), []byte("]"))
 	var line bytes.Buffer
-	enc := json.NewEncoder(&line)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(snapshot{Version: snapshotVersion, FetchedAt: fetchedAt, Accounts: body}); err != nil {
+	fmt.Fprintf(&line, `{"version":%d,"fetched_at":%q,"accounts":`, snapshotVersion, fetchedAt.Format(time.RFC3339))
+	if err := json.Compact(&line, body); err != nil {
 		return fmt.Errorf("encoding the snapshot: %w", err)
 	}
+	line.WriteString("}\n")
 	if err := appendLine(path, line.Bytes(), warn); err != nil {
 		return err
 	}

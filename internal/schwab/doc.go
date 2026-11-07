@@ -36,12 +36,13 @@
 //     reads as its zero value when absent, and is left out of the record's
 //     encoding, so that an encoded record holds only what Schwab sent.
 //   - Times are in UTC.
-//   - Where a key appears twice in an object, the last value wins for a
-//     number, string or boolean, but a duplicated object or array is merged
-//     into the first.
+//   - Where a key appears twice in an object, the last copy counts. An
+//     object or array sent twice is also a problem, since encoding/json may
+//     combine the copies into a value that Schwab did not send.
 //
-// A record's Problems cover its own JSON and the objects nested in it, but
-// not the Positions inside an Account, which have their own.
+// A record's Problems cover its own JSON and the objects nested in it, at
+// every depth, but not the Positions inside an Account, which have their
+// own.
 //
 // To build a type around a record, give it the record as a named field. A
 // record embedded in a struct brings its UnmarshalJSON along, which would

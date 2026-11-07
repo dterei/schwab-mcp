@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +71,9 @@ func TestDecodeAccounts(t *testing.T) {
 	noProblems(t, got, func(a Account) []Problem { return a.Problems })
 	if len(got) != 3 {
 		t.Fatalf("decoded %d accounts, want 3", len(got))
+	}
+	for _, a := range got {
+		noProblems(t, a.SecuritiesAccount.Positions, func(p Position) []Problem { return p.Problems })
 	}
 	raws := elements(t, b)
 	for i := range got {
@@ -265,6 +270,9 @@ func TestDecodeUserPreference(t *testing.T) {
 	}
 	if len(got.Problems) > 0 || len(got.Accounts) != 3 || len(got.StreamerInfo) != 1 || len(got.Offers) != 1 {
 		t.Fatalf("decoded %+v", got)
+	}
+	if !bytes.Equal(got.Raw, bytes.TrimSpace(b)) {
+		t.Errorf("Raw is not the bytes Schwab sent")
 	}
 	if a := got.Accounts[1]; a.NickName != "Options & Margin" || a.DisplayAcctID != "...398" || a.LotSelectionMethod != "FIFO" || a.PrimaryAccount {
 		t.Errorf("second account: %+v", a)
@@ -495,6 +503,72 @@ func TestTestdataAccountNumbersStandAlone(t *testing.T) {
 	}
 }
 
+// Records as Schwab sends them, with the keys that it sends on every record
+// of their kind and no others, for tests to change.
+const (
+	baseTransaction = `{"activityId":1,"time":"2024-04-04T15:56:07+0000","accountNumber":"29470135","type":"TRADE",` +
+		`"status":"VALID","subAccount":"CASH","tradeDate":"2024-04-04T15:56:07+0000","netAmount":1,"transferItems":[]}`
+	baseLeg      = `{"instrument":{"assetType":"EQUITY","symbol":"X"},"amount":1,"cost":-1}`
+	basePosition = `{"instrument":{"assetType":"EQUITY","symbol":"X"},"longQuantity":1,"shortQuantity":0,` +
+		`"settledLongQuantity":1,"settledShortQuantity":0,"averagePrice":5,"marketValue":5,"maintenanceRequirement":0,` +
+		`"currentDayProfitLoss":0,"currentDayProfitLossPercentage":0,"currentDayCost":0}`
+	baseSecuritiesAccount = `{"type":"MARGIN","accountNumber":"61803398","roundTrips":0,"isDayTrader":false,` +
+		`"isClosingOnlyRestricted":false,"pfcbFlag":false,"initialBalances":{"liquidationValue":5},` +
+		`"currentBalances":{"liquidationValue":5},"projectedBalances":{"buyingPower":5}}`
+)
+
+// withKeys returns obj, a JSON object, with changes made: each is a key and
+// the raw JSON to give it, or "" to take the key out. A key that obj lacks
+// is added at the end; the others keep their places.
+func withKeys(obj string, changes ...string) string {
+	if len(changes)%2 != 0 {
+		panic("withKeys takes keys and values in pairs")
+	}
+	type member struct{ key, value string }
+	var ms []member
+	dec := json.NewDecoder(strings.NewReader(obj))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		panic("withKeys takes an object: " + obj)
+	}
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			panic(err)
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			panic(err)
+		}
+		ms = append(ms, member{key.(string), string(value)})
+	}
+	for i := 0; i < len(changes); i += 2 {
+		key, value := changes[i], changes[i+1]
+		j := slices.IndexFunc(ms, func(m member) bool { return m.key == key })
+		switch {
+		case j >= 0 && value == "":
+			ms = slices.Delete(ms, j, j+1)
+		case j >= 0:
+			ms[j].value = value
+		case value != "":
+			ms = append(ms, member{key, value})
+		}
+	}
+	parts := make([]string, len(ms))
+	for i, m := range ms {
+		parts[i] = strconv.Quote(m.key) + ":" + m.value
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+// missing returns the problem of each key being missing.
+func missing(keys ...string) []string {
+	out := make([]string, len(keys))
+	for i, k := range keys {
+		out[i] = k + ": missing, though Schwab sends it on every record of its kind"
+	}
+	return out
+}
+
 func TestDecodeLeniently(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -504,7 +578,7 @@ func TestDecodeLeniently(t *testing.T) {
 	}{
 		{
 			name: "a number sent as a string",
-			json: `{"activityId":1,"time":"2024-04-04T15:56:07+0000","type":"TRADE","status":"VALID","netAmount":"12.5","description":"kept"}`,
+			json: withKeys(baseTransaction, "netAmount", `"12.5"`, "description", `"kept"`),
 			check: func(t *testing.T, tx Transaction) {
 				want(t, tx.Description == "kept" && tx.NetAmount == 0, "fields: %+v", tx)
 			},
@@ -512,61 +586,61 @@ func TestDecodeLeniently(t *testing.T) {
 		},
 		{
 			name:     "an id written as a fraction",
-			json:     `{"activityId":1.0,"time":"2024-04-04T15:56:07+0000","type":"TRADE","status":"VALID","netAmount":1}`,
+			json:     withKeys(baseTransaction, "activityId", "1.0"),
 			problems: []string{"activityId: Schwab sent the number 1.0 where a whole number was expected"},
 		},
 		{
 			name: "every key that Schwab always sends missing",
-			json: `{"accountNumber":"1"}`,
-			problems: []string{
-				"activityId: missing, though Schwab sends it on every record of its kind",
-				"time: missing, though Schwab sends it on every record of its kind",
-				"type: missing, though Schwab sends it on every record of its kind",
-				"status: missing, though Schwab sends it on every record of its kind",
-				"netAmount: missing, though Schwab sends it on every record of its kind",
-			},
+			json: `{"description":"all there is"}`,
+			problems: missing("accountNumber", "type", "status", "subAccount", "transferItems",
+				"activityId", "time", "tradeDate", "netAmount"),
 		},
 		{
 			name: "null where values belong",
-			json: `{"activityId":null,"time":null,"type":null,"status":"VALID","netAmount":null,"transferItems":null,"settlementDate":null}`,
-			problems: []string{
-				"activityId: missing, though Schwab sends it on every record of its kind",
-				"time: missing, though Schwab sends it on every record of its kind",
-				"type: missing, though Schwab sends it on every record of its kind",
-				"netAmount: missing, though Schwab sends it on every record of its kind",
-			},
+			json: withKeys(baseTransaction, "activityId", "null", "time", "null", "type", "null", "netAmount", "null",
+				"transferItems", "null", "settlementDate", "null"),
+			problems: missing("type", "transferItems", "activityId", "time", "netAmount"),
+		},
+		{
+			name:     "nothing where values belong",
+			json:     withKeys(baseTransaction, "activityId", "0", "type", `""`, "status", `""`),
+			problems: missing("activityId", "type", "status"),
 		},
 		{
 			name:     "a time that is not one",
-			json:     `{"activityId":1,"time":"2024-13-45","type":"TRADE","status":"VALID","netAmount":1}`,
+			json:     withKeys(baseTransaction, "time", `"2024-13-45"`),
 			problems: []string{`time: Schwab sent "2024-13-45", which is not a time`},
 		},
 		{
 			name:     "a time sent as a number",
-			json:     `{"activityId":1,"time":1712246167,"type":"TRADE","status":"VALID","netAmount":1}`,
+			json:     withKeys(baseTransaction, "time", "1712246167"),
 			problems: []string{"time: Schwab sent a number where a time was expected"},
 		},
 		{
-			name: "a strange leg",
-			json: `{"activityId":1,"time":"2024-04-04T15:56:07+0000","type":"TRADE","status":"VALID","netAmount":1,` +
-				`"transferItems":[{"instrument":{"assetType":"OPTION","symbol":"X","expirationDate":"soon"},"amount":2},` +
-				`{"instrument":{"assetType":"CURRENCY","symbol":"CURRENCY_USD","closingPrice":"x"},"amount":3}]}`,
+			// The third leg's closing price has the second's problem, which is
+			// named once.
+			name: "strange legs",
+			json: withKeys(baseTransaction, "transferItems", "["+
+				withKeys(baseLeg, "instrument", `{"assetType":"OPTION","symbol":"X","expirationDate":"soon"}`, "amount", "2")+","+
+				withKeys(baseLeg, "instrument", `{"assetType":"CURRENCY","symbol":"CURRENCY_USD","closingPrice":"x"}`, "amount", "3")+","+
+				withKeys(baseLeg, "instrument", `{"assetType":"CURRENCY","symbol":"CURRENCY_USD","closingPrice":"y"}`, "cost", "")+"]"),
 			check: func(t *testing.T, tx Transaction) {
-				want(t, len(tx.TransferItems) == 2 && tx.TransferItems[1].Amount == 3, "legs: %+v", tx.TransferItems)
+				want(t, len(tx.TransferItems) == 3 && tx.TransferItems[1].Amount == 3, "legs: %+v", tx.TransferItems)
 			},
 			problems: []string{
+				"transferItems.cost: missing, though Schwab sends it on every record of its kind",
 				`transferItems.instrument.expirationDate: Schwab sent "soon", which is not a time`,
 				"transferItems.instrument.closingPrice: Schwab sent a string where a number was expected",
 			},
 		},
 		{
 			name:     "legs sent as an object",
-			json:     `{"activityId":1,"time":"2024-04-04T15:56:07+0000","type":"TRADE","status":"VALID","netAmount":1,"transferItems":{}}`,
+			json:     withKeys(baseTransaction, "transferItems", "{}"),
 			problems: []string{"transferItems: Schwab sent an object where an array was expected"},
 		},
 		{
 			name:     "a number too large",
-			json:     `{"activityId":1,"time":"2024-04-04T15:56:07+0000","type":"TRADE","status":"VALID","netAmount":1e400}`,
+			json:     withKeys(baseTransaction, "netAmount", "1e400"),
 			problems: []string{"netAmount: Schwab sent the number 1e400, which is too large"},
 		},
 		{
@@ -581,7 +655,8 @@ func TestDecodeLeniently(t *testing.T) {
 		},
 		{
 			name: "keys Schwab adds later, and keys in another case",
-			json: `{"ActivityId":7,"Time":"2024-04-04T15:56:07Z","type":"TRADE","status":"VALID","netAmount":0,"futureField":{"a":[1]}}`,
+			json: withKeys(baseTransaction, "activityId", "", "time", "", "ActivityId", "7", "Time", `"2024-04-04T15:56:07Z"`,
+				"futureField", `{"a":[1]}`),
 			check: func(t *testing.T, tx Transaction) {
 				want(t, tx.ActivityID == 7 && !tx.Time.IsZero() && bytes.Contains(tx.Raw, []byte("futureField")), "fields: %+v", tx)
 			},
@@ -624,7 +699,8 @@ func want(t *testing.T, ok bool, format string, args ...any) {
 
 // One record that cannot be read costs itself, not the records after it.
 func TestDecodeKeepsTheRestOfTheList(t *testing.T) {
-	body := `[{"activityId":1,"netAmount":"x"},null,7,{"activityId":2,"time":"2024-04-04T15:56:07+0000","type":"TRADE","status":"VALID","netAmount":3}]`
+	body := "[" + withKeys(baseTransaction, "netAmount", `"x"`) + ",null,7," +
+		withKeys(baseTransaction, "activityId", "2", "netAmount", "3") + "]"
 	got, err := decodeList[Transaction]([]byte(body))
 	if err != nil {
 		t.Fatal(err)
@@ -632,16 +708,91 @@ func TestDecodeKeepsTheRestOfTheList(t *testing.T) {
 	if len(got) != 4 || got[3].ActivityID != 2 || got[3].NetAmount != 3 || len(got[3].Problems) != 0 {
 		t.Fatalf("decoded %+v", got)
 	}
+	if ps, want := problemStrings(got[0].Problems), []string{"netAmount: Schwab sent a string where a number was expected"}; !slices.Equal(ps, want) {
+		t.Errorf("first transaction's problems:\n got %q\nwant %q", ps, want)
+	}
 	if got[1].Problems == nil || got[2].Problems == nil || string(got[1].Raw) != "null" {
 		t.Errorf("the strange records: %+v, %+v", got[1], got[2])
 	}
 }
 
+// The records other than transactions name what they lack, and a key that
+// they read by hand is named once.
+func TestDecodeOtherRecordsLeniently(t *testing.T) {
+	var n AccountNumber
+	if err := json.Unmarshal([]byte(`{"accountNumber":"","hashValue":""}`), &n); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(n.Problems), missing("accountNumber", "hashValue"); !slices.Equal(got, want) {
+		t.Errorf("account number's problems:\n got %q\nwant %q", got, want)
+	}
+	var a Account
+	if err := json.Unmarshal([]byte(`{"securitiesAccount":`+withKeys(baseSecuritiesAccount, "accountNumber", `""`)+"}"), &a); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(a.Problems), missing("securitiesAccount.accountNumber"); !slices.Equal(got, want) {
+		t.Errorf("account's problems:\n got %q\nwant %q", got, want)
+	}
+	var p Position
+	if err := json.Unmarshal([]byte(withKeys(basePosition, "instrument", `{"assetType":"","symbol":"X"}`,
+		"longQuantity", `"1"`, "marketValue", `"x"`)), &p); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(p.Problems), []string{
+		"longQuantity: Schwab sent a string where a number was expected",
+		"marketValue: Schwab sent a string where a number was expected",
+		"instrument.assetType: missing, though Schwab sends it on every record of its kind",
+	}; !slices.Equal(got, want) {
+		t.Errorf("position's problems:\n got %q\nwant %q", got, want)
+	}
+	var u UserPreference
+	b := `{"accounts":{},"offers":[{"level2Permissions":"yes"}]}`
+	if err := json.Unmarshal([]byte(b), &u); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(u.Problems), []string{
+		"accounts: Schwab sent an object where an array was expected",
+		"streamerInfo: missing, though Schwab sends it on every record of its kind",
+		"offers.level2Permissions: Schwab sent a string where a boolean was expected",
+		"offers.mktDataPermission: missing, though Schwab sends it on every record of its kind",
+	}; !slices.Equal(got, want) || string(u.Raw) != b {
+		t.Errorf("preferences' problems:\n got %q\nwant %q", got, want)
+	}
+}
+
+// Records read one at a time from a stream keep their own bytes, though the
+// decoder reuses its buffer.
+func TestRawSurvivesAStream(t *testing.T) {
+	var buf bytes.Buffer
+	var want []string
+	for i := range 100 {
+		s := fmt.Sprintf(`{"accountNumber":"%08d","hashValue":"%064d"}`, i, i)
+		want = append(want, s)
+		buf.WriteString(s + "\n")
+	}
+	dec := json.NewDecoder(&buf)
+	var got []AccountNumber
+	for dec.More() {
+		var a AccountNumber
+		if err := dec.Decode(&a); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, a)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("decoded %d records, want %d", len(got), len(want))
+	}
+	for i, a := range got {
+		if string(a.Raw) != want[i] {
+			t.Errorf("record %d: Raw is %s, want %s", i, a.Raw, want[i])
+		}
+	}
+}
+
 func TestDecodeAccountLeniently(t *testing.T) {
-	body := `{"securitiesAccount":{"type":"MARGIN","accountNumber":"61803398",` +
-		`"currentBalances":{"isInCall":0,"cashBalance":12.5},` +
-		`"positions":[{"longQuantity":1,"shortQuantity":0,"instrument":{"assetType":"EQUITY","symbol":"X"}},` +
-		`{"longQuantity":1,"shortQuantity":0,"marketValue":5,"instrument":null}]}}`
+	body := `{"securitiesAccount":` + withKeys(baseSecuritiesAccount,
+		"currentBalances", `{"isInCall":0,"cashBalance":12.5}`,
+		"positions", "["+withKeys(basePosition, "marketValue", "")+","+withKeys(basePosition, "instrument", "null")+"]") + "}"
 	var a Account
 	if err := json.Unmarshal([]byte(body), &a); err != nil {
 		t.Fatal(err)
@@ -661,15 +812,160 @@ func TestDecodeAccountLeniently(t *testing.T) {
 	if len(positions) != 2 {
 		t.Fatalf("positions: %+v", positions)
 	}
-	if got, want := problemStrings(positions[0].Problems), []string{
-		"marketValue: missing, though Schwab sends it on every record of its kind",
-	}; !slices.Equal(got, want) {
+	if got, want := problemStrings(positions[0].Problems), missing("marketValue"); !slices.Equal(got, want) {
 		t.Errorf("first position's problems:\n got %q\nwant %q", got, want)
 	}
-	if got, want := problemStrings(positions[1].Problems), []string{
-		"instrument: Schwab sent null where an object was expected",
-	}; !slices.Equal(got, want) {
+	// A null instrument is missing, once, not also an instrument without an
+	// asset type.
+	if got, want := problemStrings(positions[1].Problems), missing("instrument"); !slices.Equal(got, want) {
 		t.Errorf("second position's problems:\n got %q\nwant %q", got, want)
+	}
+}
+
+// decodeAny decodes b as JSON into maps, slices and json.Numbers, so that
+// it encodes again with its numbers as written.
+func decodeAny(t *testing.T, b []byte) any {
+	t.Helper()
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// alwaysPresent returns the paths in v, a record of type t decoded as any,
+// of the keys that t, or a type within it, takes in a field without an omit
+// option. A path is the keys and array indexes that lead to the key. It does
+// not look into an account's positions, which are records of their own.
+func alwaysPresent(t reflect.Type, v any, path []any) [][]any {
+	t = derefType(t)
+	var paths [][]any
+	switch {
+	case t.Kind() == reflect.Slice:
+		s, _ := v.([]any)
+		for i, e := range s {
+			paths = append(paths, alwaysPresent(t.Elem(), e, append(slices.Clip(path), i))...)
+		}
+	case t.Kind() == reflect.Struct && t != timeType:
+		m, _ := v.(map[string]any)
+		fields := jsonFields(t)
+		for _, name := range slices.Sorted(maps.Keys(fields)) {
+			x, ok := m[name]
+			if !ok {
+				continue
+			}
+			p := append(slices.Clip(path), name)
+			if !fields[name].optional {
+				paths = append(paths, p)
+			}
+			if fields[name].t != reflect.TypeFor[[]Position]() {
+				paths = append(paths, alwaysPresent(fields[name].t, x, p)...)
+			}
+		}
+	}
+	return paths
+}
+
+// gone, given to changed, takes a key out.
+var gone = new(int)
+
+// changed returns v, JSON decoded as any, with the value at path set to to,
+// or taken out if to is gone. v itself is left as it was.
+func changed(v any, path []any, to any) any {
+	if i, ok := path[0].(int); ok {
+		s := slices.Clone(v.([]any))
+		s[i] = changed(s[i], path[1:], to)
+		return s
+	}
+	m := maps.Clone(v.(map[string]any))
+	switch key := path[0].(string); {
+	case len(path) > 1:
+		m[key] = changed(m[key], path[1:], to)
+	case to == gone:
+		delete(m, key)
+	default:
+		m[key] = to
+	}
+	return m
+}
+
+// keyPath returns the problem path of path: its keys, without the indexes.
+func keyPath(path []any) string {
+	var keys []string
+	for _, k := range path {
+		if s, ok := k.(string); ok {
+			keys = append(keys, s)
+		}
+	}
+	return strings.Join(keys, ".")
+}
+
+// testdataRecords returns the records of the testdata by type, the positions
+// of the accounts among them.
+func testdataRecords(t *testing.T) map[reflect.Type][]json.RawMessage {
+	t.Helper()
+	accounts := elements(t, readTestdata(t, "accounts.json"))
+	var positions []json.RawMessage
+	for _, account := range accounts {
+		var a struct {
+			SecuritiesAccount struct {
+				Positions []json.RawMessage `json:"positions"`
+			} `json:"securitiesAccount"`
+		}
+		if err := json.Unmarshal(account, &a); err != nil {
+			t.Fatal(err)
+		}
+		positions = append(positions, a.SecuritiesAccount.Positions...)
+	}
+	return map[reflect.Type][]json.RawMessage{
+		reflect.TypeFor[AccountNumber]():  elements(t, readTestdata(t, "account_numbers.json")),
+		reflect.TypeFor[Account]():        accounts,
+		reflect.TypeFor[Position]():       positions,
+		reflect.TypeFor[Transaction]():    append(elements(t, readTestdata(t, "transactions.json")), readTestdata(t, "transaction.json")),
+		reflect.TypeFor[UserPreference](): {readTestdata(t, "user_preference.json")},
+	}
+}
+
+// Taking out, or making null, any one key of a testdata record that Schwab
+// sends on every record of its kind, at any depth, gives the record that
+// key's absence as its one problem.
+func TestDropAnyAlwaysPresentKey(t *testing.T) {
+	seen := map[string]bool{}
+	for typ, records := range testdataRecords(t) {
+		for i, raw := range records {
+			record := decodeAny(t, raw)
+			for _, path := range alwaysPresent(typ, record, nil) {
+				for _, to := range []any{gone, nil} {
+					b, err := json.Marshal(changed(record, path, to))
+					if err != nil {
+						t.Fatal(err)
+					}
+					v := reflect.New(typ)
+					if err := json.Unmarshal(b, v.Interface()); err != nil {
+						t.Fatal(err)
+					}
+					if got, want := problemStrings(problemsField(v.Elem())), missing(keyPath(path)); !slices.Equal(got, want) {
+						how := "taken out"
+						if to == nil {
+							how = "null"
+						}
+						t.Errorf("%s %d with %v %s: problems %q, want %q", typ.Name(), i, path, how, got, want)
+					}
+				}
+				seen[keyPath(path)] = true
+			}
+		}
+	}
+	// The cases reach through arrays, pointers and nested records.
+	for _, path := range []string{
+		"securitiesAccount.currentBalances", "instrument.assetType", "accounts.nickName",
+		"transferItems.instrument.optionDeliverables.deliverable.symbol",
+	} {
+		if !seen[path] {
+			t.Errorf("no case takes out %s", path)
+		}
 	}
 }
 
@@ -758,6 +1054,17 @@ func TestTransactionDays(t *testing.T) {
 	if (Transaction{}).TradeDay() != "" {
 		t.Error("a transaction without times has a trade day")
 	}
+	// An execution in the evening in New York is booked on that day there,
+	// which in UTC is the next.
+	evening := time.Date(2025, 6, 3, 0, 30, 27, 0, time.UTC)
+	if d := (Transaction{Time: evening, TradeDate: evening}).TradeDay(); d != "2025-06-02" {
+		t.Errorf("an execution at 20:30 in New York is on %s", d)
+	}
+	// The trade date counts, not when the row was posted.
+	late := Transaction{Time: time.Date(2024, 4, 2, 14, 0, 0, 0, time.UTC), TradeDate: time.Date(2024, 3, 28, 4, 0, 0, 0, time.UTC)}
+	if d := late.TradeDay(); d != "2024-03-28" {
+		t.Errorf("a row booked on 2024-03-28 and posted later is on %s", d)
+	}
 }
 
 // The time zone built in for systems without one gives the offsets of New
@@ -781,22 +1088,6 @@ func TestBuiltInNewYorkZone(t *testing.T) {
 	} {
 		if _, off := tt.at.In(loc).Zone(); off != tt.offset*3600 {
 			t.Errorf("at %v the built-in zone is %+d hours from UTC, want %+d", tt.at, off/3600, tt.offset)
-		}
-	}
-}
-
-func TestJSONPath(t *testing.T) {
-	for in, want := range map[string]string{
-		"":                                    "",
-		"plain":                               "",
-		"plain.netAmount":                     "netAmount",
-		"netAmount":                           "netAmount",
-		"plain.securitiesAccount.items.price": "securitiesAccount.items.price",
-		"securitiesAccount.items.1.price":     "securitiesAccount.items.price",
-		"transferItems.12.instrument.symbol":  "transferItems.instrument.symbol",
-	} {
-		if got := jsonPath(in); got != want {
-			t.Errorf("jsonPath(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -875,6 +1166,49 @@ func TestEncodingKeepsToWhatSchwabSent(t *testing.T) {
 	if want := `{"cashAvailableForTrading":1532.17,"cashAvailableForWithdrawal":1532.17}`; string(b) != want {
 		t.Errorf("projected balances encode as %s, want %s", b, want)
 	}
+
+	// Every key of every record's encoding is one that Schwab sent.
+	for typ, records := range testdataRecords(t) {
+		for i, raw := range records {
+			v := reflect.New(typ)
+			if err := json.Unmarshal(raw, v.Interface()); err != nil {
+				t.Fatal(err)
+			}
+			b, err := json.Marshal(v.Interface())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if extra := extraKeys(decodeAny(t, b), decodeAny(t, raw), ""); len(extra) > 0 {
+				t.Errorf("%s %d encodes keys that Schwab did not send: %v", typ.Name(), i, extra)
+			}
+		}
+	}
+}
+
+// extraKeys returns the paths of the keys in a that b lacks, where a and b
+// are JSON decoded as any; arrays are compared element by element.
+func extraKeys(a, b any, path string) []string {
+	var extra []string
+	switch a := a.(type) {
+	case map[string]any:
+		bm, _ := b.(map[string]any)
+		for _, k := range slices.Sorted(maps.Keys(a)) {
+			at := joinPath(path, k)
+			if bv, ok := bm[k]; ok {
+				extra = append(extra, extraKeys(a[k], bv, at)...)
+			} else {
+				extra = append(extra, at)
+			}
+		}
+	case []any:
+		bs, _ := b.([]any)
+		for i, e := range a {
+			if i < len(bs) {
+				extra = append(extra, extraKeys(e, bs[i], path)...)
+			}
+		}
+	}
+	return extra
 }
 
 // recordTypes are the types that decode themselves leniently.
@@ -883,17 +1217,55 @@ var recordTypes = []reflect.Type{
 	reflect.TypeFor[Instrument](), reflect.TypeFor[Transaction](), reflect.TypeFor[UserPreference](),
 }
 
+// reachable adds t, if it is a struct, and the struct types that it holds,
+// through fields, slices and pointers, to seen.
+func reachable(t reflect.Type, seen map[reflect.Type]bool) {
+	t = derefType(t)
+	switch {
+	case t.Kind() == reflect.Slice || t.Kind() == reflect.Array:
+		reachable(t.Elem(), seen)
+	case t.Kind() == reflect.Struct && t != timeType && !seen[t]:
+		seen[t] = true
+		for f := range t.Fields() {
+			if f.IsExported() {
+				reachable(f.Type, seen)
+			}
+		}
+	}
+}
+
+// holdsTime reports whether t is a time, or a pointer to or slice of them.
+func holdsTime(t reflect.Type) bool {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
+		t = t.Elem()
+	}
+	return t == timeType
+}
+
 // Every time field is read by hand. On Go 1.26, a time field that a
 // record's UnmarshalJSON does not read itself stops the decode at its key,
-// on Schwab's offsets, and loses the rest of the record; so each time,
-// filled as Schwab writes times, must come back, and so must a key after it.
+// on Schwab's offsets, and loses the rest of the object; so each time sits
+// in a type with an UnmarshalJSON of its own, and each, filled as Schwab
+// writes times, must come back, and so must a key after it.
 func TestEveryTimeFieldIsReadByHand(t *testing.T) {
+	types := map[reflect.Type]bool{}
+	for _, typ := range recordTypes {
+		reachable(typ, types)
+	}
+	for typ := range types {
+		for f := range typ.Fields() {
+			if holdsTime(f.Type) && !reflect.PointerTo(typ).Implements(reflect.TypeFor[json.Unmarshaler]()) {
+				t.Errorf("%s.%s is a time in a type that does not decode itself, so nothing reads it by hand", typ.Name(), f.Name)
+			}
+		}
+	}
+
 	for _, typ := range recordTypes {
 		fields := jsonFields(typ)
 		obj := map[string]any{}
 		var times []string
 		for name, f := range fields {
-			if f.t == reflect.TypeFor[time.Time]() {
+			if f.t == timeType {
 				obj[name] = "2024-04-04T15:56:07+0000"
 				times = append(times, name)
 			}
@@ -932,11 +1304,9 @@ func TestEveryTimeFieldIsReadByHand(t *testing.T) {
 				t.Errorf("%s.%s after the times decoded as %v", typ.Name(), trailer, got)
 			}
 		}
-		if ps := problemsField(v.Elem()); len(ps) > 0 {
-			for _, p := range ps {
-				if strings.Contains(p.What, "time") {
-					t.Errorf("%s: %v", typ.Name(), p)
-				}
+		for _, p := range problemsField(v.Elem()) {
+			if strings.Contains(p.What, "time") {
+				t.Errorf("%s: %v", typ.Name(), p)
 			}
 		}
 	}
@@ -965,14 +1335,16 @@ func problemsField(v reflect.Value) []Problem {
 // Schwab writes the key in another case, and the same on every Go version;
 // a pointer such a value would have left at zero is nil, as for absent.
 func TestEveryMismatchIsNamed(t *testing.T) {
-	body := `{"activityId":5,"time":"2024-04-04T15:56:07+0000","type":"TRADE","status":"VALID","netAmount":1,` +
-		`"SUBACCOUNT":7,"qualifiedDividend":"true",` +
-		`"transferItems":[{"amount":"1","cost":true,"Price":{},"instrument":{"assetType":"EQUITY","symbol":"X","strikePrice":"9"}}]}`
+	// The first type is of the wrong kind and the second, sent in another
+	// case, is not.
+	body := `{"TYPE":5,` + withKeys(baseTransaction, "subAccount", "", "SUBACCOUNT", "7", "qualifiedDividend", `"true"`,
+		"transferItems", `[{"amount":"1","cost":true,"Price":{},"instrument":{"assetType":"EQUITY","symbol":"X","strikePrice":"9"}}]`)[1:]
 	var tx Transaction
 	if err := json.Unmarshal([]byte(body), &tx); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
+		"type: Schwab sent a number where a string was expected",
 		"subAccount: Schwab sent a number where a string was expected",
 		"qualifiedDividend: Schwab sent a string where a boolean was expected",
 		"transferItems.amount: Schwab sent a string where a number was expected",
@@ -983,13 +1355,17 @@ func TestEveryMismatchIsNamed(t *testing.T) {
 	if got := problemStrings(tx.Problems); !slices.Equal(got, want) {
 		t.Errorf("problems:\n got %q\nwant %q", got, want)
 	}
+	if tx.Type != TransactionTrade {
+		t.Errorf("type = %q, want the one that could be read", tx.Type)
+	}
 	if tx.QualifiedDividend != nil {
 		t.Errorf("qualifiedDividend = %v, want nil since it could not be read", *tx.QualifiedDividend)
 	}
 
 	var a Account
-	if err := json.Unmarshal([]byte(`{"securitiesAccount":{"accountNumber":"1","isPortfolioMargin":1,`+
-		`"CurrentBalances":{"IsInCall":0,"cashBalance":"x","liquidationValue":9}},"aggregatedBalance":{"liquidationValue":[1]}}`), &a); err != nil {
+	if err := json.Unmarshal([]byte(`{"securitiesAccount":`+withKeys(baseSecuritiesAccount, "isPortfolioMargin", "1",
+		"currentBalances", "", "CurrentBalances", `{"IsInCall":0,"cashBalance":"x","liquidationValue":9}`)+
+		`,"aggregatedBalance":{"liquidationValue":[1]}}`), &a); err != nil {
 		t.Fatal(err)
 	}
 	want = []string{
@@ -1035,17 +1411,60 @@ func TestDecodeOneRefusesAListOfNonObjects(t *testing.T) {
 	}
 }
 
-// A duplicated scalar takes its last value, but a duplicated object is
-// merged into the first, as the package doc says.
+// A number, string or boolean sent twice takes its last value, but an
+// object or array sent twice is a problem: what its fields hold then
+// depends on how encoding/json combines the copies.
 func TestDuplicateKeys(t *testing.T) {
+	sentTwice := func(path string) string {
+		return path + ": Schwab sent it more than once, so what it holds is uncertain"
+	}
 	var a Account
-	if err := json.Unmarshal([]byte(`{"securitiesAccount":{"accountNumber":"1","type":"CASH","type":"MARGIN",`+
-		`"currentBalances":{"cashBalance":100,"liquidationValue":500},"currentBalances":{"cashBalance":7}}}`), &a); err != nil {
+	sa := `{"type":"CASH","currentBalances":{"cashBalance":100,"liquidationValue":500},` + baseSecuritiesAccount[1:]
+	if err := json.Unmarshal([]byte(`{"securitiesAccount":`+sa+`}`), &a); err != nil {
 		t.Fatal(err)
 	}
-	sa := a.SecuritiesAccount
-	if sa.Type != "MARGIN" || *sa.CurrentBalances.CashBalance != 7 || sa.CurrentBalances.LiquidationValue == nil || *sa.CurrentBalances.LiquidationValue != 500 {
-		t.Errorf("decoded %+v", sa)
+	if a.SecuritiesAccount.Type != "MARGIN" {
+		t.Errorf("type = %q, want the last one sent", a.SecuritiesAccount.Type)
+	}
+	if got, want := problemStrings(a.Problems), []string{sentTwice("securitiesAccount.currentBalances")}; !slices.Equal(got, want) {
+		t.Errorf("account's problems:\n got %q\nwant %q", got, want)
+	}
+
+	// The last copy of a number counts even when it cannot be read, or is
+	// null.
+	var p Position
+	if err := json.Unmarshal([]byte(basePosition[:len(basePosition)-1]+`,"averagePrice":"x"}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(p.Problems), []string{"averagePrice: Schwab sent a string where a number was expected"}; !slices.Equal(got, want) || p.AveragePrice != 0 {
+		t.Errorf("averagePrice = %v, with problems %q; want 0 and %q", p.AveragePrice, got, want)
+	}
+	if err := json.Unmarshal([]byte(basePosition[:len(basePosition)-1]+`,"averagePrice":null}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(p.Problems), missing("averagePrice"); !slices.Equal(got, want) || p.AveragePrice != 0 {
+		t.Errorf("averagePrice = %v, with problems %q; want 0 and %q", p.AveragePrice, got, want)
+	}
+
+	// An instrument decodes itself, so its second copy replaces the first.
+	if err := json.Unmarshal([]byte(`{"instrument":{"assetType":"OPTION","symbol":"Y","cusip":"1"},`+basePosition[1:]), &p); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(p.Problems), []string{sentTwice("instrument")}; !slices.Equal(got, want) {
+		t.Errorf("position's problems:\n got %q\nwant %q", got, want)
+	}
+
+	// An array sent twice, and an instrument sent twice in a leg.
+	var tx Transaction
+	leg := `{"instrument":{"assetType":"EQUITY","symbol":"Y"},` + baseLeg[1:]
+	if err := json.Unmarshal([]byte(`{"transferItems":[`+baseLeg+","+baseLeg+"],"+
+		withKeys(baseTransaction, "transferItems", "["+leg+"]")[1:]), &tx); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problemStrings(tx.Problems), []string{
+		sentTwice("transferItems"), sentTwice("transferItems.instrument"),
+	}; !slices.Equal(got, want) {
+		t.Errorf("transaction's problems:\n got %q\nwant %q", got, want)
 	}
 }
 

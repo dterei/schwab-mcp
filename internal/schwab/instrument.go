@@ -32,13 +32,15 @@ const (
 // answer shows how Schwab sends them.
 //
 // An instrument is Schwab's reference data as of the request, not of the
-// trade: ClosingPrice is the latest close, so the same transaction reads
-// differently from day to day, and a delisted security can come back with
-// its CUSIP as its symbol.
+// trade: ClosingPrice is a price as of the request, so the same transaction
+// reads differently from day to day, and a delisted security can come back
+// with its CUSIP as its symbol.
 type Instrument struct {
 	AssetType AssetType `json:"assetType"`
 	// Symbol is the ticker, CURRENCY_USD for cash and fees, or an option's
-	// OCC symbol, its root padded to six characters (AAPL  260320C00180000).
+	// symbol: for an option on a stock or fund, its OCC symbol, the root
+	// padded to six characters (AAPL  260320C00180000), and for an option on
+	// a future, Schwab's own form (/ESH25_P5050:XCME).
 	Symbol        string `json:"symbol"`
 	UniformSymbol string `json:"uniformSymbol,omitzero"`
 	// CUSIP is on positions, not on transactions.
@@ -55,11 +57,13 @@ type Instrument struct {
 
 	// NetChange is the day's change in price, on positions.
 	NetChange float64 `json:"netChange,omitzero"`
-	// ClosingPrice is the latest close as of the request, on transactions.
+	// ClosingPrice is a price as of the request, on transactions; whether it
+	// is the last close or a live price is not known.
 	ClosingPrice float64 `json:"closingPrice,omitzero"`
 
 	// The rest describe options. A position's option carries only PutCall
-	// and UnderlyingSymbol; the strike and expiration are in its Symbol.
+	// and UnderlyingSymbol of them: the strike and expiration are in its
+	// Symbol, and the multiplier is not sent.
 	PutCall     string  `json:"putCall,omitzero"`
 	StrikePrice float64 `json:"strikePrice,omitzero"`
 	// ExpirationDate is midnight in New York on the day of expiration.
@@ -77,8 +81,13 @@ type Instrument struct {
 }
 
 // UnmarshalJSON decodes an instrument leniently. It never fails; what it
-// cannot read goes to the problems of the record that holds it.
+// cannot read goes to the problems of the record that holds it. Null leaves
+// the instrument zero, for the record that holds it to report as missing.
 func (in *Instrument) UnmarshalJSON(b []byte) error {
+	if isNull(b) {
+		*in = Instrument{}
+		return nil
+	}
 	type plain Instrument
 	var w struct {
 		plain

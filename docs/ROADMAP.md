@@ -169,7 +169,8 @@ and HTTP code into `internal/schwab` with what the history store needs.
       the Client methods that fetch them. Written by hand from real answers
       that other projects keep, since the spec is wrong in places (see
       [the API notes](schwab-api.md#where-the-spec-is-wrong)). They decode
-      leniently and never fail: a value of the wrong type is named in the
+      leniently and never fail: a value of the wrong type, or a missing key
+      that Schwab sends on every record of its kind, is named in the
       record's Problems, at its key path, and costs only its field, and a
       balance or flag that Schwab sends only sometimes is nil when absent.
       Transactions give their trade day as a New York date, through the
@@ -179,9 +180,8 @@ and HTTP code into `internal/schwab` with what the history store needs.
 - [ ] Fuzz tests for the parsers (Schwab timestamps, pasted redirect
       addresses, transaction JSON)
 - [ ] A manual `-live` test mode for probing the real API, never run in CI,
-      that also checks each real answer against the records: every key a
-      field takes, every key that a field marked as always present needs,
-      and no key repeated in an object
+      that also checks each real answer against the records: no record with
+      problems, no key that no field takes, and no key repeated in an object
 - [ ] Answer the open questions below that a probe can settle, starting with
       how far back transactions go and what Schwab returns past that point
 
@@ -191,14 +191,19 @@ The data your return calculators need, kept complete and current.
 
 - [ ] SQLite store (pure-Go driver, so cross-compiling stays easy) holding
       transactions with their raw JSON, transfer items, sync state per
-      account, and snapshots of positions and balances. Money as integer
-      cents and quantities in millionths, from the records' float64s, which
-      is exact while the value times its scale stays under 2^51; prices and
-      averages can stay REAL. Accounts keyed by account number behind a local
-      id, never by hash, which may change between logins: the hashes are
-      looked up again on each run, and a 400 "Invalid account number"
-      (`schwab.ErrInvalidAccount`) means a stale hash, to look up again and
-      retry once, never Schwab refusing a window
+      account, and snapshots of positions and balances. Two-decimal money
+      (balances, transaction amounts) as integer cents and quantities in
+      millionths, from the records' float64s, which is exact while the value
+      times its scale stays under 2^51; prices, averages and positions'
+      profit/loss figures, which carry fractions of a cent, stay REAL.
+      Accounts keyed by account number behind a local id, never by hash,
+      which may change between logins: the hashes are looked up again on
+      each run. A 400 "Invalid account number" (`schwab.ErrInvalidAccount`)
+      means Schwab refused the account in the path: seen for a plain account
+      number, and possible for a changed hash or an account no longer
+      shared. Look the hashes up again and retry once if the account is
+      still listed, else record it as no longer shared; never take it for a
+      refused window
 - [ ] `schwabtx sync`: first a backfill that walks back in windows of at most
       365 days (see [the API notes](schwab-api.md#transactions)), splitting
       any window that returns 3000 transactions. It stops when Schwab refuses
@@ -210,8 +215,8 @@ The data your return calculators need, kept complete and current.
 - [ ] Idempotent upserts by account and Schwab's activity ID, with status
       changes and cancellations recorded rather than lost. An instrument in
       a transaction is Schwab's reference data as of the request, not the
-      trade's: `closingPrice` is the latest close, at the leg and in an
-      option's deliverable, and a delisted equity comes back under its
+      trade's: `closingPrice` is a price as of the request, at the leg and in
+      an option's deliverable, and a delisted equity comes back under its
       CUSIP. So a re-read row is a revision only if it differs once each
       instrument is cut to its asset type and `instrumentId`; the first raw
       JSON seen is kept beside the latest, and instruments go in a table of

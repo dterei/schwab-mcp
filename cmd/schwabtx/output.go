@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -55,17 +56,28 @@ func printTable(w io.Writer, txs []schwab.Transaction, showAccounts bool) error 
 	return tw.Flush()
 }
 
-// printJSON writes Schwab's own JSON for each transaction, re-indented but
-// otherwise as received. That includes full account numbers.
+// printJSON writes Schwab's own JSON for each transaction, as a list,
+// re-indented but otherwise as received. That includes full account
+// numbers. It indents by hand, as json.Encoder lays a list out, since an
+// encoder on Go 1.27 escapes U+2028 and U+2029 and json.Indent does not.
 func printJSON(w io.Writer, txs []schwab.Transaction) error {
-	raws := make([]json.RawMessage, len(txs))
+	var out bytes.Buffer
+	out.WriteByte('[')
 	for i, tx := range txs {
-		raws[i] = tx.Raw
+		if i > 0 {
+			out.WriteByte(',')
+		}
+		out.WriteString("\n  ")
+		if err := json.Indent(&out, tx.Raw, "  ", "  "); err != nil {
+			return err
+		}
 	}
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	return enc.Encode(raws)
+	if len(txs) > 0 {
+		out.WriteByte('\n')
+	}
+	out.WriteString("]\n")
+	_, err := w.Write(out.Bytes())
+	return err
 }
 
 // newYorkMidnight reports whether t is midnight in New York: the instant

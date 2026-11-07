@@ -208,7 +208,12 @@ func newError(status int, header http.Header, body []byte) *Error {
 			} `json:"detail"`
 		} `json:"fault"`
 	}
-	if json.Unmarshal(body, &v) == nil {
+	// The body has also been seen as a list holding the one object.
+	inner := body
+	if one := []json.RawMessage(nil); json.Unmarshal(body, &one) == nil && len(one) == 1 {
+		inner = one[0]
+	}
+	if json.Unmarshal(inner, &v) == nil {
 		e.Message = v.Message
 		e.Errors = errorList(v.Errors)
 		if v.Fault != nil {

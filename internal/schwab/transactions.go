@@ -18,8 +18,9 @@ type TransactionType string
 // The transaction types that Schwab's spec lists. Kinds of cash movement do
 // not map one to one onto them: an ACH deposit has come as
 // TransactionElectronicFund, monthly interest on cash as
-// TransactionDividendOrInterest, and foreign tax withheld from a dividend as
-// TransactionJournal.
+// TransactionDividendOrInterest, and tax withheld from a dividend paid to a
+// nonresident (W-8BEN) account as TransactionJournal. How foreign tax
+// withheld from a dividend on a US account comes has not been seen.
 const (
 	TransactionTrade              TransactionType = "TRADE"
 	TransactionReceiveAndDeliver  TransactionType = "RECEIVE_AND_DELIVER"
@@ -69,7 +70,9 @@ const (
 // (a TransactionTrade with an OrderID) has an OrderID and a PositionID but
 // no Description and no SettlementDate. Every other row has a Description
 // and a SettlementDate, and the cash rows (dividends, interest, journals,
-// deposits) have no ids.
+// deposits) have neither an OrderID nor a PositionID; a TransactionTrade
+// without an OrderID, such as a dividend reinvestment, has a PositionID.
+// Every row has an ActivityID.
 //
 // NetAmount is the transaction's effect on the account's cash, positive in
 // and negative out. On every trade seen it equals the sum of the legs'
@@ -105,7 +108,8 @@ type Transaction struct {
 	PositionID  int64   `json:"positionId,omitzero"`
 	// ActivityType is in Schwab's spec but has not been seen.
 	ActivityType string `json:"activityType,omitzero"`
-	// QualifiedDividend is on dividends since 2026; nil when absent.
+	// QualifiedDividend has been seen on a dividend in 2026, but not on
+	// those of 2024 to a nonresident account; nil when absent.
 	QualifiedDividend *bool          `json:"qualifiedDividend,omitempty"`
 	TransferItems     []TransferItem `json:"transferItems"`
 
@@ -133,20 +137,21 @@ func (t *Transaction) UnmarshalJSON(b []byte) error {
 	*t = Transaction(w.plain)
 	ps := recordProblems(b, t, isObject, err, "activityId", "time", "tradeDate", "settlementDate", "netAmount")
 	hasID := readField(w.ActivityID, "activityId", &t.ActivityID, &ps)
-	var hasTime bool
+	var hasTime, hasTradeDate bool
 	t.Time, hasTime = readTime(w.Time, "time", &ps)
-	t.TradeDate, _ = readTime(w.TradeDate, "tradeDate", &ps)
+	t.TradeDate, hasTradeDate = readTime(w.TradeDate, "tradeDate", &ps)
 	t.SettlementDate, _ = readTime(w.SettlementDate, "settlementDate", &ps)
 	hasNet := readField(w.NetAmount, "netAmount", &t.NetAmount, &ps)
 	if isObject {
 		need(&ps, hasID && t.ActivityID != 0, "activityId")
 		need(&ps, hasTime, "time")
+		need(&ps, hasTradeDate, "tradeDate")
 		need(&ps, t.Type != "", "type")
 		need(&ps, t.Status != "", "status")
 		need(&ps, hasNet, "netAmount")
 		for i := range t.TransferItems {
 			in := &t.TransferItems[i].Instrument
-			ps = append(ps, within("transferItems.instrument", in.problems)...)
+			ps = within(ps, "transferItems.instrument", in.problems)
 			in.problems = nil
 		}
 	}
@@ -154,8 +159,10 @@ func (t *Transaction) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// TradeDay returns the day the transaction was booked on, the New York date
-// of its TradeDate, or of its Time if it has none. Use it to group
+// TradeDay returns the New York date of the transaction's TradeDate, or of
+// its Time if it has none. On every row seen, that is the day that Schwab
+// booked it on; a fill in the evening futures or overnight sessions, which
+// no sample shows, may be booked on the next trading day. Use it to group
 // transactions by day or month. To place a transaction between two
 // snapshots, compare its Time with theirs instead: a row booked on a day can
 // be posted that evening, after the day's snapshot.
@@ -206,10 +213,12 @@ const MaxTransactionWindow = 365 * 24 * time.Hour
 // TransactionQuery asks for an account's transactions.
 type TransactionQuery struct {
 	// Start and End bound the transactions' times. Both are needed, and End
-	// must come after Start, by at most MaxTransactionWindow. A window whose
-	// start equals its end returns nothing.
+	// must come after Start, by at most MaxTransactionWindow; Transactions
+	// refuses any other window without sending it. Schwab is reported to
+	// return nothing for a window whose start equals its end.
 	Start, End time.Time
-	// Types are the kinds asked for, or every kind when empty.
+	// Types are the kinds asked for, or, when empty, every kind that
+	// AllTransactionTypes lists.
 	Types []TransactionType
 	// Symbol asks for one security's transactions only. Dividends and
 	// withholdings name their security only in their Description, so they
@@ -255,8 +264,8 @@ func (q TransactionQuery) values() (url.Values, error) {
 // Transactions returns the account's transactions that q asks for, in
 // Schwab's order, which is not by time: sort by Time, then ActivityID.
 // Schwab cuts an answer at MaxTransactions, so a window that returns that
-// many should be split and asked for again. An empty window is not an
-// error.
+// many should be split and asked for again. A window without transactions
+// gives an empty list, not an error.
 func (c *Client) Transactions(ctx context.Context, hash AccountHash, q TransactionQuery) ([]Transaction, error) {
 	if hash == "" {
 		return nil, errors.New("no account hash")

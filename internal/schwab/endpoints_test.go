@@ -96,7 +96,7 @@ func TestTransactionsRequest(t *testing.T) {
 		Start: start, End: end, Types: []TransactionType{TransactionTrade, TransactionJournal}, Symbol: "BND",
 	})
 	if err != nil || got == nil || len(got) != 0 {
-		t.Fatalf("an empty window gave %v, %v; want an empty list", got, err)
+		t.Fatalf("a window without transactions gave %v, %v; want an empty list", got, err)
 	}
 	u := requested(t, f)
 	if len(u) != 2 || u[0].Path != "/trader/v1/accounts/HASH/transactions" {
@@ -106,12 +106,10 @@ func TestTransactionsRequest(t *testing.T) {
 	if q.Get("startDate") != "2026-01-02T08:04:05.678Z" || q.Get("endDate") != "2026-02-01T08:04:05.678Z" {
 		t.Errorf("dates sent as %q and %q", q.Get("startDate"), q.Get("endDate"))
 	}
-	all := AllTransactionTypes()
-	names := make([]string, len(all))
-	for i, ty := range all {
-		names[i] = string(ty)
-	}
-	if q.Get("types") != strings.Join(names, ",") || len(all) != 15 || q.Has("symbol") {
+	// The default is every type the spec lists, spelled as the spec does.
+	if q.Get("types") != "TRADE,RECEIVE_AND_DELIVER,DIVIDEND_OR_INTEREST,ACH_RECEIPT,ACH_DISBURSEMENT,"+
+		"CASH_RECEIPT,CASH_DISBURSEMENT,ELECTRONIC_FUND,WIRE_OUT,WIRE_IN,JOURNAL,MEMORANDUM,MARGIN_CALL,"+
+		"MONEY_MARKET,SMA_ADJUSTMENT" || q.Has("symbol") {
 		t.Errorf("default query %v", q)
 	}
 	if q := u[1].Query(); q.Get("types") != "TRADE,JOURNAL" || q.Get("symbol") != "BND" {
@@ -124,11 +122,11 @@ func TestTransactionsWindowRules(t *testing.T) {
 	cl, f := endpointClient(t)
 	start := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	for name, q := range map[string]TransactionQuery{
-		"no start":          {End: start},
-		"no end":            {Start: start},
-		"an end before":     {Start: start, End: start.Add(-time.Second)},
-		"an empty window":   {Start: start, End: start},
-		"a window too long": {Start: start, End: start.Add(MaxTransactionWindow + time.Second)},
+		"no start":              {End: start},
+		"no end":                {Start: start},
+		"an end before":         {Start: start, End: start.Add(-time.Second)},
+		"a window of no length": {Start: start, End: start},
+		"a window too long":     {Start: start, End: start.Add(MaxTransactionWindow + time.Second)},
 	} {
 		if _, err := cl.Transactions(t.Context(), "HASH", q); err == nil {
 			t.Errorf("%s: no error", name)
@@ -162,8 +160,11 @@ func TestTransactionByID(t *testing.T) {
 	if _, err := cl.Transaction(t.Context(), "HASH", 1); err == nil {
 		t.Error("an empty list did not fail")
 	}
-	if u := requested(t, f); u[0].Path != "/trader/v1/accounts/HASH/transactions/73508261946" {
-		t.Errorf("requested %v", u[0])
+	if _, err := cl.Transaction(t.Context(), "", 1); err == nil {
+		t.Error("a transaction of no account did not fail")
+	}
+	if u := requested(t, f); len(u) != 3 || u[0].Path != "/trader/v1/accounts/HASH/transactions/73508261946" {
+		t.Errorf("requested %v", u)
 	}
 }
 
@@ -186,11 +187,14 @@ func TestUserPreferenceRequest(t *testing.T) {
 func TestEndpointErrors(t *testing.T) {
 	cl, _ := endpointClient(t,
 		answer(http.StatusBadRequest, `{"message":"Invalid account number"}`),
+		answer(http.StatusBadRequest, `[{"message":"Invalid account number"}]`),
 		ok(`{"oops":true}`),
 	)
-	_, err := cl.Transactions(t.Context(), "29470135", TransactionQuery{Start: testNow.Add(-time.Hour), End: testNow})
-	if !errors.Is(err, ErrInvalidAccount) {
-		t.Errorf("Schwab's refusal of the account: %v, want ErrInvalidAccount", err)
+	for range 2 {
+		_, err := cl.Transactions(t.Context(), "29470135", TransactionQuery{Start: testNow.Add(-time.Hour), End: testNow})
+		if !errors.Is(err, ErrInvalidAccount) {
+			t.Errorf("Schwab's refusal of the account: %v, want ErrInvalidAccount", err)
+		}
 	}
 	if _, err := cl.AccountNumbers(t.Context()); err == nil || !strings.Contains(err.Error(), "not a list") {
 		t.Errorf("an object for a list: %v", err)

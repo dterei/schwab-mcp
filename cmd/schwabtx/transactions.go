@@ -149,9 +149,10 @@ func fetchRange(ctx context.Context, c *client, hash schwab.AccountHash, start, 
 	return append(newer, older...), nil
 }
 
-// problemsWarning returns a warning about records that held values that
-// could not be read, or "" if there were none. noun names one record, such
-// as "transaction". It names the first few places, with one problem each,
+// problemsWarning returns a warning about records with problems, values of
+// a type that Schwab has not sent before or keys that it has always sent and
+// left out, or "" if there were none. noun names one record, such as
+// "transaction". It names the first few places, with one problem each,
 // since one change at Schwab tends to repeat on every record.
 func problemsWarning(noun string, problems [][]schwab.Problem) string {
 	records := 0
@@ -184,5 +185,5 @@ func problemsWarning(noun string, problems [][]schwab.Problem) string {
 	if records != 1 {
 		noun += "s"
 	}
-	return fmt.Sprintf("%d %s held values that could not be read (%s%s)", records, noun, strings.Join(described, "; "), more)
+	return fmt.Sprintf("%d %s differed from what Schwab has sent before (%s%s)", records, noun, strings.Join(described, "; "), more)
 }

@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// AccountHash stands for an account in the path of every account endpoint
-// but AccountNumbers, which gives each account's hash. Schwab refuses an
-// account number in its place.
+// AccountHash stands for one account in the path of the endpoints that read
+// one account, such as Account and Transactions. AccountNumbers gives each
+// account's hash; Schwab refuses an account number in its place.
 type AccountHash string
 
 // AccountNumber is an account shared at login, from GET
@@ -48,7 +48,8 @@ func (a *AccountNumber) UnmarshalJSON(b []byte) error {
 // positions, from GET /accounts or /accounts/{hash}.
 type Account struct {
 	SecuritiesAccount SecuritiesAccount `json:"securitiesAccount"`
-	// AggregatedBalance is not in Schwab's spec, and 2024 answers lacked it.
+	// AggregatedBalance is not in Schwab's spec, and some answers from 2024
+	// lack it.
 	AggregatedBalance AggregatedBalance `json:"aggregatedBalance,omitzero"`
 
 	// Problems and Raw are as the package doc describes. Each position has
@@ -83,8 +84,8 @@ type SecuritiesAccount struct {
 	IsDayTrader             bool `json:"isDayTrader"`
 	IsClosingOnlyRestricted bool `json:"isClosingOnlyRestricted"`
 	PfcbFlag                bool `json:"pfcbFlag"`
-	// IsPortfolioMargin and IsIntradayMargin are not in the spec, and
-	// answers before 2026 lacked them.
+	// IsPortfolioMargin and IsIntradayMargin are not in the spec, and of
+	// the answers seen, only those of August 2026 have them.
 	IsPortfolioMargin *bool `json:"isPortfolioMargin,omitempty"`
 	IsIntradayMargin  *bool `json:"isIntradayMargin,omitempty"`
 
@@ -107,7 +108,8 @@ type SecuritiesAccount struct {
 type AggregatedBalance struct {
 	CurrentLiquidationValue *float64 `json:"currentLiquidationValue,omitempty"`
 	LiquidationValue        *float64 `json:"liquidationValue,omitempty"`
-	// The intraday buying power appeared in 2026.
+	// The intraday buying power has been seen only in answers of August
+	// 2026.
 	IntradayBuyingPowerAmount        *float64 `json:"intradayBuyingPowerAmount,omitempty"`
 	CurrentIntradayBuyingPowerAmount *float64 `json:"currentIntradayBuyingPowerAmount,omitempty"`
 }
@@ -186,8 +188,8 @@ type Balances struct {
 // MarketValue - LongOpenProfitLoss for a long position and
 // ShortOpenProfitLoss - MarketValue for a short one. AverageLongPrice and
 // AverageShortPrice are trade prices, not cost basis. The currentDay
-// figures are not reliable: a position opened that day can show its whole
-// value as the day's profit or loss.
+// figures are not reliable: a position sold to open that day can show its
+// whole value as the day's profit or loss.
 type Position struct {
 	Instrument Instrument `json:"instrument"`
 
@@ -239,7 +241,7 @@ func (p *Position) UnmarshalJSON(b []byte) error {
 	hasShort := readField(w.ShortQuantity, "shortQuantity", &p.ShortQuantity, &ps)
 	hasValue := readField(w.MarketValue, "marketValue", &p.MarketValue, &ps)
 	if isObject {
-		ps = append(ps, within("instrument", p.Instrument.problems)...)
+		ps = within(ps, "instrument", p.Instrument.problems)
 		need(&ps, p.Instrument.AssetType != "", "instrument.assetType")
 		need(&ps, hasLong, "longQuantity")
 		need(&ps, hasShort, "shortQuantity")

@@ -49,6 +49,11 @@ type fakeSchwab struct {
 	detailsFields string // fields= of the last GET /accounts
 	detailsBody   string // what the last GET /accounts returned
 	positionsJSON string // if set, the positions of every account instead of fakePositions
+	balancesJSON  string // if set, the current balances of every account
+	numberJSON    string // if set, every account's accountNumber in GET /accounts
+	// refuseAccount, if set, is the body of a 400 that answers every
+	// transactions call, as Schwab answers for an account it does not take.
+	refuseAccount string
 }
 
 type fakeTx struct {
@@ -144,12 +149,18 @@ func (f *fakeSchwab) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	f.writeJSON(w, f.accounts)
 }
 
-// fakePositions are the positions of every fake account. The "&" and the
-// numbers such as 250.0 show whether a snapshot keeps Schwab's text exactly.
-const fakePositions = `{"shortQuantity":0,"averagePrice":246.91,"longQuantity":5,"marketValue":1300.5,` +
-	`"instrument":{"assetType":"COLLECTIVE_INVESTMENT","symbol":"VTI","description":"VANGUARD TOTAL STOCK MARKET ETF"}},` +
-	`{"shortQuantity":0,"averagePrice":17.5,"longQuantity":10,"marketValue":250.0,` +
-	`"instrument":{"assetType":"EQUITY","symbol":"T","description":"AT&T INC"}}`
+// fakePositions are the positions of every fake account, with the keys
+// that Schwab sends on every position. The "&", the line separator U+2028
+// and the numbers such as 250.0 show whether a snapshot keeps Schwab's text
+// exactly.
+const fakePositions = `{"shortQuantity":0,"averagePrice":246.91,"currentDayProfitLoss":0,"currentDayProfitLossPercentage":0,` +
+	`"longQuantity":5,"settledLongQuantity":5,"settledShortQuantity":0,` +
+	`"instrument":{"assetType":"COLLECTIVE_INVESTMENT","symbol":"VTI","description":"VANGUARD TOTAL STOCK MARKET ETF"},` +
+	`"marketValue":1300.5,"maintenanceRequirement":0,"currentDayCost":0},` +
+	`{"shortQuantity":0,"averagePrice":17.5,"currentDayProfitLoss":0.0,"currentDayProfitLossPercentage":0.0,` +
+	`"longQuantity":10,"settledLongQuantity":10,"settledShortQuantity":0,` +
+	`"instrument":{"assetType":"EQUITY","symbol":"T","description":"AT&T` + "\u2028" + `INC"},` +
+	`"marketValue":250.0,"maintenanceRequirement":0.0,"currentDayCost":0.0}`
 
 // handleAccountDetails answers GET /accounts, with positions only when asked
 // for, as Schwab does. The JSON is written by hand so that tests can check
@@ -177,10 +188,20 @@ func (f *fakeSchwab) handleAccountDetails(w http.ResponseWriter, r *http.Request
 			}
 			positions = `"positions":[` + pos + `],`
 		}
-		parts[i] = fmt.Sprintf(`{"securitiesAccount":{"type":"MARGIN","accountNumber":%q,%s`+
-			`"currentBalances":{"liquidationValue":12345.60,"cashBalance":100.0}},`+
+		number := strconv.Quote(a.AccountNumber)
+		if f.numberJSON != "" {
+			number = f.numberJSON
+		}
+		balances := `{"liquidationValue":12345.60,"cashBalance":100.0}`
+		if f.balancesJSON != "" {
+			balances = f.balancesJSON
+		}
+		parts[i] = fmt.Sprintf(`{"securitiesAccount":{"type":"MARGIN","accountNumber":%s,"roundTrips":0,"isDayTrader":false,`+
+			`"isClosingOnlyRestricted":false,"pfcbFlag":false,%s`+
+			`"initialBalances":{"liquidationValue":12345.60,"cashBalance":100.0},`+
+			`"currentBalances":%s,"projectedBalances":{"cashAvailableForTrading":100.0}},`+
 			`"aggregatedBalance":{"currentLiquidationValue":12345.60,"liquidationValue":12345.60}}`,
-			a.AccountNumber, positions)
+			number, positions, balances)
 	}
 	f.detailsBody = "[" + strings.Join(parts, ",") + "]"
 	var sent bytes.Buffer
@@ -210,6 +231,10 @@ func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) 
 		w.Header().Set("Schwab-Client-CorrelId", "corr-429")
 		w.WriteHeader(http.StatusTooManyRequests)
 		fmt.Fprint(w, " \n")
+		return
+	}
+	if f.refuseAccount != "" {
+		http.Error(w, f.refuseAccount, http.StatusBadRequest)
 		return
 	}
 	q := r.URL.Query()
@@ -252,7 +277,8 @@ func (f *fakeSchwab) addAccount(number string, idBase int64, count int, newest t
 	for i := range count {
 		when := newest.Add(-time.Duration(i) * step)
 		id := idBase + int64(count-i)
-		js := fmt.Sprintf(`{"activityId":%d,"time":%q,"accountNumber":%q,"type":"TRADE","status":"VALID","tradeDate":%q,"netAmount":-1234.56,"description":"",`+
+		js := fmt.Sprintf(`{"activityId":%d,"time":%q,"accountNumber":%q,"type":"TRADE","status":"VALID","subAccount":"CASH",`+
+			`"tradeDate":%q,"netAmount":-1234.56,"description":"",`+
 			`"transferItems":[{"instrument":{"assetType":"CURRENCY","symbol":"CURRENCY_USD"},"amount":0.01,"cost":-0.01,"feeType":"SEC_FEE"},`+
 			`{"instrument":{"assetType":"EQUITY","symbol":"VTI","description":"VANGUARD TOTAL STOCK MARKET ETF"},"amount":5,"cost":-1234.55,"price":246.91,"positionEffect":"OPENING"}]}`,
 			id, when.UTC().Format("2006-01-02T15:04:05-0700"), number, when.UTC().Format("2006-01-02T15:04:05-0700"))
@@ -614,6 +640,91 @@ func TestOlderWindowRefusedKeepsWhatWeHave(t *testing.T) {
 	}
 }
 
+// An account that Schwab stops taking part way through a run fails the run;
+// it is not taken for the end of the account's history. Schwab has sent the
+// refusal both alone and in a list of one.
+func TestRefusedAccountFailsTheRun(t *testing.T) {
+	for _, body := range []string{`{"message":"Invalid account number"}`, `[{"message":"Invalid account number"}]`} {
+		f, _ := setup(t)
+		f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+		doLogin(t)
+		f.afterTx = func() { f.refuseAccount = body }
+		_, stderr, err := runTx(t)
+		if !errors.Is(err, schwab.ErrInvalidAccount) || !strings.Contains(err.Error(), "...2222") {
+			t.Errorf("%s: got %v, want the refused account", body, err)
+		}
+		if strings.Contains(stderr, "older ones are missing") {
+			t.Errorf("%s: took the refused account for refused history: %q", body, stderr)
+		}
+	}
+}
+
+// Records that share a time, and records whose ids could not be read, are
+// each kept: the only repeats dropped are a record seen in two windows.
+func TestRecordsThatShareATimeAreKept(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 3, testNow.Add(-time.Hour), 0) // three fills at one instant
+	f.addAccount("33334444", 5000, 3, testNow.Add(-time.Hour), time.Hour)
+	for i, tx := range f.txs["HASH33334444"][:2] {
+		tx.JSON = strings.Replace(tx.JSON, fmt.Sprintf(`"activityId":%d`, tx.ID), fmt.Sprintf(`"activityId":"%d"`, tx.ID), 1)
+		f.txs["HASH33334444"][i] = tx
+	}
+	doLogin(t)
+	out, _, err := runTx(t, "-json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raws []json.RawMessage
+	if err := json.Unmarshal([]byte(out), &raws); err != nil || len(raws) != 6 {
+		t.Errorf("printed %d transactions, want 6 (%v)", len(raws), err)
+	}
+}
+
+// The most recent transactions are the latest by time, not by trade date: a
+// dividend posted in the afternoon is newer than that morning's fill, though
+// its tradeDate is midnight.
+func TestMostRecentIsByTime(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 1, testNow.Add(-2*time.Hour), time.Hour)
+	posted := testNow.Add(-time.Hour)
+	f.txs["HASH11112222"] = append(f.txs["HASH11112222"], fakeTx{ID: 999, When: posted, JSON: fmt.Sprintf(
+		`{"activityId":999,"time":%q,"tradeDate":"2026-10-08T04:00:00+0000","settlementDate":"2026-10-08T04:00:00+0000",`+
+			`"accountNumber":"11112222","type":"DIVIDEND_OR_INTEREST","status":"VALID","subAccount":"CASH",`+
+			`"description":"Ordinary Dividend~VTI","netAmount":5,`+
+			`"transferItems":[{"instrument":{"assetType":"CURRENCY","symbol":"CURRENCY_USD"},"amount":5,"cost":0}]}`,
+		posted.UTC().Format("2006-01-02T15:04:05-0700"))})
+	doLogin(t)
+	out, stderr, err := runTx(t, "-json", "-n", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := idsFromJSON(t, out); len(got) != 1 || got[0] != "999" {
+		t.Errorf("most recent = %v, want the dividend, 999", got)
+	}
+	if stderr != "" {
+		t.Errorf("warnings: %q", stderr)
+	}
+}
+
+// An account number that Schwab sends in an unexpected form is named in a
+// warning, before the error that the missing hash causes.
+func TestUnreadableAccountNumberWarns(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 1, testNow.Add(-time.Hour), time.Hour)
+	f.accountsReply = func(w http.ResponseWriter, _ *http.Request) {
+		f.writeJSON(w, []map[string]any{{"accountNumber": "11112222", "hashValue": 12345}})
+	}
+	doLogin(t)
+	_, stderr, err := runTx(t)
+	if err == nil || !strings.Contains(err.Error(), "no account hash") {
+		t.Errorf("got %v, want the missing hash", err)
+	}
+	if want := "warning: 1 account number differed from what Schwab has sent before " +
+		"(hashValue: Schwab sent a number where a string was expected)"; !strings.Contains(stderr, want) {
+		t.Errorf("warning: %q\nwant it to hold %q", stderr, want)
+	}
+}
+
 // A login that lapses part way through a run is reported as such, not taken
 // for Schwab refusing older history.
 func TestLoginLapsesDuringARun(t *testing.T) {
@@ -698,6 +809,10 @@ func TestBadFlagsFailBeforeAnyRequest(t *testing.T) {
 	}
 	if out, _, err := runTx(t, "-json", "-types", "trade, dividend_or_interest"); err != nil || len(idsFromJSON(t, out)) != 5 {
 		t.Errorf("valid -types failed: %v", err)
+	}
+	// -window takes Schwab's whole year.
+	if out, _, err := runTx(t, "-json", "-window", "365"); err != nil || len(idsFromJSON(t, out)) != 5 {
+		t.Errorf("-window 365 failed: %v", err)
 	}
 }
 
@@ -859,7 +974,48 @@ func TestDateOnlyTimeKeepsItsDate(t *testing.T) {
 	}
 }
 
-// The warning about values that could not be read names each place once.
+// A row shows its time in the machine's zone, even a quarter past midnight
+// in New York; only midnight in New York shows a date alone.
+func TestTableShowsTimes(t *testing.T) {
+	var txs []schwab.Transaction
+	if err := json.Unmarshal([]byte(`[{"activityId":1,"time":"2025-01-14T05:15:12+0000","type":"TRADE","status":"VALID","netAmount":1},`+
+		`{"activityId":2,"time":"2024-03-28T04:00:00+0000","type":"JOURNAL","status":"VALID","netAmount":1}]`), &txs); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Local
+	time.Local = time.FixedZone("west", -8*3600)
+	defer func() { time.Local = old }()
+	var table bytes.Buffer
+	if err := printTable(&table, txs, false); err != nil {
+		t.Fatal(err)
+	}
+	if s := table.String(); !strings.Contains(s, "2025-01-13 21:15") || !strings.Contains(s, "2024-03-28 ") || strings.Contains(s, "2024-03-27") {
+		t.Errorf("table:\n%s", s)
+	}
+}
+
+// -json prints Schwab's JSON as it came, indented: "&", "<" and the line
+// separator U+2028 are not escaped, on any Go.
+func TestPrintJSONKeepsSchwabsText(t *testing.T) {
+	var txs []schwab.Transaction
+	if err := json.Unmarshal([]byte(`[{"activityId":1,"description":"AT&T <x>`+"\u2028"+`","netAmount":250.0},{}]`), &txs); err != nil {
+		t.Fatal(err)
+	}
+	var js bytes.Buffer
+	if err := printJSON(&js, txs); err != nil {
+		t.Fatal(err)
+	}
+	want := "[\n  {\n    \"activityId\": 1,\n    \"description\": \"AT&T <x>\u2028\",\n    \"netAmount\": 250.0\n  },\n  {}\n]\n"
+	if js.String() != want {
+		t.Errorf("printed\n%q\nwant\n%q", js.String(), want)
+	}
+	js.Reset()
+	if err := printJSON(&js, nil); err != nil || js.String() != "[]\n" {
+		t.Errorf("no transactions printed as %q, %v", js.String(), err)
+	}
+}
+
+// The warning about records with problems names each place once.
 func TestProblemsWarning(t *testing.T) {
 	if w := problemsWarning("transaction", [][]schwab.Problem{nil, nil}); w != "" {
 		t.Errorf("a warning without problems: %q", w)
@@ -868,13 +1024,13 @@ func TestProblemsWarning(t *testing.T) {
 		return []schwab.Problem{{Path: "time", What: what}, {Path: "netAmount", What: "Schwab sent a string where a number was expected"}}
 	}
 	w := problemsWarning("transaction", [][]schwab.Problem{bad(`Schwab sent "x", which is not a time`), nil, bad(`Schwab sent "y", which is not a time`)})
-	want := `2 transactions held values that could not be read (time: Schwab sent "x", which is not a time; ` +
+	want := `2 transactions differed from what Schwab has sent before (time: Schwab sent "x", which is not a time; ` +
 		`netAmount: Schwab sent a string where a number was expected)`
 	if w != want {
 		t.Errorf("warning:\n got %q\nwant %q", w, want)
 	}
 	many := []schwab.Problem{{Path: "a", What: "w"}, {Path: "b", What: "w"}, {Path: "c", What: "w"}, {Path: "d", What: "w"}, {Path: "e", What: "w"}}
-	if w := problemsWarning("account", [][]schwab.Problem{many}); !strings.HasPrefix(w, "1 account held") || !strings.Contains(w, "c: w; and 2 more)") {
+	if w := problemsWarning("account", [][]schwab.Problem{many}); !strings.HasPrefix(w, "1 account differed") || !strings.Contains(w, "c: w; and 2 more)") {
 		t.Errorf("warning about many: %q", w)
 	}
 }
@@ -892,7 +1048,8 @@ func TestUnreadableTransactionWarns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stderr, "1 transaction held values that could not be read (netAmount:") || !strings.Contains(stderr, "-json prints Schwab's own") {
+	if !strings.Contains(stderr, "1 transaction differed from what Schwab has sent before (netAmount:") ||
+		!strings.Contains(stderr, "-json prints Schwab's own JSON") {
 		t.Errorf("no warning: %q", stderr)
 	}
 	if strings.Count(out, "VTI") != 3 {

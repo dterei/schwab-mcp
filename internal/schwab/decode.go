@@ -3,19 +3,20 @@ package schwab
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Problem is a value in a record's JSON that its typed fields could not
-// take, or a key that every record of its kind has and this one lacks. The
-// field keeps its zero value, or nil, and the record's Raw has what Schwab
-// sent.
+// take, a key that every record of its kind has and this one lacks, or an
+// object or array that Schwab sent twice. The field keeps its zero value,
+// or nil, or what encoding/json made of the copies, and the record's Raw
+// has what Schwab sent.
 type Problem struct {
 	// Path is where the value is: the JSON keys that lead to it, joined by
 	// dots and without array indexes, such as
@@ -49,49 +50,21 @@ func decode(b []byte, w any) (isObject bool, err error) {
 }
 
 // recordProblems returns the problems of rec, a pointer to a record decoded
-// from b: that b is not an object, or, when its decode failed with err, each
-// value whose JSON kind its field cannot take. A pointer field that such a
-// value left pointing at a zero is set back to nil, since nil means that
-// Schwab did not send it. skip names the keys that the record reads by hand,
-// which report their own problems.
+// from b: that b is not an object, or what a walk of b against rec finds,
+// which see. skip names the keys that the record reads by hand, which report
+// their own problems. Should the decode have failed with err and the walk
+// found no value that explains it, err itself is a problem.
 func recordProblems(b []byte, rec any, isObject bool, err error, skip ...string) []Problem {
 	b = bytes.TrimSpace(b)
 	if !isObject {
 		return []Problem{{What: sent(b, "an object")}}
 	}
-	if err == nil {
-		return nil
+	var w walker
+	w.value(b, reflect.ValueOf(rec).Elem(), "", "", skip, true)
+	if err != nil && !w.mismatched {
+		w.add("", "the JSON could not be read: "+err.Error())
 	}
-	ps := mismatches(b, reflect.ValueOf(rec).Elem(), "", skip, true)
-	if len(ps) == 0 {
-		// The walk finds what encoding/json skipped; should it not, say what
-		// encoding/json said.
-		ps = []Problem{errorProblem(err)}
-	}
-	return ps
-}
-
-// errorProblem describes a decoding error that the walk did not explain.
-func errorProblem(err error) Problem {
-	if te, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
-		return Problem{Path: jsonPath(te.Field), What: "Schwab sent " + te.Value + " where " + expected(te.Type) + " was expected"}
-	}
-	return Problem{What: "the JSON could not be read: " + err.Error()}
-}
-
-// jsonPath turns the field path of a decoding error into the path of JSON
-// keys it is at: Go 1.26 starts it with the name of the alias type that the
-// records decode into, plain, and Go 1.27 writes array indexes, which a
-// Problem's path leaves out.
-func jsonPath(field string) string {
-	var keys []string
-	for i, k := range strings.Split(field, ".") {
-		if (i == 0 && k == "plain") || k == "" || strings.Trim(k, "0123456789") == "" {
-			continue
-		}
-		keys = append(keys, k)
-	}
-	return strings.Join(keys, ".")
+	return w.ps
 }
 
 // timeType and rawType are the types that the walk does not look into:
@@ -102,80 +75,235 @@ var (
 	rawType  = reflect.TypeFor[json.RawMessage]()
 )
 
-// mismatches walks raw, a JSON value, against v, the Go value decoded from
-// it, at path, and returns a problem for each value whose JSON kind v's type
-// cannot take, the way encoding/json matches keys to fields. top is true
-// for the record itself; a nested value whose type has its own UnmarshalJSON
-// reports its own problems, and is passed over. skip names keys of the
-// record that it reads by hand.
-func mismatches(raw json.RawMessage, v reflect.Value, path string, skip []string, top bool) []Problem {
+// walker walks a record's JSON against the Go value decoded from it, the way
+// encoding/json matches keys to fields, and gathers the record's problems:
+//   - a value whose JSON kind its field cannot take, which encoding/json
+//     skipped, leaving the field zero; a pointer that such a value left
+//     pointing at a zero is set back to nil, since nil means that Schwab did
+//     not send it;
+//   - a key that every record of its kind has, a field whose tag has no omit
+//     option, that is absent or null;
+//   - an object or array sent twice under one key, since encoding/json may
+//     then combine the copies into a value that Schwab did not send.
+//
+// Of a key sent more than once, the last copy counts, as encoding/json has
+// it for a number, string or boolean that fits its field; the walk sets
+// the field to zero where a last copy of the wrong kind, or null, left it
+// as an earlier copy set it.
+//
+// A nested value whose type has its own UnmarshalJSON checks itself, and is
+// passed over.
+type walker struct {
+	ps         []Problem
+	mismatched bool // a value of the wrong JSON kind was found
+}
+
+func (w *walker) add(path, what string) {
+	p := Problem{Path: path, What: what}
+	if !slices.Contains(w.ps, p) {
+		w.ps = append(w.ps, p)
+	}
+}
+
+func (w *walker) mismatch(path, what string) {
+	w.mismatched = true
+	w.add(path, what)
+}
+
+// value walks raw, a JSON value, against v, the Go value decoded from it,
+// at key within parent; the path is built only for a problem. top is true
+// for the record itself, and skip names keys of the record that it reads by
+// hand.
+func (w *walker) value(raw []byte, v reflect.Value, parent, key string, skip []string, top bool) {
 	t := v.Type()
-	if t == timeType || t == rawType {
-		return nil
-	}
-	if !top && v.CanAddr() {
-		if _, ok := reflect.TypeAssert[json.Unmarshaler](v.Addr()); ok {
-			return nil
-		}
-	}
-	if bytes.Equal(raw, []byte("null")) {
-		return nil
+	if t == timeType || t == rawType || (!top && decodesItself(t)) || isNull(raw) {
+		return
 	}
 	switch t.Kind() {
 	case reflect.Pointer:
 		if what := mismatch(raw, t.Elem()); what != "" {
 			v.SetZero()
-			return []Problem{{Path: path, What: what}}
+			w.mismatch(joinPath(parent, key), what)
+		} else if !v.IsNil() {
+			w.value(raw, v.Elem(), parent, key, nil, false)
 		}
-		if v.IsNil() {
-			return nil
-		}
-		return mismatches(raw, v.Elem(), path, nil, false)
 	case reflect.Struct:
 		if what := mismatch(raw, t); what != "" {
-			return []Problem{{Path: path, What: what}}
+			w.mismatch(joinPath(parent, key), what)
+			return
 		}
-		members := objectMembers(raw)
-		var ps []Problem
-		for i := range t.NumField() {
-			name := jsonName(t.Field(i))
-			if name == "" || slices.Contains(skip, name) {
-				continue
-			}
-			// As encoding/json does, a key takes the field of its name, or else
-			// of its name in another case, and the last such key wins.
-			var value json.RawMessage
-			for _, m := range members {
-				if m.key == name || strings.EqualFold(m.key, name) {
-					value = m.value
-				}
-			}
-			if value != nil {
-				ps = append(ps, mismatches(value, v.Field(i), joinPath(path, name), nil, false)...)
-			}
-		}
-		return ps
+		w.object(raw, v, joinPath(parent, key), skip)
 	case reflect.Slice:
 		if what := mismatch(raw, t); what != "" {
-			return []Problem{{Path: path, What: what}}
+			w.mismatch(joinPath(parent, key), what)
+			return
 		}
-		var elems []json.RawMessage
-		if json.Unmarshal(raw, &elems) != nil {
-			return nil
-		}
-		var ps []Problem
-		for i, e := range elems {
-			if i < v.Len() {
-				ps = append(ps, mismatches(e, v.Index(i), path, nil, false)...)
+		at := joinPath(parent, key)
+		s := scan(raw, '[')
+		for i := range v.Len() {
+			e, ok := s.element()
+			if !ok {
+				break
 			}
+			w.value(e, v.Index(i), at, "", nil, false)
 		}
-		return ps
 	default:
 		if what := mismatch(raw, t); what != "" {
-			return []Problem{{Path: path, What: what}}
+			// encoding/json skipped the value, leaving the field zero, or as
+			// an earlier copy of the key set it.
+			v.SetZero()
+			w.mismatch(joinPath(parent, key), what)
 		}
-		return nil
 	}
+}
+
+// object walks the members of raw, a JSON object, against v, a struct, at
+// path.
+func (w *walker) object(raw []byte, v reflect.Value, path string, skip []string) {
+	si := infoOf(v.Type())
+	// How many times each field's key came, and its last value.
+	type sent struct {
+		n    int
+		last []byte
+	}
+	var buf [64]sent
+	var keys []sent
+	if n := len(si.fields); n <= len(buf) {
+		keys = buf[:n]
+	} else {
+		keys = make([]sent, n)
+	}
+	s := scan(raw, '{')
+	for key, value, ok := s.member(); ok; key, value, ok = s.member() {
+		if j := si.field(key); j >= 0 {
+			keys[j].n++
+			keys[j].last = value
+		}
+	}
+	for j, f := range si.fields {
+		if slices.Contains(skip, f.name) {
+			continue
+		}
+		n, last := keys[j].n, keys[j].last
+		if n == 0 || isNull(last) {
+			if n > 1 {
+				// encoding/json lets a null leave a field as an earlier copy
+				// set it.
+				v.Field(f.index).SetZero()
+			}
+			if !f.optional {
+				w.add(joinPath(path, f.name), "missing, though Schwab sends it on every record of its kind")
+			}
+			continue
+		}
+		if n > 1 {
+			if f.composite {
+				w.add(joinPath(path, f.name), "Schwab sent it more than once, so what it holds is uncertain")
+			} else {
+				// encoding/json keeps the last copy of a number, string or
+				// boolean that fits; an earlier one that does not is still a
+				// problem.
+				t := derefType(v.Field(f.index).Type())
+				s, earlier := scan(raw, '{'), n-1
+				for key, value, ok := s.member(); ok && earlier > 0; key, value, ok = s.member() {
+					if si.field(key) != j {
+						continue
+					}
+					earlier--
+					if what := mismatch(value, t); what != "" && !isNull(value) {
+						w.mismatch(joinPath(path, f.name), what)
+					}
+				}
+			}
+		}
+		w.value(last, v.Field(f.index), path, f.name, nil, false)
+	}
+}
+
+// fieldInfo is what the walk needs to know of a struct field.
+type fieldInfo struct {
+	index     int    // in its struct
+	name      string // its JSON key
+	optional  bool   // its tag marks it omitempty or omitzero
+	composite bool   // it holds an object or an array
+}
+
+// structInfo is what the walk needs to know of a struct type.
+type structInfo struct {
+	fields        []fieldInfo    // the fields that JSON takes
+	byKey         map[string]int // the place in fields of each one's key
+	decodesItself bool           // it has an UnmarshalJSON of its own
+}
+
+// structInfos holds the structInfo of each struct type walked.
+var structInfos sync.Map
+
+// infoOf returns what the walk needs to know of t, a struct type.
+func infoOf(t reflect.Type) *structInfo {
+	if si, ok := structInfos.Load(t); ok {
+		return si.(*structInfo)
+	}
+	si := &structInfo{
+		byKey:         map[string]int{},
+		decodesItself: reflect.PointerTo(t).Implements(reflect.TypeFor[json.Unmarshaler]()),
+	}
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if name := jsonName(f); name != "" {
+			si.byKey[name] = len(si.fields)
+			si.fields = append(si.fields, fieldInfo{index: i, name: name, optional: optional(f), composite: composite(f.Type)})
+		}
+	}
+	got, _ := structInfos.LoadOrStore(t, si)
+	return got.(*structInfo)
+}
+
+// field returns the place in si.fields of the field that key goes to, as
+// encoding/json matches them: the field of that name, or else of that name
+// in another case; or -1 for none.
+func (si *structInfo) field(key []byte) int {
+	if j, ok := si.byKey[string(key)]; ok {
+		return j
+	}
+	for j, f := range si.fields {
+		if bytes.EqualFold(key, []byte(f.name)) {
+			return j
+		}
+	}
+	return -1
+}
+
+// decodesItself reports whether t, or what it points to, is a struct with an
+// UnmarshalJSON of its own.
+func decodesItself(t reflect.Type) bool {
+	t = derefType(t)
+	return t.Kind() == reflect.Struct && infoOf(t).decodesItself
+}
+
+// optional reports whether Schwab sends f's key only on some records: its tag
+// marks it omitempty or omitzero.
+func optional(f reflect.StructField) bool {
+	_, opts, _ := strings.Cut(f.Tag.Get("json"), ",")
+	return strings.Contains(opts, "omitempty") || strings.Contains(opts, "omitzero")
+}
+
+// composite reports whether t holds an object or an array.
+func composite(t reflect.Type) bool {
+	t = derefType(t)
+	return t != timeType && t != rawType && (t.Kind() == reflect.Struct || t.Kind() == reflect.Slice || t.Kind() == reflect.Map)
+}
+
+// derefType returns the type that t points to, or t.
+func derefType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t
+}
+
+// isNull reports whether raw is JSON null.
+func isNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
 // mismatch returns what is wrong with raw, a JSON value other than null, as
@@ -229,56 +357,140 @@ func sent(raw json.RawMessage, want string) string {
 	return "Schwab sent " + describeJSON(raw) + " where " + want + " was expected"
 }
 
-// expected names the JSON that a Go type takes.
-func expected(t reflect.Type) string {
-	if t == nil {
-		return "something else"
-	}
-	switch t.Kind() {
-	case reflect.Pointer:
-		return expected(t.Elem())
-	case reflect.Float32, reflect.Float64:
-		return "a number"
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return "a whole number"
-	case reflect.String:
-		return "a string"
-	case reflect.Bool:
-		return "a boolean"
-	case reflect.Slice, reflect.Array:
-		return "an array"
-	default:
-		return "an object"
-	}
+// scanner steps through the members of a JSON object, or the elements of an
+// array. It expects valid JSON, as encoding/json gives an UnmarshalJSON, and
+// stops at anything else.
+type scanner struct {
+	b []byte
+	i int
 }
 
-// member is one key and value of a JSON object.
-type member struct {
-	key   string
-	value json.RawMessage
+// scan returns a scanner of b, which starts with open, '{' or '['.
+func scan(b []byte, open byte) scanner {
+	s := scanner{b: b, i: skipSpace(b, 0)}
+	if s.i < len(b) && b[s.i] == open {
+		s.i++
+	} else {
+		s.i = len(b)
+	}
+	return s
 }
 
-// objectMembers returns the members of raw, a JSON object, in order.
-func objectMembers(raw json.RawMessage) []member {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-		return nil
+// more moves to the next member or element, and reports whether there is
+// one.
+func (s *scanner) more() bool {
+	s.i = skipSpace(s.b, s.i)
+	if s.i < len(s.b) && s.b[s.i] == ',' {
+		s.i = skipSpace(s.b, s.i+1)
 	}
-	var ms []member
-	for dec.More() {
-		tok, err := dec.Token()
-		if err != nil {
-			return ms
-		}
-		key, _ := tok.(string)
-		var value json.RawMessage
-		if err := dec.Decode(&value); err != nil {
-			return ms
-		}
-		ms = append(ms, member{key: key, value: value})
+	return s.i < len(s.b) && s.b[s.i] != '}' && s.b[s.i] != ']'
+}
+
+// member returns the object's next key, unquoted, and its value.
+func (s *scanner) member() (key, value []byte, ok bool) {
+	if !s.more() || s.b[s.i] != '"' {
+		s.i = len(s.b)
+		return nil, nil, false
 	}
-	return ms
+	end := valueEnd(s.b, s.i)
+	if end < 0 {
+		s.i = len(s.b)
+		return nil, nil, false
+	}
+	key = s.b[s.i+1 : end-1]
+	if bytes.IndexByte(key, '\\') >= 0 {
+		var k string
+		if json.Unmarshal(s.b[s.i:end], &k) != nil {
+			s.i = len(s.b)
+			return nil, nil, false
+		}
+		key = []byte(k)
+	}
+	i := skipSpace(s.b, end)
+	if i >= len(s.b) || s.b[i] != ':' {
+		s.i = len(s.b)
+		return nil, nil, false
+	}
+	i = skipSpace(s.b, i+1)
+	if end = valueEnd(s.b, i); end < 0 {
+		s.i = len(s.b)
+		return nil, nil, false
+	}
+	s.i = end
+	return key, s.b[i:end], true
+}
+
+// element returns the array's next element.
+func (s *scanner) element() (value []byte, ok bool) {
+	if !s.more() {
+		s.i = len(s.b)
+		return nil, false
+	}
+	end := valueEnd(s.b, s.i)
+	if end < 0 {
+		s.i = len(s.b)
+		return nil, false
+	}
+	value, s.i = s.b[s.i:end], end
+	return value, true
+}
+
+// valueEnd returns where the JSON value that starts at b[i] ends, or -1.
+func valueEnd(b []byte, i int) int {
+	if i >= len(b) {
+		return -1
+	}
+	switch b[i] {
+	case '"':
+		for j := i + 1; j < len(b); j++ {
+			switch b[j] {
+			case '\\':
+				j++
+			case '"':
+				return j + 1
+			}
+		}
+		return -1
+	case '{', '[':
+		depth := 0
+		for j := i; j < len(b); j++ {
+			switch b[j] {
+			case '"':
+				end := valueEnd(b, j)
+				if end < 0 {
+					return -1
+				}
+				j = end - 1
+			case '{', '[':
+				depth++
+			case '}', ']':
+				if depth--; depth == 0 {
+					return j + 1
+				}
+			}
+		}
+		return -1
+	}
+	// A number, true, false or null ends where white space or a delimiter
+	// starts.
+	for j := i; j < len(b); j++ {
+		switch b[j] {
+		case ',', ':', '}', ']', ' ', '\t', '\n', '\r':
+			if j == i {
+				return -1
+			}
+			return j
+		}
+	}
+	return len(b)
+}
+
+// skipSpace returns where the JSON white space that starts at b[i] ends.
+func skipSpace(b []byte, i int) int {
+	for i < len(b) && (b[i] == ' ' || b[i] == '\t' || b[i] == '\n' || b[i] == '\r') {
+		i++
+	}
+	return i
 }
 
 // jsonName returns the JSON key of a struct field, or "" for a field that
@@ -392,14 +604,17 @@ func need(ps *[]Problem, present bool, key string) {
 	*ps = append(*ps, Problem{Path: key, What: "missing, though Schwab sends it on every record of its kind"})
 }
 
-// within returns a nested object's problems with their paths inside prefix,
-// the path of the object.
-func within(prefix string, nested []Problem) []Problem {
-	out := make([]Problem, len(nested))
-	for i, p := range nested {
-		out[i] = Problem{Path: joinPath(prefix, p.Path), What: p.What}
+// within adds nested, the problems of an object at prefix, to ps, with
+// their paths inside prefix. A problem that ps already has, such as the same
+// one in another element of an array, is not added again.
+func within(ps []Problem, prefix string, nested []Problem) []Problem {
+	for _, p := range nested {
+		p.Path = joinPath(prefix, p.Path)
+		if !slices.Contains(ps, p) {
+			ps = append(ps, p)
+		}
 	}
-	return out
+	return ps
 }
 
 // copyRaw returns a copy of b without the space around it; the decoder may

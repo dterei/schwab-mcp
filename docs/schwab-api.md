@@ -113,8 +113,9 @@ Things nobody has pinned down are collected under
 
 Every account-scoped path takes the account's **hash** from
 `/accounts/accountNumbers`, although the spec names the parameter
-`accountNumber`. A plain account number there gets 400 `{"message": "Invalid
-account number"}`
+`accountNumber`. A plain account number there gets 400
+([ffainvestments](https://github.com/archiecrawford/ffainvestments/blob/main/docs/FFA_RECONSTRUCTION_GUIDE.md))
+with `{"message": "Invalid account number"}`
 ([schwab-py#203](https://github.com/alexgolec/schwab-py/issues/203)).
 
 | Method | Path | Notes |
@@ -239,13 +240,14 @@ retention period.
     and `price` 0.
   - Never add up `amount` across legs.
 - **Instruments are reference data as of the request**, not the trade's.
-  `closingPrice` is the latest close, so the same row reads differently a
-  week later, and a delisted equity comes back with its CUSIP as its symbol
+  `closingPrice` is a price as of the request, not of the trade (whether a
+  close or a live price is not known), so the same row reads differently on
+  a later day, and a delisted equity comes back with its CUSIP as its symbol
   ([tradetally](https://github.com/GeneBO98/tradetally)). Compare a re-read
   row with a stored one with its instruments cut to `assetType` and
   `instrumentId`, never by its raw JSON. Transaction instruments carry
-  `instrumentId` (1 for cash), `closingPrice` and `status` (only ACTIVE
-  seen), which the spec lacks, and no `cusip`. Options carry `expirationDate`
+  `instrumentId` (1 for cash) and, beyond the spec, `closingPrice` and
+  `status` (only ACTIVE seen), and no `cusip`. Options carry `expirationDate`
   (midnight in New York), `strikePrice`, `putCall`, `underlyingSymbol` and
   `optionDeliverables`, and in 2026 also `uniformSymbol`, `underlyingCusip`
   and, in each deliverable, the delivered instrument.
@@ -288,14 +290,14 @@ retention period.
 
 - Each account is `securitiesAccount` and, beside it, `aggregatedBalance`:
   `currentLiquidationValue` and `liquidationValue` for that account, not a
-  total, and since 2026 `intradayBuyingPowerAmount` and
-  `currentIntradayBuyingPowerAmount`. Captures from 2024 lack it.
+  total, and in captures of August 2026 `intradayBuyingPowerAmount` and
+  `currentIntradayBuyingPowerAmount`. Some captures from 2024 lack it.
 - `securitiesAccount` has `type`, `accountNumber`, `roundTrips`,
-  `isDayTrader`, `isClosingOnlyRestricted`, `pfcbFlag`, since 2026
-  `isPortfolioMargin` and, on margin accounts, `isIntradayMargin`, the
-  balances `initialBalances`, `currentBalances` and `projectedBalances`, and,
-  with `fields=positions`, `positions`. An account that holds nothing has no
-  `positions` key, even then.
+  `isDayTrader`, `isClosingOnlyRestricted`, `pfcbFlag`, in captures of
+  August 2026 `isPortfolioMargin` and, on margin accounts,
+  `isIntradayMargin`, the balances `initialBalances`, `currentBalances` and
+  `projectedBalances`, and, with `fields=positions`, `positions`. An account
+  that holds nothing has no `positions` key, even then.
 - `type` is only ever CASH or MARGIN. A retirement account is one of the two,
   and nothing in the API says which accounts are retirement accounts.
 
@@ -306,9 +308,10 @@ retention period.
   current balances carry 13 figures that the spec's CashBalance lacks
   (`cashBalance`, `liquidationValue`, `longMarketValue`, `savings` and
   more). Projected balances hold 2 figures on a cash account and about 10 on
-  a margin account, none of them totals. Since 2026 margin accounts add
-  `intradayBuyingPowerAmount`. `isInCall` is a boolean, though the spec says
-  a number. Zero is common and real, so tell an absent figure from 0.
+  a margin account, none of them totals. In captures of August 2026, margin
+  accounts add `intradayBuyingPowerAmount`. `isInCall` is a boolean, though
+  the spec says a number. Zero is common and real, so tell an absent figure
+  from 0.
 - **The account's value** is `currentBalances.liquidationValue`, as of the
   request: in the evening it follows extended-hours prices, and it moves
   again on Sunday evening, while `initialBalances.liquidationValue` (equal to
@@ -350,8 +353,11 @@ retention period.
   option's multiplier, which positions do not carry.
 - Position instruments carry `cusip` but no `instrumentId`. Equities have no
   `description`. Options carry `putCall`, `underlyingSymbol`, `type` and
-  `netChange`, but no strike, expiration or multiplier: those are in the OCC
-  symbol.
+  `netChange`, but no strike, expiration or multiplier. The symbol gives the
+  strike and expiration: an OCC symbol for an option on a stock or fund, and
+  Schwab's own form, such as `/ESH25_P5050:XCME`, for an option on a future.
+  The multiplier, the cost basis over `averagePrice` times the quantity, is
+  100 in every sample.
 - Positions' `maintenanceRequirement` adds up to the account's; a spread's
   is booked on one of its legs.
 - **No lots.** There are no lot IDs, no acquisition dates and no realized
@@ -487,6 +493,8 @@ Indexes take a `$` prefix wherever the index itself is named: quotes
 - **Error bodies vary**, and not only by API:
   - Accounts and Trading documents `{message, errors: [string]}`. It also
     sends a message alone, such as `{"message": "Invalid account number"}`,
+    which one report shows as the one element of a list
+    ([schwab-py#203](https://github.com/alexgolec/schwab-py/issues/203)),
     and 401s in the Market Data format, as the real ones that
     [z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/tree/main/tests/model/Trader)
     keeps show.
@@ -529,7 +537,7 @@ Indexes take a `$` prefix wherever the index itself is named: quotes
   with `Z`, and Market Data with `.000+00:00`. Accounts, positions and
   preferences carry none.
 - **Numbers** have never been strings, null or NaN in the captures known to
-  be byte-exact. Whole values come as `0` or as `0.0`, depending on the
+  be byte-exact. Whole values come as `0` or as `0.0`, even within one
   endpoint. Prices carry up to five decimals, and position figures binary
   noise (`-236.999999999999`): they are doubles, which a float64 holds
   exactly.
@@ -537,8 +545,10 @@ Indexes take a `$` prefix wherever the index itself is named: quotes
   `encoding/json` takes the last value; strict parsers and Go's experimental
   json/v2 refuse the object.
 - **Keep the raw bytes.** Re-encoding Schwab's JSON changes it: Go's
-  `json.Marshal` escapes `&`, `<` and `>`, and decoding into a map reorders
-  keys, rewrites numbers and drops duplicates.
+  `json.Marshal` escapes `&`, `<` and `>`, a `json.Encoder` on Go 1.27
+  escapes U+2028 and U+2029 even with HTML escaping off, and decoding into a
+  map reorders keys, rewrites numbers and drops duplicates. `json.Compact`
+  and `json.Indent` change only the white space.
 
 ## Where the spec is wrong
 
@@ -549,8 +559,9 @@ is identical to the 2024 one, so none of this has been fixed.
 
 - **Shape mismatches.** `GET /userPreference` and
   `GET /transactions/{id}` are documented as arrays but return objects.
-- **Field mismatches.** Fields marked required are missing, and fields
-  appear that the spec lacks: `aggregatedBalance` beside each account,
+- **Field mismatches.** The only fields the spec marks required are an
+  instrument's `assetType` and a `name` that does not exist. Fields appear
+  that the spec lacks: `aggregatedBalance` beside each account,
   balance figures such as `savings` and `longMarketValue`, instruments'
   `closingPrice`, `status` and `uniformSymbol`, `qualifiedDividend`,
   `lotSelectionMethod` and `expirationDate` in Market Data. More appear over
@@ -618,11 +629,16 @@ is identical to the 2024 one, so none of this has been fixed.
   (journal labels), [jkoelker/schwab-mcp#222](https://github.com/jkoelker/schwab-mcp/pull/222)
   and [#223](https://github.com/jkoelker/schwab-mcp/pull/223) (cash in margin
   accounts, day profit/loss), [sudowealth/schwab-api#19](https://github.com/sudowealth/schwab-api/pull/19)
-  (fields the spec requires that live answers lack), and
-  [major/schwab-go](https://github.com/major/schwab-go)'s history (the shapes
-  of `/userPreference` and `/transactions/{id}`)
+  (fields its schemas required that live answers lack),
+  [schwab-sdk#6](https://github.com/jonathan-g-davis/schwab-sdk/pull/6)
+  (the shape of `/userPreference`, and `isInCall` as a boolean),
+  [z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/commit/2c760ad)'s
+  change of May 2024 (the shape of `/userPreference`), and
+  [major/schwab-go](https://github.com/major/schwab-go)'s history (the shape
+  of `/transactions/{id}`)
 - Account hashes: [Schwabdev#51](https://github.com/tylerebowers/Schwabdev/issues/51),
-  [schwab-py#203](https://github.com/alexgolec/schwab-py/issues/203)
+  [schwab-py#203](https://github.com/alexgolec/schwab-py/issues/203),
+  [ffainvestments](https://github.com/archiecrawford/ffainvestments/blob/main/docs/FFA_RECONSTRUCTION_GUIDE.md)
 - Rate limits and errors: TD Ameritrade's
   [Schwab integration guide](https://raw.githubusercontent.com/kaizhu256/tdameritrade-dev-mirror/gh-pages/developer.tdameritrade.com/content/trader-api-schwab-integration-guide-june-2023-update.html)
   (June 2023),

@@ -21,9 +21,9 @@ func newClient(auth *schwab.Auth) *client {
 	return &client{api: schwab.NewClient(auth, clientConfig), pageCap: schwab.MaxTransactions}
 }
 
-// accountNumbers lists the accounts shared at login. Every other endpoint
-// takes the hash value, not the plain account number. Its errors, as the
-// other methods', say what to do about a problem with the login.
+// accountNumbers lists the accounts shared at login. The endpoints for one
+// account take the hash value, not the plain account number. Its errors, as
+// the other methods', say what to do about a problem with the login.
 func (c *client) accountNumbers(ctx context.Context) ([]schwab.AccountNumber, error) {
 	accounts, err := c.api.AccountNumbers(ctx)
 	if err != nil {

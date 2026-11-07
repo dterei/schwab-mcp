@@ -185,12 +185,14 @@ scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
 - "keeps its own rate limit" (a warning): the rate limit's file in your user
   cache directory cannot be used, so this run keeps the limit by itself, apart
   from other processes. The warning says why.
-- "held values that could not be read" (a warning): Schwab sent a value in a
-  form it has not sent before, such as a string where a number belongs. The
-  table may show such a value as 0 or blank; `-json` prints Schwab's own
-  JSON, and the snapshot keeps it. The warning names where the values were.
-- "Invalid account number" (`HTTP 400`): Schwab no longer accepted an
-  account's hash. Run the command again, which looks the hashes up afresh.
+- "differed from what Schwab has sent before" (a warning): Schwab sent a
+  value in a form it has not sent before, such as a string where a number
+  belongs, or left out a key that it has always sent. The table may show
+  such a field as 0 or blank; `-json` prints Schwab's own JSON, and the
+  snapshot keeps it. The warning names the fields.
+- "Invalid account number" (`HTTP 400`): Schwab refused an account that it
+  had just listed, for a reason not known. Run the command again; if it
+  keeps failing, write to Schwab with the correlation ID.
 - An error from Schwab includes "(correlation ID ...)" when Schwab gave one.
   Quote it when you ask Schwab's Trader API team (traderapi@schwab.com) about
   a failed request.
