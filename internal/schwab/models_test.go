@@ -1306,6 +1306,47 @@ func encodedList(enc []byte, key string) string {
 	return ""
 }
 
+// A problems key from Schwab is a key that no field takes, whatever it holds
+// and in whatever case: it fills no field and gives no problem, on every Go
+// version, and Raw keeps it.
+func TestSchwabsOwnProblemsKey(t *testing.T) {
+	for _, base := range []struct {
+		typ  reflect.Type
+		body string
+	}{
+		{reflect.TypeFor[AccountNumber](), `{"accountNumber":"29470135","hashValue":"H"}`},
+		{reflect.TypeFor[Account](), `{"securitiesAccount":` + baseSecuritiesAccount + "}"},
+		{reflect.TypeFor[Position](), basePosition},
+		{reflect.TypeFor[Transaction](), baseTransaction},
+		{reflect.TypeFor[UserPreference](), `{"accounts":[],"streamerInfo":[],"offers":[]}`},
+	} {
+		want := reflect.New(base.typ).Elem()
+		if err := json.Unmarshal([]byte(base.body), want.Addr().Interface()); err != nil {
+			t.Fatal(err)
+		}
+		want.FieldByName("Raw").SetZero()
+		for _, key := range []string{"problems", "Problems", "PROBLEMS"} {
+			for _, value := range []string{`5`, `"x"`, `true`, `null`, `{}`, `[]`, `[{}]`, `[{"what":"x","path":7}]`, `[{"what":"x"}]`} {
+				body := withKeys(base.body, key, value)
+				got := reflect.New(base.typ).Elem()
+				if err := json.Unmarshal([]byte(body), got.Addr().Interface()); err != nil {
+					t.Fatal(err)
+				}
+				if ps := problemsField(got); len(ps) > 0 {
+					t.Errorf("%s with %q: %s: problems %q", base.typ.Name(), key, value, ps)
+				}
+				if raw := got.FieldByName("Raw").Bytes(); string(raw) != body {
+					t.Errorf("%s with %q: %s: Raw is %s, want %s", base.typ.Name(), key, value, raw, body)
+				}
+				got.FieldByName("Raw").SetZero()
+				if !reflect.DeepEqual(got.Interface(), want.Interface()) {
+					t.Errorf("%s with %q: %s decoded as %+v, want %+v", base.typ.Name(), key, value, got, want)
+				}
+			}
+		}
+	}
+}
+
 // recordTypes are the types that decode themselves leniently.
 var recordTypes = []reflect.Type{
 	reflect.TypeFor[AccountNumber](), reflect.TypeFor[Account](), reflect.TypeFor[Position](),

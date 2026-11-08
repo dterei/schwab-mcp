@@ -132,10 +132,11 @@ func (t *Transaction) UnmarshalJSON(b []byte) error {
 		TradeDate      json.RawMessage `json:"tradeDate"`
 		SettlementDate json.RawMessage `json:"settlementDate"`
 		NetAmount      json.RawMessage `json:"netAmount"`
+		Problems       json.RawMessage `json:"problems"` // Schwab's, as decode says
 	}
 	isObject, err := decode(b, &w)
 	*t = Transaction(w.plain)
-	ps := recordProblems(b, t, isObject, err, "activityId", "time", "tradeDate", "settlementDate", "netAmount")
+	ps := recordProblems(b, t, isObject, err, "activityId", "time", "tradeDate", "settlementDate", "netAmount", "problems")
 	hasID := readField(w.ActivityID, "activityId", &t.ActivityID, &ps)
 	var hasTime, hasTradeDate bool
 	t.Time, hasTime = readTime(w.Time, "time", &ps)

@@ -37,10 +37,12 @@ func (p Problem) String() string {
 
 // decode decodes b, one record of Schwab's JSON, into w, the record's
 // wrapper: a struct that embeds, by value, a method-less alias of the
-// record's type, beside the fields that the record reads by hand. It
-// reports whether b is an object, and encoding/json's error, which says only
-// that something could not be read: a value of the wrong JSON type is
-// skipped, and the rest of the record still decodes.
+// record's type, beside the fields that the record reads by hand and a
+// json.RawMessage tagged "problems", which takes a problems key from Schwab
+// so that the record's own Problems never does. It reports whether b is an
+// object, and encoding/json's error, which says only that something could
+// not be read: a value of the wrong JSON type is skipped, and the rest of
+// the record still decodes.
 func decode(b []byte, w any) (isObject bool, err error) {
 	b = bytes.TrimSpace(b)
 	if len(b) == 0 || b[0] != '{' {
@@ -51,9 +53,11 @@ func decode(b []byte, w any) (isObject bool, err error) {
 
 // recordProblems returns the problems of rec, a pointer to a record decoded
 // from b: that b is not an object, or what a walk of b against rec finds,
-// which see. skip names the keys that the record reads by hand, which report
-// their own problems. Should the decode have failed with err and the walk
-// found no value that explains it, err itself is a problem.
+// which see. skip names the keys that the walk passes over: those that the
+// record reads by hand, which report their own problems, and "problems",
+// which is the record's own field, not one of Schwab's. Should the decode
+// have failed with err and the walk found no value that explains it, err
+// itself is a problem.
 func recordProblems(b []byte, rec any, isObject bool, err error, skip ...string) []Problem {
 	b = bytes.TrimSpace(b)
 	if !isObject {
