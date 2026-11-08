@@ -6,7 +6,9 @@
 // came from.
 //
 // It does not import package schwab, so that package's own tests can use
-// it as well as everyone else's.
+// it as well as everyone else's. It is for tests only. go build would
+// compile it into a program without complaint, so a lint rule in
+// .golangci.yml refuses an import of it from any file but a test's.
 //
 // # Using it
 //
