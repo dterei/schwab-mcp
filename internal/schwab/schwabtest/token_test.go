@@ -88,9 +88,10 @@ func TestLogin(t *testing.T) {
 	}
 }
 
-// A refresh gives a new access token and the same refresh token, without
-// ending the older access tokens, unless the fake rotates or revokes; a
-// login ends every earlier refresh token.
+// A refresh gives a new access token and the same refresh token, escaped
+// as JSON whatever it holds, without ending the older access tokens,
+// unless the fake rotates or revokes; a login ends every earlier refresh
+// token.
 func TestRefresh(t *testing.T) {
 	s := New(t)
 	g := granted(t, s, codeForm(Code))
@@ -122,11 +123,17 @@ func TestRefresh(t *testing.T) {
 	if works(t, s, AccessToken(5)) || !works(t, s, latest.AccessToken) {
 		t.Error("SetRevokeOlder(true) kept an older access token, or ended the new one")
 	}
+
+	odd := `r"1\2`
+	s.AllowRefresh(odd)
+	if g := granted(t, s, refreshForm(odd)); g.RefreshToken != odd {
+		t.Errorf("a refresh with %s gave back %s", odd, g.RefreshToken)
+	}
 }
 
-// What the token endpoint refuses, and how. A guess says so in its own
-// text, and none holds "refresh token", which the client takes for a
-// lapsed login.
+// What the token endpoint refuses, and how, the app before the type of the
+// body. A guess says so in its own text, and none holds "refresh token",
+// which the client takes for a lapsed login.
 func TestTokenRefusals(t *testing.T) {
 	s := New(t)
 	g := granted(t, s, codeForm(Code))
@@ -137,6 +144,7 @@ func TestTokenRefusals(t *testing.T) {
 		{"a wrong secret", AppKey, "wrong", "application/x-www-form-urlencoded"},
 		{"a wrong key", "wrong", AppSecret, "application/x-www-form-urlencoded"},
 		{"no Basic auth", "", "", "application/x-www-form-urlencoded"},
+		{"a wrong secret and a body of another type", AppKey, "wrong", "application/json"},
 	} {
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s.URL()+"/v1/oauth/token", strings.NewReader(refreshForm(g.RefreshToken).Encode()))
 		if err != nil {
@@ -387,9 +395,30 @@ func TestFailTokens(t *testing.T) {
 	}
 }
 
+// grantErr posts form to the token endpoint as postToken does, and returns
+// why the answer is not a grant. Unlike granted it does not end the test,
+// so a goroutine of the test's may call it.
+func grantErr(ctx context.Context, s *Server, form url.Values) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.URL()+"/v1/oauth/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(AppKey, AppSecret)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := s.Client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s: %d", form.Get("grant_type"), resp.StatusCode)
+	}
+	return nil
+}
+
 // OnToken runs as a token request arrives, without the lock; OnGrant as a
 // grant is made, under it, once per grant; SetTokenDelay holds each token
-// request up.
+// request up, without the lock.
 func TestTokenHooks(t *testing.T) {
 	r := &recorder{TB: t}
 	s := New(r)
@@ -430,6 +459,23 @@ func TestTokenHooks(t *testing.T) {
 	granted(t, s, codeForm(Code))
 	if d := time.Since(start); d < 50*time.Millisecond {
 		t.Errorf("a token request took %v with a delay of 50ms", d)
+	}
+	// The delay is slept without the lock, so two requests wait it out
+	// together; one after the other they would take twice as long.
+	const delay = 300 * time.Millisecond
+	s.SetTokenDelay(delay)
+	start = time.Now()
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() { errs <- grantErr(t.Context(), s, codeForm(Code)) }()
+	}
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Error(err)
+		}
+	}
+	if d := time.Since(start); d >= 2*delay {
+		t.Errorf("two token requests with a delay of %v took %v, as if one waited for the other", delay, d)
 	}
 	wantReported(t, r, "SetTokenDelay(-1ns)", func() { s.SetTokenDelay(-1) })
 	if tokens, grants := seen(); len(tokens) != 3 || grants != 2 {

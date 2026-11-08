@@ -207,9 +207,10 @@ func TestRows(t *testing.T) {
 	if got := byID("1"); got != `{"activityId":1,"time":"2026-01-11T00:00:00Z","new":true}` {
 		t.Errorf("after Replace, by id: %s", got)
 	}
+	s.SetRowByID(hash, 1, `{"by":"id"}`)
 	s.ReplaceRow(hash, 1, `{"activityId":2,"time":"2026-01-12T00:00:00Z"}`)
 	if got := byID("1"); got != `{"activityId":2,"time":"2026-01-12T00:00:00Z"}` {
-		t.Errorf("ReplaceRow did not keep the id given: %s", got)
+		t.Errorf("ReplaceRow did not keep the id given, or kept the body by id: %s", got)
 	}
 	if rec := get("/trader/v1/accounts/" + hash + "/transactions/2"); rec.Code != http.StatusNotFound {
 		t.Errorf("the replaced row is found by the id its bytes hold: %d", rec.Code)

@@ -255,6 +255,18 @@ func TestTestdataHygieneCatches(t *testing.T) {
 			index[0].Request.Method = ""
 			return index
 		}, "has no request"},
+		{"a request path that does not start with /", func(_, _ fstest.MapFS, index []Entry) []Entry {
+			index[0].Request.Path = "trader/v1/test"
+			return index
+		}, `has no request: "GET" "trader/v1/test"`},
+		{"an entry without a status", func(_, _ fstest.MapFS, index []Entry) []Entry {
+			index[0].Response.Status = 0
+			return index
+		}, "has status 0"},
+		{"a status past 599", func(_, _ fstest.MapFS, index []Entry) []Entry {
+			index[0].Response.Status = 600
+			return index
+		}, "has status 600"},
 		{"a count of carriage returns that is wrong", func(_, _ fstest.MapFS, index []Entry) []Entry {
 			index[1].CR = 0
 			return index
@@ -275,6 +287,14 @@ func TestTestdataHygieneCatches(t *testing.T) {
 			index[2].Source = "hand-made"
 			return index
 		}, `is under recorded/, but its source is "hand-made"`},
+		{"a hand-made file with a date", func(_, _ fstest.MapFS, index []Entry) []Entry {
+			index[0].Recorded = "2026-11-08"
+			return index
+		}, `has a date or a scrub policy, but its source is "hand-made, modeled on nothing"`},
+		{"a rebuilt file with a scrub policy", func(_, _ fstest.MapFS, index []Entry) []Entry {
+			index[1].Scrub = "abc123 keep"
+			return index
+		}, `has a date or a scrub policy, but its source is "rebuilt from a page"`},
 		{"a header whose value is not kept", func(_, _ fstest.MapFS, index []Entry) []Entry {
 			index[0].Response.Headers["ETag"] = []string{`"a1b2"`}
 			return index
@@ -283,6 +303,10 @@ func TestTestdataHygieneCatches(t *testing.T) {
 			index[0].Response.Headers["Content-Length"] = []string{"7"}
 			return index
 		}, "keeps Content-Length's value"},
+		{"a kept header without a value", func(_, _ fstest.MapFS, index []Entry) []Entry {
+			index[0].Response.Headers["Date"] = nil
+			return index
+		}, "has Date without a value"},
 		{"a kept header named only", func(_, _ fstest.MapFS, index []Entry) []Entry {
 			index[0].Response.OtherHeaders = append(index[0].Response.OtherHeaders, "date")
 			return index
@@ -299,6 +323,11 @@ func TestTestdataHygieneCatches(t *testing.T) {
 			index[0].Response.Headers["Schwab-Client-Correlid"] = []string{"8f14e45f-ceea-467a-9b5c-1d2a3b4c5d6e"}
 			return index
 		}, `Schwab-Client-Correlid "8f14e45f-ceea-467a-9b5c-1d2a3b4c5d6e", which is no fake's`},
+		{"a real request ID", func(_, _ fstest.MapFS, index []Entry) []Entry {
+			delete(index[0].Response.Headers, "X-Request-Id")
+			index[0].Response.Headers["x-request-id"] = []string{"8f14e45f-ceea-467a-9b5c-1d2a3b4c5d6e"}
+			return index
+		}, `x-request-id "8f14e45f-ceea-467a-9b5c-1d2a3b4c5d6e", which is no fake's`},
 		{"a canned ID of another status", func(_, _ fstest.MapFS, index []Entry) []Entry {
 			index[1].Response.Status = 503
 			return index

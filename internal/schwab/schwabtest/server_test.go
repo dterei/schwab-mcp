@@ -141,12 +141,12 @@ func login(t *testing.T, s *Server) string {
 }
 
 // An API request with a working token is recorded as it was sent: the
-// escaped path, the raw query, the token and the headers, and Requests
-// returns copies.
+// escaped path, the raw query in its order and escapes, the token and the
+// headers, and Requests returns copies.
 func TestRequests(t *testing.T) {
 	s := New(t)
 	tok := login(t, s)
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL()+"/trader/v1/accounts/AB%2FC%20D?fields=positions&x=%26", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL()+"/trader/v1/accounts/AB%2FC%20D?x=%26&fields=positions&y=%2f", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestRequests(t *testing.T) {
 	}
 	r := rs[0]
 	if r.Method != http.MethodGet || r.Route != AccountRoute || r.Path != "/trader/v1/accounts/AB%2FC%20D" ||
-		r.Query != "fields=positions&x=%26" || r.URL != "/trader/v1/accounts/AB%2FC%20D?fields=positions&x=%26" ||
+		r.Query != "x=%26&fields=positions&y=%2f" || r.URL != "/trader/v1/accounts/AB%2FC%20D?x=%26&fields=positions&y=%2f" ||
 		r.Token != tok || r.Header.Get("X-Test") != "1" {
 		t.Errorf("recorded %+v", r)
 	}
