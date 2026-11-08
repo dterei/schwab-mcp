@@ -1,8 +1,10 @@
 # The fake Schwab's fixtures
 
 These files are answers in the shape Schwab sends them. They are embedded in
-package schwabtest, and `Fixture` reads one byte for byte. `.gitattributes`
-keeps their bytes, line endings included, in every checkout.
+package schwabtest, which serves them byte for byte: `Fixture` reads one,
+`LoadFixtures` gives the fake the hand-made accounts, and the canned answers
+send the bodies under `errors/`. `.gitattributes` keeps their bytes, line
+endings included, in every checkout.
 
 ## What each file is
 
@@ -68,9 +70,10 @@ is scrubbed:
 
 A scrubbed recording goes under `recorded/<date>/`, the day it was recorded,
 beside the hand-made files and never over them: the hand-made set stays as
-it is for the tests that pin its values. Each of its files
-gets its own entry in `index.json`, with source `recorded`, its date in
-`recorded` and the scrubber's version and amounts policy in `scrub`.
+it is for `LoadFixtures` and the tests that pin its values, and
+`LoadRecording` replays a day's recording. Each of its files gets its own
+entry in `index.json`, with source `recorded`, its date in `recorded` and
+the scrubber's version and amounts policy in `scrub`.
 
 Nothing raw or partly scrubbed may be committed here, not even for a moment:
 a file once pushed stays in the history and in every module download.

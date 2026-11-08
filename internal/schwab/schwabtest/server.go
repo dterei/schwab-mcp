@@ -95,6 +95,13 @@ type Server struct {
 	overrides map[Route]http.HandlerFunc
 	paths     map[string]http.HandlerFunc // OverridePath's table
 	pathMux   *http.ServeMux              // the table's patterns, rebuilt on each change
+	replays   map[string]*replayed        // LoadRecording's answers, by replayKey
+
+	// The world (world.go, rows.go).
+	accounts   []*account
+	serials    int    // the counter of accounts' and rows' serials
+	preference string // SetUserPreference's body
+	rules      TransactionRules
 }
 
 // New starts a fake over HTTP, which the end of the test closes.
@@ -132,6 +139,7 @@ func newServer(t testing.TB) *Server {
 		queues:    map[Route][]http.HandlerFunc{},
 		overrides: map[Route]http.HandlerFunc{},
 		paths:     map[string]http.HandlerFunc{},
+		replays:   map[string]*replayed{},
 	}
 }
 
@@ -241,6 +249,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		Token: tok, Header: r.Header.Clone(),
 	})
 	h := s.handlerFor(route, r)
+	if h == nil {
+		h = s.replayFor(r)
+	}
 	var a answer
 	if h == nil {
 		a = s.own(route, r)
@@ -283,10 +294,24 @@ func (s *Server) handlerFor(route Route, r *http.Request) http.HandlerFunc {
 	return nil
 }
 
-// own returns the fake's own answer to r, a request with a working
-// token that no handler took. It needs the lock.
-func (s *Server) own(route Route, _ *http.Request) answer {
+// own returns the fake's own answer to r, a request with a working token
+// that no handler or recording took: the world's, built now from what it
+// holds. It needs the lock.
+func (s *Server) own(route Route, r *http.Request) answer {
+	q := r.URL.Query()
 	switch route {
+	case AccountNumbersRoute:
+		return s.accountNumbers()
+	case AccountsRoute:
+		return s.accountList(wantsPositions(q))
+	case AccountRoute:
+		return s.oneAccount(r.PathValue("hash"), wantsPositions(q))
+	case TransactionsRoute:
+		return s.transactions(r.PathValue("hash"), q)
+	case TransactionRoute:
+		return s.transaction(r.PathValue("hash"), r.PathValue("id"))
+	case UserPreferenceRoute:
+		return s.userPreference()
 	case TestRoute:
 		return s.built(http.StatusOK, []byte(`{"ok":true}`))
 	default:

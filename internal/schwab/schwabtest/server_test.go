@@ -199,11 +199,11 @@ func TestCounts(t *testing.T) {
 	}
 }
 
-// serve answers a request in the test's process, so that the headers'
+// serve answers a GET of path in the test's process, so that the headers'
 // names come as the fake spelled them, which a client's reading would
 // canonicalize.
-func serve(t *testing.T, s *Server, method, path, auth string) *httptest.ResponseRecorder {
-	req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
+func serve(t *testing.T, s *Server, path, auth string) *httptest.ResponseRecorder {
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
 	if auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
@@ -253,7 +253,7 @@ func TestUnauthorized(t *testing.T) {
 		{"a token in another scheme", "Basic " + tok},
 		{"an empty token", "Bearer "},
 	} {
-		rec := serve(t, s, http.MethodGet, "/trader/v1/test", tc.auth)
+		rec := serve(t, s, "/trader/v1/test", tc.auth)
 		var got struct {
 			Errors []struct {
 				ID, Title, Detail string
@@ -286,14 +286,14 @@ func TestUnauthorized(t *testing.T) {
 func TestOwnAnswers(t *testing.T) {
 	s := New(t)
 	auth := "Bearer " + login(t, s)
-	rec := serve(t, s, http.MethodGet, "/trader/v1/test", auth)
+	rec := serve(t, s, "/trader/v1/test", auth)
 	if rec.Code != http.StatusOK || rec.Body.String() != `{"ok":true}` {
 		t.Errorf("TestRoute: %d %s", rec.Code, rec.Body)
 	}
 	wantFakeHeaders(t, rec.Header(), http.StatusOK)
 	first := spelled(rec.Header(), "Schwab-Client-CorrelId")
 
-	rec = serve(t, s, http.MethodGet, "/marketdata/v1/quotes?symbols=X", auth)
+	rec = serve(t, s, "/marketdata/v1/quotes?symbols=X", auth)
 	if rec.Code != http.StatusNotFound || rec.Body.String() != `{"message":"Not Found (the fake has no such route)"}` {
 		t.Errorf("a path without a Route: %d %s", rec.Code, rec.Body)
 	}
