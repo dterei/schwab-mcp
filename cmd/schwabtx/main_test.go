@@ -629,38 +629,68 @@ func TestExpiredRefreshTokenAsksForLogin(t *testing.T) {
 	}
 }
 
+// A window whose answer holds pageCap rows or more may have been cut short,
+// so it is split until no answer does. The newest 100 come back whichever
+// rows Schwab keeps at its cap, the newest, as seen live, or the oldest, and
+// however the cap meets a request for several types, which is not known: an
+// answer can then be cut short at the cap or hold more than it.
 func TestTruncatedResponsesAreSplit(t *testing.T) {
-	f, _ := setup(t)
-	f.addAccount("11112222", 1000, 300, testNow.Add(-time.Hour), 6*time.Hour) // 240 per 60-day window
-	doLogin(t)
-	// At the cap the fake keeps the oldest rows, the worst case for the tool.
-	f.SetTransactionRules(schwabtest.TransactionRules{Cap: 50, KeepOldest: true})
+	// The types of the rows in turn. Trades outnumber the others, so that a
+	// cap on each type's rows leaves out some of the newest rows too.
+	several := []string{"TRADE", "TRADE", "DIVIDEND_OR_INTEREST", "TRADE", "JOURNAL"}
+	for _, tc := range []struct {
+		name   string
+		types  []string // the types of the rows in turn; TRADE alone when nil
+		mode   schwabtest.CapMode
+		oldest bool // the oldest rows are kept at the cap
+	}{
+		{"newest kept", nil, schwabtest.NewestAcrossTypes, false},
+		{"oldest kept", nil, schwabtest.NewestAcrossTypes, true},
+		{"several types, newest kept across them", several, schwabtest.NewestAcrossTypes, false},
+		{"several types, oldest kept across them", several, schwabtest.NewestAcrossTypes, true},
+		{"several types, cut in type order", several, schwabtest.InTypeOrder, false},
+		{"several types, cut in type order, oldest first", several, schwabtest.InTypeOrder, true},
+		{"several types, each capped", several, schwabtest.PerType, false},
+		{"several types, each capped, oldest kept", several, schwabtest.PerType, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := setup(t)
+			f.addAccount("11112222", 1000, 300, testNow.Add(-time.Hour), 6*time.Hour) // 240 per 60-day window
+			if tc.types != nil {
+				for i, tx := range f.rows("11112222") {
+					f.setRow("11112222", i, strings.Replace(tx.JSON, `"type":"TRADE"`, `"type":"`+tc.types[i%len(tc.types)]+`"`, 1))
+				}
+			}
+			doLogin(t)
+			f.SetTransactionRules(schwabtest.TransactionRules{Cap: 50, CapMode: tc.mode, KeepOldest: tc.oldest})
 
-	// The cap is Schwab's 3000 in real life; shrink it to match the fake.
-	cfg, _ := loadConfig()
-	auth, err := openLogin(cfg, io.Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := newClient(auth)
-	c.pageCap = 50
-	accounts, err := c.accountNumbers(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	txs, err := fetchRecent(context.Background(), c, accounts, fetchOptions{
-		N: 100, Lookback: 365 * 24 * time.Hour, Window: 60 * 24 * time.Hour,
-		Types: schwab.AllTransactionTypes(), Now: testNow, Warn: func(s string) { t.Errorf("unexpected warning: %s", s) },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := make([]string, len(txs))
-	for i, tx := range txs {
-		got[i] = strconv.FormatInt(tx.ActivityID, 10)
-	}
-	if want := f.expected(100, time.Time{}); !equal(got, want) {
-		t.Fatalf("got %v\nwant %v", got, want)
+			// The cap is Schwab's 3000 in real life; shrink it to match the fake.
+			cfg, _ := loadConfig()
+			auth, err := openLogin(cfg, io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := newClient(auth)
+			c.pageCap = 50
+			accounts, err := c.accountNumbers(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			txs, err := fetchRecent(context.Background(), c, accounts, fetchOptions{
+				N: 100, Lookback: 365 * 24 * time.Hour, Window: 60 * 24 * time.Hour,
+				Types: schwab.AllTransactionTypes(), Now: testNow, Warn: func(s string) { t.Errorf("unexpected warning: %s", s) },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, len(txs))
+			for i, tx := range txs {
+				got[i] = strconv.FormatInt(tx.ActivityID, 10)
+			}
+			if want := f.expected(100, time.Time{}); !equal(got, want) {
+				t.Fatalf("got %v\nwant %v", got, want)
+			}
+		})
 	}
 }
 
