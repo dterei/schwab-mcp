@@ -11,26 +11,24 @@ import (
 
 // endpointClient returns a client logged in to a fake that answers its API
 // requests with answers, in order.
-func endpointClient(t *testing.T, answers ...func(http.ResponseWriter, *http.Request)) (*Client, *fakeOAuth) {
+func endpointClient(t *testing.T, answers ...http.HandlerFunc) (*Client, *fakeOAuth) {
 	t.Helper()
 	f := newFakeOAuth(t)
-	f.script = answers
+	f.Script(answers...)
 	return newTestClient(t, f, &clock{now: testNow}, &fakeTime{now: testNow}), f
 }
 
 // ok answers 200 with body as JSON.
-func ok(body string) func(http.ResponseWriter, *http.Request) {
+func ok(body string) http.HandlerFunc {
 	return answer(http.StatusOK, body, "Content-Type", "application/json")
 }
 
 // requested returns the path and query of the fake's API requests.
 func requested(t *testing.T, f *fakeOAuth) []*url.URL {
 	t.Helper()
-	f.mu.Lock()
-	defer f.mu.Unlock()
 	var us []*url.URL
-	for _, s := range f.urls {
-		u, err := url.Parse(s)
+	for _, r := range f.Requests() {
+		u, err := url.Parse(r.URL)
 		if err != nil {
 			t.Fatal(err)
 		}
