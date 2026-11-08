@@ -266,13 +266,13 @@ func checked(kind, body string) []string {
 	return out
 }
 
-// checkAnswer finds each record's problems, an account's positions' among
-// them, or else that the answer is not of its kind's shape; each key that no
-// field takes, or that a field takes in another case; each null that reads
-// as absent, which it only reports; and each key that an object sends more
-// than once, failing copies that differ or an object or array among them,
-// and reporting a scalar sent again the same. A finding in several places is
-// given once, with their count.
+// checkAnswer finds each record's problems, with those of an account's
+// positions, or else that the answer is not of its kind's shape; each key
+// that no field takes, or that a field takes in another case; each null that
+// reads as absent, which it only reports; and each key that an object sends
+// more than once, failing copies that differ or an object or array among
+// them, and reporting a scalar sent again the same. A finding in several
+// places is given once, with their count.
 func TestCheckAnswer(t *testing.T) {
 	account := `{"securitiesAccount":` + baseSecuritiesAccount + `}`
 	pref := `{"accounts":[],"streamerInfo":[],"offers":[]}`
