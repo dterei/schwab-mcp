@@ -86,7 +86,7 @@ type testdataAnswer struct {
 // by route, in testdataKinds' order, and within a route in the index's. A
 // fixture whose records cannot be read as the client reads them fails the
 // test, and is left out.
-func testdataAnswers(t *testing.T) []testdataAnswer {
+func testdataAnswers(t testing.TB) []testdataAnswer {
 	t.Helper()
 	index := schwabtest.Index()
 	var answers []testdataAnswer

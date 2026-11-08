@@ -909,7 +909,7 @@ func keyPath(path []any) string {
 // testdataRecords returns the records of the testdata by type, the positions
 // of the accounts among them: those of each fixture that answers an account
 // endpoint, read as that endpoint's records, in testdataAnswers' order.
-func testdataRecords(t *testing.T) map[reflect.Type][]json.RawMessage {
+func testdataRecords(t testing.TB) map[reflect.Type][]json.RawMessage {
 	t.Helper()
 	records := map[reflect.Type][]json.RawMessage{}
 	positions := reflect.TypeFor[Position]()

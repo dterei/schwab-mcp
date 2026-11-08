@@ -408,40 +408,13 @@ func keyNotSent(enc, sent any, path string) string {
 	return ""
 }
 
-// fixtureRecords returns the fixtures' records by type, the positions of the
-// accounts among them, one of each shape, for the fuzz targets' seeds. It
-// reads the files that testdataRecords reads, which needs a *testing.T where
-// a fuzz target has a *testing.F; TestFuzzSeedsHoldEveryFixtureShape keeps
-// the two in step.
+// fixtureRecords returns the records that testdataRecords gives, one of
+// each shape, for the fuzz targets' seeds. So every shape of record in the
+// fixtures, a recording's included, is a seed, and CI, which runs only the
+// seeds, checks the fuzz properties on each.
 func fixtureRecords(tb testing.TB) map[reflect.Type][]json.RawMessage {
 	tb.Helper()
-	list := func(name string) []json.RawMessage {
-		var raws []json.RawMessage
-		if err := json.Unmarshal(readTestdata(tb, name), &raws); err != nil {
-			tb.Fatalf("%s: %v", name, err)
-		}
-		return raws
-	}
-	accounts := list("accounts.json")
-	var positions []json.RawMessage
-	for _, account := range accounts {
-		var a struct {
-			SecuritiesAccount struct {
-				Positions []json.RawMessage `json:"positions"`
-			} `json:"securitiesAccount"`
-		}
-		if err := json.Unmarshal(account, &a); err != nil {
-			tb.Fatal(err)
-		}
-		positions = append(positions, a.SecuritiesAccount.Positions...)
-	}
-	records := map[reflect.Type][]json.RawMessage{
-		reflect.TypeFor[AccountNumber]():  list("account_numbers.json"),
-		reflect.TypeFor[Account]():        accounts,
-		reflect.TypeFor[Position]():       positions,
-		reflect.TypeFor[Transaction]():    append(list("transactions.json"), readTestdata(tb, "transaction.json")),
-		reflect.TypeFor[UserPreference](): {readTestdata(tb, "user_preference.json")},
-	}
+	records := testdataRecords(tb)
 	for typ, raws := range records {
 		seen := map[string]bool{}
 		var kept []json.RawMessage
@@ -504,26 +477,6 @@ func recordShape(raw []byte) string {
 	}
 	slices.Sort(paths)
 	return strings.Join(slices.Compact(paths), " ")
-}
-
-// Every shape of record that testdataRecords gives is a seed of its type's
-// fuzz target, so that CI, which runs only the seeds, checks the fuzz
-// properties on each. A record of a new shape in a file that only
-// testdataRecords reads, such as a recording, fails here until
-// fixtureRecords reads that file too.
-func TestFuzzSeedsHoldEveryFixtureShape(t *testing.T) {
-	seeds := fixtureRecords(t)
-	for typ, records := range testdataRecords(t) {
-		shapes := map[string]bool{}
-		for _, raw := range seeds[typ] {
-			shapes[recordShape(raw)] = true
-		}
-		for i, raw := range records {
-			if !shapes[recordShape(raw)] {
-				t.Errorf("%s %d of testdataRecords has a shape that no seed of the fuzz target for %s has", typ.Name(), i, typ.Name())
-			}
-		}
-	}
 }
 
 // A transaction decoded from any bytes has the properties fuzzRecord lists.
