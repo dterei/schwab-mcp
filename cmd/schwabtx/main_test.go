@@ -1146,6 +1146,31 @@ func TestPrintJSONKeepsSchwabsText(t *testing.T) {
 	}
 }
 
+// -json prints a transaction as Schwab sent it, all the way from the
+// answer: the fake sends a row's bytes as they are, and the output is them
+// re-indented, "&", "<", U+2028 and 250.0 as they came.
+func TestJSONPrintsWhatSchwabSent(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 1, testNow.Add(-time.Hour), time.Hour)
+	tx := strings.Replace(f.rows("11112222")[0].JSON, `"description":""`, `"description":"AT&T <x>`+"\u2028"+`"`, 1)
+	tx = strings.Replace(tx, `"netAmount":-1234.56`, `"netAmount":250.0`, 1)
+	f.setRow("11112222", 0, tx)
+	doLogin(t)
+	out, _, err := runTx(t, "-json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want bytes.Buffer
+	want.WriteString("[\n  ")
+	if err := json.Indent(&want, []byte(tx), "  ", "  "); err != nil {
+		t.Fatal(err)
+	}
+	want.WriteString("\n]\n")
+	if out != want.String() {
+		t.Errorf("printed\n%s\nwant\n%s", out, want.String())
+	}
+}
+
 // The warning about records with problems names each place once.
 func TestProblemsWarning(t *testing.T) {
 	if w := problemsWarning("transaction", [][]schwab.Problem{nil, nil}); w != "" {
