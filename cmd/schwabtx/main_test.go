@@ -906,6 +906,11 @@ func TestLoginStopsOnCancel(t *testing.T) {
 func TestBadFlagsFailBeforeAnyRequest(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 5, testNow.Add(-time.Hour), time.Hour)
+	// Two of the five are a journal and a dividend, which Schwab sends only
+	// when the types asked for name them.
+	for i, typ := range []string{"JOURNAL", "DIVIDEND_OR_INTEREST"} {
+		f.setRow("11112222", i, strings.Replace(f.rows("11112222")[i].JSON, `"type":"TRADE"`, `"type":"`+typ+`"`, 1))
+	}
 	doLogin(t)
 	before := f.AllRequests()
 	for _, args := range [][]string{
@@ -923,12 +928,17 @@ func TestBadFlagsFailBeforeAnyRequest(t *testing.T) {
 	if n := f.AllRequests() - before; n != 0 {
 		t.Errorf("bad flags still caused %d requests", n)
 	}
-	if out, _, err := runTx(t, "-json", "-types", "trade, dividend_or_interest"); err != nil || len(idsFromJSON(t, out)) != 5 {
+	// -types asks for the trades and the dividend alone.
+	if out, _, err := runTx(t, "-json", "-types", "trade, dividend_or_interest"); err != nil {
 		t.Errorf("valid -types failed: %v", err)
+	} else if ids := idsFromJSON(t, out); len(ids) != 4 {
+		t.Errorf("-types trade, dividend_or_interest printed %v, want all but the journal", ids)
 	}
 	// -window takes Schwab's whole year.
-	if out, _, err := runTx(t, "-json", "-window", "365"); err != nil || len(idsFromJSON(t, out)) != 5 {
+	if out, _, err := runTx(t, "-json", "-window", "365"); err != nil {
 		t.Errorf("-window 365 failed: %v", err)
+	} else if ids := idsFromJSON(t, out); len(ids) != 5 {
+		t.Errorf("-window 365 printed %v, want all five", ids)
 	}
 }
 
