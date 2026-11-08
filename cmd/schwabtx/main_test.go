@@ -715,6 +715,41 @@ func TestOlderWindowRefusedKeepsWhatWeHave(t *testing.T) {
 	}
 }
 
+// Schwab answers [] for a window older than an account's history, as for
+// any window without transactions, so the same walk keeps every row and
+// warns of nothing.
+func TestOlderWindowsAnsweredEmpty(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+	doLogin(t)
+
+	out, stderr, err := runTx(t, "-json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := idsFromJSON(t, out), f.expected(100, time.Time{}); !equal(got, want) {
+		t.Fatalf("got %v\nwant %v", got, want)
+	}
+	if stderr != "" {
+		t.Errorf("warnings: %q", stderr)
+	}
+	// An empty window does not show that the history has ended, so the walk
+	// goes on to the end of the lookback.
+	walked := testNow
+	for _, q := range f.queries(schwabtest.TransactionsRoute) {
+		start, err := time.Parse(time.RFC3339, q.Get("startDate"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if start.Before(walked) {
+			walked = start
+		}
+	}
+	if want := testNow.Add(-365 * 24 * time.Hour); !walked.Equal(want) {
+		t.Errorf("walked back to %v, want the whole lookback, to %v", walked, want)
+	}
+}
+
 // An account that Schwab stops taking part way through a run fails the run;
 // it is not taken for the end of the account's history, whether the refusal
 // comes alone or, as one report shows it, in a list of one.
