@@ -8,15 +8,24 @@ import (
 	"testing"
 )
 
-// redirectMessages are the text of CodeFromRedirect's errors: those that
-// are fixed, and the start of the one that quotes Schwab's error. A code
-// that is part of one is in an error by design.
+// redirectMessages are the fixed texts of CodeFromRedirect's errors.
 var redirectMessages = []string{
 	"nothing was pasted",
 	"that doesn't look like a web address; paste the whole address from the browser's address bar",
 	"no code= in that address; paste the address the browser ended up on after you approved",
 	"that address is from a different login attempt; start the login over",
-	"Schwab reported ",
+}
+
+// schwabReported returns the text of CodeFromRedirect's error for e and
+// desc, the error and description that Schwab put in the address, e not
+// empty: each cut to 200 bytes and quoted, and the description left out
+// when empty.
+func schwabReported(e, desc string) string {
+	msg := "Schwab reported " + strconv.Quote(clip(e, 200))
+	if desc != "" {
+		msg += ": " + strconv.Quote(clip(desc, 200))
+	}
+	return msg
 }
 
 // leaks reports whether msg, an error's text, holds code in a form that an
@@ -24,28 +33,18 @@ var redirectMessages = []string{
 // it, or as %q quotes it. Every real code ends in @, which a pasted address
 // holds as %40, so a search for the code as it is alone would miss an error
 // that quotes the paste. A code under 8 bytes is not looked for, since text
-// holds such a string by chance, and nor is one that msg may hold by
-// design: one that is part of redirectMessages, or of schwabs, the error and
-// description that Schwab put in the address, as they are or as an error
-// cuts and quotes them.
-func leaks(msg, code string, schwabs ...string) bool {
-	if len(code) < 8 {
+// holds such a string by chance. Nor is a code looked for in an error that
+// quotes nothing pasted but Schwab's own words, which may hold it by chance
+// or by design: one of redirectMessages, or the report of e and desc, the
+// error and description that Schwab put in the address. Each is matched
+// whole, since a code can span the parts of the report, such as the end of
+// Schwab's error and the start of its description.
+func leaks(msg, code, e, desc string) bool {
+	if slices.Contains(redirectMessages, msg) || e != "" && msg == schwabReported(e, desc) || len(code) < 8 {
 		return false
 	}
 	q := strconv.Quote(code)
-	forms := []string{code, url.QueryEscape(code), url.PathEscape(code), q[1 : len(q)-1]}
-	allowed := slices.Clone(redirectMessages)
-	for _, s := range schwabs {
-		allowed = append(allowed, s, clip(s, 200), strconv.Quote(clip(s, 200)))
-	}
-	for _, text := range allowed {
-		for _, form := range forms {
-			if strings.Contains(text, form) {
-				return false
-			}
-		}
-	}
-	for _, form := range forms {
+	for _, form := range []string{code, url.QueryEscape(code), url.PathEscape(code), q[1 : len(q)-1]} {
 		if strings.Contains(msg, form) {
 			return true
 		}
@@ -118,7 +117,7 @@ func FuzzCodeFromRedirectBuilt(f *testing.F) {
 			t.Fatalf("CodeFromRedirect(%q, %q) = %q, from another login attempt", pasted, state+"x", got)
 		case !hasState && (err != nil || got != code):
 			t.Fatalf("CodeFromRedirect(%q, %q) = %q, %v; want %q", pasted, state+"x", got, err, code)
-		case err != nil && leaks(err.Error(), code):
+		case err != nil && leaks(err.Error(), code, "", ""):
 			t.Fatalf("CodeFromRedirect(%q, %q) quotes the code: %v", pasted, state+"x", err)
 		}
 	})
@@ -149,8 +148,13 @@ func FuzzCodeFromRedirectAny(f *testing.F) {
 		"https://127.0.0.1/?error=access_denied&error_description=nope&code=C0.SECRETCODE%40",
 		"https://127.0.0.1/?state=s1&code=C0.SECRETCODE%40&state=evil", "https://127.0.0.1/?state=evil&state=s1&code=C0.SECRETCODE%40",
 		"https://127.0.0.1/?error=" + strings.Repeat("e", 300) + "&error_description=" + strings.Repeat("d", 300) + "&code=C0.SECRETCODE%40",
-		// Schwab's own text holding the code, which an error quotes by design.
+		// Schwab's own text holding the code, which an error quotes by design,
+		// and codes that span the parts of the error that quotes it.
 		"https://127.0.0.1/?code=C0.abcdefgh&error=C0.abcdefgh", "https://127.0.0.1/?code=different%20login&state=other",
+		"https://127.0.0.1/?code=C0.abcdefgh%22:&error=C0.abcdefgh",
+		"https://127.0.0.1/?error=access_denied&error_description=nope&code=denied%22:%20nope",
+		"https://127.0.0.1/?error=access_denied&error_description=nope&code=denied%22:%20%22nope",
+		"https://127.0.0.1/?error=access_denied&error_description=nope&code=Schwab%20reported%20%22access",
 	} {
 		f.Add(s, "s1")
 	}
@@ -171,7 +175,7 @@ func FuzzCodeFromRedirectAny(f *testing.F) {
 			}
 			address = "https://pasted/?" + p[strings.Index(p, "?")+1:]
 		}
-		var schwabs []string
+		var e, desc string // the error and description Schwab put in the address
 		if u, perr := url.Parse(address); perr != nil {
 			if err == nil {
 				t.Fatalf("CodeFromRedirect(%q, %q) = %q, from an address net/url refuses: %v", pasted, state, got, perr)
@@ -182,15 +186,15 @@ func FuzzCodeFromRedirectAny(f *testing.F) {
 			if s := q.Get("state"); err == nil && (got != code || s != "" && s != state) {
 				t.Fatalf("CodeFromRedirect(%q, %q) = %q, where net/url reads the code %q and the state %q", pasted, state, got, code, s)
 			}
-			schwabs = []string{q.Get("error"), q.Get("error_description")}
-			if err != nil && leaks(err.Error(), code, schwabs...) {
+			e, desc = q.Get("error"), q.Get("error_description")
+			if err != nil && leaks(err.Error(), code, e, desc) {
 				t.Fatalf("CodeFromRedirect(%q, %q) quotes the code %q: %v", pasted, state, code, err)
 			}
 		}
 		// The code as it was pasted, up to the next parameter.
 		if _, after, ok := strings.Cut(p, "code="); ok && err != nil {
 			raw, _, _ := strings.Cut(after, "&")
-			if leaks(err.Error(), raw, schwabs...) {
+			if leaks(err.Error(), raw, e, desc) {
 				t.Fatalf("CodeFromRedirect(%q, %q) quotes the code as pasted, %q: %v", pasted, state, raw, err)
 			}
 		}
