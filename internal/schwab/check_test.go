@@ -858,10 +858,12 @@ func TestRepeatsFoldAsEncodingJSON(t *testing.T) {
 // another way, for FuzzRepeatedKeys to check repeats by: b is read with a
 // json.Decoder, and two keys of an object are one when they fold alike, each
 // rune folded to the least rune of its orbit under unicode.SimpleFold, as
-// encoding/json folds a key to match it to a field.
+// encoding/json folds a key to match it to a field. Numbers are tokens as
+// written, since JSON allows one too large for a float64.
 func tokenRepeats(t *testing.T, b []byte, path string) []repeat {
 	t.Helper()
 	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
 	value := func() json.RawMessage {
 		var v json.RawMessage
 		if err := dec.Decode(&v); err != nil {
@@ -943,7 +945,7 @@ func FuzzRepeatedKeys(f *testing.F) {
 		"{\"k\":1,\"\u212a\":2}",
 		`{"status":"first","\u017ftatus":"second"}`,
 		`{"Status":"x","status":"x","STATUS":"x"}`,
-		`{"a":1,"a":1.0}`, `{"a":"x","a":"\u0078"}`, `{"\u0061":1,"a":1}`, `{"a":"\ud800","\udfff":1,"\ufffd":1}`,
+		`{"a":1,"a":1.0}`, `{"a":1E700,"a":[1e999]}`, `{"a":"x","a":"\u0078"}`, `{"\u0061":1,"a":1}`, `{"a":"\ud800","\udfff":1,"\ufffd":1}`,
 		`{"a":{"b":1,"b":1},"A":{"b":2}}`, `{"a":[1],"a":null}`,
 		` [ {"x":[{"y":0,"Y":0}]} , {"x":{"y":1}} ] `, "{\"a\"\t:\r\n1,\n\"a\":1}",
 		`{}`, `[]`, `null`, `5`, `"x"`,
