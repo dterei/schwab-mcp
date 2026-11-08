@@ -433,7 +433,7 @@ func TestGuard(t *testing.T) {
 		{name: "an order", method: http.MethodPost, url: api + "/trader/v1/accounts/" + hash + "/orders", body: `{"orderType":"MARKET"}`, typ: "application/json"},
 		{name: "a preview of an order", method: http.MethodPost, url: api + "/trader/v1/accounts/" + hash + "/previewOrder", body: "{}", typ: "application/json"},
 		{name: "a replaced order", method: http.MethodPut, url: api + "/trader/v1/accounts/" + hash + "/orders/1", body: "{}", typ: "application/json"},
-		{name: "a cancelled order", method: http.MethodDelete, url: api + "/trader/v1/accounts/" + hash + "/orders/1"},
+		{name: "a canceled order", method: http.MethodDelete, url: api + "/trader/v1/accounts/" + hash + "/orders/1"},
 		{name: "a patch", method: http.MethodPatch, url: api + "/trader/v1/accounts", body: "{}", typ: "application/json"},
 		{name: "a head", method: http.MethodHead, url: api + "/trader/v1/accounts"},
 		{name: "an options", method: http.MethodOptions, url: api + "/trader/v1/accounts"},
