@@ -455,8 +455,12 @@ func TestHandlersRunWithoutTheLock(t *testing.T) {
 		t.Errorf("a handler that calls the Server: %q", body)
 	}
 
-	s.Script(Hang)
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	hanging := make(chan struct{})
+	s.Script(func(w http.ResponseWriter, r *http.Request) {
+		close(hanging)
+		Hang(w, r)
+	})
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	hung := make(chan error, 1)
 	go func() {
@@ -470,14 +474,17 @@ func TestHandlersRunWithoutTheLock(t *testing.T) {
 		}
 		hung <- err
 	}()
-	for len(s.Requests()) < 2 {
-		time.Sleep(time.Millisecond)
+	select {
+	case <-hanging:
+	case err := <-hung:
+		t.Fatalf("the request to hang ended first: %v", err)
 	}
 	if resp, body := get(t, s, "/trader/v1/test", tok); resp.StatusCode != http.StatusOK || body != `{"ok":true}` {
 		t.Errorf("while another request hangs: %d %s", resp.StatusCode, body)
 	}
-	if err := <-hung; !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("the hanging request: %v, want its deadline", err)
+	cancel()
+	if err := <-hung; !errors.Is(err, context.Canceled) {
+		t.Errorf("the hanging request: %v, want it canceled", err)
 	}
 }
 

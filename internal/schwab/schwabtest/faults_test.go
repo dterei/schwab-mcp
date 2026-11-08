@@ -97,14 +97,22 @@ func TestAnswer(t *testing.T) {
 // server would otherwise leave unread.
 func TestHang(t *testing.T) {
 	s := New(t)
-	s.FailTokens(Failure{Handler: Hang})
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	hanging := make(chan struct{})
+	s.FailTokens(Failure{Handler: func(w http.ResponseWriter, r *http.Request) {
+		close(hanging)
+		Hang(w, r)
+	}})
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.URL()+"/v1/oauth/token", strings.NewReader(codeForm(Code).Encode()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp, err := s.Client().Do(req); !errors.Is(err, context.DeadlineExceeded) {
+	go func() {
+		<-hanging
+		cancel()
+	}()
+	if resp, err := s.Client().Do(req); !errors.Is(err, context.Canceled) {
 		if err == nil {
 			resp.Body.Close()
 		}

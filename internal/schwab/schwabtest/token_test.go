@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -322,7 +323,7 @@ func TestFailTokens(t *testing.T) {
 			t.Errorf("failure %d: Retry-After %q", i, ra)
 		}
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.URL()+"/v1/oauth/token", strings.NewReader(codeForm(Code).Encode()))
 	if err != nil {
@@ -330,12 +331,24 @@ func TestFailTokens(t *testing.T) {
 	}
 	req.SetBasicAuth(AppKey, AppSecret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if resp, err := s.Client().Do(req); err == nil {
-		resp.Body.Close()
-		t.Errorf("the hanging failure answered %d", resp.StatusCode)
+	done := make(chan error, 1)
+	go func() {
+		resp, err := s.Client().Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+		done <- err
+	}()
+	select {
+	case <-hung:
+	case err := <-done:
+		t.Fatalf("the hanging failure answered: %v", err)
 	}
-	<-hung
-	granted(t, s, codeForm(Code))
+	granted(t, s, codeForm(Code)) // while the handler hangs, without the lock
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Errorf("the hanging failure: %v, want it canceled", err)
+	}
 	if n := s.TokenRequests(); n != 6 {
 		t.Errorf("TokenRequests() = %d, want 6", n)
 	}
