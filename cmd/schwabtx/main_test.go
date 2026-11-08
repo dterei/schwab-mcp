@@ -754,21 +754,29 @@ func TestOlderWindowsAnsweredEmpty(t *testing.T) {
 // it is not taken for the end of the account's history, whether the refusal
 // comes alone or, as one report shows it, in a list of one.
 func TestRefusedAccountFailsTheRun(t *testing.T) {
-	for _, body := range []string{`{"message":"Invalid account number"}`, `[{"message":"Invalid account number"}]`} {
-		f, _ := setup(t)
-		f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
-		doLogin(t)
-		f.atSecondTransactions(func() { f.Override(schwabtest.TransactionsRoute, schwabtest.Answer(http.StatusBadRequest, body)) })
-		_, stderr, err := runTx(t)
-		if !errors.Is(err, schwab.ErrInvalidAccount) || !strings.Contains(err.Error(), "...2222") {
-			t.Errorf("%s: got %v, want the refused account", body, err)
-		}
-		if strings.Contains(stderr, "older ones are missing") {
-			t.Errorf("%s: took the refused account for refused history: %q", body, stderr)
-		}
-		if n := len(f.queries(schwabtest.TransactionsRoute)); n < 2 {
-			t.Errorf("%s: %d requests for transactions, want the refusal after one was answered", body, n)
-		}
+	for _, refusal := range []struct {
+		name   string
+		answer http.HandlerFunc
+	}{
+		{"alone", schwabtest.InvalidAccount},
+		{"in a list of one", schwabtest.InvalidAccountList},
+	} {
+		t.Run(refusal.name, func(t *testing.T) {
+			f, _ := setup(t)
+			f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+			doLogin(t)
+			f.atSecondTransactions(func() { f.Override(schwabtest.TransactionsRoute, refusal.answer) })
+			_, stderr, err := runTx(t)
+			if !errors.Is(err, schwab.ErrInvalidAccount) || !strings.Contains(err.Error(), "...2222") {
+				t.Errorf("got %v, want the refused account", err)
+			}
+			if strings.Contains(stderr, "older ones are missing") {
+				t.Errorf("took the refused account for refused history: %q", stderr)
+			}
+			if n := len(f.queries(schwabtest.TransactionsRoute)); n < 2 {
+				t.Errorf("%d requests for transactions, want the refusal after one was answered", n)
+			}
+		})
 	}
 }
 
@@ -1005,31 +1013,29 @@ func TestSchwabErrorsSayWhatToDo(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		status int
-		body   string
+		answer http.HandlerFunc // to every try
 		want   []string
 	}{
-		{"rate limited", http.StatusTooManyRequests, " \n", []string{"HTTP 429 from Schwab after 4 tries", "wait a minute"}},
+		{"rate limited", http.StatusTooManyRequests, schwabtest.TooMany, []string{"HTTP 429 from Schwab after 4 tries", "wait a minute"}},
 		{
-			"an app not yet Ready For Use", http.StatusInternalServerError,
-			`<html><body><h1>Whitelabel Error Page</h1><p>This application has no configured error view.</p></body></html>`,
+			"an app not yet Ready For Use", http.StatusInternalServerError, schwabtest.Whitelabel,
 			[]string{"Whitelabel Error Page", `until the app says "Ready For Use"`},
 		},
 		{
-			"turned away by Schwab's network", http.StatusForbidden,
-			"<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY>Reference&#32;&#35;18&#46;9efa3f17&#46;1792539138</BODY></HTML>",
-			[]string{"Access Denied (reference #18.9efa3f17.1792539138)", "traderapi@schwab.com"},
+			"turned away by Schwab's network", http.StatusForbidden, schwabtest.AccessDenied,
+			[]string{"Access Denied (reference #" + schwabtest.AkamaiReference + ")", "traderapi@schwab.com"},
 		},
 		{
 			"Schwab's network, with its servers not answering", http.StatusServiceUnavailable,
-			"<HTML><HEAD><TITLE>Service Unavailable</TITLE></HEAD><BODY>Reference&#32;&#35;18&#46;77</BODY></HTML>",
+			schwabtest.Answer(http.StatusServiceUnavailable,
+				"<HTML><HEAD><TITLE>Service Unavailable</TITLE></HEAD><BODY>Reference&#32;&#35;18&#46;77</BODY></HTML>"),
 			[]string{"after 4 tries: an HTML page, Service Unavailable (reference #18.77)"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := setup(t)
 			doLogin(t)
-			// Every try gets the same answer.
-			f.Override(schwabtest.AccountNumbersRoute, schwabtest.Answer(tc.status, tc.body))
+			f.Override(schwabtest.AccountNumbersRoute, tc.answer)
 			_, _, err := runTx(t)
 			for _, want := range tc.want {
 				if err == nil || !strings.Contains(err.Error(), want) {
