@@ -560,7 +560,9 @@ var timeLayouts = []string{"2006-01-02T15:04:05Z0700", time.RFC3339Nano}
 // readTime reads raw, the value at path, a timestamp as Schwab writes one,
 // as an instant in UTC, and reports whether the key was there and not null.
 // A date alone stands for midnight in New York, as Schwab's dates do.
-// Anything that is not a timestamp is the zero time and a problem.
+// Anything that is not a timestamp is the zero time and a problem. So is an
+// instant outside the years 0 to 9999 in UTC, which time.Time cannot encode,
+// so that a record holding one could not be encoded either.
 func readTime(raw json.RawMessage, path string, ps *[]Problem) (time.Time, bool) {
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
 		return time.Time{}, false
@@ -580,10 +582,16 @@ func readTime(raw json.RawMessage, path string, ps *[]Problem) (time.Time, bool)
 				*ps = append(*ps, Problem{Path: path, What: fmt.Sprintf("Schwab sent %q, whose offset from UTC is out of range", s)})
 				return time.Time{}, true
 			}
+			if y := t.UTC().Year(); y < 0 || y > 9999 {
+				*ps = append(*ps, Problem{Path: path, What: fmt.Sprintf("Schwab sent %q, which is outside the years 0 to 9999 in UTC", s)})
+				return time.Time{}, true
+			}
 			return t.UTC(), true
 		}
 	}
 	if t, err := time.ParseInLocation(time.DateOnly, s, newYork()); err == nil {
+		// Midnight in New York is on the same date in UTC, so a date alone
+		// is never outside the years 0 to 9999.
 		return t.UTC(), true
 	}
 	*ps = append(*ps, Problem{Path: path, What: fmt.Sprintf("Schwab sent %q, which is not a time", s)})

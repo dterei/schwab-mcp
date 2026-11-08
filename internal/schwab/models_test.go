@@ -1014,6 +1014,39 @@ func TestReadTime(t *testing.T) {
 			t.Errorf("readTime(%s) = %v, %v, %q; want the zero time and %q", in, got, present, ps, problem)
 		}
 	}
+
+	// The years that time.Time encodes, 0 to 9999 in UTC, are kept to their
+	// last second, and an instant that its offset takes outside them is
+	// refused, since no record holding it could be encoded.
+	for _, tt := range []struct {
+		in   string
+		want time.Time // the zero time for one refused
+	}{
+		{"0000-01-01T00:00:00Z", time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{"0000-01-01T01:00:00+0100", time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{"9999-12-31T23:59:59Z", time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)},
+		{"9999-12-31T22:59:59.999-01:00", time.Date(9999, 12, 31, 23, 59, 59, 999e6, time.UTC)},
+		{"0000-01-01T00:00:00+0100", time.Time{}},
+		{"0000-01-01T00:59:59.999+01:00", time.Time{}},
+		{"9999-12-31T23:59:59-2359", time.Time{}},
+		{"9999-12-31T23:59:59-0001", time.Time{}},
+	} {
+		ps = nil
+		got, present := readTime(json.RawMessage(`"`+tt.in+`"`), "time", &ps)
+		if tt.want.IsZero() {
+			want := []string{fmt.Sprintf("time: Schwab sent %q, which is outside the years 0 to 9999 in UTC", tt.in)}
+			if !got.IsZero() || !present || !slices.Equal(problemStrings(ps), want) {
+				t.Errorf("readTime(%q) = %v, %v, %q; want the zero time and %q", tt.in, got, present, ps, want)
+			}
+			continue
+		}
+		if got != tt.want || !present || ps != nil {
+			t.Errorf("readTime(%q) = %v, %v, %q; want %v", tt.in, got, present, ps, tt.want)
+		}
+		if _, err := json.Marshal(got); err != nil {
+			t.Errorf("readTime(%q) = %v, which does not encode: %v", tt.in, got, err)
+		}
+	}
 }
 
 func TestDateInNewYork(t *testing.T) {
