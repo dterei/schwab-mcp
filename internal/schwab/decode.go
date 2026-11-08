@@ -44,7 +44,7 @@ func (p Problem) String() string {
 // not be read: a value of the wrong JSON type is skipped, and the rest of
 // the record still decodes.
 func decode(b []byte, w any) (isObject bool, err error) {
-	b = bytes.TrimSpace(b)
+	b = trimSpace(b)
 	if len(b) == 0 || b[0] != '{' {
 		return false, nil
 	}
@@ -59,7 +59,7 @@ func decode(b []byte, w any) (isObject bool, err error) {
 // have failed with err and the walk found no value that explains it, err
 // itself is a problem.
 func recordProblems(b []byte, rec any, isObject bool, err error, skip ...string) []Problem {
-	b = bytes.TrimSpace(b)
+	b = trimSpace(b)
 	if !isObject {
 		return []Problem{{What: sent(b, "an object")}}
 	}
@@ -337,7 +337,7 @@ func derefType(t reflect.Type) reflect.Type {
 
 // isNull reports whether raw is JSON null.
 func isNull(raw json.RawMessage) bool {
-	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+	return bytes.Equal(trimSpace(raw), []byte("null"))
 }
 
 // mismatch returns what is wrong with raw, a JSON value other than null, as
@@ -527,6 +527,14 @@ func skipSpace(b []byte, i int) int {
 	return i
 }
 
+// trimSpace returns b without the JSON white space around it: spaces, tabs
+// and line ends. Unlike bytes.TrimSpace, it leaves white space that JSON
+// does not allow, such as a form feed or a no-break space, so that a record
+// or list with it around is refused, as encoding/json refuses it.
+func trimSpace(b []byte) []byte {
+	return bytes.Trim(b, " \t\n\r")
+}
+
 // jsonName returns the JSON key of a struct field, or "" for a field that
 // JSON leaves out.
 func jsonName(f reflect.StructField) string {
@@ -659,17 +667,17 @@ func within(ps []Problem, prefix string, nested []Problem) []Problem {
 	return ps
 }
 
-// copyRaw returns a copy of b without the space around it; the decoder may
-// reuse b.
+// copyRaw returns a copy of b without the JSON white space around it; the
+// decoder may reuse b.
 func copyRaw(b []byte) json.RawMessage {
-	return append(json.RawMessage(nil), bytes.TrimSpace(b)...)
+	return append(json.RawMessage(nil), trimSpace(b)...)
 }
 
 // decodeList decodes body as a JSON array of records, which Schwab sends for
 // the list endpoints. A record that cannot be read is still in the list,
 // with its problems.
 func decodeList[T any](body []byte) ([]T, error) {
-	b := bytes.TrimSpace(body)
+	b := trimSpace(body)
 	if len(b) == 0 || b[0] != '[' {
 		return nil, fmt.Errorf("the answer is %s, not a list", describeJSON(b))
 	}
@@ -685,7 +693,7 @@ func decodeList[T any](body []byte) ([]T, error) {
 // one object is taken too.
 func decodeOne[T any](body []byte) (T, error) {
 	var one T
-	b := bytes.TrimSpace(body)
+	b := trimSpace(body)
 	switch {
 	case len(b) > 0 && b[0] == '{':
 		err := json.Unmarshal(b, &one)
@@ -698,7 +706,7 @@ func decodeOne[T any](body []byte) (T, error) {
 		if len(elems) != 1 {
 			return one, fmt.Errorf("the answer is a list of %d, where one was expected", len(elems))
 		}
-		if e := bytes.TrimSpace(elems[0]); len(e) == 0 || e[0] != '{' {
+		if e := trimSpace(elems[0]); len(e) == 0 || e[0] != '{' {
 			return one, fmt.Errorf("the answer is a list holding %s, not an object", describeJSON(e))
 		}
 		err := json.Unmarshal(elems[0], &one)

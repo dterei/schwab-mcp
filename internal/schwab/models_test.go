@@ -1144,6 +1144,10 @@ func TestDecodeBodies(t *testing.T) {
 		``:                 "the answer is nothing, not a list",
 		`[{"a":1}`:         "unexpected end of JSON input",
 		`[] []`:            "invalid character '[' after top-level value",
+		// White space that JSON does not allow around a value.
+		"\f[]":       "the answer is something else, not a list",
+		"\u00a0[]\n": "the answer is something else, not a list",
+		"[]\f":       `invalid character '\f' after top-level value`,
 	} {
 		if _, err := decodeList[Transaction]([]byte(body)); err == nil || err.Error() != msg {
 			t.Errorf("decodeList(%q) = %v, want %q", body, err, msg)
@@ -1163,6 +1167,9 @@ func TestDecodeBodies(t *testing.T) {
 		`5`:                  "the answer is a number, not an object",
 		`"a"`:                "the answer is a string, not an object",
 		`{"activityId":1} x`: "invalid character 'x' after top-level value",
+		// White space that JSON does not allow around a value.
+		"\v{}":       "the answer is something else, not an object",
+		"\u3000[{}]": "the answer is something else, not an object",
 	} {
 		if _, err := decodeOne[Transaction]([]byte(body)); err == nil || err.Error() != msg {
 			t.Errorf("decodeOne(%q) = %v, want %q", body, err, msg)
@@ -1306,20 +1313,24 @@ func encodedList(enc []byte, key string) string {
 	return ""
 }
 
+// baseRecords are a record of each of the five types that Schwab's answers
+// hold, without problems, for tests to change.
+var baseRecords = []struct {
+	typ  reflect.Type
+	body string
+}{
+	{reflect.TypeFor[AccountNumber](), `{"accountNumber":"29470135","hashValue":"H"}`},
+	{reflect.TypeFor[Account](), `{"securitiesAccount":` + baseSecuritiesAccount + "}"},
+	{reflect.TypeFor[Position](), basePosition},
+	{reflect.TypeFor[Transaction](), baseTransaction},
+	{reflect.TypeFor[UserPreference](), `{"accounts":[],"streamerInfo":[],"offers":[]}`},
+}
+
 // A problems key from Schwab is a key that no field takes, whatever it holds
 // and in whatever case: it fills no field and gives no problem, on every Go
 // version, and Raw keeps it.
 func TestSchwabsOwnProblemsKey(t *testing.T) {
-	for _, base := range []struct {
-		typ  reflect.Type
-		body string
-	}{
-		{reflect.TypeFor[AccountNumber](), `{"accountNumber":"29470135","hashValue":"H"}`},
-		{reflect.TypeFor[Account](), `{"securitiesAccount":` + baseSecuritiesAccount + "}"},
-		{reflect.TypeFor[Position](), basePosition},
-		{reflect.TypeFor[Transaction](), baseTransaction},
-		{reflect.TypeFor[UserPreference](), `{"accounts":[],"streamerInfo":[],"offers":[]}`},
-	} {
+	for _, base := range baseRecords {
 		want := reflect.New(base.typ).Elem()
 		if err := json.Unmarshal([]byte(base.body), want.Addr().Interface()); err != nil {
 			t.Fatal(err)
@@ -1343,6 +1354,58 @@ func TestSchwabsOwnProblemsKey(t *testing.T) {
 					t.Errorf("%s with %q: %s decoded as %+v, want %+v", base.typ.Name(), key, value, got, want)
 				}
 			}
+		}
+	}
+}
+
+// nonJSONSpace is white space that JSON does not allow around a value: a
+// vertical tab, a form feed, and Unicode's next line, no-break, line
+// separator and ideographic spaces, all of which bytes.TrimSpace trims.
+var nonJSONSpace = []string{"\v", "\f", "\u0085", "\u00a0", "\u2028", "\u3000"}
+
+// Only JSON's white space, spaces, tabs and line ends, may be around a
+// record, and Raw leaves it out. Other white space makes the bytes no JSON,
+// as encoding/json has it, so a record given them directly has a problem:
+// before the record, it is not an object; after it, the JSON could not be
+// read. An instrument, which a record holds, is null only with JSON's white
+// space around.
+func TestOnlyJSONWhiteSpaceAround(t *testing.T) {
+	for _, base := range baseRecords {
+		decode := func(b string) (rec reflect.Value, raw string) {
+			v := reflect.New(base.typ)
+			if err := v.Interface().(json.Unmarshaler).UnmarshalJSON([]byte(b)); err != nil {
+				t.Fatalf("%s from %q: %v", base.typ.Name(), b, err)
+			}
+			return v.Elem(), string(v.Elem().FieldByName("Raw").Bytes())
+		}
+		for _, space := range []string{" ", "\t", "\r\n", " \t\r\n"} {
+			if rec, raw := decode(space + base.body + space); len(problemsField(rec)) > 0 || raw != base.body {
+				t.Errorf("%s in %q: problems %q, Raw %q; want none, and the record alone", base.typ.Name(), space, problemsField(rec), raw)
+			}
+		}
+		for _, space := range nonJSONSpace {
+			want := []string{"Schwab sent something else where an object was expected"}
+			if rec, raw := decode(space + base.body); !slices.Equal(problemStrings(problemsField(rec)), want) || raw != space+base.body {
+				t.Errorf("%s after %q: problems %q, Raw %q; want %q, and the bytes sent", base.typ.Name(), space, problemsField(rec), raw, want)
+			}
+			rec, raw := decode(base.body + space)
+			if ps := problemsField(rec); len(ps) != 1 || ps[0].Path != "" || !strings.HasPrefix(ps[0].What, "the JSON could not be read: ") || raw != base.body+space {
+				t.Errorf("%s before %q: problems %q, Raw %q; want that the JSON could not be read, and the bytes sent", base.typ.Name(), space, ps, raw)
+			}
+		}
+	}
+
+	for _, b := range []string{"null", " null", "\tnull\r\n"} {
+		var in Instrument
+		if err := in.UnmarshalJSON([]byte(b)); err != nil || !reflect.DeepEqual(in, Instrument{}) {
+			t.Errorf("an instrument from %q: %+v, %v; want the zero instrument", b, in, err)
+		}
+	}
+	for _, space := range nonJSONSpace {
+		var in Instrument
+		want := []string{"Schwab sent something else where an object was expected"}
+		if err := in.UnmarshalJSON([]byte(space + "null")); err != nil || !slices.Equal(problemStrings(in.problems), want) {
+			t.Errorf("an instrument from %q: problems %q, %v; want %q", space+"null", in.problems, err, want)
 		}
 	}
 }

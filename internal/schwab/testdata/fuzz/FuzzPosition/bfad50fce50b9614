@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("\v{\"instrument\":{\"assetType\":\"EQUITY\",\"symbol\":\"X\"},\"longQuantity\":1,\"shortQuantity\":0,\"settledLongQuantity\":1,\"settledShortQuantity\":0,\"averagePrice\":5,\"marketValue\":5,\"maintenanceRequirement\":0,\"currentDayProfitLoss\":0,\"currentDayProfitLossPercentage\":0,\"currentDayCost\":0}")

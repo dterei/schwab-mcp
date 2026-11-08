@@ -21,7 +21,8 @@ import (
 //     returns nil and gives a problem. Only this one is checked on invalid
 //     JSON, where a problem can hold encoding/json's text by design.
 //  2. Valid JSON never fails json.Unmarshal.
-//  3. Raw is the bytes, without the space around them, and a direct
+//  3. Raw is the bytes, without the white space around them, which JSON
+//     allows to be only spaces, tabs and line ends, and a direct
 //     UnmarshalJSON call, which gets the space too, gives the same record.
 //  4. Two decodes are the same, which checks the walk's cache.
 //  5. No record has a problem twice, and every problem's path is one of the
@@ -55,6 +56,10 @@ func fuzzRecord[T any, PT interface {
 	})
 }
 
+// jsonSpace is the white space that JSON allows around a value. Other white
+// space, which bytes.TrimSpace would trim too, makes the bytes invalid JSON.
+const jsonSpace = " \t\n\r"
+
 // everyRecordSeeds are seeds of every record target: invalid JSON, for
 // property 1 and for decode's fallback, "the JSON could not be read", which
 // nothing else reaches; and JSON that is not an object.
@@ -85,8 +90,8 @@ func checkRecord[T any, PT interface {
 	if err := json.Unmarshal(b, PT(&rec)); err != nil {
 		t.Fatalf("json.Unmarshal(%q) failed: %v", b, err)
 	}
-	if raw := v.FieldByName("Raw").Bytes(); !bytes.Equal(raw, bytes.TrimSpace(b)) {
-		t.Fatalf("Raw is %q, want %q", raw, bytes.TrimSpace(b))
+	if raw, want := v.FieldByName("Raw").Bytes(), bytes.Trim(b, jsonSpace); !bytes.Equal(raw, want) {
+		t.Fatalf("Raw is %q, want %q", raw, want)
 	}
 	var direct T
 	if err := PT(&direct).UnmarshalJSON(b); err != nil || !reflect.DeepEqual(direct, rec) {
@@ -682,7 +687,7 @@ func FuzzDecodeList(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, body []byte) {
 		list, err := decodeList[Transaction](body)
-		trimmed := bytes.TrimSpace(body)
+		trimmed := bytes.Trim(body, jsonSpace)
 		switch {
 		case len(trimmed) == 0 || trimmed[0] != '[':
 			if err == nil || list != nil || !strings.HasSuffix(err.Error(), ", not a list") {
@@ -705,7 +710,7 @@ func FuzzDecodeList(f *testing.F) {
 			t.Fatalf("decodeList(%q) gave %d records for %d elements", body, len(list), len(elems))
 		}
 		for i, e := range elems {
-			if !bytes.Equal(list[i].Raw, bytes.TrimSpace(e)) {
+			if !bytes.Equal(list[i].Raw, bytes.Trim(e, jsonSpace)) {
 				t.Fatalf("record %d of %q: Raw %q, want %q", i, body, list[i].Raw, e)
 			}
 			var alone Transaction

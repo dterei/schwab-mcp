@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("\v{\"securitiesAccount\":{\"type\":\"MARGIN\",\"accountNumber\":\"61803398\",\"roundTrips\":0,\"isDayTrader\":false,\"isClosingOnlyRestricted\":false,\"pfcbFlag\":false,\"initialBalances\":{\"liquidationValue\":5},\"currentBalances\":{\"liquidationValue\":5},\"projectedBalances\":{\"buyingPower\":5}}}")
