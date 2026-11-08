@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -963,4 +965,137 @@ func FuzzRepeatedKeys(f *testing.F) {
 			t.Errorf("repeats in %s:\n got %+v\nwant %+v", s, got, want)
 		}
 	})
+}
+
+// assetTypeSentTwice is what checkAnswer reports of transaction.json, which
+// sends an instrument's assetType twice, the same each time, as a capture of
+// 2024 does.
+const assetTypeSentTwice = "repeated key, reported only: transferItems.instrument.assetType: sent 2 times, the same each time"
+
+// Every fixture that answers an account route with 200 passes checkAnswer
+// as its route's kind, a recording as well as the hand-made ones, and what
+// is reported of a recording is logged. Of the hand-made, only
+// transaction.json is reported.
+func TestCheckFixtures(t *testing.T) {
+	want := map[string][]string{
+		"account_numbers.json": nil,
+		"accounts.json":        nil,
+		"transactions.json":    nil,
+		"transaction.json":     {assetTypeSentTwice},
+		"user_preference.json": nil,
+	}
+	checked := map[string]bool{}
+	for _, e := range schwabtest.Index() {
+		route, ok := e.Route()
+		if !ok || e.Response.Status != http.StatusOK {
+			continue
+		}
+		kind, ok := kindOfRoute(route)
+		if !ok {
+			continue
+		}
+		var reported []string
+		for _, f := range checkAnswer(kind.name, readTestdata(t, e.File)) {
+			if f.fails {
+				t.Errorf("%s, an answer of %s: %s", e.File, kind.name, f)
+			} else {
+				reported = append(reported, f.String())
+			}
+		}
+		if e.Source == "recorded" {
+			for _, r := range reported {
+				t.Logf("%s, an answer of %s: %s", e.File, kind.name, r)
+			}
+			continue
+		}
+		checked[e.File] = true
+		if !slices.Equal(reported, want[e.File]) {
+			t.Errorf("%s: reported %q, want %q", e.File, reported, want[e.File])
+		}
+	}
+	for _, file := range slices.Sorted(maps.Keys(want)) {
+		if !checked[file] {
+			t.Errorf("%s was not checked", file)
+		}
+	}
+}
+
+// Every answer of the fake's world, as LoadFixtures fills it, passes
+// checkAnswer: the account numbers, the accounts with their positions and
+// without, each account alone, each account's transactions over windows
+// back past its oldest, each transaction by its id, and the user's
+// preferences, the fixture's and those the fake builds. Only the
+// transaction that transaction.json answers by id is reported.
+func TestCheckTheFakesAnswers(t *testing.T) {
+	cl, f := fixturesClient(t)
+	rows, err := decodeList[Transaction](readTestdata(t, "transactions.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID, err := decodeOne[Transaction](readTestdata(t, "transaction.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]int{}
+	check := func(kind, path string, query url.Values, want ...string) []byte {
+		t.Helper()
+		body, err := cl.Get(t.Context(), path, query)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		kinds[kind]++
+		if got := checked(kind, string(body)); !slices.Equal(got, want) {
+			t.Errorf("%s?%s, an answer of %s: found %q, want %q", path, query.Encode(), kind, got, want)
+		}
+		return body
+	}
+	positions := url.Values{"fields": {"positions"}}
+	check("accountNumbers", "/trader/v1/accounts/accountNumbers", nil)
+	check("accounts", "/trader/v1/accounts", nil)
+	check("accounts", "/trader/v1/accounts", positions)
+	oldest := testNow
+	for _, row := range rows {
+		if row.Time.Before(oldest) {
+			oldest = row.Time
+		}
+	}
+	const window = MaxTransactionWindow - time.Millisecond
+	listed := 0
+	for _, fa := range schwabtest.FixtureAccounts {
+		path := "/trader/v1/accounts/" + fa.Hash
+		check("account", path, nil)
+		check("account", path, positions)
+		for end := testNow; ; {
+			start := end.Add(-window)
+			q, err := TransactionQuery{Start: start, End: end}.values()
+			if err != nil {
+				t.Fatal(err)
+			}
+			listed += len(elements(t, check("transactions", path+"/transactions", q)))
+			if start.Before(oldest) {
+				break
+			}
+			end = start.Add(-time.Millisecond)
+		}
+	}
+	if listed != len(rows) {
+		t.Errorf("the windows listed %d transactions, want the fixture's %d", listed, len(rows))
+	}
+	hashes := fixtureHashes()
+	for _, row := range rows {
+		var want []string
+		if row.ActivityID == byID.ActivityID {
+			want = []string{assetTypeSentTwice}
+		}
+		path := "/trader/v1/accounts/" + string(hashes[row.AccountNumber]) + "/transactions/" + strconv.FormatInt(row.ActivityID, 10)
+		check("transaction", path, nil, want...)
+	}
+	check("userPreference", "/trader/v1/userPreference", nil)
+	f.SetUserPreference("")
+	check("userPreference", "/trader/v1/userPreference", nil)
+	for _, k := range answerKinds {
+		if kinds[k.name] == 0 {
+			t.Errorf("no answer of %s was checked", k.name)
+		}
+	}
 }
