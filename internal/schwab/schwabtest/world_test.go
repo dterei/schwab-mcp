@@ -372,7 +372,8 @@ func TestLoadFixtures(t *testing.T) {
 
 // A recording answers the requests it recorded, method, path and query
 // exactly, with only its recorded headers, ahead of the world and after
-// the handlers, each request's answers in turn and the last again.
+// the handlers, each request's answers in turn and the last again, and a
+// later day's after an earlier day's.
 func TestLoadRecording(t *testing.T) {
 	r := &recorder{TB: t}
 	s, get := loggedIn(t, r)
@@ -381,6 +382,7 @@ func TestLoadRecording(t *testing.T) {
 		"recorded/2026-11-08/002.json": {Data: []byte(`{"ok":"recorded"}`)},
 		"recorded/2026-11-08/003.json": {Data: []byte(`{"quotes":{}}`)},
 		"recorded/2026-11-09/001.json": {Data: []byte(`[]`)},
+		"recorded/2026-11-09/002.json": {Data: []byte(`{"day":2}`)},
 	}
 	entry := func(file, path, query string, status int, headers map[string][]string, date string) Entry {
 		var e Entry
@@ -396,6 +398,7 @@ func TestLoadRecording(t *testing.T) {
 			map[string][]string{"Content-Type": {"application/json;charset=UTF-8"}}, "2026-11-08"),
 		entry("recorded/2026-11-08/003.json", "/marketdata/v1/quotes", "symbols=X", 200, nil, "2026-11-08"),
 		entry("recorded/2026-11-09/001.json", "/trader/v1/test", "a=1", 200, nil, "2026-11-09"),
+		entry("recorded/2026-11-09/002.json", "/trader/v1/test", "a=1", 200, nil, "2026-11-09"),
 	}
 	if err := s.loadRecording(fsys, index, "2026-11-08"); err != nil {
 		t.Fatal(err)
@@ -420,11 +423,29 @@ func TestLoadRecording(t *testing.T) {
 	if rec := get("/trader/v1/test?a=1"); rec.Code != http.StatusTeapot {
 		t.Errorf("the script came after the recording: %d", rec.Code)
 	}
+	// A second day's answers to the same request follow the first day's,
+	// whether those ran out before it was loaded or not.
+	answers := func(from func(string) *httptest.ResponseRecorder, n int) []string {
+		var bodies []string
+		for range n {
+			bodies = append(bodies, from("/trader/v1/test?a=1").Body.String())
+		}
+		return bodies
+	}
 	if err := s.loadRecording(fsys, index, "2026-11-09"); err != nil {
 		t.Fatal(err)
 	}
-	if rec := get("/trader/v1/test?a=1"); rec.Body.String() != `[]` {
-		t.Errorf("a second day's answer to the same request does not follow the first's: %s", rec.Body)
+	if got, want := answers(get, 3), []string{`[]`, `{"day":2}`, `{"day":2}`}; !slices.Equal(got, want) {
+		t.Errorf("a second day loaded after the first day's answers ran out: %q, want %q", got, want)
+	}
+	both, getBoth := loggedIn(t, r)
+	for _, date := range []string{"2026-11-08", "2026-11-09"} {
+		if err := both.loadRecording(fsys, index, date); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := answers(getBoth, 5), []string{" \n", `{"ok":"recorded"}`, `[]`, `{"day":2}`, `{"day":2}`}; !slices.Equal(got, want) {
+		t.Errorf("two days loaded before a request: %q, want %q", got, want)
 	}
 
 	for _, tc := range []struct {

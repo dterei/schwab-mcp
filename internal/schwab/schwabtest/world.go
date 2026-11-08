@@ -559,7 +559,10 @@ func (s *Server) loadFixtures() error {
 // again and again.
 type replayed struct {
 	answers []http.HandlerFunc
-	next    int
+	// next is the index of the answer to send next. Once the last has
+	// been sent, it stays at len(answers) and the last is sent again, so
+	// that the answers a later day's recording adds come next.
+	next int
 }
 
 // replayKey is what a recorded answer is found by: the method, the
@@ -574,7 +577,9 @@ func (s *Server) replayFor(r *http.Request) http.HandlerFunc {
 		return nil
 	}
 	h := rp.answers[min(rp.next, len(rp.answers)-1)]
-	rp.next++
+	if rp.next < len(rp.answers) {
+		rp.next++
+	}
 	return h
 }
 
@@ -583,8 +588,9 @@ func (s *Server) replayFor(r *http.Request) http.HandlerFunc {
 // method, the path and the query exactly, with the recorded status and the
 // headers its entry keeps, ahead of the world. A request recorded more
 // than once gets its answers in the index's order, and the last after
-// that. Other requests go to the world as usual, which LoadFixtures may
-// fill, or not.
+// that. Several days can be loaded: a later day's answers to a request
+// follow an earlier day's. Other requests go to the world as usual, which
+// LoadFixtures may fill, or not.
 func (s *Server) LoadRecording(date string) {
 	s.t.Helper()
 	sub, err := fs.Sub(files, "testdata")
