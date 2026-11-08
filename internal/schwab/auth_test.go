@@ -539,26 +539,48 @@ func TestEarlierTokenFile(t *testing.T) {
 }
 
 func TestCodeFromRedirect(t *testing.T) {
+	const (
+		otherLogin   = "that address is from a different login attempt; start the login over"
+		notAnAddress = "that doesn't look like a web address; paste the whole address from the browser's address bar"
+	)
+	// Schwab's own error text is cut at 200 bytes, here in the middle of
+	// the é that follows 199 x's, so before it.
+	x199, x200 := strings.Repeat("x", 199), strings.Repeat("x", 200)
 	cases := []struct {
 		name, in, state, want string
-		wantErr               bool
+		wantErr               string // the error's text, or "" for none
 	}{
-		{"full address", "https://127.0.0.1/?code=C0.abc%40&session=x&state=s1\n", "s1", "C0.abc@", false},
-		{"no state echoed", "https://127.0.0.1/?code=C0.abc%40", "s1", "C0.abc@", false},
-		{"wrong state", "https://127.0.0.1/?code=C0.abc%40&state=other", "s1", "", true},
-		{"bare encoded code", "C0.abc%40", "s1", "C0.abc@", false},
-		{"bare code", "  C0.abc@  ", "s1", "C0.abc@", false},
-		{"address without scheme", "127.0.0.1/?code=C0.abc%40&session=x&state=s1", "s1", "C0.abc@", false},
-		{"query string only", "code=C0.abc%40&state=s1", "s1", "C0.abc@", false},
-		{"query string, wrong state", "code=C0.abc%40&state=other", "s1", "", true},
-		{"denied", "https://127.0.0.1/?error=access_denied&error_description=nope", "s1", "", true},
-		{"no code", "https://127.0.0.1/", "s1", "", true},
-		{"empty", "\n", "s1", "", true},
+		{"full address", "https://127.0.0.1/?code=C0.abc%40&session=x&state=s1\n", "s1", "C0.abc@", ""},
+		{"no state echoed", "https://127.0.0.1/?code=C0.abc%40", "s1", "C0.abc@", ""},
+		{"wrong state", "https://127.0.0.1/?code=C0.abc%40&state=other", "s1", "", otherLogin},
+		{"bare encoded code", "C0.abc%40", "s1", "C0.abc@", ""},
+		{"bare code", "  C0.abc@  ", "s1", "C0.abc@", ""},
+		{"bare code with a broken escape", "C0.abc%4", "s1", "C0.abc%4", ""},
+		{"address without scheme", "127.0.0.1/?code=C0.abc%40&session=x&state=s1", "s1", "C0.abc@", ""},
+		{"query string only", "code=C0.abc%40&state=s1", "s1", "C0.abc@", ""},
+		{"query string, wrong state", "code=C0.abc%40&state=other", "s1", "", otherLogin},
+		{"denied", "https://127.0.0.1/?error=access_denied&error_description=nope", "s1", "", `Schwab reported "access_denied": nope`},
+		{"no code", "https://127.0.0.1/", "s1", "", "no code= in that address; paste the address the browser ended up on after you approved"},
+		{"empty", "\n", "s1", "", "nothing was pasted"},
+		// url.Parse's errors quote the address, code and all.
+		{"a space in the host", "https://127.0.0.1 /?code=C0.SECRETCODE%40", "s1", "", notAnAddress},
+		{"a control character in the host", "https://127.0.0.1\x7f/?code=C0.SECRETCODE%40", "s1", "", notAnAddress},
+		{"an unclosed bracket in the host", "https://[::1/?code=C0.SECRETCODE%40", "s1", "", notAnAddress},
+		{"a bad port", "A://:code=00000000", "s1", "", notAnAddress},
+		{
+			"Schwab's long error", "https://127.0.0.1/?error=" + x199 + "%C3%A9&error_description=" + x200 + "y&code=C0.abc%40", "s1", "",
+			`Schwab reported "` + x199 + `...": ` + x200 + "...",
+		},
+		{"Schwab's error of 200 bytes", "https://127.0.0.1/?error=" + x200, "s1", "", `Schwab reported "` + x200 + `": `},
 	}
 	for _, tc := range cases {
 		got, err := CodeFromRedirect(tc.in, tc.state)
-		if (err != nil) != tc.wantErr || got != tc.want {
-			t.Errorf("%s: got %q, %v; want %q, err=%v", tc.name, got, err, tc.want, tc.wantErr)
+		msg := ""
+		if err != nil {
+			msg = err.Error()
+		}
+		if got != tc.want || msg != tc.wantErr {
+			t.Errorf("%s: got %q, %q; want %q, %q", tc.name, got, msg, tc.want, tc.wantErr)
 		}
 	}
 }
