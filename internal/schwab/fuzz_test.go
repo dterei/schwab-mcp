@@ -138,8 +138,8 @@ func checkRecord[T any, PT interface {
 	if bps := gatheredProblems(bv); len(bps) > 0 {
 		t.Fatalf("%q encodes as %s, which decodes with problems %q", b, enc, bps)
 	}
-	clearRaws(v)
-	clearRaws(bv)
+	clearFields(v, "Raw")
+	clearFields(bv, "Raw")
 	if !reflect.DeepEqual(back, rec) {
 		t.Fatalf("%q changed on the way through its encoding, %s:\n got %+v\nwant %+v", b, enc, back, rec)
 	}
@@ -217,17 +217,18 @@ func gatheredProblems(v reflect.Value) []Problem {
 	return all
 }
 
-// clearRaws sets every Raw in v, a record, at any depth, to nil.
-func clearRaws(v reflect.Value) {
+// clearFields sets every field of v, a record, with one of the names given,
+// such as Raw, to its zero value, at any depth.
+func clearFields(v reflect.Value, names ...string) {
 	switch v.Kind() {
 	case reflect.Pointer:
 		if !v.IsNil() {
-			clearRaws(v.Elem())
+			clearFields(v.Elem(), names...)
 		}
 	case reflect.Slice:
 		if v.Type() != rawType {
 			for i := range v.Len() {
-				clearRaws(v.Index(i))
+				clearFields(v.Index(i), names...)
 			}
 		}
 	case reflect.Struct:
@@ -237,10 +238,10 @@ func clearRaws(v reflect.Value) {
 		for f := range v.Type().Fields() {
 			switch {
 			case !f.IsExported():
-			case f.Name == "Raw" && f.Type == rawType:
+			case slices.Contains(names, f.Name):
 				v.FieldByIndex(f.Index).SetZero()
 			default:
-				clearRaws(v.FieldByIndex(f.Index))
+				clearFields(v.FieldByIndex(f.Index), names...)
 			}
 		}
 	}
