@@ -401,14 +401,16 @@ func (s *Server) AllowRefresh(tokens ...string) {
 	s.addSecrets(tokens...)
 }
 
-// EndLogin ends every refresh token, as when a login's 7 days are up.
+// EndLogin ends every refresh token, as when a login's 7 days are up. The
+// access tokens work on until they lapse, unless RevokeAccess ends them.
 func (s *Server) EndLogin() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	clear(s.refresh)
 }
 
-// RevokeAccess ends every access token issued so far.
+// RevokeAccess ends every access token issued so far, and leaves the
+// refresh tokens working.
 func (s *Server) RevokeAccess() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

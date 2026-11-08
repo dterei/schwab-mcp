@@ -284,6 +284,40 @@ func TestTransactionsCap(t *testing.T) {
 	}
 }
 
+// Without a Cap, an answer holds MaxTransactions rows: the newest, as
+// Schwab's do, or the oldest with KeepOldest.
+func TestTransactionsDefaultCap(t *testing.T) {
+	s := New(t)
+	auth := "Bearer " + login(t, s)
+	s.AddAccount(Account{Number: "11111111", Details: `{}`})
+	hash := HashFor("11111111")
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	rows := make([]string, MaxTransactions+1)
+	for i := range rows {
+		rows[i] = rowJSON(strconv.Itoa(i+1), start.Add(time.Duration(i)*time.Minute).Format(time.RFC3339), "TRADE")
+	}
+	s.AddRows(hash, rows...)
+	newestFirst := func(rs []string) string {
+		rs = slices.Clone(rs)
+		slices.Reverse(rs)
+		return "[" + strings.Join(rs, ",") + "]"
+	}
+	for _, tc := range []struct {
+		rules TransactionRules
+		want  string
+	}{
+		{TransactionRules{}, newestFirst(rows[1:])},
+		{TransactionRules{KeepOldest: true}, newestFirst(rows[:MaxTransactions])},
+	} {
+		s.SetTransactionRules(tc.rules)
+		rec := serve(t, s, "/trader/v1/accounts/"+hash+"/transactions?"+window(january, month), auth)
+		if got := rec.Body.String(); got != tc.want {
+			es, _ := elements(rec.Body.Bytes())
+			t.Errorf("%+v: %d, %d rows, %.60s..., want %d of the %d, %.60s...", tc.rules, rec.Code, len(es), got, MaxTransactions, len(rows), tc.want)
+		}
+	}
+}
+
 // The query is checked as the package doc says, each refusal but the bare
 // date's labeled as the fake's guess.
 func TestTransactionsQuery(t *testing.T) {
@@ -326,6 +360,14 @@ func TestTransactionsQuery(t *testing.T) {
 	s.SetTransactionRules(TransactionRules{RefuseBefore: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)})
 	refused(window("2025-12-31T23:59:59.999Z", month), `{"message":"a guess: never seen: Schwab answers [] for a window before an account's history"}`)
 	ok(window(january, month))
+
+	// A query with several faults gets the refusal of the first check:
+	// startDate, then endDate, the window, types, and RefuseBefore last.
+	refused("startDate=x&endDate=y", `{"message":"a guess: Schwab's answer to this startDate is not recorded"}`)
+	s.SetTransactionRules(TransactionRules{RequireTypes: true, RefuseBefore: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)})
+	refused(window(month, january), `{"message":"a guess: Schwab's answer to a window that ends before it starts is not recorded"}`)
+	refused(window(january, "2027-06-01T00:00:00Z"), `{"message":"a guess: Schwab's answer to a window longer than it serves is not recorded"}`)
+	refused(window(january, month), `{"message":"a guess: a request without types was reported refused once, in 2025-12"}`)
 }
 
 // An account without history answers [] for every window, once its query

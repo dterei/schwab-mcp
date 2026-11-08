@@ -275,7 +275,8 @@ func TestExpiresInAndScope(t *testing.T) {
 	}
 }
 
-// EndLogin ends every refresh token, RevokeAccess every access token, and
+// RevokeAccess ends every access token and no refresh token, and EndLogin
+// every refresh token and no access token, which works on until it lapses.
 // AllowRefresh makes a refresh token work.
 func TestEndLoginAndRevokeAccess(t *testing.T) {
 	r := &recorder{TB: t}
@@ -287,7 +288,11 @@ func TestEndLoginAndRevokeAccess(t *testing.T) {
 	if works(t, s, g.AccessToken) || works(t, s, AccessToken(2)) {
 		t.Error("an access token works after RevokeAccess")
 	}
+	later := granted(t, s, refreshForm("one"))
 	s.EndLogin()
+	if !works(t, s, later.AccessToken) {
+		t.Error("an access token stopped working at EndLogin")
+	}
 	for _, tok := range []string{g.RefreshToken, "one", "two"} {
 		refused(t, s, refreshForm(tok), Refusal2026)
 	}

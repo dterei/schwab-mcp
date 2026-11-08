@@ -220,6 +220,10 @@ func TestTestdataHygieneCatches(t *testing.T) {
 			disk["c.json"] = &fstest.MapFile{Data: []byte("{}")}
 			return index
 		}, "c.json is on disk but not embedded"},
+		{"a file embedded but not on disk", func(_, embedded fstest.MapFS, index []Entry) []Entry {
+			embedded["c.json"] = &fstest.MapFile{Data: []byte("{}")}
+			return index
+		}, "c.json is embedded but not on disk"},
 		{"a file whose bytes differ", func(_, embedded fstest.MapFS, index []Entry) []Entry {
 			embedded["a.json"] = &fstest.MapFile{Data: []byte(`{"a":2}`)}
 			return index
@@ -419,6 +423,23 @@ func TestHandMadeText(t *testing.T) {
 	}
 	if _, err := handMadeText(fstest.MapFS{"README.md": fsys["README.md"]}, []Entry{a}); err == nil {
 		t.Error("a hand-made file that is not there was not reported")
+	}
+}
+
+// Fixtures names every file under testdata, in lexical order, as Fixture
+// takes it: README.md, index.json and each file that Index names.
+func TestFixtures(t *testing.T) {
+	want := []string{"README.md", "index.json"}
+	for _, e := range Index() {
+		want = append(want, e.File)
+	}
+	slices.Sort(want)
+	got := Fixtures()
+	if !slices.Equal(got, want) {
+		t.Errorf("Fixtures() = %q, want %q", got, want)
+	}
+	for _, name := range got {
+		Fixture(t, name)
 	}
 }
 

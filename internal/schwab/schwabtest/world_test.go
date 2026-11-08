@@ -165,8 +165,8 @@ func TestRehash(t *testing.T) {
 }
 
 // Rows are added, replaced and removed through their handles, or by id,
-// each keeping its place, and every bad call is refused with nothing
-// changed.
+// each keeping its place, a replaced row taking the time and type of its
+// new bytes, and every bad call is refused with nothing changed.
 func TestRows(t *testing.T) {
 	r := &recorder{TB: t}
 	s, get := loggedIn(t, r)
@@ -214,6 +214,13 @@ func TestRows(t *testing.T) {
 	}
 	if rec := get("/trader/v1/accounts/" + hash + "/transactions/2"); rec.Code != http.StatusNotFound {
 		t.Errorf("the replaced row is found by the id its bytes hold: %d", rec.Code)
+	}
+	moved := `{"activityId":1,"time":"2026-02-10T10:00:00Z","type":"JOURNAL"}`
+	s.ReplaceRow(hash, 1, moved)
+	february := get("/trader/v1/accounts/" + hash + "/transactions?" +
+		window("2026-02-01T00:00:00Z", "2026-02-28T00:00:00Z", "types", "JOURNAL")).Body.String()
+	if got := list(); got != "["+a2+"]" || february != "["+moved+"]" {
+		t.Errorf("ReplaceRow did not take the new time and type: January %s, February's journals %s", got, february)
 	}
 
 	wantReported(t, r, "already has a row with the id 1", func() { s.AddRow(hash, Row{JSON: testRows["r1"]}) })
@@ -372,9 +379,10 @@ func TestLoadFixtures(t *testing.T) {
 }
 
 // A recording answers the requests it recorded, method, path and query
-// exactly, with only its recorded headers, ahead of the world and after
-// the handlers, each request's answers in turn and the last again, and a
-// later day's after an earlier day's.
+// exactly as they were sent, escapes and all, with only its recorded
+// headers, ahead of the world and after the handlers, each request's
+// answers in turn and the last again, and a later day's after an earlier
+// day's.
 func TestLoadRecording(t *testing.T) {
 	r := &recorder{TB: t}
 	s, get := loggedIn(t, r)
@@ -397,7 +405,7 @@ func TestLoadRecording(t *testing.T) {
 			map[string][]string{"Schwab-Client-Correlid": {"00000000-0000-4000-8000-000000000042"}}, "2026-11-08"),
 		entry("recorded/2026-11-08/002.json", "/trader/v1/test", "a=1", 200,
 			map[string][]string{"Content-Type": {"application/json;charset=UTF-8"}}, "2026-11-08"),
-		entry("recorded/2026-11-08/003.json", "/marketdata/v1/quotes", "symbols=X", 200, nil, "2026-11-08"),
+		entry("recorded/2026-11-08/003.json", "/marketdata/v1/%24SPX/quotes", "fields=quote%2Creference", 200, nil, "2026-11-08"),
 		entry("recorded/2026-11-09/001.json", "/trader/v1/test", "a=1", 200, nil, "2026-11-09"),
 		entry("recorded/2026-11-09/002.json", "/trader/v1/test", "a=1", 200, nil, "2026-11-09"),
 	}
@@ -415,8 +423,13 @@ func TestLoadRecording(t *testing.T) {
 			t.Errorf("the second answer, and after it: %d %v %s", rec.Code, rec.Header(), rec.Body)
 		}
 	}
-	if rec := get("/marketdata/v1/quotes?symbols=X"); rec.Code != http.StatusOK || rec.Body.String() != `{"quotes":{}}` {
+	if rec := get("/marketdata/v1/%24SPX/quotes?fields=quote%2Creference"); rec.Code != http.StatusOK || rec.Body.String() != `{"quotes":{}}` {
 		t.Errorf("a path without a Route: %d %s", rec.Code, rec.Body)
+	}
+	for _, path := range []string{"/marketdata/v1/$SPX/quotes?fields=quote%2Creference", "/marketdata/v1/%24SPX/quotes?fields=quote,reference"} {
+		if rec := get(path); rec.Code != http.StatusNotFound {
+			t.Errorf("%s, escaped otherwise than the recorded request: %d %s", path, rec.Code, rec.Body)
+		}
 	}
 	wantAnswer(t, get("/trader/v1/test?a=2"), `{"ok":true}`)
 	wantAnswer(t, get("/trader/v1/test?a=1&b=2"), `{"ok":true}`)
