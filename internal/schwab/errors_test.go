@@ -8,28 +8,18 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
 
-// akamaiPage is the page Schwab's edge network, Akamai, sends when it
-// refuses a request, as community clients have logged it: its text is
-// written with character references.
-const akamaiPage = `<HTML><HEAD>
-<TITLE>Access Denied</TITLE>
-</HEAD><BODY>
-<H1>Access Denied</H1>
-
-You don't have permission to access "http&#58;&#47;&#47;api&#46;schwabapi&#46;com&#47;v1&#47;oauth&#47;token" on this server.<P>
-Reference&#32;&#35;18&#46;9efa3f17&#46;1792539138&#46;32dec4a
-<P>https&#58;&#47;&#47;errors&#46;edgesuite&#46;net&#47;18&#46;9efa3f17&#46;1792539138&#46;32dec4a</P>
-</BODY>
-</HTML>
-`
-
-// whitelabelPage is Spring's page for an error without a page of its own,
-// which Schwab sends for an app that is not yet Ready For Use.
-const whitelabelPage = `<html><body><h1>Whitelabel Error Page</h1><p>This application has no configured error view, so you are seeing this as a fallback.</p><div id='created'>Mon Nov 02 10:01:02 EST 2026</div><div>There was an unexpected error (type=Internal Server Error, status=500).</div></body></html>`
-
 func TestErrorFormats(t *testing.T) {
+	// The page Schwab's edge network, Akamai, sends when it refuses a
+	// request, as community clients have logged it: its text is written
+	// with character references.
+	akamaiPage := string(schwabtest.Fixture(t, "errors/akamai_403.html"))
+	// Spring's page for an error without a page of its own, which Schwab
+	// sends for an app that is not yet Ready For Use.
+	whitelabelPage := string(schwabtest.Fixture(t, "errors/whitelabel_500.html"))
 	for _, tc := range []struct {
 		name    string
 		status  int

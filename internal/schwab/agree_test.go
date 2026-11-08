@@ -51,10 +51,6 @@ func TestFakeAgreesWithTheClient(t *testing.T) {
 	if !slices.Equal(schwabtest.TransactionTypes(), types) {
 		t.Errorf("the fake's transaction types %v, the client's %v", schwabtest.TransactionTypes(), types)
 	}
-	if string(schwabtest.Fixture(t, "errors/akamai_403.html")) != akamaiPage ||
-		string(schwabtest.Fixture(t, "errors/whitelabel_500.html")) != whitelabelPage {
-		t.Error("the fake's pages are not the ones the error tests read")
-	}
 }
 
 // The fake's refusals of a refresh token read as the client reads
