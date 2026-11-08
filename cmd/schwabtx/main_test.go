@@ -350,9 +350,11 @@ func setup(t *testing.T) (*fakeSchwab, string) {
 	return f, tokenFile
 }
 
-// doLogin runs `schwabtx login`, pasting back a redirect address the way a
-// browser would show it.
-func doLogin(t *testing.T) {
+// doLogin runs `schwabtx login` as a browser would have it: it opens the
+// printed link at the fake's authorize page, which signs in and approves at
+// once, and pastes back the address the page sends the browser on to. It
+// returns what login printed.
+func doLogin(t *testing.T) string {
 	t.Helper()
 	var out bytes.Buffer
 	pr, pw, err := os.Pipe()
@@ -380,12 +382,36 @@ func doLogin(t *testing.T) {
 	if u.Path != "/v1/oauth/authorize" || q.Get("client_id") != testKey || q.Get("redirect_uri") != testCallback || q.Get("state") == "" {
 		t.Fatalf("bad authorize link: %s", link)
 	}
-	redirect := testCallback + "/?code=" + url.QueryEscape(schwabtest.Code) + "&session=abc&state=" + q.Get("state")
-	fmt.Fprintln(pw, redirect)
+	fmt.Fprintln(pw, authorize(t, link))
 	pw.Close()
 	if err := <-done; err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
+	outMu.Lock()
+	defer outMu.Unlock()
+	return out.String()
+}
+
+// authorize opens link, where a login starts, and returns the address that
+// the fake's authorize page sends the browser on to: the callback, with the
+// code and the state. The browser stops there, since nothing answers at the
+// callback.
+func authorize(t *testing.T, link string) string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, link, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := browser.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("the authorize page answered %s, not a redirect", resp.Status)
+	}
+	return resp.Header.Get("Location")
 }
 
 // waitForPrompt returns login's output once it is waiting for the pasted
@@ -462,7 +488,7 @@ func TestLoginThenMostRecent100AcrossAccounts(t *testing.T) {
 		t.Fatalf("expected a not-logged-in error, got %v", err)
 	}
 
-	doLogin(t)
+	login := doLogin(t)
 	if code, _ := f.Grants(); code != 1 {
 		t.Fatalf("code grants = %d, want 1", code)
 	}
@@ -508,9 +534,10 @@ func TestLoginThenMostRecent100AcrossAccounts(t *testing.T) {
 	if !strings.Contains(stderr, "100 transactions from 3 accounts") {
 		t.Errorf("unexpected summary: %q", stderr)
 	}
-	// The app secret, the code, and every token the fake issued.
+	// The app secret, the codes, and every token the fake issued, as they
+	// are or escaped as in an address, such as the pasted one.
 	for _, secret := range f.Secrets() {
-		if strings.Contains(table+stderr+out, secret) {
+		if all := login + table + stderr + out; strings.Contains(all, secret) || strings.Contains(all, url.QueryEscape(secret)) {
 			t.Errorf("output leaks %q", secret)
 		}
 	}
