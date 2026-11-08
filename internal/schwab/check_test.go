@@ -3,8 +3,12 @@ package schwab
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"maps"
+	"net/http"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,6 +18,417 @@ import (
 
 	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
+
+// A finding is something that checkAnswer found in an answer that the
+// records do not expect. It holds key paths, JSON kinds and counts, never a
+// value of Schwab's, so that a report can show it as it is.
+type finding struct {
+	check string // the check that found it: problemCheck, keyCheck, nullCheck or repeatCheck
+	path  string // where it is: a key path, as a Problem's, or "" for a record or the answer itself
+	what  string // what it is
+	fails bool   // whether it fails the answer, rather than being only reported
+	n     int    // in how many places the answer holds it
+}
+
+// The checks that a finding can come from, as a report names them.
+const (
+	problemCheck = "problem"
+	keyCheck     = "unknown key"
+	nullCheck    = "null"
+	repeatCheck  = "repeated key"
+)
+
+// String returns the finding as a line of a report, such as "repeated key,
+// reported only: transferItems.instrument.assetType: sent 2 times, the same
+// each time".
+func (f finding) String() string {
+	s := f.check
+	if !f.fails {
+		s += ", reported only"
+	}
+	s += ": "
+	if f.path != "" {
+		s += f.path + ": "
+	}
+	s += f.what
+	if f.n > 1 {
+		s += " (in " + strconv.Itoa(f.n) + " places)"
+	}
+	return s
+}
+
+// findings gathers findings, each once, in the order first found, with how
+// many places each was found in.
+type findings struct{ list []finding }
+
+// add adds f, or counts one more place for it if it is there already.
+func (fs *findings) add(f finding) {
+	f.n = 0
+	for i, g := range fs.list {
+		if g.n = 0; g == f {
+			fs.list[i].n++
+			return
+		}
+	}
+	f.n = 1
+	fs.list = append(fs.list, f)
+}
+
+// An answerKind is a kind of answer that checkAnswer reads: that of one of
+// the account routes.
+type answerKind struct {
+	name  string           // as checkAnswer takes it, such as "accounts"
+	route schwabtest.Route // the route that answers with it
+	typ   reflect.Type     // its records' type
+	list  bool             // a list of records, rather than one
+	// decode decodes an answer of the kind as the Client does, and returns
+	// its records.
+	decode func(r *reply) ([]reflect.Value, error)
+}
+
+// answerKindOf returns the kind of answer called name, which route answers
+// with: records of type T, a list of them or one, decoded with the Client's
+// list or one.
+func answerKindOf[T any](name string, route schwabtest.Route, isList bool) answerKind {
+	decode := func(r *reply) ([]reflect.Value, error) {
+		var records []T
+		if isList {
+			rs, err := list[T](r, name)
+			if err != nil {
+				return nil, err
+			}
+			records = rs
+		} else {
+			rec, err := one[T](r, name)
+			if err != nil {
+				return nil, err
+			}
+			records = []T{rec}
+		}
+		vs := make([]reflect.Value, len(records))
+		for i := range records {
+			vs[i] = reflect.ValueOf(&records[i]).Elem()
+		}
+		return vs, nil
+	}
+	return answerKind{name: name, route: route, typ: reflect.TypeFor[T](), list: isList, decode: decode}
+}
+
+// answerKinds are the kinds of answer that checkAnswer reads, each named
+// after its route.
+var answerKinds = []answerKind{
+	answerKindOf[AccountNumber]("accountNumbers", schwabtest.AccountNumbersRoute, true),
+	answerKindOf[Account]("accounts", schwabtest.AccountsRoute, true),
+	answerKindOf[Account]("account", schwabtest.AccountRoute, false),
+	answerKindOf[Transaction]("transactions", schwabtest.TransactionsRoute, true),
+	answerKindOf[Transaction]("transaction", schwabtest.TransactionRoute, false),
+	answerKindOf[UserPreference]("userPreference", schwabtest.UserPreferenceRoute, false),
+}
+
+// kindOfRoute returns the kind of answer that route answers with, if it is
+// one that checkAnswer reads.
+func kindOfRoute(route schwabtest.Route) (answerKind, bool) {
+	i := slices.IndexFunc(answerKinds, func(k answerKind) bool { return k.route == route })
+	if i < 0 {
+		return answerKind{}, false
+	}
+	return answerKinds[i], true
+}
+
+// checkAnswer checks body, an answer of the kind called kind, such as
+// "accounts", against the records, and returns what it finds:
+//   - each record's problems, as the Client's decoder gives them, with those
+//     of an account's positions; or, for an answer that is not of its kind's
+//     shape, that alone;
+//   - each key that no field takes, Schwab's own problems key among them,
+//     and each that a field takes in another case, named as such;
+//   - each null where a field that is not on every record takes an object
+//     or an array, which reads as absent, and is only reported;
+//   - each key that an object sends more than once. Copies that differ, or
+//     an object or array among them, fail; a scalar sent again with the same
+//     bytes, as Schwab has sent an instrument's assetType, is only reported.
+//
+// A finding that the answer holds in several places is returned once, with
+// their count. checkAnswer panics for a kind that it does not read, which is
+// a mistake in its caller.
+func checkAnswer(kind string, body []byte) []finding {
+	i := slices.IndexFunc(answerKinds, func(k answerKind) bool { return k.name == kind })
+	if i < 0 {
+		panic("checkAnswer: no kind of answer is called " + strconv.Quote(kind))
+	}
+	k := answerKinds[i]
+	var fs findings
+	records, err := k.decode(&reply{header: http.Header{}, body: body})
+	if err != nil {
+		// The decoders' own words name only kinds and counts, while
+		// encoding/json's, for what is not JSON, can quote it.
+		what := "the answer is not JSON"
+		var de *decodeError
+		if json.Valid(body) && errors.As(err, &de) {
+			what = valueFree(de.err.Error())
+		}
+		fs.add(finding{check: problemCheck, what: what, fails: true})
+		return fs.list
+	}
+	for _, rec := range records {
+		recordsIn(rec, "", func(path string, ps []Problem) {
+			for _, p := range ps {
+				fs.add(finding{check: problemCheck, path: joinPath(path, p.Path), what: valueFree(p.What), fails: true})
+			}
+		})
+	}
+	// The body is JSON, since the decoder took it. Numbers are kept as
+	// written: Go 1.26 reads one too large for a float64 as null, which the
+	// census would take for a null that Schwab sent.
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	var v any
+	_ = dec.Decode(&v)
+	c := newCensus()
+	for _, rec := range recordsOf(v) {
+		unknown, nulls := c.add(k.typ, rec)
+		for _, u := range unknown {
+			what := "no field takes it"
+			if u.field != "" {
+				what = u.field + " in another case"
+			}
+			fs.add(finding{check: keyCheck, path: u.path, what: what, fails: true})
+		}
+		for _, path := range nulls {
+			fs.add(finding{check: nullCheck, path: path, what: "Schwab sent null, which reads as absent"})
+		}
+	}
+	for _, r := range repeats(body, "") {
+		fs.add(r.finding())
+	}
+	return fs.list
+}
+
+// recordsOf returns the records of v, an answer decoded as any that its
+// kind's decoder took: each element of a list, a list of one taken for one
+// record among them, or else v.
+func recordsOf(v any) []any {
+	if elems, ok := v.([]any); ok {
+		return elems
+	}
+	return []any{v}
+}
+
+// quotedValue matches what a problem's text quotes of Schwab's values: a
+// string, in Go's double quotes, and a number, after the word "number", as
+// in "the number 1e999".
+var quotedValue = regexp.MustCompile(`"(?:[^"\\]|\\.)*"|\bnumber -?[0-9][0-9.eE+-]*`)
+
+// valueFree returns what, a problem's text, with each value that it quotes
+// replaced by an ellipsis: a string by "…", and a number by "number …". A
+// problem quotes what Schwab sent where a time was expected, say, which can
+// be anything, and a finding holds none of Schwab's values.
+func valueFree(what string) string {
+	return quotedValue.ReplaceAllStringFunc(what, func(s string) string {
+		if strings.HasPrefix(s, `"`) {
+			return `"…"`
+		}
+		return "number …"
+	})
+}
+
+// The kinds of answer that checkAnswer reads are those whose fixtures the
+// tests of the records read, with the same records, so that a route added
+// to one list is not missing from the other.
+func TestAnswerKinds(t *testing.T) {
+	if len(answerKinds) != len(testdataKinds) {
+		t.Fatalf("%d kinds of answer, and %d kinds of fixture", len(answerKinds), len(testdataKinds))
+	}
+	for i, want := range testdataKinds {
+		if k := answerKinds[i]; k.route != want.route || k.typ != want.typ || k.list != want.list {
+			t.Errorf("kind %q: %s, %s, a list %v; the fixtures': %s, %s, a list %v", k.name, k.route, k.typ, k.list, want.route, want.typ, want.list)
+		}
+	}
+	for _, k := range answerKinds {
+		if got, ok := kindOfRoute(k.route); !ok || got.name != k.name {
+			t.Errorf("the kind of %s is %q, %v; want %q", k.route, got.name, ok, k.name)
+		}
+	}
+	if k, ok := kindOfRoute(schwabtest.TestRoute); ok {
+		t.Errorf("the fake's own route has the kind %q", k.name)
+	}
+}
+
+// checked returns what checkAnswer finds in body, an answer of kind, as
+// text.
+func checked(kind, body string) []string {
+	var out []string
+	for _, f := range checkAnswer(kind, []byte(body)) {
+		out = append(out, f.String())
+	}
+	return out
+}
+
+// checkAnswer finds each record's problems, an account's positions' among
+// them, or else that the answer is not of its kind's shape; each key that no
+// field takes, or that a field takes in another case; each null that reads
+// as absent, which it only reports; and each key that an object sends more
+// than once, failing copies that differ or an object or array among them,
+// and reporting a scalar sent again the same. A finding in several places is
+// given once, with their count.
+func TestCheckAnswer(t *testing.T) {
+	account := `{"securitiesAccount":` + baseSecuritiesAccount + `}`
+	pref := `{"accounts":[],"streamerInfo":[],"offers":[]}`
+	noTime := withKeys(baseTransaction, "time", "")
+	for _, tc := range []struct {
+		name, kind, body string
+		want             []string
+	}{
+		{"account numbers", "accountNumbers", `[{"accountNumber":"29470135","hashValue":"H"}]`, nil},
+		{"accounts", "accounts", "[" + account + "," + account + "]", nil},
+		{"an account", "account", account, nil},
+		{"an account in a list of one", "account", "[" + account + "]", nil},
+		{"transactions", "transactions", "[" + baseTransaction + "]", nil},
+		{"no transactions", "transactions", " [] ", nil},
+		{"a transaction", "transaction", baseTransaction, nil},
+		{"preferences", "userPreference", pref, nil},
+
+		{"an object for a list", "accounts", `{"x":1,"x":1}`, []string{"problem: the answer is an object, not a list"}},
+		{"null for a list", "transactions", "null", []string{"problem: the answer is null, not a list"}},
+		{"null for one", "account", "null", []string{"problem: the answer is null, not an object"}},
+		{"a list of two for one", "transaction", "[" + baseTransaction + "," + baseTransaction + "]", []string{
+			"problem: the answer is a list of 2, where one was expected",
+		}},
+		{"a list of a number for one", "userPreference", "[1]", []string{"problem: the answer is a list holding a number, not an object"}},
+		{"not JSON", "accounts", "[" + account, []string{"problem: the answer is not JSON"}},
+		{"a page", "account", "<html>zq9</html>", []string{"problem: the answer is not JSON"}},
+		{"nothing", "userPreference", "", []string{"problem: the answer is not JSON"}},
+
+		{"records that are not objects", "accounts", "[null," + account + ",5]", []string{
+			"problem: Schwab sent null where an object was expected",
+			"problem: Schwab sent a number where an object was expected",
+		}},
+		{"a problem in each record", "transactions", "[" + noTime + "," + noTime + "," + noTime + "]", []string{
+			"problem: time: missing, though Schwab sends it on every record of its kind (in 3 places)",
+		}},
+		{"a position's problem", "account", `{"securitiesAccount":` + withKeys(baseSecuritiesAccount,
+			"positions", "["+basePosition+","+withKeys(basePosition, "marketValue", `"x"`)+"]") + "}", []string{
+			"problem: securitiesAccount.positions.marketValue: Schwab sent a string where a number was expected",
+		}},
+		{"a value quoted", "transaction", withKeys(baseTransaction, "time", `"zq9"`), []string{
+			`problem: time: Schwab sent "…", which is not a time`,
+		}},
+
+		{"unknown keys", "transaction", withKeys(baseTransaction, "fee", "1", "problems", "[]"), []string{
+			"unknown key: fee: no field takes it", "unknown key: problems: no field takes it",
+		}},
+		{"a key in another case", "transaction", withKeys(baseTransaction, "status", "", "Status", `"VALID"`), []string{
+			"unknown key: Status: status in another case",
+		}},
+		{"a key in each record", "accountNumbers", `[{"accountNumber":"1","hashValue":"H","x":1},{"accountNumber":"2","hashValue":"H","x":2}]`, []string{
+			"unknown key: x: no field takes it (in 2 places)",
+		}},
+
+		{"null for positions", "accounts", `[{"securitiesAccount":` + withKeys(baseSecuritiesAccount, "positions", "null") + "}]", []string{
+			"null, reported only: securitiesAccount.positions: Schwab sent null, which reads as absent",
+		}},
+		{"a number too large for positions", "accounts", `[{"securitiesAccount":` + withKeys(baseSecuritiesAccount, "positions", "1e999") + "}]", []string{
+			"problem: securitiesAccount.positions: Schwab sent a number where an array was expected",
+		}},
+
+		{"a scalar sent again", "transaction", withKeys(baseTransaction, "transferItems",
+			`[{"instrument":{"assetType":"EQUITY","symbol":"X","assetType":"EQUITY"},"amount":1,"cost":1}]`), []string{
+			"repeated key, reported only: transferItems.instrument.assetType: sent 2 times, the same each time",
+		}},
+		{"a scalar sent again with another value", "transactions", `[{"subAccount":"MARGIN",` + baseTransaction[1:] + "]", []string{
+			"repeated key: subAccount: sent 2 times, with different values",
+		}},
+		{"an object sent twice", "account", `{"securitiesAccount":` + baseSecuritiesAccount + "," + account[1:], []string{
+			"problem: securitiesAccount: Schwab sent it more than once, so what it holds is uncertain",
+			"repeated key: securitiesAccount: sent 2 times, an object or array among the copies",
+		}},
+		{"a key in another case sent again", "transaction", withKeys(baseTransaction, "\u017ftatus", `"VALID"`), []string{
+			"unknown key: \u017ftatus: status in another case",
+			"repeated key, reported only: status: sent 2 times, the same each time, spelled status and \u017ftatus",
+		}},
+		{"three spellings", "transaction", withKeys(baseTransaction, "Status", `"VALID"`, "STATUS", `"VALID"`), []string{
+			"unknown key: STATUS: status in another case",
+			"unknown key: Status: status in another case",
+			"repeated key, reported only: status: sent 3 times, the same each time, spelled status, Status and STATUS",
+		}},
+	} {
+		if got := checked(tc.kind, tc.body); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: checkAnswer(%q) found\n%q\nwant\n%q", tc.name, tc.kind, got, tc.want)
+		}
+	}
+	defer func() {
+		if r := recover(); fmt.Sprint(r) != `checkAnswer: no kind of answer is called "orders"` {
+			t.Errorf("checkAnswer of a kind it does not read: %v", r)
+		}
+	}()
+	checkAnswer("orders", []byte("[]"))
+}
+
+// valueFree takes out each value that a problem quotes, a string or a
+// number, whatever its escapes, and leaves the rest of the words alone.
+func TestValueFree(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{`Schwab sent "2026-13-01", which is not a time`, `Schwab sent "…", which is not a time`},
+		{`Schwab sent "a\"b\\", which is not a time`, `Schwab sent "…", which is not a time`},
+		{`Schwab sent "\u2028\xff", whose offset from UTC is out of range`, `Schwab sent "…", whose offset from UTC is out of range`},
+		{"Schwab sent the number 1e999, which is too large", "Schwab sent the number …, which is too large"},
+		{"Schwab sent the number -12.5E+3 where a whole number was expected", "Schwab sent the number … where a whole number was expected"},
+		{
+			"the JSON could not be read: json: cannot unmarshal number 1e999 into Go struct field .netAmount of type float64",
+			"the JSON could not be read: json: cannot unmarshal number … into Go struct field .netAmount of type float64",
+		},
+		{`Schwab's value could not be read: strconv.ParseInt: parsing "99": value out of range`, `Schwab's value could not be read: strconv.ParseInt: parsing "…": value out of range`},
+		{"Schwab sent a string where a number was expected", "Schwab sent a string where a number was expected"},
+		{"json: cannot unmarshal number into Go value of type []schwab.Problem", "json: cannot unmarshal number into Go value of type []schwab.Problem"},
+		{"missing, though Schwab sends it on every record of its kind", "missing, though Schwab sends it on every record of its kind"},
+	} {
+		if got := valueFree(tc.in); got != tc.want {
+			t.Errorf("valueFree(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// No finding holds a value of Schwab's, whatever its problem quoted: here a
+// string that is no time, inside escapes too, a time whose offset or year is
+// out of range, and numbers too large or not whole, each a value found
+// nowhere else, which the records' problems quote.
+func TestFindingsHoldNoValues(t *testing.T) {
+	secrets := []string{`zq9time`, `zq9esc`, `2031-07-08T09:10:11+2400`, `9999-12-31T23:00:00-2300`, `7e777`, `98765.4321`, `123456789012345678901234567890`}
+	tx := withKeys(baseTransaction,
+		"time", `"zq9time"`,
+		"tradeDate", `"2031-07-08T09:10:11+2400"`,
+		"settlementDate", `"9999-12-31T23:00:00-2300"`,
+		"netAmount", "7e777",
+		"activityId", "98765.4321",
+		"transferItems", `[{"instrument":{"assetType":"OPTION","symbol":"X","expirationDate":"a\"zq9esc\\","instrumentId":123456789012345678901234567890},"amount":1,"cost":1}]`)
+	var decoded Transaction
+	if err := json.Unmarshal([]byte(tx), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	problems := strings.Join(problemStrings(decoded.Problems), "\n")
+	fs := checkAnswer("transaction", []byte(tx))
+	if len(fs) != len(secrets) {
+		t.Errorf("%d findings, want one for each of the %d values: %v", len(fs), len(secrets), fs)
+	}
+	for _, form := range []string{
+		"which is not a time", "whose offset from UTC is out of range", "which is outside the years 0 to 9999 in UTC",
+		"which is too large", "where a whole number was expected",
+	} {
+		if !strings.Contains(problems, form) {
+			t.Errorf("no problem says %q: %s", form, problems)
+		}
+	}
+	for _, s := range secrets {
+		if !strings.Contains(problems, s) {
+			t.Errorf("no problem quotes %s, so the test shows nothing of it: %s", s, problems)
+		}
+		for _, f := range fs {
+			if strings.Contains(f.String(), s) {
+				t.Errorf("a finding holds %s: %s", s, f)
+			}
+		}
+	}
+}
 
 // census gathers the keys of records, for the tests of the fixtures and for
 // a report of the keys that Schwab sends. Each record, decoded as any, is
@@ -321,6 +736,30 @@ func repeats(b []byte, path string) []repeat {
 		}
 	}
 	return out
+}
+
+// finding returns the repeat as a finding. Copies that differ, or an object
+// or array among them, fail, since encoding/json keeps a scalar's last copy
+// and may join the copies of an object, so that a record need not hold what
+// each copy says. A scalar sent again with the same bytes is only reported.
+func (r repeat) finding() finding {
+	what := "sent " + strconv.Itoa(r.n) + " times"
+	switch {
+	case r.composite:
+		what += ", an object or array among the copies"
+	case r.same:
+		what += ", the same each time"
+	default:
+		what += ", with different values"
+	}
+	if len(r.spellings) > 1 {
+		names := make([]string, len(r.spellings))
+		for i, s := range r.spellings {
+			names[i] = keyName(s)
+		}
+		what += ", spelled " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	}
+	return finding{check: repeatCheck, path: r.path, what: what, fails: r.composite || !r.same}
 }
 
 // The scan finds each key that an object sends more than once, at any depth
