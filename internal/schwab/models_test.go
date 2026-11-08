@@ -449,8 +449,8 @@ func TestModelsCoverEveryKey(t *testing.T) {
 	}
 }
 
-// No account number is part of another value in the testdata, in any JSON
-// file that the fake's index lists, so that a test that looks for leaked
+// No account number is part of another value in the testdata, in any file
+// of the fake's index that holds JSON, so that a test that looks for leaked
 // account numbers can search for them as text.
 func TestTestdataAccountNumbersStandAlone(t *testing.T) {
 	var numbers []string
@@ -478,17 +478,21 @@ func TestTestdataAccountNumbersStandAlone(t *testing.T) {
 		}
 	}
 	for _, e := range schwabtest.Index() {
-		if !strings.HasSuffix(e.File, ".json") {
+		b := readTestdata(t, e.File)
+		if schwabtest.ExtensionFor(b) != ".json" {
 			continue
 		}
 		var v any
-		if err := json.Unmarshal(readTestdata(t, e.File), &v); err != nil {
+		if err := json.Unmarshal(b, &v); err != nil {
 			t.Fatalf("%s: %v", e.File, err)
 		}
 		walk("", v)
 	}
 	slices.Sort(numbers)
 	numbers = slices.Compact(numbers)
+	if len(numbers) < len(schwabtest.FixtureAccounts) {
+		t.Errorf("the JSON files hold %d account numbers, fewer than the fixtures' %d", len(numbers), len(schwabtest.FixtureAccounts))
+	}
 	for _, n := range numbers {
 		for _, v := range values {
 			if strings.Contains(v, n) {

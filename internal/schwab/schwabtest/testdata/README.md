@@ -45,6 +45,11 @@ schwabtest's tests check that:
 - every file but this README and `index.json` has one entry, and every entry
   a file and a source;
 - each file holds as many carriage returns as its entry's `cr` says;
+- each file's name ends in the extension that `ExtensionFor` gives its
+  bytes, whatever the answer's `Content-Type` said: `.json` for JSON,
+  `.html` for a page that a browser would take for HTML, and `.txt` for
+  anything else, such as a 429's white space, so that a test can pick the
+  JSON files by their names;
 - an entry's `headers` hold only headers whose values `KeptHeader` keeps,
   but `Content-Length`, whose name goes in `otherHeaders` with the names of
   all the rest, and every correlation ID is a fake.
@@ -71,9 +76,10 @@ is scrubbed:
 A scrubbed recording goes under `recorded/<date>/`, the day it was recorded,
 beside the hand-made files and never over them: the hand-made set stays as
 it is for `LoadFixtures` and the tests that pin its values, and
-`LoadRecording` replays a day's recording. Each of its files gets its own
-entry in `index.json`, with source `recorded`, its date in `recorded` and
-the scrubber's version and amounts policy in `scrub`.
+`LoadRecording` replays a day's recording. Each of its files ends in the
+extension `ExtensionFor` gives it and gets its own entry in `index.json`,
+with source `recorded`, its date in `recorded` and the scrubber's version
+and amounts policy in `scrub`.
 
 Nothing raw or partly scrubbed may be committed here, not even for a moment:
 a file once pushed stays in the history and in every module download.

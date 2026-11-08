@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -52,6 +53,9 @@ func readAll(fsys fs.FS, where string, complain func(string, ...any)) map[string
 	return got
 }
 
+// holds says what a file holds, by the extension ExtensionFor gives it.
+var holds = map[string]string{".json": "JSON", ".html": "an HTML page", ".txt": "neither JSON nor a page"}
+
 // checkTestdata returns what is wrong with a testdata folder, given as it
 // is on disk, as it is embedded, and its index: the rules that
 // testdata/README.md lists.
@@ -86,6 +90,9 @@ func checkTestdata(disk, embedded fs.FS, index []Entry) []string {
 			complain("%s names a file that is not there", where)
 		case bytes.Count(b, []byte("\r")) != e.CR:
 			complain("%s says cr %d, but the file holds %d", where, e.CR, bytes.Count(b, []byte("\r")))
+		}
+		if ext := ExtensionFor(b); ok && path.Ext(e.File) != ext {
+			complain("%s holds %s, but its name does not end in %s", where, holds[ext], ext)
 		}
 		if e.Source == "" {
 			complain("%s has no source", where)
@@ -271,6 +278,30 @@ func TestTestdataHygieneCatches(t *testing.T) {
 			index[0].Response.Status = 600
 			return index
 		}, "has status 600"},
+		{"JSON named otherwise", func(disk, embedded fstest.MapFS, index []Entry) []Entry {
+			for _, fsys := range []fstest.MapFS{disk, embedded} {
+				fsys["a.txt"] = fsys["a.json"]
+				delete(fsys, "a.json")
+			}
+			index[0].File = "a.txt"
+			return index
+		}, "(a.txt) holds JSON, but its name does not end in .json"},
+		{"a page named otherwise", func(disk, embedded fstest.MapFS, index []Entry) []Entry {
+			for _, fsys := range []fstest.MapFS{disk, embedded} {
+				fsys["errors/b.txt"] = fsys["errors/b.html"]
+				delete(fsys, "errors/b.html")
+			}
+			index[1].File = "errors/b.txt"
+			return index
+		}, "(errors/b.txt) holds an HTML page, but its name does not end in .html"},
+		{"a 429's white space named by its Content-Type", func(disk, embedded fstest.MapFS, index []Entry) []Entry {
+			disk["recorded/2026-11-08/002.json"] = &fstest.MapFile{Data: []byte(" \n")}
+			embedded["recorded/2026-11-08/002.json"] = disk["recorded/2026-11-08/002.json"]
+			e := index[2]
+			e.File, e.Response.Status = "recorded/2026-11-08/002.json", 429
+			e.Response.Headers = map[string][]string{"Content-Type": {"application/json"}}
+			return append(index, e)
+		}, "(recorded/2026-11-08/002.json) holds neither JSON nor a page, but its name does not end in .txt"},
 		{"a count of carriage returns that is wrong", func(_, _ fstest.MapFS, index []Entry) []Entry {
 			index[1].CR = 0
 			return index
@@ -550,6 +581,22 @@ func TestKeptHeader(t *testing.T) {
 	} {
 		if KeptHeader(name) {
 			t.Errorf("KeptHeader(%q) = true, want false", name)
+		}
+	}
+}
+
+// A fixture's extension follows its bytes, whatever its Content-Type: JSON,
+// an HTML page, or neither.
+func TestExtensionFor(t *testing.T) {
+	for want, bodies := range map[string][]string{
+		".json": {`{"message":"Invalid account number"}`, " [ 1, \"a\" ]\n", `"<html>"`, `null`},
+		".html": {"<html><body><h1>Whitelabel Error Page</h1>", "<HTML><HEAD>\n<TITLE>Access Denied</TITLE>", "\n  <!DOCTYPE html><p>"},
+		".txt":  {" \n", "", `{"message":`, "[] []", "Not Found", `<?xml version="1.0"?><fault/>`},
+	} {
+		for _, body := range bodies {
+			if got := ExtensionFor([]byte(body)); got != want {
+				t.Errorf("ExtensionFor(%q) = %q, want %q", body, got, want)
+			}
 		}
 	}
 }

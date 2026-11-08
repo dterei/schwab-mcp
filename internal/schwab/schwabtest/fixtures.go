@@ -252,3 +252,19 @@ func KeptHeader(name string) bool {
 	const cors = "Access-Control-"
 	return len(name) > len(cors) && strings.EqualFold(name[:len(cors)], cors)
 }
+
+// ExtensionFor returns the extension that the name of a fixture holding
+// body ends in: ".json" for JSON, ".html" for a page that a browser would
+// take for HTML, and ".txt" for anything else, such as the white space of
+// Schwab's 429, whatever the answer's Content-Type said. A recording's
+// files are named by it, and the hygiene tests hold every file to it, so
+// that a test can pick the JSON files by their names.
+func ExtensionFor(body []byte) string {
+	switch {
+	case json.Valid(body):
+		return ".json"
+	case strings.HasPrefix(http.DetectContentType(body), "text/html"):
+		return ".html"
+	}
+	return ".txt"
+}
