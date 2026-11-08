@@ -11,7 +11,10 @@ GOVULNCHECK ?= go run golang.org/x/vuln/cmd/govulncheck@latest
 # make test RACE=
 RACE ?= -race
 
-.PHONY: all check build test cover lint fmt tidy vuln clean help
+# How long make fuzz fuzzes each target.
+FUZZTIME ?= 30s
+
+.PHONY: all check build test fuzz cover lint fmt tidy vuln clean help
 
 all: check
 
@@ -26,6 +29,19 @@ build: ## Build the commands into bin/
 
 test: ## Run the tests with the race detector
 	go test $(RACE) -shuffle=on ./...
+
+# Needs Go 1.27. On Go 1.26, a FAIL whose only message is "context deadline
+# exceeded" comes from the fuzzing engine at the -fuzztime deadline
+# (go.dev/issue/75804), not from a target. The targets come from go test
+# -list, whose own failure, as when the tests do not build, ends the run, as
+# does the first target that fails. A failing input is saved under
+# internal/schwab/testdata/fuzz, to commit with the fix.
+fuzz: ## Fuzz each target in internal/schwab in turn
+	@targets=$$(go test -list '^Fuzz' ./internal/schwab) || { echo "$$targets"; exit 1; }; \
+	targets=$$(echo "$$targets" | grep '^Fuzz') || { echo "no fuzz targets in internal/schwab"; exit 1; }; \
+	for t in $$targets; do \
+		go test ./internal/schwab -run '^$$' -fuzz "^$$t$$" -fuzztime $(FUZZTIME) -fuzzminimizetime 2s || exit 1; \
+	done
 
 cover: ## Run the tests and print coverage per function
 	go test -coverprofile=coverage.out ./...
