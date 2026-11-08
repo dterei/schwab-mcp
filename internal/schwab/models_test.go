@@ -392,21 +392,19 @@ func (c *census) walk(t reflect.Type, v any) {
 	}
 }
 
+// testdataCensus walks every record of the testdata, each fixture that
+// answers an account endpoint read as that endpoint's records.
 func testdataCensus(t *testing.T) *census {
 	t.Helper()
 	c := &census{records: map[reflect.Type][]map[string]bool{}}
-	for file, typ := range map[string]reflect.Type{
-		"account_numbers.json": reflect.TypeFor[[]AccountNumber](),
-		"accounts.json":        reflect.TypeFor[[]Account](),
-		"transactions.json":    reflect.TypeFor[[]Transaction](),
-		"transaction.json":     reflect.TypeFor[Transaction](),
-		"user_preference.json": reflect.TypeFor[UserPreference](),
-	} {
-		var v any
-		if err := json.Unmarshal(readTestdata(t, file), &v); err != nil {
-			t.Fatal(err)
+	for _, a := range testdataAnswers(t) {
+		for _, r := range a.records {
+			var v any
+			if err := json.Unmarshal(r, &v); err != nil {
+				t.Fatalf("%s: %v", a.file, err)
+			}
+			c.walk(a.typ, v)
 		}
-		c.walk(typ, v)
 	}
 	return c
 }
@@ -451,8 +449,9 @@ func TestModelsCoverEveryKey(t *testing.T) {
 	}
 }
 
-// No account number is part of another value in the testdata, so that a
-// test that looks for leaked account numbers can search for them as text.
+// No account number is part of another value in the testdata, in any JSON
+// file that the fake's index lists, so that a test that looks for leaked
+// account numbers can search for them as text.
 func TestTestdataAccountNumbersStandAlone(t *testing.T) {
 	var numbers []string
 	var values []string
@@ -478,10 +477,13 @@ func TestTestdataAccountNumbersStandAlone(t *testing.T) {
 			values = append(values, string(b))
 		}
 	}
-	for _, f := range []string{"account_numbers.json", "accounts.json", "transactions.json", "transaction.json", "user_preference.json"} {
+	for _, e := range schwabtest.Index() {
+		if !strings.HasSuffix(e.File, ".json") {
+			continue
+		}
 		var v any
-		if err := json.Unmarshal(readTestdata(t, f), &v); err != nil {
-			t.Fatal(err)
+		if err := json.Unmarshal(readTestdata(t, e.File), &v); err != nil {
+			t.Fatalf("%s: %v", e.File, err)
 		}
 		walk("", v)
 	}
@@ -901,29 +903,30 @@ func keyPath(path []any) string {
 }
 
 // testdataRecords returns the records of the testdata by type, the positions
-// of the accounts among them.
+// of the accounts among them: those of each fixture that answers an account
+// endpoint, read as that endpoint's records, in testdataAnswers' order.
 func testdataRecords(t *testing.T) map[reflect.Type][]json.RawMessage {
 	t.Helper()
-	accounts := elements(t, readTestdata(t, "accounts.json"))
-	var positions []json.RawMessage
-	for _, account := range accounts {
-		var a struct {
-			SecuritiesAccount struct {
-				Positions []json.RawMessage `json:"positions"`
-			} `json:"securitiesAccount"`
+	records := map[reflect.Type][]json.RawMessage{}
+	positions := reflect.TypeFor[Position]()
+	for _, a := range testdataAnswers(t) {
+		records[a.typ] = append(records[a.typ], a.records...)
+		if a.typ != reflect.TypeFor[Account]() {
+			continue
 		}
-		if err := json.Unmarshal(account, &a); err != nil {
-			t.Fatal(err)
+		for _, account := range a.records {
+			var held struct {
+				SecuritiesAccount struct {
+					Positions []json.RawMessage `json:"positions"`
+				} `json:"securitiesAccount"`
+			}
+			if err := json.Unmarshal(account, &held); err != nil {
+				t.Fatal(err)
+			}
+			records[positions] = append(records[positions], held.SecuritiesAccount.Positions...)
 		}
-		positions = append(positions, a.SecuritiesAccount.Positions...)
 	}
-	return map[reflect.Type][]json.RawMessage{
-		reflect.TypeFor[AccountNumber]():  elements(t, readTestdata(t, "account_numbers.json")),
-		reflect.TypeFor[Account]():        accounts,
-		reflect.TypeFor[Position]():       positions,
-		reflect.TypeFor[Transaction]():    append(elements(t, readTestdata(t, "transactions.json")), readTestdata(t, "transaction.json")),
-		reflect.TypeFor[UserPreference](): {readTestdata(t, "user_preference.json")},
-	}
+	return records
 }
 
 // Taking out, or making null, any one key of a testdata record that Schwab

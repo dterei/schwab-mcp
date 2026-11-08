@@ -1,7 +1,12 @@
 package schwab
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
@@ -49,4 +54,73 @@ func lastToken(f *fakeOAuth) string {
 		return ""
 	}
 	return rs[len(rs)-1].Token
+}
+
+// testdataKinds are the records that the account endpoints answer with, in
+// the order of their routes.
+var testdataKinds = []struct {
+	route schwabtest.Route
+	typ   reflect.Type // the record's type
+	list  bool         // a list of records, rather than one
+}{
+	{schwabtest.AccountNumbersRoute, reflect.TypeFor[AccountNumber](), true},
+	{schwabtest.AccountsRoute, reflect.TypeFor[Account](), true},
+	{schwabtest.AccountRoute, reflect.TypeFor[Account](), false},
+	{schwabtest.TransactionsRoute, reflect.TypeFor[Transaction](), true},
+	{schwabtest.TransactionRoute, reflect.TypeFor[Transaction](), false},
+	{schwabtest.UserPreferenceRoute, reflect.TypeFor[UserPreference](), false},
+}
+
+// A testdataAnswer is a fixture that answers an account endpoint with 200,
+// and so holds that endpoint's records.
+type testdataAnswer struct {
+	file    string            // as readTestdata takes it
+	typ     reflect.Type      // the records' type
+	records []json.RawMessage // its records, as they are in the file
+}
+
+// testdataAnswers returns every fixture that the fake's index says answers
+// an account endpoint with 200, a recording as well as the hand-made ones:
+// by route, in testdataKinds' order, and within a route in the index's.
+func testdataAnswers(t *testing.T) []testdataAnswer {
+	t.Helper()
+	index := schwabtest.Index()
+	var answers []testdataAnswer
+	for _, kind := range testdataKinds {
+		for _, e := range index {
+			if route, ok := e.Route(); !ok || route != kind.route || e.Response.Status != http.StatusOK {
+				continue
+			}
+			b := readTestdata(t, e.File)
+			records := []json.RawMessage{b}
+			if kind.list {
+				records = elements(t, b)
+			}
+			answers = append(answers, testdataAnswer{file: e.File, typ: kind.typ, records: records})
+		}
+	}
+	return answers
+}
+
+// The hand-made fixtures that answer the account endpoints are read as
+// their endpoints' records, lists split, in the Routes' order, which keeps
+// a list's records ahead of the one-record answers of its kind; an answer
+// that is not a 200, such as an error body on an account path, is not read.
+func TestTestdataAnswers(t *testing.T) {
+	var got []string
+	for _, a := range testdataAnswers(t) {
+		if !strings.HasPrefix(a.file, "recorded/") {
+			got = append(got, fmt.Sprintf("%s: %d %s", a.file, len(a.records), a.typ.Name()))
+		}
+	}
+	want := []string{
+		"account_numbers.json: 3 AccountNumber",
+		"accounts.json: 3 Account",
+		"transactions.json: 14 Transaction",
+		"transaction.json: 1 Transaction",
+		"user_preference.json: 1 UserPreference",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("read %q, want %q", got, want)
+	}
 }
