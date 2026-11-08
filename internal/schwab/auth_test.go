@@ -559,7 +559,7 @@ func TestCodeFromRedirect(t *testing.T) {
 		{"address without scheme", "127.0.0.1/?code=C0.abc%40&session=x&state=s1", "s1", "C0.abc@", ""},
 		{"query string only", "code=C0.abc%40&state=s1", "s1", "C0.abc@", ""},
 		{"query string, wrong state", "code=C0.abc%40&state=other", "s1", "", otherLogin},
-		{"denied", "https://127.0.0.1/?error=access_denied&error_description=nope", "s1", "", `Schwab reported "access_denied": nope`},
+		{"denied", "https://127.0.0.1/?error=access_denied&error_description=nope", "s1", "", `Schwab reported "access_denied": "nope"`},
 		{"no code", "https://127.0.0.1/", "s1", "", "no code= in that address; paste the address the browser ended up on after you approved"},
 		{"empty", "\n", "s1", "", "nothing was pasted"},
 		// url.Parse's errors quote the address, code and all.
@@ -569,9 +569,16 @@ func TestCodeFromRedirect(t *testing.T) {
 		{"a bad port", "A://:code=00000000", "s1", "", notAnAddress},
 		{
 			"Schwab's long error", "https://127.0.0.1/?error=" + x199 + "%C3%A9&error_description=" + x200 + "y&code=C0.abc%40", "s1", "",
-			`Schwab reported "` + x199 + `...": ` + x200 + "...",
+			`Schwab reported "` + x199 + `...": "` + x200 + `..."`,
 		},
-		{"Schwab's error of 200 bytes", "https://127.0.0.1/?error=" + x200, "s1", "", `Schwab reported "` + x200 + `": `},
+		{"Schwab's error of 200 bytes", "https://127.0.0.1/?error=" + x200, "s1", "", `Schwab reported "` + x200 + `"`},
+		{"Schwab's empty description", "https://127.0.0.1/?error=x&error_description=", "s1", "", `Schwab reported "x"`},
+		// Schwab's text is quoted, so that a control character in it, such as
+		// one that clears the line or moves the cursor, reaches no terminal.
+		{
+			"control characters", "https://127.0.0.1/?error=%1B%5B2J&error_description=%1B%5B2K%0DLogged+in.%07", "s1", "",
+			`Schwab reported "\x1b[2J": "\x1b[2K\rLogged in.\a"`,
+		},
 	}
 	for _, tc := range cases {
 		got, err := CodeFromRedirect(tc.in, tc.state)

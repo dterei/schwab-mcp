@@ -41,7 +41,8 @@ func (a *Auth) AuthorizeURL(state string) string {
 //
 // An error quotes nothing of what was pasted, which can hold the code, but
 // the error and its description that Schwab put in the address, each cut to
-// 200 bytes.
+// 200 bytes and quoted, so that a control character in them, such as one
+// that moves the cursor, is shown rather than sent to the terminal.
 func CodeFromRedirect(pasted, wantState string) (string, error) {
 	pasted = strings.TrimSpace(pasted)
 	if pasted == "" {
@@ -67,7 +68,11 @@ func CodeFromRedirect(pasted, wantState string) (string, error) {
 	}
 	q := u.Query()
 	if e := q.Get("error"); e != "" {
-		return "", fmt.Errorf("Schwab reported %q: %s", clip(e, 200), clip(q.Get("error_description"), 200))
+		msg := fmt.Sprintf("Schwab reported %q", clip(e, 200))
+		if d := q.Get("error_description"); d != "" {
+			msg += fmt.Sprintf(": %q", clip(d, 200))
+		}
+		return "", errors.New(msg)
 	}
 	code := q.Get("code")
 	if code == "" {
