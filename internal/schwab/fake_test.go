@@ -1,7 +1,9 @@
 package schwab
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -81,7 +83,9 @@ type testdataAnswer struct {
 
 // testdataAnswers returns every fixture that the fake's index says answers
 // an account endpoint with 200, a recording as well as the hand-made ones:
-// by route, in testdataKinds' order, and within a route in the index's.
+// by route, in testdataKinds' order, and within a route in the index's. A
+// fixture whose records cannot be read as the client reads them fails the
+// test, and is left out.
 func testdataAnswers(t *testing.T) []testdataAnswer {
 	t.Helper()
 	index := schwabtest.Index()
@@ -91,15 +95,78 @@ func testdataAnswers(t *testing.T) []testdataAnswer {
 			if route, ok := e.Route(); !ok || route != kind.route || e.Response.Status != http.StatusOK {
 				continue
 			}
-			b := readTestdata(t, e.File)
-			records := []json.RawMessage{b}
-			if kind.list {
-				records = elements(t, b)
+			records, err := answerRecords(readTestdata(t, e.File), kind.list)
+			if err != nil {
+				t.Errorf("%s, an answer of %s: %v", e.File, kind.route, err)
+				continue
 			}
 			answers = append(answers, testdataAnswer{file: e.File, typ: kind.typ, records: records})
 		}
 	}
 	return answers
+}
+
+// answerRecords returns the records of an answer as the client reads them:
+// each element of a list, for an endpoint that answers with a list, or one
+// object, which a list of one may hold, since Schwab's spec has some
+// endpoints answer so. Each record must be an object.
+func answerRecords(b []byte, list bool) ([]json.RawMessage, error) {
+	var records []json.RawMessage
+	switch trimmed := bytes.TrimSpace(b); {
+	case len(trimmed) > 0 && trimmed[0] == '[':
+		if err := json.Unmarshal(trimmed, &records); err != nil {
+			return nil, err
+		}
+		if !list && len(records) != 1 {
+			return nil, fmt.Errorf("a list of %d, where one record was expected", len(records))
+		}
+	case list:
+		return nil, errors.New("not a list")
+	case !json.Valid(trimmed):
+		return nil, errors.New("not JSON")
+	default:
+		records = []json.RawMessage{b}
+	}
+	for i, r := range records {
+		if r = bytes.TrimSpace(r); len(r) == 0 || r[0] != '{' {
+			return nil, fmt.Errorf("record %d is not an object", i)
+		}
+	}
+	return records, nil
+}
+
+// An answer's records are read as the client reads them, a list of one
+// taken for one record, and an answer whose records are not objects is
+// refused, so that no census meets one.
+func TestAnswerRecords(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		list bool
+		want []string // nil when the answer is refused
+	}{
+		{`[{"a":1}, {"b":2}]`, true, []string{`{"a":1}`, `{"b":2}`}},
+		{` [] `, true, []string{}},
+		{"{\"a\":1}\n", false, []string{"{\"a\":1}\n"}},
+		{"[\n  {\"a\":1}\n]\n", false, []string{`{"a":1}`}},
+		{`{"a":1}`, true, nil},
+		{`[{"a":1},{"b":2}]`, false, nil},
+		{`[]`, false, nil},
+		{`[1]`, false, nil},
+		{`[{"a":1},2]`, true, nil},
+		{`"a"`, false, nil},
+		{`{"a":`, false, nil},
+		{`[{"a":1}`, true, nil},
+		{``, false, nil},
+	} {
+		records, err := answerRecords([]byte(tc.body), tc.list)
+		got := []string{}
+		for _, r := range records {
+			got = append(got, string(r))
+		}
+		if tc.want == nil && err == nil || tc.want != nil && (err != nil || !slices.Equal(got, tc.want)) {
+			t.Errorf("answerRecords(%q, %v) = %q, %v, want %q", tc.body, tc.list, got, err, tc.want)
+		}
+	}
 }
 
 // The hand-made fixtures that answer the account endpoints are read as
