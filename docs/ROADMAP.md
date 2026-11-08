@@ -51,8 +51,9 @@ current as of October 2026.
 - **Orders are never retried automatically.** A retried order request can be
   a second order.
 - **Few dependencies.** The standard library and golang.org/x/sys, for file
-  locks on Windows, an MCP SDK and, from milestone 2, SQLite, whose driver
-  needs x/sys too. Each new dependency has to earn its place.
+  locks on Windows, an MCP SDK and, from milestone 2, SQLite through
+  modernc.org/sqlite, a pure-Go driver that needs x/sys too and brings a few
+  small modules of its own. Each new dependency has to earn its place.
 - **Tested against a fake Schwab.** Every endpoint the code uses is imitated by
   an in-process fake server that enforces Schwab's auth rules, as the CLI's
   tests already do. Nothing in CI talks to the real API.
@@ -189,16 +190,23 @@ and HTTP code into `internal/schwab` with what the history store needs.
 
 The data your return calculators need, kept complete and current.
 
-- [ ] SQLite store (pure-Go driver, so cross-compiling stays easy) holding
-      transactions with their raw JSON, transfer items, sync state per
-      account, and snapshots of positions and balances. Two-decimal money
+- [ ] SQLite store, through modernc.org/sqlite (pure Go, so cross-compiling
+      stays easy, and it runs SQLite's own file locking on every system),
+      holding transactions with their raw JSON, transfer items, sync state
+      per account, and snapshots of positions and balances, in STRICT
+      tables. Every process shares the one store, in WAL mode: a writer takes
+      the write lock as its transaction starts and others wait their turn,
+      one sync runs at a time, and no transaction stays open across a
+      request to Schwab. Two-decimal money
       (balances, transaction amounts) as integer cents and quantities in
       millionths, from the records' float64s, which is exact while the value
       times its scale stays under 2^51; prices, averages and positions'
       profit/loss figures, which carry fractions of a cent, stay REAL.
       Accounts keyed by account number behind a local id, never by hash,
       which may change between logins: the hashes are looked up again on
-      each run. A 400 "Invalid account number" (`schwab.ErrInvalidAccount`)
+      each run. The masked number has a column of its own, so that no view
+      the model sees reads the full one. A 400 "Invalid account number"
+      (`schwab.ErrInvalidAccount`)
       means Schwab refused the account in the path: seen for a plain account
       number, and possible for a changed hash or an account no longer
       shared. Look the hashes up again and retry once if the account is
@@ -335,12 +343,20 @@ The data your return calculators need, kept complete and current.
       income report and a performance report; CSV and JSON output for
       external dashboards
 - [ ] Read-only SQL over the local store, for the CLI and as an MCP tool. The
-      MCP tool sees only views that leave out the raw JSON and show accounts
-      by nickname, hash or masked number. The database enforces this, not an
-      inspection of the query: a read-only connection plus an SQLite
-      authorizer that allows only reads of those views and refuses attaching
-      databases and loading extensions (a read-only connection alone still
-      allows temporary views)
+      MCP tool's SQL runs in a private in-memory database holding copies of
+      views that leave out the raw JSON and show accounts by nickname, hash
+      or masked number. The server copies the views' rows from a read-only
+      connection in one transaction, and detaches the store, before the
+      model's statement runs under an authorizer that allows only reads (no
+      attaching, `VACUUM INTO`, pragmas, temporary objects or extensions),
+      with no database attachable and a time limit. The copy is rebuilt when
+      another process has written to the store. The database enforces this,
+      not an inspection of the query, and an authorizer over the store itself
+      could not: it is told which view a read is made for, but a CTE given an
+      allowed view's name is reported the same way, so a query that defines
+      one over the accounts table reads full account numbers; and a
+      read-only connection can still write a copy of the whole store with
+      `VACUUM INTO`
 
 ### M5. Trading, opt-in
 
