@@ -42,10 +42,13 @@ var (
 		}
 		panic(http.ErrAbortHandler)
 	}
-	// Hang answers nothing until the request's context ends, as when the
-	// client gives up or the fake closes. It reads the request's body
-	// first: until the body is read, the server does not watch the
-	// connection, and would not see the client hang up.
+	// Hang answers nothing until the request's context ends: until the
+	// client gives up or hangs up, as it does when the context it sent the
+	// request with is canceled. t.Context() is canceled just before the end
+	// of the test closes the fake; closing the fake does not end a hang but
+	// waits for it, so a hang that nothing ends holds the test up. Hang
+	// reads the request's body first: until the body is read, the server
+	// does not watch the connection, and would not see the client hang up.
 	Hang http.HandlerFunc = func(_ http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
 			_, _ = io.Copy(io.Discard, r.Body)
