@@ -359,64 +359,36 @@ func jsonFields(t reflect.Type) map[string]field {
 	return fields
 }
 
-// census is what a walk of the testdata found: for each struct type, the
-// keys of each of its records, and the keys that no field takes.
-type census struct {
-	records map[reflect.Type][]map[string]bool
-	unknown []string
-}
-
-func (c *census) walk(t reflect.Type, v any) {
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	switch {
-	case t == reflect.TypeFor[time.Time]():
-	case t.Kind() == reflect.Slice:
-		for _, e := range v.([]any) {
-			c.walk(t.Elem(), e)
-		}
-	case t.Kind() == reflect.Struct:
-		fields := jsonFields(t)
-		keys := map[string]bool{}
-		for k, x := range v.(map[string]any) {
-			keys[k] = true
-			f, ok := fields[k]
-			if !ok {
-				c.unknown = append(c.unknown, t.Name()+"."+k)
-				continue
-			}
-			c.walk(f.t, x)
-		}
-		c.records[t] = append(c.records[t], keys)
-	}
-}
-
 // testdataCensus walks every record of the testdata, each fixture that
-// answers an account endpoint read as that endpoint's records.
-func testdataCensus(t *testing.T) *census {
+// answers an account endpoint read as that endpoint's records, and returns
+// the census and the keys that no field takes, each after the file that
+// holds it.
+func testdataCensus(t *testing.T) (c *census, unknown []string) {
 	t.Helper()
-	c := &census{records: map[reflect.Type][]map[string]bool{}}
+	c = newCensus()
 	for _, a := range testdataAnswers(t) {
 		for _, r := range a.records {
 			var v any
 			if err := json.Unmarshal(r, &v); err != nil {
 				t.Fatalf("%s: %v", a.file, err)
 			}
-			c.walk(a.typ, v)
+			keys, _ := c.add(a.typ, v)
+			for _, k := range keys {
+				unknown = append(unknown, a.file+": "+k.String())
+			}
 		}
 	}
-	return c
+	return c, unknown
 }
 
 // The structs take every key in the testdata, every key seen live is both a
 // field and in the testdata, and a field whose tag does not mark it as
 // optional is in every record of its kind, as in Schwab's answers.
 func TestModelsCoverEveryKey(t *testing.T) {
-	c := testdataCensus(t)
-	if len(c.unknown) > 0 {
-		slices.Sort(c.unknown)
-		t.Errorf("testdata keys that no field takes: %v", slices.Compact(c.unknown))
+	c, unknown := testdataCensus(t)
+	if len(unknown) > 0 {
+		slices.Sort(unknown)
+		t.Errorf("testdata keys that no field takes: %v", slices.Compact(unknown))
 	}
 	for typ, keys := range liveKeys {
 		fields := jsonFields(typ)

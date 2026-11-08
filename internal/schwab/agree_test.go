@@ -185,10 +185,9 @@ func TestFakeAnswersDecode(t *testing.T) {
 	if err != nil || len(pref.Problems) > 0 || len(pref.Accounts) != 3 || pref.Accounts[0].NickName != "Account 1" {
 		t.Fatalf("UserPreference: %+v, %v", pref, err)
 	}
-	c := &census{records: map[reflect.Type][]map[string]bool{}}
-	c.walk(reflect.TypeFor[UserPreference](), decodeAny(t, pref.Raw))
-	if len(c.unknown) > 0 {
-		t.Errorf("keys that no field takes: %v", c.unknown)
+	c := newCensus()
+	if unknown, _ := c.add(reflect.TypeFor[UserPreference](), decodeAny(t, pref.Raw)); len(unknown) > 0 {
+		t.Errorf("keys that no field takes: %v", unknown)
 	}
 	for typ, records := range c.records {
 		for k, f := range jsonFields(typ) {
