@@ -1008,6 +1008,10 @@ func TestReadTime(t *testing.T) {
 		`"2024-03-28T21:10:42"`: `time: Schwab sent "2024-03-28T21:10:42", which is not a time`,
 		`true`:                  "time: Schwab sent a boolean where a time was expected",
 		`{}`:                    "time: Schwab sent an object where a time was expected",
+		// An offset out of range is named as such, though it would also take
+		// the instant outside the years 0 to 9999.
+		`"9999-12-31T23:59:59-2400"`:  `time: Schwab sent "9999-12-31T23:59:59-2400", whose offset from UTC is out of range`,
+		`"0000-01-01T00:00:00+24:00"`: `time: Schwab sent "0000-01-01T00:00:00+24:00", whose offset from UTC is out of range`,
 	} {
 		ps = nil
 		if got, present := readTime(json.RawMessage(in), "time", &ps); !got.IsZero() || !present || !slices.Equal(problemStrings(ps), []string{problem}) {

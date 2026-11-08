@@ -123,12 +123,15 @@ func FuzzReadTime(f *testing.F) {
 		"2024-04-04T5:56:07+0000", "2024-04-04T5:56:07Z", "2024-04-04T15:56:07,5+0000", "2024-04-04T15:56:07,5Z",
 		"2024-04-04T15:56:07.1234567891+0000", "2024-04-04T15:56:07.1234567891Z", "2024-04-04T15:56:07.000000000000Z",
 		// Near misses, each refused, without which a change that took them
-		// would pass: a one-digit minute, second, month or day; a dot with no
-		// digits; an offset of hours alone; a lower-case z or t; a one-digit
-		// offset's minute or hour; a space before the offset; a fraction with
-		// no offset; an offset with seconds.
+		// would pass: a one-digit minute, second, month or day, in an instant
+		// or a date alone; a dot with no digits; an offset of hours alone; a
+		// lower-case z or t; a space in place of the T; a one-digit offset's
+		// minute or hour; a space before the offset; a fraction with no
+		// offset; an offset with seconds.
 		"2024-04-04T15:5:07+0000", "2024-04-04T15:56:7+0000", "2024-4-04T15:56:07+0000", "2024-04-4T15:56:07+0000",
+		"2024-4-04", "2024-04-4", "2024-4-4",
 		"2024-04-04T15:56:07.+0000", "2024-04-04T15:56:07+00", "2024-04-04T15:56:07z", "2024-04-04t15:56:07Z",
+		"2024-04-04 15:56:07+0000", "2024-04-04 15:56:07Z",
 		"2024-04-04T15:56:07+00:0", "2024-04-04T15:56:07+5:30", "2024-04-04T15:56:07 +0000", "2024-04-04T15:56:07.5",
 		"2024-04-04T15:56:07+05:30:00", "2024-04-04T15:56:07.Z",
 		// Not times at all.
