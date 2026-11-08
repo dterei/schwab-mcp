@@ -148,6 +148,10 @@ func FuzzCodeFromRedirectAny(f *testing.F) {
 		"https://127.0.0.1/?error=access_denied&error_description=nope&code=C0.SECRETCODE%40",
 		"https://127.0.0.1/?state=s1&code=C0.SECRETCODE%40&state=evil", "https://127.0.0.1/?state=evil&state=s1&code=C0.SECRETCODE%40",
 		"https://127.0.0.1/?error=" + strings.Repeat("e", 300) + "&error_description=" + strings.Repeat("d", 300) + "&code=C0.SECRETCODE%40",
+		// Two codes, of which the first is taken, and states that differ from
+		// the one wanted only in case or by a space, each refused.
+		"https://127.0.0.1/?code=C0.first%40&code=C0.second%40&state=s1",
+		"https://127.0.0.1/?code=C0.abc%40&state=S1", "https://127.0.0.1/?code=C0.abc%40&state=s1%20",
 		// Schwab's own text holding the code, which an error quotes by design,
 		// and codes that span the parts of the error that quotes it.
 		"https://127.0.0.1/?code=C0.abcdefgh&error=C0.abcdefgh", "https://127.0.0.1/?code=different%20login&state=other",
