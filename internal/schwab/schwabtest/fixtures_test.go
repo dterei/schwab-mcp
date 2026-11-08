@@ -316,6 +316,83 @@ func TestTestdataHygieneCatches(t *testing.T) {
 	}
 }
 
+// handMade returns the entries of index that are not recordings: those of
+// the files made by hand, which the tests that pin names and values keep
+// to. A recording joins the tests that iterate every answer, and its values
+// are the value hygiene tests' to check.
+func handMade(index []Entry) []Entry {
+	var es []Entry
+	for _, e := range index {
+		if e.Source != "recorded" {
+			es = append(es, e)
+		}
+	}
+	return es
+}
+
+// handMadeText returns the text of the hand-made files of a testdata
+// folder, given as fsys and its index: README.md, each file, and the
+// entries of the files, for a test that looks for a value as text.
+func handMadeText(fsys fs.FS, index []Entry) ([]byte, error) {
+	text, err := fs.ReadFile(fsys, "README.md")
+	if err != nil {
+		return nil, err
+	}
+	es := handMade(index)
+	entries, err := json.Marshal(es)
+	if err != nil {
+		return nil, err
+	}
+	text = append(append(text, '\n'), entries...)
+	for _, e := range es {
+		file, err := fs.ReadFile(fsys, e.File)
+		if err != nil {
+			return nil, err
+		}
+		text = append(append(text, '\n'), file...)
+	}
+	return text, nil
+}
+
+// The hand-made text is README.md's, the hand-made files' and their
+// entries', and never a recording's, which may hold spares and UnknownHash
+// by design.
+func TestHandMadeText(t *testing.T) {
+	fsys := fstest.MapFS{
+		"README.md":                    {Data: []byte("# Fixtures\n")},
+		"a.json":                       {Data: []byte(`{"made":"by hand"}`)},
+		"recorded/2026-11-08/001.json": {Data: []byte(`[{"accountNumber":"` + SpareAccountNumbers[0] + `"}]`)},
+	}
+	var a, r Entry
+	a.File, a.Source = "a.json", "hand-made, modeled on nothing"
+	a.Request.Method, a.Request.Path, a.Request.Query = "GET", "/trader/v1/accounts/"+FixtureAccounts[0].Hash, "fields=positions"
+	a.Response.Headers = map[string][]string{"X-Request-Id": {"00000000-0000-4000-8000-000000000001"}}
+	r.File, r.Source, r.Recorded, r.Scrub = "recorded/2026-11-08/001.json", "recorded", "2026-11-08", "abc123 keep"
+	r.Request.Method, r.Request.Path = "GET", "/trader/v1/accounts/"+UnknownHash+"/transactions"
+	r.Request.Query = "symbol=" + SpareAccountNumbers[1]
+	r.Response.Headers = map[string][]string{"X-Request-Id": {"00000000-0000-4000-8000-000000000002"}}
+	text, err := handMadeText(fsys, []Entry{r, a})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"# Fixtures", `{"made":"by hand"}`, FixtureAccounts[0].Hash, "fields=positions", "00000000-0000-4000-8000-000000000001", "modeled on nothing"} {
+		if !bytes.Contains(text, []byte(want)) {
+			t.Errorf("the hand-made text lacks %s:\n%s", want, text)
+		}
+	}
+	for _, unwanted := range []string{SpareAccountNumbers[0], SpareAccountNumbers[1], UnknownHash, "00000000-0000-4000-8000-000000000002", "2026-11-08"} {
+		if bytes.Contains(text, []byte(unwanted)) {
+			t.Errorf("the hand-made text holds the recording's %s:\n%s", unwanted, text)
+		}
+	}
+	if es := handMade([]Entry{r, a, r}); len(es) != 1 || es[0].File != "a.json" {
+		t.Errorf("handMade kept %+v", es)
+	}
+	if _, err := handMadeText(fstest.MapFS{"README.md": fsys["README.md"]}, []Entry{a}); err == nil {
+		t.Error("a hand-made file that is not there was not reported")
+	}
+}
+
 // Index returns the entries in the file's order, each time a copy that the
 // caller may change, and each hand-made answer of an account endpoint names
 // that endpoint's Route.
@@ -332,7 +409,7 @@ func TestIndex(t *testing.T) {
 		t.Errorf("a change to what Index returned reached the next call: %+v", again[0])
 	}
 	routes := map[string]Route{}
-	for _, e := range Index() {
+	for _, e := range handMade(Index()) {
 		if r, ok := e.Route(); ok {
 			routes[e.File] = r
 		}
@@ -427,14 +504,14 @@ func TestKeptHeader(t *testing.T) {
 	}
 }
 
-// The fakes that stand in for real identifiers are what the fixtures hold,
-// and none is part of another value, so that a test can look for each as
-// text.
+// The fakes that stand in for real identifiers are what the hand-made
+// fixtures hold, and none is part of another value, so that a test can
+// look for each as text. A recording may hold spares and UnknownHash by
+// design; the value hygiene tests check its values.
 func TestFakes(t *testing.T) {
-	var all bytes.Buffer
-	for _, name := range Fixtures() {
-		all.Write(Fixture(t, name))
-		all.WriteByte('\n')
+	all, err := handMadeText(embeddedTestdata(t), Index())
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	var numbers []struct {
@@ -491,7 +568,7 @@ func TestFakes(t *testing.T) {
 			t.Errorf("a fixture row has UnknownActivityID, %d", r.ActivityID)
 		}
 	}
-	if bytes.Contains(all.Bytes(), []byte(UnknownHash)) {
+	if bytes.Contains(all, []byte(UnknownHash)) {
 		t.Error("a fixture holds UnknownHash")
 	}
 
@@ -506,7 +583,7 @@ func TestFakes(t *testing.T) {
 		if len(n) != 8 || strings.Trim(n, "0123456789") != "" || n[0] == '0' {
 			t.Errorf("spare %d, %q, is not 8 digits without a leading 0", i, n)
 		}
-		if bytes.Contains(all.Bytes(), []byte(n)) {
+		if bytes.Contains(all, []byte(n)) {
 			t.Errorf("spare %s is in a fixture", n)
 		}
 		for _, o := range others {
@@ -519,7 +596,7 @@ func TestFakes(t *testing.T) {
 				t.Errorf("spare %s is in spare %s", n, m)
 			}
 		}
-		if h := HashFor(n); bytes.Contains(all.Bytes(), []byte(h)) || slices.Contains(others, h) {
+		if h := HashFor(n); bytes.Contains(all, []byte(h)) || slices.Contains(others, h) {
 			t.Errorf("the hash of spare %s is in a fixture or another fake", n)
 		}
 	}
