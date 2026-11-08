@@ -91,7 +91,7 @@ type SecuritiesAccount struct {
 
 	// Positions are what the account holds, when they were asked for. An
 	// account that holds nothing has none, even then.
-	Positions []Position `json:"positions,omitempty"`
+	Positions []Position `json:"positions,omitzero"`
 
 	// InitialBalances are as of the start of the session, and stay so
 	// through the evening and the weekend. CurrentBalances are as of the

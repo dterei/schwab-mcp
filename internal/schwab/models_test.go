@@ -1250,6 +1250,62 @@ func extraKeys(a, b any, path string) []string {
 	return extra
 }
 
+// A list that Schwab sends empty is still there, and empty, after the
+// record's encoding, and one that Schwab does not send is still absent.
+func TestEmptyListsSurviveEncoding(t *testing.T) {
+	for _, tt := range []struct {
+		list string // the list sent, or "" for none
+		key  string // how the encoding holds it, or "" for not at all
+	}{
+		{"[]", "[]"},
+		{"", ""},
+	} {
+		account := `{"securitiesAccount":` + withKeys(baseSecuritiesAccount, "positions", tt.list) + "}"
+		a, back, enc := roundTrip[Account](t, account)
+		if len(a.Problems) > 0 || encodedList(enc, "positions") != tt.key ||
+			(a.SecuritiesAccount.Positions == nil) != (tt.list == "") || (back.SecuritiesAccount.Positions == nil) != (tt.list == "") {
+			t.Errorf("positions %q: decoded as %#v, %q; encoded as %s; decoded again as %#v",
+				tt.list, a.SecuritiesAccount.Positions, a.Problems, enc, back.SecuritiesAccount.Positions)
+		}
+
+		in := withKeys(`{"assetType":"OPTION","symbol":"X"}`, "optionDeliverables", tt.list)
+		tx, txBack, enc := roundTrip[Transaction](t, withKeys(baseTransaction, "transferItems", "["+withKeys(baseLeg, "instrument", in)+"]"))
+		sent, got := tx.TransferItems[0].Instrument.OptionDeliverables, txBack.TransferItems[0].Instrument.OptionDeliverables
+		if len(tx.Problems) > 0 || encodedList(enc, "optionDeliverables") != tt.key || (sent == nil) != (tt.list == "") || (got == nil) != (tt.list == "") {
+			t.Errorf("optionDeliverables %q: decoded as %#v, %q; encoded as %s; decoded again as %#v", tt.list, sent, tx.Problems, enc, got)
+		}
+	}
+}
+
+// roundTrip decodes body as a T, encodes the record and decodes that, and
+// returns both records and the encoding.
+func roundTrip[T any](t *testing.T, body string) (sent, back T, enc []byte) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(body), &sent); err != nil {
+		t.Fatal(err)
+	}
+	enc, err := json.Marshal(sent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(enc, &back); err != nil {
+		t.Fatal(err)
+	}
+	return sent, back, enc
+}
+
+// encodedList returns the empty list that enc holds under key, "[]", or ""
+// if enc does not hold key at all, or "?" if it holds something else there.
+func encodedList(enc []byte, key string) string {
+	switch {
+	case bytes.Contains(enc, []byte(`"`+key+`":[]`)):
+		return "[]"
+	case bytes.Contains(enc, []byte(`"`+key+`"`)):
+		return "?"
+	}
+	return ""
+}
+
 // recordTypes are the types that decode themselves leniently.
 var recordTypes = []reflect.Type{
 	reflect.TypeFor[AccountNumber](), reflect.TypeFor[Account](), reflect.TypeFor[Position](),
