@@ -76,6 +76,12 @@ type liveRun struct {
 	failures []string      // why the run fails, each without values
 	failing  int           // the findings that fail
 	notRun   []string      // the parts of the run that did not run, or stopped part way
+
+	// What the probes share, set as they run, under mu: how many reads of
+	// the account API Schwab refused as unauthorized, and the findings that
+	// read has written, each once.
+	refused  int
+	reported map[string]bool
 }
 
 // A liveAccount is an account of the run, as the account numbers list it.
@@ -96,13 +102,21 @@ type liveProbe struct {
 	name string // as the report names it, such as "Q1"
 	mode string // the mode it runs in
 	run  func(ctx context.Context, r *liveRun) verdict
+	// ready, if set, says before any request of the run whether the probe
+	// can run now, as the rate probe needs a rate file that no other
+	// process has written for two minutes. An error stops the run before
+	// it sends anything, with why.
+	ready func(ctx context.Context, r *liveRun) error
 }
 
 // A verdict is what a probe found: its answer to its question, such as "a
 // year" or "inconclusive", and the evidence for it, as lines of the report.
+// w8 marks an answer that reveals W-8 withholding rows, as the report marks
+// such a line for the owner to decide on before sharing it.
 type verdict struct {
 	answer   string
 	evidence []reportLine
+	w8       bool
 }
 
 // livePlan returns how many requests a run in mode may send, token
@@ -289,11 +303,22 @@ func (r *liveRun) connect(ctx context.Context, cancel context.CancelCauseFunc) e
 // the checks, in the default mode, and the probes of r's mode. A mode whose
 // plan would outlast the run's deadline, or the login, does not start: an
 // opt-in mode's before any request, and the default mode's, which depends
-// on the accounts, after the account numbers.
+// on the accounts, after the account numbers. Nor does a run with a probe
+// that is not ready, before any request.
 func (r *liveRun) run(ctx context.Context) {
 	if r.mode != modeDefault && !r.planFits(0) {
 		r.notRun = append(r.notRun, "everything")
 		return
+	}
+	for _, p := range r.probes {
+		if p.mode != r.mode || p.ready == nil {
+			continue
+		}
+		if err := p.ready(ctx, r); err != nil {
+			r.stop(fmt.Errorf("probe %s cannot start: %w", p.name, err))
+			r.notRun = append(r.notRun, "everything")
+			return
+		}
 	}
 	r.attempt(ctx, "the account numbers", r.readAccounts)
 	if ctx.Err() == nil && r.mode == modeDefault && !r.planFits(len(r.accounts)) {
@@ -375,7 +400,7 @@ func (r *liveRun) runProbe(ctx context.Context, p liveProbe) {
 	if !ok {
 		sec.add("panicked, so it has no verdict")
 	} else {
-		sec.add("verdict: " + v.answer)
+		sec.lines = append(sec.lines, reportLine{text: "verdict: " + v.answer, w8: v.w8})
 		sec.lines = append(sec.lines, v.evidence...)
 	}
 	r.write(sec)
@@ -455,9 +480,25 @@ func firstActivityID(rep *reply) string {
 // accounts/{account 1}/transactions: its status, Content-Type, the names
 // of its correlation headers and its records, and what checkAnswer finds,
 // once the scrubber has learned the answer's identifiers. A finding that
-// fails fails the run. Once the run has stopped, or past its deadline, it
-// sends nothing and returns ctx's error.
+// fails fails the run. A kind of "" is an endpoint whose answers hold no
+// records of this package's, such as the orders' or Market Data's, which
+// is reported without records or findings. Once the run has stopped, or
+// past its deadline, it sends nothing and returns ctx's error.
 func (r *liveRun) get(ctx context.Context, endpoint, path string, query url.Values, kind string) (*reply, error) {
+	return r.fetch(ctx, r.client, endpoint, path, query, kind, false)
+}
+
+// read is get for a probe that reads an endpoint many times, as the history
+// walk does: it checks every answer as get does, but writes one to the
+// report only when it fails or holds a finding that the report does not
+// have yet for its endpoint, and counts a finding that fails once, however
+// many answers hold it.
+func (r *liveRun) read(ctx context.Context, endpoint, path string, query url.Values, kind string) (*reply, error) {
+	return r.fetch(ctx, r.client, endpoint, path, query, kind, true)
+}
+
+// fetch is get through c, a Client of r's Auth, or read when quiet is set.
+func (r *liveRun) fetch(ctx context.Context, c *Client, endpoint, path string, query url.Values, kind string, quiet bool) (*reply, error) {
 	if r.passed() {
 		r.stop(errRunDeadline)
 	}
@@ -465,12 +506,17 @@ func (r *liveRun) get(ctx context.Context, endpoint, path string, query url.Valu
 		return nil, err
 	}
 	sec := &reportSection{title: endpoint}
-	rep, err := r.client.get(ctx, path, query)
+	rep, err := c.get(ctx, path, query)
 	if err != nil {
 		r.scrub.learnError(err)
 		if se, ok := errors.AsType[*Error](err); ok {
-			if se.Reference != "" {
+			switch {
+			case se.Reference != "":
 				r.stop(errors.New("Schwab's edge network refused a request with an Access Denied page"))
+			case (se.Status == http.StatusUnauthorized || se.Status == http.StatusForbidden) && strings.HasPrefix(path, "/trader/v1/"):
+				r.mu.Lock()
+				r.refused++
+				r.mu.Unlock()
 			}
 			sec.addf("failed with %d, %s; %s", se.Status, contentType(se.Header), correlationNames(se.Header))
 		}
@@ -486,15 +532,45 @@ func (r *liveRun) get(ctx context.Context, endpoint, path string, query url.Valu
 	}
 	r.scrub.learnAnswer(rep.body)
 	r.scrub.learnHeader(rep.header)
+	if kind == "" {
+		sec.addf("%d, %s; %s", rep.status, contentType(rep.header), correlationNames(rep.header))
+		if !quiet {
+			r.write(sec)
+		}
+		return rep, nil
+	}
 	sec.addf("%d, %s, %s; %s", rep.status, contentType(rep.header), r.records(kind, rep), correlationNames(rep.header))
+	news := false
 	for _, f := range checkAnswer(kind, rep.body) {
+		if quiet && !r.firstReport(endpoint, f) {
+			continue
+		}
+		news = true
 		sec.add(f.String())
 		if f.fails {
 			r.failing++
 		}
 	}
-	r.write(sec)
+	if !quiet || news {
+		r.write(sec)
+	}
 	return rep, nil
+}
+
+// firstReport reports whether f, a finding of an answer of endpoint, is
+// one that read has not reported for that endpoint yet, and notes it.
+func (r *liveRun) firstReport(endpoint string, f finding) bool {
+	key := fmt.Sprint(endpoint, "\x00", f.check, "\x00", f.path, "\x00", f.what, "\x00", f.fails)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.reported[key] {
+		return false
+	}
+	if r.reported == nil {
+		r.reported = map[string]bool{}
+	}
+	r.reported[key] = true
+	return true
 }
 
 // contentType returns h's Content-Type as the report gives it.

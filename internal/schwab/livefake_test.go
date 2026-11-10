@@ -348,6 +348,14 @@ func TestLiveScrubsWhatItPrints(t *testing.T) {
 	}
 }
 
+// writeJSON writes body, JSON, with status, as the fake's own answers are
+// written.
+func writeJSON(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(body))
+}
+
 // noLongWaits fails the test if waits, the clock's, hold a wait of a second
 // or more: a Client that took a refusal for a failure of the network would
 // wait 1, 2 and 4 seconds before it tried again.
@@ -613,6 +621,53 @@ func TestLiveProbes(t *testing.T) {
 	if n := rate.f.APICalls(); n != 2 {
 		t.Errorf("the rate run sent %d requests, want 2", n)
 	}
+}
+
+// A probe's quiet reads are each checked, and each written to the report
+// only when it fails or holds a finding that the report lacks for its
+// endpoint; a finding that fails counts once, however many answers hold
+// it, and a failed read is written each time.
+func TestLiveReadsQuietly(t *testing.T) {
+	fl := newFakeLive(t)
+	account := `{"securitiesAccount":` + baseSecuritiesAccount + `,"zqNewKey":1}`
+	fl.f.OverridePath("GET /trader/v1/zq/{n}", func(w http.ResponseWriter, r *http.Request) {
+		switch r.PathValue("n") {
+		case "unknown":
+			writeJSON(w, http.StatusOK, "["+account+"]")
+		case "refused":
+			writeJSON(w, http.StatusBadRequest, `{"message":"a guess: refused"}`)
+		default:
+			writeJSON(w, http.StatusOK, string(readTestdata(t, "transaction.json")))
+		}
+	})
+	fl.r.probes = []liveProbe{{name: "Z1", mode: modeDefault, run: func(ctx context.Context, r *liveRun) verdict {
+		for _, read := range []struct{ endpoint, path, kind string }{
+			{"zq repeated", "/trader/v1/zq/repeated", "transaction"},
+			{"zq repeated", "/trader/v1/zq/repeated", "transaction"},
+			{"zq repeated again", "/trader/v1/zq/repeated", "transaction"},
+			{"zq unknown", "/trader/v1/zq/unknown", "accounts"},
+			{"zq unknown", "/trader/v1/zq/unknown", "accounts"},
+			{"zq refused", "/trader/v1/zq/refused", "accounts"},
+			{"zq refused", "/trader/v1/zq/refused", "accounts"},
+			{"zq orders", "/trader/v1/zq/orders", ""},
+		} {
+			_, _ = r.read(ctx, read.endpoint, read.path, nil, read.kind)
+		}
+		return verdict{answer: "read"}
+	}}}
+	err := fl.run(t)
+	if fmt.Sprint(err) != "the live run failed: 1 finding fails" {
+		t.Errorf("the run's error: %v", err)
+	}
+	report := fl.report(t)
+	for title, n := range map[string]int{"zq repeated": 1, "zq repeated again": 1, "zq unknown": 1, "zq refused": 2, "zq orders": 0} {
+		if got := strings.Count(report, "\n## "+title+"\n"); got != n {
+			t.Errorf("%d sections of %s, want %d:\n%s", got, title, n, report)
+		}
+	}
+	wantLines(t, report, "## zq repeated", "200, application/json, 1 record; no correlation header", assetTypeSentTwice,
+		"## zq unknown", "200, application/json, 1 record; no correlation header", "unknown key: zqNewKey: no field takes it",
+		"## zq refused", "failed with 400, application/json; no correlation header")
 }
 
 // A run's folders are refused inside the module or a git work tree, an out
