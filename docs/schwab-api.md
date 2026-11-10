@@ -152,9 +152,9 @@ that followed live failures.
   ([piekstra/schwab-cli](https://github.com/piekstra/schwab-cli/blob/main/docs/api.md)),
   though in December 2025 a client fixed failures that it put down to a
   missing required parameter, and it now insists on `types`
-  ([SchwabPy](https://github.com/jaycollett/schwabpy)). The live mode's
-  extras ask for a window without types ([probes](live.md#the-probes)).
-  This project always sends it.
+  ([SchwabPy](https://github.com/jaycollett/schwabpy)). This project's
+  client, and so its CLI, always sends `types`; only the live mode's extras
+  ask Schwab for a window without it ([probes](live.md#the-probes)).
 - Dates are instants in UTC, formatted `yyyy-MM-dd'T'HH:mm:ss.SSSZ`.
 - The spec types `types` as a single value, but a comma-separated list
   works: schwab-py and this project's CLI send all 15 types that way.
