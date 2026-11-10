@@ -780,6 +780,50 @@ func TestRefusedAccountFailsTheRun(t *testing.T) {
 	}
 }
 
+// Only Schwab's 400 for a later window is taken for history it will not
+// serve. Anything else that fails a later window fails the run: a 429 after
+// every try, a 403 from Schwab's network, a 503 after every try, and a
+// refresh that Schwab refuses for the app's key or secret, whose 400 is the
+// token endpoint's.
+func TestLaterWindowFailureFailsTheRun(t *testing.T) {
+	override := func(h http.HandlerFunc) func(*fakeSchwab) {
+		return func(f *fakeSchwab) { f.Override(schwabtest.TransactionsRoute, h) }
+	}
+	for _, tc := range []struct {
+		name   string
+		fail   func(f *fakeSchwab) // on the fake's goroutine, as the second request for transactions arrives
+		status int                 // of the error that fails the run
+		is     error               // that the error must be, if not nil
+	}{
+		{"rate limited", override(schwabtest.TooMany), http.StatusTooManyRequests, schwab.ErrRateLimited},
+		{"turned away by Schwab's network", override(schwabtest.AccessDenied), http.StatusForbidden, nil},
+		{"unavailable", override(schwabtest.Unavailable), http.StatusServiceUnavailable, nil},
+		{"the app rejected", func(f *fakeSchwab) {
+			f.RevokeAccess()
+			f.FailTokens(schwabtest.Failure{Status: http.StatusBadRequest, Body: `{"error":"invalid_client","error_description":"Unauthorized"}`})
+		}, http.StatusBadRequest, schwab.ErrAppRejected},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := setup(t)
+			f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+			doLogin(t)
+			timeNow = func() time.Time { return testNow.Add(2 * time.Minute) } // a token not just issued, nor stale
+			f.atSecondTransactions(func() { tc.fail(f) })
+			out, stderr, err := runTx(t)
+			var se *schwab.Error
+			if !errors.As(err, &se) || se.Status != tc.status || tc.is != nil && !errors.Is(err, tc.is) || !strings.Contains(err.Error(), "...2222") {
+				t.Errorf("got %v, printed %d bytes, warned %q; want the run to fail with HTTP %d", err, len(out), stderr, tc.status)
+			}
+			if strings.Contains(stderr, "older ones are missing") {
+				t.Errorf("took the failure for refused history: %q", stderr)
+			}
+			if len(f.queries(schwabtest.TransactionsRoute)) == 0 {
+				t.Error("the run failed before a request for transactions was answered")
+			}
+		})
+	}
+}
+
 // Records that share a time, and records whose ids could not be read, are
 // each kept: the only repeats dropped are a record seen in two windows.
 func TestRecordsThatShareATimeAreKept(t *testing.T) {
@@ -797,6 +841,21 @@ func TestRecordsThatShareATimeAreKept(t *testing.T) {
 	var raws []json.RawMessage
 	if err := json.Unmarshal([]byte(out), &raws); err != nil || len(raws) != 6 {
 		t.Errorf("printed %d transactions, want 6 (%v)", len(raws), err)
+	}
+}
+
+// Records that share a time are ranked by their ids, the highest first, so
+// that -n keeps the same ones whatever order Schwab sends them in.
+func TestRecordsThatShareATimeAreRankedByID(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 3, testNow.Add(-time.Hour), 0) // three fills at one instant
+	doLogin(t)
+	out, _, err := runTx(t, "-json", "-n", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := idsFromJSON(t, out), []string{"1003", "1002"}; !equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
