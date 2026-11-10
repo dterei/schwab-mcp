@@ -1669,9 +1669,12 @@ func testEdgeOnTheFake(t *testing.T) {
 
 // The extras under the fake's settings: a window that leaves out a row at
 // its start, or at its end; a row whose time is finer than its JSON shows,
-// which settles neither bound; windows that take a row by its tradeDate;
-// a longest window of 366 days; and, on an account without a month-end
-// interest row, an evening fill, whose time comes before its tradeDate.
+// which settles neither bound; a gateway that cuts each window's bounds to
+// whole seconds, which settles both by whole seconds, but not with an
+// exclusive end, and which, cutting one row's windows alone, makes the
+// rows disagree; windows that take a row by its tradeDate; a longest
+// window of 366 days; and, on an account without a month-end interest
+// row, an evening fill, whose time comes before its tradeDate.
 func testExtrasOnTheFake(t *testing.T) {
 	t.Run("the tokens of the 401s", func(t *testing.T) {
 		t.Parallel()
@@ -1715,17 +1718,20 @@ func testExtrasOnTheFake(t *testing.T) {
 		})
 	}
 	inclusive := "a window's start is inclusive and its end inclusive"
+	dropped := "so Schwab drops a bound's milliseconds"
+	every := func(string) bool { return true }
 	for _, tc := range []struct {
 		name     string
 		rules    schwabtest.TransactionRules
-		finer    bool // with a row whose time is finer than it shows
+		finer    bool                    // with a row whose time is finer than it shows
+		whole    func(query string) bool // whether a window's bounds are cut to whole seconds
 		want     string
 		evidence []string
 	}{
 		{
 			"an exclusive start",
 			schwabtest.TransactionRules{ExclusiveStart: true},
-			false, "a window's start is exclusive and its end inclusive; a window takes a row by its time",
+			false, nil, "a window's start is exclusive and its end inclusive; a window takes a row by its time",
 			[]string{
 				"a window whose start is its end, at a row's time: 200, 0 rows, without the row",
 				"the bounds, row 1: the start is exclusive and the end inclusive", "the bounds, row 2: the start is exclusive and the end inclusive",
@@ -1734,7 +1740,7 @@ func testExtrasOnTheFake(t *testing.T) {
 		{
 			"an exclusive end",
 			schwabtest.TransactionRules{ExclusiveEnd: true},
-			false, "a window's start is inclusive and its end exclusive; a window takes a row by its time",
+			false, nil, "a window's start is inclusive and its end exclusive; a window takes a row by its time",
 			[]string{
 				"a window whose start is its end, at a row's time: 200, 0 rows, without the row",
 				"the bounds, row 1: the start is inclusive and the end exclusive", "the bounds, row 2: the start is inclusive and the end exclusive",
@@ -1743,18 +1749,46 @@ func testExtrasOnTheFake(t *testing.T) {
 		{
 			"a time finer than it shows",
 			schwabtest.TransactionRules{},
-			true, inclusive + "; 1 row kept a finer time than it shows; a window takes a row by its time",
+			true, nil, inclusive + "; 1 row kept a finer time than it shows; a window takes a row by its time",
 			[]string{
 				"a window whose start is its end, at a row's time: 200, 0 rows, without the row",
-				"the bounds, row 1: [t.001, t+1s] holds it, so Schwab keeps a finer time than it shows, and it settles neither bound",
+				"the bounds, row 1: [t.001, t+1s] holds it and [t-1s, t.000] does not, so Schwab keeps a finer time than it shows, and it settles neither bound",
 				"the bounds, row 2: the start is inclusive and the end inclusive",
 				"a row by its id is byte for byte its row in the list",
 			},
 		},
 		{
+			"bounds cut to whole seconds",
+			schwabtest.TransactionRules{},
+			false, every, inclusive + " by whole seconds, since Schwab drops a bound's milliseconds; a window takes a row by its time",
+			[]string{
+				"the bounds, row 1: [t-1s, t.000] and [t.001, t+1s] both hold it, " + dropped + "; by whole seconds the start is inclusive and the end inclusive",
+				"the bounds, row 2: [t-1s, t.000] and [t.001, t+1s] both hold it, " + dropped + "; by whole seconds the start is inclusive and the end inclusive",
+			},
+		},
+		{
+			"bounds cut to whole seconds, and an exclusive end",
+			schwabtest.TransactionRules{ExclusiveEnd: true},
+			false, every, "the bounds: inconclusive, though Schwab drops a bound's milliseconds; a window takes a row by its time",
+			[]string{
+				"the bounds, row 1: [t.001, t+1s] holds it and [t-1s, t.999] does not, " + dropped +
+					", and an exclusive end, or a finer time than the row shows, leaves it out of [t-1s, t]: it settles neither bound",
+			},
+		},
+		{
+			"bounds cut to whole seconds for one row alone",
+			schwabtest.TransactionRules{},
+			false, func(q string) bool { return strings.Contains(q, "startDate=2025-06-02T14%3A30%3A2") },
+			"the bounds: inconclusive, since the rows disagree; a window takes a row by its time",
+			[]string{
+				"the bounds, row 1: [t-1s, t.000] and [t.001, t+1s] both hold it, " + dropped + "; by whole seconds the start is inclusive and the end inclusive",
+				"the bounds, row 2: the start is inclusive and the end inclusive",
+			},
+		},
+		{
 			"windows by tradeDate",
 			schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate},
-			false, inclusive + "; a window takes a row by its tradeDate",
+			false, nil, inclusive + "; a window takes a row by its tradeDate",
 			[]string{
 				"the bounds, row 1: the start is inclusive and the end inclusive",
 				"the bounds, row 2: the windows that must hold it do not, so it settles nothing",
@@ -1764,7 +1798,7 @@ func testExtrasOnTheFake(t *testing.T) {
 		{
 			"a longest window of 366 days",
 			schwabtest.TransactionRules{MaxWindow: func(start time.Time) time.Time { return start.Add(366 * oneDay) }},
-			false, inclusive + "; a window takes a row by its time",
+			false, nil, inclusive + "; a window takes a row by its time",
 			[]string{"a window of 365 days and a second: 200, 0 rows", "a window of 366 days: 200, 0 rows"},
 		},
 	} {
@@ -1772,6 +1806,15 @@ func testExtrasOnTheFake(t *testing.T) {
 			t.Parallel()
 			fl := newProbeLive(t, probeNow, "Q1", "extras")
 			fl.f.SetTransactionRules(tc.rules)
+			if tc.whole != nil {
+				// A gateway that keeps a window's bounds to whole seconds.
+				millis := regexp.MustCompile(`(T\d\d%3A\d\d%3A\d\d)\.\d\d\dZ`)
+				fl.f.OnAPI(func(r *http.Request) {
+					if schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute && tc.whole(r.URL.RawQuery) {
+						r.URL.RawQuery = millis.ReplaceAllString(r.URL.RawQuery, "${1}.000Z")
+					}
+				})
+			}
 			if tc.finer {
 				shown := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
 				fl.f.AddRow(firstAccount.Hash, schwabtest.Row{

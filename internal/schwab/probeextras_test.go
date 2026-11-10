@@ -37,26 +37,41 @@ const (
 )
 
 // decide returns what b shows of the windows' bounds: whether the start and
-// the end are inclusive, or that the row's time is finer than it shows,
-// which the last window holding it says, and which settles neither bound.
-// ok is false when b settles nothing, as when the row is not in the
-// windows that must hold it.
-func (b boundsSeen) decide() (start, end string, hidden, ok bool) {
+// the end are inclusive; whether Schwab drops a bound's milliseconds,
+// coarse; or that the row's time is finer than it shows, hidden, which
+// settles neither bound. The last window holding the row shows a finer
+// time, unless the first holds it too, since no time is both at or before
+// t.000 and at or after t.001: then Schwab drops the milliseconds, and
+// whole seconds decide the bounds, [t-1s, t] and [t, t+1s] both holding the
+// row. So does the last window holding it while [t-1s, t.999] does not,
+// which a row shown at t lies in otherwise: but then the row lies after t,
+// by an exclusive end or a finer time than it shows, which settles
+// neither bound. ok is false when b settles nothing, as when the row is
+// not in the windows that must hold it, or a window holds it while one
+// that takes in all it does not: [t-1s, t.999] all of [t-1s, t.000], and
+// [t.000, t+1s] all of [t.001, t+1s].
+func (b boundsSeen) decide() (start, end string, coarse, hidden, ok bool) {
 	switch {
+	case b[0] && !b[1], b[3] && !b[2]:
+		return "", "", false, false, false
+	case b[0] && b[3]:
+		return boundIn, boundIn, true, false, true
+	case b[3] && !b[1]:
+		return "", "", true, false, false
 	case b[3]:
-		return "", "", true, false
-	case b[0] && b[1]:
+		return "", "", false, true, false
+	case b[0]:
 		end = boundIn
 	case b[1]:
 		end = boundOut
 	default:
-		return "", "", false, false
+		return "", "", false, false, false
 	}
 	start = boundOut
 	if b[2] {
 		start = boundIn
 	}
-	return start, end, false, true
+	return start, end, false, false, true
 }
 
 // extrasRows are the history rows that the extras ask about, from one
@@ -315,7 +330,7 @@ func (r *liveRun) extrasBounds(rows []Transaction, held func(url.Values, *Transa
 		return "the bounds: inconclusive, with no row to ask about"
 	}
 	var starts, ends []string
-	hidden := 0
+	hidden, coarse, dropped := 0, 0, 0
 	for i := range rows {
 		var b boundsSeen
 		failed := false
@@ -323,15 +338,26 @@ func (r *liveRun) extrasBounds(rows []Transaction, held func(url.Values, *Transa
 			in, _, _, ok := held(rawWindow(w, true), &rows[i])
 			b[k], failed = in, failed || !ok
 		}
-		start, end, finer, ok := b.decide()
+		start, end, whole, finer, ok := b.decide()
+		if whole && !failed {
+			dropped++
+		}
 		switch {
 		case failed:
 			add("the bounds, row %d: a window was refused, so it settles nothing", i+1)
 		case finer:
 			hidden++
-			add("the bounds, row %d: [t.001, t+1s] holds it, so Schwab keeps a finer time than it shows, and it settles neither bound", i+1)
+			add("the bounds, row %d: [t.001, t+1s] holds it and [t-1s, t.000] does not, so Schwab keeps a finer time than it shows, and it settles neither bound", i+1)
+		case whole && !ok:
+			add("the bounds, row %d: [t.001, t+1s] holds it and [t-1s, t.999] does not, so Schwab drops a bound's milliseconds, "+
+				"and an exclusive end, or a finer time than the row shows, leaves it out of [t-1s, t]: it settles neither bound", i+1)
 		case !ok:
 			add("the bounds, row %d: the windows that must hold it do not, so it settles nothing", i+1)
+		case whole:
+			coarse++
+			starts, ends = append(starts, start), append(ends, end)
+			add("the bounds, row %d: [t-1s, t.000] and [t.001, t+1s] both hold it, so Schwab drops a bound's milliseconds; "+
+				"by whole seconds the start is %s and the end %s", i+1, start, end)
 		default:
 			starts, ends = append(starts, start), append(ends, end)
 			add("the bounds, row %d: the start is %s and the end %s", i+1, start, end)
@@ -344,10 +370,15 @@ func (r *liveRun) extrasBounds(rows []Transaction, held func(url.Values, *Transa
 	switch {
 	case len(starts) == 0 && hidden > 0:
 		return "the bounds: inconclusive, since a row's time is finer than it shows"
+	case len(starts) == 0 && dropped > 0:
+		return "the bounds: inconclusive, though Schwab drops a bound's milliseconds"
 	case len(starts) == 0:
 		return "the bounds: inconclusive"
-	case len(slices.Compact(slices.Sorted(slices.Values(starts)))) > 1 || len(slices.Compact(slices.Sorted(slices.Values(ends)))) > 1:
+	case len(slices.Compact(slices.Sorted(slices.Values(starts)))) > 1 || len(slices.Compact(slices.Sorted(slices.Values(ends)))) > 1,
+		coarse > 0 && coarse < len(starts):
 		return "the bounds: inconclusive, since the rows disagree" + finer
+	case coarse > 0:
+		return "a window's start is " + starts[0] + " and its end " + ends[0] + " by whole seconds, since Schwab drops a bound's milliseconds" + finer
 	}
 	return "a window's start is " + starts[0] + " and its end " + ends[0] + finer
 }
@@ -391,26 +422,52 @@ func (r *liveRun) extrasFilterOn(row *Transaction, held func(url.Values, *Transa
 // boundsWords returns the words of the windows' bounds as the report names
 // them, for a test.
 func boundsWords(b boundsSeen) string {
-	start, end, hidden, ok := b.decide()
+	start, end, coarse, hidden, ok := b.decide()
 	switch {
 	case hidden:
 		return "hidden"
+	case coarse && !ok:
+		return "by whole seconds, none"
 	case !ok:
 		return "none"
+	case coarse:
+		return "by whole seconds " + start + " " + end
 	}
 	return strings.Join([]string{start, end}, " ")
 }
 
 // The four windows around a row's time t decide the bounds: [t.001, t+1s]
-// holding the row shows a finer time than it shows, which settles neither;
+// holding the row and [t-1s, t.000] too shows that Schwab drops a bound's
+// milliseconds, both bounds being inclusive by whole seconds, since no time
+// lies in both; and so does [t.001, t+1s] holding it while [t-1s, t.999]
+// does not, which then settles neither bound. [t.001, t+1s] holding it
+// otherwise shows a finer time than the row shows, which settles neither;
 // else [t-1s, t.999] must hold it, [t-1s, t.000] holding it too makes the
 // end inclusive, and [t.000, t+1s] holding it the start. Windows that miss
-// the row where they must hold it settle nothing.
+// the row where they must hold it settle nothing, nor do windows that hold
+// it while a window that takes in all they do does not.
 func TestBoundsDecide(t *testing.T) {
+	for want, b := range map[string]boundsSeen{
+		"by whole seconds inclusive inclusive": {true, true, true, true},
+		"by whole seconds, none":               {false, false, true, true},
+		"hidden":                               {false, true, true, true},
+		"inclusive inclusive":                  {true, true, true, false},
+		"exclusive exclusive":                  {false, true, false, false},
+	} {
+		if got := boundsWords(b); got != want {
+			t.Errorf("windows holding the row %v: %q, want %q", b, got, want)
+		}
+	}
 	for i := range 16 {
 		b := boundsSeen{i&1 != 0, i&2 != 0, i&4 != 0, i&8 != 0}
 		var want string
 		switch {
+		case b[0] && !b[1], b[3] && !b[2]:
+			want = "none"
+		case b[0] && b[3]:
+			want = "by whole seconds inclusive inclusive"
+		case b[3] && !b[1]:
+			want = "by whole seconds, none"
 		case b[3]:
 			want = "hidden"
 		case !b[1]:
