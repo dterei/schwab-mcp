@@ -2,6 +2,7 @@ package schwab
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,12 +39,15 @@ const homeLabel = "~"
 // a text; a shorter one is matched only as a whole token.
 const longValue = 6
 
-// A liveScrubber keeps identifiers and local paths out of what a live run
-// prints and writes. scrub replaces, in any text, each identifier and path
-// that the run has seen with a label, such as {account 2} for an account
-// number or ~ for the home folder, and holds, the self-check, says whether
-// a text still holds one. It is built from the run's paths and its first
-// answers, and learns more as answers arrive.
+// A liveScrubber keeps identifiers, secrets and local paths out of what a
+// live run prints and writes. scrub replaces, in any text, each identifier,
+// secret and path that the run has seen with a label, such as {account 2}
+// for an account number, {access token 1} for a token or ~ for the home
+// folder, and holds, the self-check, says whether a text still holds one.
+// It is built from the run's paths, the app's key and secret, the login's
+// tokens and the run's first answers, and learns more as requests go and
+// answers arrive. Identifiers and secrets are matched escaped too, as a
+// path or a form spells them.
 //
 // It matches as a strings.Replacer cannot:
 //   - an identifier, a nickname or a symbol of 6 characters or more
@@ -329,8 +333,8 @@ func short(value string) bool {
 }
 
 // addIdent gives value, an identifier of kind, such as "order id", the
-// next label of its kind, unless it has one; spelled escaped for a path,
-// it has the same label.
+// next label of its kind, unless it has one; spelled escaped for a path or
+// for a query, as a form sends a refresh token, it has the same label.
 func (s *liveScrubber) addIdent(kind, value string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -347,9 +351,15 @@ func (s *liveScrubber) addIdentLocked(kind, value string) {
 	}
 	s.counts[kind]++
 	label := fmt.Sprintf("{%s %d}", kind, s.counts[kind])
-	for _, v := range []string{value, url.PathEscape(value)} {
+	for _, v := range spellings(value) {
 		s.put(s.idents, asciiLower(v), label)
 	}
+}
+
+// spellings returns the ways a text may spell value, an identifier: as it
+// is, and escaped for a path and for a query.
+func spellings(value string) []string {
+	return slices.Compact([]string{value, url.PathEscape(value), url.QueryEscape(value)})
 }
 
 // addAccount labels the account number and the hash of the nth account
@@ -372,7 +382,7 @@ func (s *liveScrubber) addAccountLocked(n int, number, hash string) {
 		case s.labels[label]:
 			s.addIdentLocked(a.kind, a.value)
 		default:
-			for _, v := range []string{a.value, url.PathEscape(a.value)} {
+			for _, v := range spellings(a.value) {
 				s.put(s.idents, asciiLower(v), label)
 			}
 			s.counts[a.kind] = max(s.counts[a.kind], n)
@@ -476,7 +486,8 @@ func pathSpellings(path string) []string {
 
 // identKeys are the keys of Schwab's answers whose values the scrubber
 // learns, with the kind of each, and whether it is a name, matched as it
-// is, rather than an identifier, matched in any case.
+// is, rather than an identifier, matched in any case: the API's, and the
+// tokens of the token endpoint's.
 var identKeys = []struct {
 	key, kind string
 	name      bool
@@ -494,6 +505,9 @@ var identKeys = []struct {
 	{"underlyingSymbol", "symbol", true},
 	{"rootSymbol", "symbol", true},
 	{"uniformSymbol", "symbol", true},
+	{"access_token", "access token", false},
+	{"refresh_token", "refresh token", false},
+	{"id_token", "id token", false},
 }
 
 // learnAnswer learns the identifiers in body, an answer of Schwab's: the
@@ -547,6 +561,27 @@ func (s *liveScrubber) learnJSON(v any) {
 				s.addNameLocked(ik.kind, text)
 			default:
 				s.addIdentLocked(ik.kind, text)
+			}
+		}
+	}
+}
+
+// learnRequest learns the secrets that req, a request of the run's,
+// carries, before an answer can echo them: the credentials of its
+// Authorization header, a bearer token, or the app's key and secret as
+// Basic sends them, and the refresh token of a token request's form.
+func (s *liveScrubber) learnRequest(req *http.Request) {
+	if scheme, credentials, ok := strings.Cut(req.Header.Get("Authorization"), " "); ok {
+		kind := "credentials"
+		if strings.EqualFold(scheme, "Bearer") {
+			kind = "access token"
+		}
+		s.addIdent(kind, strings.TrimSpace(credentials))
+	}
+	if req.Method == http.MethodPost && req.URL.EscapedPath() == tokenPath {
+		if form, why := grantForm(req); why == "" {
+			for _, v := range form["refresh_token"] {
+				s.addIdent("refresh token", v)
 			}
 		}
 	}
@@ -872,6 +907,45 @@ func TestScrubberLearns(t *testing.T) {
 		s.learnHeader(h)
 		if got := s.scrub("zq-a zq-b zq-c zq-d"); got != "{correlation id 1} {correlation id 4} {correlation id 3} {correlation id 2}" {
 			t.Fatalf("labeled %q", got)
+		}
+	}
+}
+
+// The scrubber learns the secrets that a request carries, its bearer token,
+// or the Basic credentials and the refresh token of a token request's
+// form, and the tokens of a grant, each as it is and escaped for a path
+// and for a query, as a form sends it; a request without them teaches it
+// nothing.
+func TestScrubberLearnsSecrets(t *testing.T) {
+	s := newLiveScrubber()
+	get, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.schwabapi.com/trader/v1/accounts", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.learnRequest(get)
+	if len(s.lens) != 0 {
+		t.Errorf("learned from a request without secrets: %v", s.idents)
+	}
+	get.Header.Set("Authorization", "Bearer zq.access-9-_=@")
+	s.learnRequest(get)
+	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"zq-refresh/9-_=@"}}
+	post, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.schwabapi.com"+tokenPath, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	post.SetBasicAuth("zqkey", "zqsecret")
+	s.learnRequest(post)
+	s.learnAnswer([]byte(`{"access_token":"zq.access-10-_=@","refresh_token":"zq-refresh-10-_=@","id_token":"zq.id.10","expires_in":1800}`))
+	basic := base64.StdEncoding.EncodeToString([]byte("zqkey:zqsecret"))
+	for _, tc := range []struct{ in, want string }{
+		{"token zq.access-9-_=@, zq.access-9-_%3D%40 or ZQ.ACCESS-9-_=@", "token {access token 1}, {access token 1} or {access token 1}"},
+		{"refresh_token=zq-refresh%2F9-_%3D%40, zq-refresh/9-_=@", "refresh_token={refresh token 1}, {refresh token 1}"},
+		{"/x/zq-refresh%2F9-_=@/y", "/x/{refresh token 1}/y"},
+		{"Basic " + basic, "Basic {credentials 1}"},
+		{"zq.access-10-_=@ zq-refresh-10-_=@ zq.id.10", "{access token 2} {refresh token 2} {id token 1}"},
+	} {
+		if got := s.scrub(tc.in); got != tc.want {
+			t.Errorf("scrub(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

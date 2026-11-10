@@ -3,6 +3,7 @@ package schwab
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -162,14 +163,20 @@ func (fl *fakeLive) lines() []string {
 
 // secrets returns what no report, line printed or error of a run on the
 // fake may hold: every identifier of the fixtures, the fake's correlation
-// IDs, the run's temporary folder, in which all its paths lie, the planted
-// user name, and what the test planted besides.
+// IDs, the app's key and secret, and every token and code the fake issued,
+// in any of the spellings that a path, a form or Basic credentials give
+// them, the run's temporary folder, in which all its paths lie, the
+// planted user name, and what the test planted besides.
 func (fl *fakeLive) secrets(t *testing.T) []string {
 	t.Helper()
 	secrets := append([]string{plantedUser, fl.dir, "00000000-0000-4000-8000-", schwabtest.StreamerCustomerID, schwabtest.StreamerCorrelID, schwabtest.AkamaiReference}, fl.more...)
 	if resolved, err := filepath.EvalSymlinks(fl.dir); err == nil {
 		secrets = append(secrets, resolved)
 	}
+	for _, s := range append(fl.f.Secrets(), schwabtest.AppKey, schwabtest.AppSecret) {
+		secrets = append(secrets, spellings(s)...)
+	}
+	secrets = append(secrets, base64.StdEncoding.EncodeToString([]byte(schwabtest.AppKey+":"+schwabtest.AppSecret)))
 	for _, a := range schwabtest.FixtureAccounts {
 		secrets = append(secrets, a.Number, a.Hash, a.Nickname, a.DisplayID)
 	}
@@ -496,6 +503,69 @@ func TestLiveScrubsWhatItPrints(t *testing.T) {
 			t.Errorf("%s holds the correlation ID", what.name)
 		}
 	}
+}
+
+// Refusals that echo the secrets of the app and the login, as a gateway's
+// error page may, show each only as a label: the app's key and secret and
+// the login's refresh token, which no request sends as they are, from the
+// start; the access token of the request refused; a refresh's form, with
+// its refresh token escaped, and its Basic credentials; and the tokens of
+// a grant that no request sent yet, a refresh token rotated and an id
+// token. A read that failed fails the run, but no line is left out.
+func testEchoedSecretsOnTheFake(t *testing.T) {
+	gateway := func(w http.ResponseWriter, text string) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(text))
+	}
+	t.Run("the app's and the login's", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q15")
+		saved, err := readToken(fl.tokenFile())
+		if err != nil {
+			t.Fatal(err)
+		}
+		app := func(w http.ResponseWriter, _ *http.Request) {
+			gateway(w, "upstream refused client "+testKey+" with "+testSecret+" for "+saved.RefreshToken)
+		}
+		fl.f.Queue(schwabtest.UserPreferenceRoute, app, app, app, app)
+		fl.f.Queue(schwabtest.AccountsRoute, func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusUnauthorized, `{"message":"token `+strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")+` is not valid here"}`)
+		})
+		form := schwabtest.Failure{Handler: func(w http.ResponseWriter, r *http.Request) {
+			_ = r.ParseForm()
+			gateway(w, "upstream failed on "+r.PostForm.Encode()+" from "+r.Header.Get("Authorization"))
+		}}
+		fl.f.FailTokens(form, form, form, form, form, form)
+		err = fl.runClean(t)
+		if want := "the live run failed: the user's preferences could not be read; the check of accounts failed with an error"; fmt.Sprint(err) != want {
+			t.Errorf("the run's error: %v, want %q", err, want)
+		}
+		report := fl.report(t)
+		wantLines(t, report, "failed: HTTP 502 from Schwab after 4 tries: upstream refused client {app key 1} with {app secret 1} for {refresh token 1}",
+			"failed: HTTP 401 from Schwab: token {access token 1} is not valid here")
+		wantVerdicts(t, report, map[string]string{"Q15": "inconclusive: the refresh failed: HTTP 502, upstream failed on " +
+			"grant_type=refresh_token&refresh_token={refresh token 1} from Basic {credentials 1}"})
+	})
+	t.Run("a grant's", func(t *testing.T) {
+		t.Parallel()
+		fl := newFakeLive(t)
+		fl.f.SetRotate(true)
+		// The login's token, refused at once, gets no refresh.
+		fl.clock.set(fl.clock.Now().Add(5 * time.Minute))
+		fl.r.deadline = fl.clock.Now().Add(9 * time.Minute)
+		fl.f.Queue(schwabtest.AccountsRoute, schwabtest.NotAuthorized, func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusUnauthorized, `{"message":"refresh token `+schwabtest.RefreshToken(2)+` and id token `+schwabtest.IDToken(2)+` are not valid here"}`)
+		})
+		err := fl.runClean(t)
+		if want := "the live run failed: the check of accounts failed with an error"; fmt.Sprint(err) != want {
+			t.Errorf("the run's error: %v, want %q", err, want)
+		}
+		wantLines(t, fl.report(t), "failed: HTTP 401 from Schwab: refresh token {refresh token 2} and id token {id token 1} are not valid here")
+		if _, refresh := fl.f.Grants(); refresh != 1 {
+			t.Errorf("%d refreshes, want the one after the refusal", refresh)
+		}
+	})
 }
 
 // writeJSON writes body, JSON, with status, as the fake's own answers are

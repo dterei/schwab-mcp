@@ -156,15 +156,17 @@ for a kind of row, such as "Ordinary Dividend~SYM", with the symbol masked.
 
 A scrubber of the run's own replaces what the run has seen with labels:
 each account and its hash by its place in the account numbers, as
-`{account 2}` and `{hash 2}`; nicknames, display IDs, streamer IDs,
-activity, order and position IDs, correlation IDs, the edge's reference
-numbers, and every symbol in an answer but SPY and VTI, which the run
-names itself, by their kind; your home folder as `~`, your user name as
-`{user}`, and the run's files and folders by name. Q4 sends no symbol that
-the scrubber does not hide: not SPY or VTI, nor one of a single character,
-which is too short to hide. Every line is checked for what the run has
-seen before it is printed or written, and a line that still holds
-something is left out, unshown, and fails the run.
+`{account 2}` and `{hash 2}`; by their kind, nicknames, display IDs,
+streamer IDs, activity, order and position IDs, correlation IDs, the
+edge's reference numbers, your app's key and secret, every token of the
+login that the run holds, sends or is given, and every symbol in an answer
+but SPY and VTI, which the run names itself; your home folder as `~`, your
+user name as `{user}`, and the run's files and folders by name. An ID, a
+key or a token is found escaped too, as a path or a form spells it. Q4
+sends no symbol that the scrubber does not hide: not SPY or VTI, nor one
+of a single character, which is too short to hide. Every line is checked
+for what the run has seen before it is printed or written, and a line that
+still holds something is left out, unshown, and fails the run.
 
 A finding that fails, a probe that panics, a part of the run that stops
 before its end, or a line left out fails the test; the report says which.

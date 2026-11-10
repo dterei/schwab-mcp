@@ -234,21 +234,9 @@ func checkGrant(req *http.Request) string {
 	if mt, _, err := mime.ParseMediaType(req.Header.Get("Content-Type")); err != nil || mt != "application/x-www-form-urlencoded" {
 		return "a token request that is not a form"
 	}
-	if req.GetBody == nil {
-		return "a token request whose body cannot be read without being used up"
-	}
-	body, err := req.GetBody()
-	if err != nil {
-		return "a token request whose body could not be read"
-	}
-	defer body.Close()
-	b, err := io.ReadAll(io.LimitReader(body, maxGrantBody+1))
-	if err != nil || len(b) > maxGrantBody {
-		return "a token request whose body could not be read"
-	}
-	form, err := url.ParseQuery(string(b))
-	if err != nil {
-		return "a token request whose form could not be read"
+	form, why := grantForm(req)
+	if why != "" {
+		return why
 	}
 	if form.Get("grant_type") != "refresh_token" {
 		return "a token request that is not a refresh of the access token"
@@ -262,6 +250,28 @@ func checkGrant(req *http.Request) string {
 		return "a token request without a refresh token"
 	}
 	return ""
+}
+
+// grantForm returns the form of req, a token request, read through
+// GetBody, so that what is sent is untouched; or why it cannot be read.
+func grantForm(req *http.Request) (url.Values, string) {
+	if req.GetBody == nil {
+		return nil, "a token request whose body cannot be read without being used up"
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, "a token request whose body could not be read"
+	}
+	defer body.Close()
+	b, err := io.ReadAll(io.LimitReader(body, maxGrantBody+1))
+	if err != nil || len(b) > maxGrantBody {
+		return nil, "a token request whose body could not be read"
+	}
+	form, err := url.ParseQuery(string(b))
+	if err != nil {
+		return nil, "a token request whose form could not be read"
+	}
+	return form, ""
 }
 
 // stopLocked stops the run for cause, unless it has stopped already. It

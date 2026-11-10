@@ -172,6 +172,14 @@ func runLive(ctx context.Context, r *liveRun) (err error) {
 	} {
 		r.scrub.addPath(p.label, p.path)
 	}
+	// The app's key and secret, and the login's tokens, which a refusal
+	// could echo; tokens sent or given later are learned as they go.
+	r.scrub.addIdent("app key", r.auth.cfg.AppKey)
+	r.scrub.addIdent("app secret", r.auth.cfg.AppSecret)
+	if t, err := readToken(r.auth.tokenFile); err == nil {
+		r.scrub.addIdent("access token", t.AccessToken)
+		r.scrub.addIdent("refresh token", t.RefreshToken)
+	}
 	defer func() {
 		if recover() != nil {
 			err = errors.New("the live run panicked")
@@ -265,8 +273,10 @@ func (r *liveRun) probeNames() string {
 // connect sends every request of r's Auth and Client through a guard of
 // r's origin, which stops the run with cancel, and tells the report of the
 // Auth's warnings and the Client's. Each answer, whichever request drew
-// it, is seen as it arrives: the scrubber learns its correlation IDs, the
-// recording keeps it, and one that is not a success goes to readRefusal.
+// it, is seen as it arrives, before its sender reads it: the scrubber
+// learns the secrets that its request carried, its correlation IDs and
+// the tokens of a grant, the recording keeps it, and one that is not a
+// success goes to readRefusal.
 func (r *liveRun) connect(ctx context.Context, cancel context.CancelCauseFunc) error {
 	base, err := url.Parse(r.auth.cfg.BaseURL)
 	if err != nil {
@@ -289,12 +299,17 @@ func (r *liveRun) connect(ctx context.Context, cancel context.CancelCauseFunc) e
 	}
 	g.now = r.now
 	g.answered = func(req *http.Request, sent time.Time, resp *http.Response) {
+		r.scrub.learnRequest(req)
 		r.scrub.learnHeader(resp.Header)
 		if r.rec != nil {
 			r.rec.record(req, sent, resp)
 		}
-		if resp.StatusCode/100 != 2 {
+		switch {
+		case resp.StatusCode/100 != 2:
 			r.readRefusal(resp)
+		case req.URL.EscapedPath() == tokenPath:
+			body, _ := readWhole(resp)
+			r.scrub.learnAnswer(body)
 		}
 	}
 	r.guard = g

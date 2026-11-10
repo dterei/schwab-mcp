@@ -61,11 +61,14 @@ func TestLive(t *testing.T) {
 	if err != nil {
 		t.Fatal("no home folder: ", err)
 	}
-	// Until the run's own scrubber takes over, this one keeps the home
-	// folder, the user name and the login's files out of what the front
-	// door prints, each line self-checked as the run's are.
+	// Until the run's own scrubber takes over, this one keeps the app's key
+	// and secret, the home folder, the user name and the login's files out
+	// of what the front door prints, each line self-checked as the run's
+	// are.
 	pre := newLiveScrubber()
 	pre.setHome(home)
+	pre.addIdent("app key", key)
+	pre.addIdent("app secret", secret)
 	clean := func(text string) string {
 		if text = pre.scrub(text); pre.holds(text) {
 			return "(not shown: it held something that the run saw)"
