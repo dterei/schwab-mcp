@@ -1857,50 +1857,64 @@ func withBalances(t *testing.T, account []byte, initial, current float64) string
 // for 15:45, then samples every 10 minutes to 10:00 the next day: each
 // account's initial balances move at 18:00 to the current total as it was
 // from 16:00, the close, which moves again at 20:00, in the overnight
-// session.
+// session. When the read at 18:05, the first after the move, answers 70
+// seconds late, the move is bounded by its answer, rounded up to 18:07.
 func testBalancesOnTheFake(t *testing.T) {
-	ny := newYork()
-	at := func(h int) time.Time { return time.Date(2026, 9, 1, h, 0, 0, 0, ny) }
-	fl := newOptInLive(t, at(13), modeBalances)
-	accounts := elements(t, readTestdata(t, "accounts.json"))
-	// The details of each account in each span of the watch: before the
-	// close, from it, from the move, and from 20:00, its balances in cents,
-	// which no output may hold.
-	var spans [3][4]string
-	for i, a := range accounts {
-		base := 100000*(i+1) + 37 // $1000.37, $2000.37 and $3000.37
-		for j, b := range [4][2]int{{base, base + 100}, {base, base + 200}, {base + 200, base + 200}, {base + 200, base + 300}} {
-			initial, current := float64(b[0])/100, float64(b[1])/100
-			spans[i][j] = withBalances(t, a, initial, current)
-			fl.more = append(fl.more, strconv.FormatFloat(initial, 'f', -1, 64), strconv.FormatFloat(current, 'f', -1, 64))
-		}
-	}
-	fl.f.OnAPI(func(r *http.Request) {
-		if schwabtest.Route(r.Pattern) != schwabtest.AccountsRoute {
-			return
-		}
-		now := fl.clock.Now()
-		span := 0
-		for _, from := range []time.Time{at(16), at(18), at(20)} {
-			if !now.Before(from) {
-				span++
+	for _, tc := range []struct {
+		name  string
+		slow  time.Duration
+		until string
+	}{{"reads that answer at once", 0, "18:05"}, {"a read that answers late", 70 * time.Second, "18:07"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ny := newYork()
+			at := func(h, m int) time.Time { return time.Date(2026, 9, 1, h, m, 0, 0, ny) }
+			fl := newOptInLive(t, at(13, 0), modeBalances)
+			accounts := elements(t, readTestdata(t, "accounts.json"))
+			// The details of each account in each span of the watch: before
+			// the close, from it, from the move, and from 20:00, its balances
+			// in cents, which no output may hold.
+			var spans [3][4]string
+			for i, a := range accounts {
+				base := 100000*(i+1) + 37 // $1000.37, $2000.37 and $3000.37
+				for j, b := range [4][2]int{{base, base + 100}, {base, base + 200}, {base + 200, base + 200}, {base + 200, base + 300}} {
+					initial, current := float64(b[0])/100, float64(b[1])/100
+					spans[i][j] = withBalances(t, a, initial, current)
+					fl.more = append(fl.more, strconv.FormatFloat(initial, 'f', -1, 64), strconv.FormatFloat(current, 'f', -1, 64))
+				}
 			}
-		}
-		for i, a := range schwabtest.FixtureAccounts {
-			fl.f.SetDetails(a.Hash, spans[i][span])
-		}
-	})
-	if err := fl.runClean(t); err != nil {
-		t.Fatal(err)
-	}
-	report := fl.report(t)
-	wantVerdicts(t, report, map[string]string{"Q3": "the initial balances move between 17:55 and 18:05 New York time, " +
-		"and then equal the current total sampled from 16:00 to 16:15: yes; sampled at 20:00: no"})
-	moved := "the initial balances moved between 17:55 and 18:05 New York time; they then equal the current total sampled from 16:00 to 16:15: yes; sampled at 20:00: no"
-	wantEvidence(t, report, "Q3", "110 samples read, 0 samples failed, every 10m0s from 15:45 New York time",
-		"{account 1}: "+moved, "{account 2}: "+moved, "{account 3}: "+moved)
-	if n := fl.f.APICalls(); n != 2+110 {
-		t.Errorf("%d requests, want the account numbers, the preferences and 110 samples", n)
+			fl.f.OnAPI(func(r *http.Request) {
+				if schwabtest.Route(r.Pattern) != schwabtest.AccountsRoute {
+					return
+				}
+				now := fl.clock.Now()
+				span := 0
+				for _, from := range []time.Time{at(16, 0), at(18, 0), at(20, 0)} {
+					if !now.Before(from) {
+						span++
+					}
+				}
+				for i, a := range schwabtest.FixtureAccounts {
+					fl.f.SetDetails(a.Hash, spans[i][span])
+				}
+				if now.Equal(at(18, 5)) {
+					fl.clock.set(now.Add(tc.slow))
+				}
+			})
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			report := fl.report(t)
+			wantVerdicts(t, report, map[string]string{"Q3": "the initial balances move between 17:55 and " + tc.until + " New York time, " +
+				"and then equal the current total sampled from 16:00 to 16:15: yes; sampled at 20:00: no"})
+			moved := "the initial balances moved between 17:55 and " + tc.until +
+				" New York time; they then equal the current total sampled from 16:00 to 16:15: yes; sampled at 20:00: no"
+			wantEvidence(t, report, "Q3", "110 samples read, 0 samples failed, every 10m0s from 15:45 New York time",
+				"{account 1}: "+moved, "{account 2}: "+moved, "{account 3}: "+moved)
+			if n := fl.f.APICalls(); n != 2+110 {
+				t.Errorf("%d requests, want the account numbers, the preferences and 110 samples", n)
+			}
+		})
 	}
 }
 
@@ -1916,6 +1930,16 @@ type watchedFill struct {
 // watchFills runs the watch of fills on the fake from start, under rules,
 // with the orders and rows of fills, and returns the run.
 func watchFills(t *testing.T, start time.Time, rules schwabtest.TransactionRules, fills ...watchedFill) *fakeLive {
+	t.Helper()
+	return watchFillsWith(t, start, rules, nil, fills...)
+}
+
+// watchFillsWith is watchFills with arrived, if it is set, called with the
+// run as each request of the API arrives at the fake, before a fill's row
+// comes, with the requests of transactions so far, this one included.
+func watchFillsWith(t *testing.T, start time.Time, rules schwabtest.TransactionRules,
+	arrived func(fl *fakeLive, r *http.Request, rows int32), fills ...watchedFill,
+) *fakeLive {
 	t.Helper()
 	fl := newOptInLive(t, start, modeFills)
 	fl.f.SetTransactionRules(rules)
@@ -1937,7 +1961,19 @@ func watchFills(t *testing.T, start time.Time, rules schwabtest.TransactionRules
 	}
 	serveOrders(fl, orders, keptFor(MaxTransactionWindow))
 	added := make([]atomic.Bool, len(fills))
-	onTransactions(fl, func(int32) {
+	var n atomic.Int32
+	fl.f.OnAPI(func(r *http.Request) {
+		isRows := schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute
+		reads := n.Load()
+		if isRows {
+			reads = n.Add(1)
+		}
+		if arrived != nil {
+			arrived(fl, r, reads)
+		}
+		if !isRows {
+			return
+		}
 		for i, w := range fills {
 			if w.after > 0 && !fl.clock.Now().Before(w.filled.Add(w.after)) && added[i].CompareAndSwap(false, true) {
 				fl.f.AddRows(secondAccount.Hash, rows[i])
@@ -1954,16 +1990,21 @@ func watchFills(t *testing.T, start time.Time, rules schwabtest.TransactionRules
 // watch and filled a minute later, whose row comes two and a half minutes
 // after the fill, so between the polls 2 and 3 minutes after it, whether
 // windows take it by its time or, dated its day's midnight, by its
-// tradeDate; a fill 23 seconds past the minute, whose row comes between
-// the polls 1m37s and 2m37s after it, which the verdict rounds out to whole
+// tradeDate; a fill 23 seconds past the minute, whose row comes between the
+// polls 1m37s and 2m37s after it, which the verdict rounds out to whole
 // minutes; a Friday evening's fill whose row, dated Monday, windows by
-// tradeDate take in only past the poll; an order filled three hours before
-// the watch, whose row is there from the start, and one filled at 12:30 the
-// day before, whose row, there from the start too and dated that day's
-// midnight, the reads of rows must reach back to, by its time or by its
-// tradeDate; a fill whose row never comes, alone, beside one whose row
-// comes, and beside one whose row is there from the start; a watch whose
-// every read of rows fails; and a watch in which nothing fills.
+// tradeDate take in only past the poll, and the evening's before
+// Thanksgiving, dated the Friday after it; a row that comes while a slow
+// read of another account's holds a poll up, which the bounds take from
+// when each read went and was answered, not from the poll's start; an
+// evening fill whose reads of orders fail, so that the reads of rows after
+// it end at their polls and cannot show its row; an order filled three
+// hours before the watch, whose row is there from the start, and one filled
+// at 12:30 the day before, whose row, there from the start too and dated
+// that day's midnight, the reads of rows must reach back to, by its time or
+// by its tradeDate; a fill whose row never comes, alone, beside one whose
+// row comes, and beside one whose row is there from the start; a watch
+// whose every read of rows fails; and a watch in which nothing fills.
 func testFillsOnTheFake(t *testing.T) {
 	soon := probeNow.Add(5 * time.Minute) // 11:05 in New York, a Tuesday
 	t.Run("a fill", func(t *testing.T) {
@@ -2001,9 +2042,9 @@ func testFillsOnTheFake(t *testing.T) {
 			t.Parallel()
 			fl := watchFills(t, probeNow, schwabtest.TransactionRules{FilterOn: by.on}, watchedFill{filled: dayBefore, tradeDate: midnight.AddDate(0, 0, -1)})
 			report := fl.report(t)
-			wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: every fill's row was there at the first poll, within 1350 minutes of its fill; " +
+			wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: every fill's row was there at the first read that could show it, within 1351 minutes of its fill; " +
 				"place a trade just before the watch to measure it"})
-			wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "rows there at the first poll: 1, within 1350 minutes of the fills")
+			wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "rows there at the first read that could show them: 1, within 1351 minutes of the fills")
 		})
 	}
 	t.Run("a Friday evening's fill dated Monday, in windows by tradeDate", func(t *testing.T) {
@@ -2014,13 +2055,57 @@ func testFillsOnTheFake(t *testing.T) {
 			watchedFill{filled: friday.Add(5 * time.Minute), tradeDate: monday, after: 150 * time.Second})
 		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "a fill's trade appears from 2 to 3 minutes after the fill"})
 	})
+	t.Run("the evening's fill before Thanksgiving, dated the Friday, in windows by tradeDate", func(t *testing.T) {
+		t.Parallel()
+		wednesday := time.Date(2026, 11, 26, 0, 30, 0, 0, time.UTC) // 19:30 in New York
+		friday := time.Date(2026, 11, 27, 5, 0, 0, 0, time.UTC)
+		fl := watchFills(t, wednesday, schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate},
+			watchedFill{filled: wednesday.Add(5 * time.Minute), tradeDate: friday, after: 150 * time.Second})
+		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "a fill's trade appears from 2 to 3 minutes after the fill"})
+	})
+	t.Run("a row that comes while a slow read holds a poll up", func(t *testing.T) {
+		t.Parallel()
+		// {account 1}'s read of rows at the poll of 11:08, the 25th, takes 50
+		// seconds, and the row comes at 11:08:40, 3m40s after the fill, so
+		// {account 2}'s read at 11:08:50 holds it: from 2 to 4 minutes, as
+		// the row was not there at 11:08, 3 minutes after the fill.
+		slow := func(fl *fakeLive, r *http.Request, rows int32) {
+			if rows == 25 && schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute {
+				fl.clock.set(fl.clock.Now().Add(50 * time.Second))
+			}
+		}
+		fl := watchFillsWith(t, probeNow, schwabtest.TransactionRules{}, slow, watchedFill{filled: soon, after: 220 * time.Second})
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q13": "a fill's trade appears from 2 to 4 minutes after the fill"})
+		wantEvidence(t, report, "Q13", "rows that came during the watch: 1, from 2 to 4 minutes after the fills")
+	})
+	t.Run("an evening fill whose reads of orders fail, in windows by tradeDate", func(t *testing.T) {
+		t.Parallel()
+		// At 19:05:20, dated the next midnight, its row 30 seconds later.
+		// {account 2}'s reads of orders fail from 19:06 to 19:08, so its
+		// reads of rows then end at the poll, and cannot show the row: they
+		// say nothing of it, and the row came from 0 to 3 minutes after the
+		// fill, not from 1.
+		evening := time.Date(2026, 9, 1, 23, 0, 0, 0, time.UTC)
+		orders := "/trader/v1/accounts/" + secondAccount.Hash + "/orders"
+		failing := func(fl *fakeLive, r *http.Request, _ int32) {
+			if now := fl.clock.Now(); r.URL.Path == orders && !now.Before(evening.Add(6*time.Minute)) && now.Before(evening.Add(8*time.Minute)) {
+				fl.f.Script(schwabtest.Answer(http.StatusServiceUnavailable, `{"message":"a guess: down"}`, "Content-Type", "application/json"))
+			}
+		}
+		fl := watchFillsWith(t, evening, schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate}, failing,
+			watchedFill{filled: evening.Add(5*time.Minute + 20*time.Second), tradeDate: time.Date(2026, 9, 2, 4, 0, 0, 0, time.UTC), after: 30 * time.Second})
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q13": "a fill's trade appears from 0 to 3 minutes after the fill"})
+		wantEvidence(t, report, "Q13", "reads that failed: 2 of the orders, 0 of the rows", "rows that came during the watch: 1, from 0 to 3 minutes after the fills")
+	})
 	t.Run("a fill hours before the watch", func(t *testing.T) {
 		t.Parallel()
 		fl := watchFills(t, probeNow, schwabtest.TransactionRules{}, watchedFill{filled: probeNow.Add(-3 * time.Hour)})
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: every fill's row was there at the first poll, within 180 minutes of its fill; " +
+		wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: every fill's row was there at the first read that could show it, within 181 minutes of its fill; " +
 			"place a trade just before the watch to measure it"})
-		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "rows there at the first poll: 1, within 180 minutes of the fills")
+		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "rows there at the first read that could show them: 1, within 181 minutes of the fills")
 	})
 	t.Run("a fill whose row never comes", func(t *testing.T) {
 		t.Parallel()
@@ -2046,9 +2131,9 @@ func testFillsOnTheFake(t *testing.T) {
 			watchedFill{filled: probeNow.Add(-3 * time.Hour)}, watchedFill{filled: soon, after: -1})
 		report := fl.report(t)
 		wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: no fill's row came during the watch: " +
-			"some were there at the first poll, and the others had not come by its end"})
+			"some were there at the first read that could show them, and the others had not come by its end"})
 		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 2 orders filled in the last day",
-			"rows there at the first poll: 1, within 180 minutes of the fills", "filled orders without a row by the watch's end: 1, 24 minutes after the fills")
+			"rows there at the first read that could show them: 1, within 181 minutes of the fills", "filled orders without a row by the watch's end: 1, 24 minutes after the fills")
 	})
 	t.Run("reads of rows that fail", func(t *testing.T) {
 		t.Parallel()
