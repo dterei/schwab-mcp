@@ -95,13 +95,23 @@ func (fl *fakeLive) again(t *testing.T, at time.Time, login bool) *fakeLive {
 	return next
 }
 
+// stateDigest matches a digest as state.json holds one: a JSON string of
+// 32 hex digits.
+var stateDigest = regexp.MustCompile(`"[0-9a-f]{32}"`)
+
 // runClean runs the harness, and fails the test if the report, the lines
-// printed or the run's error hold any of fl's secrets.
+// printed, the run's error or the state that the run leaves hold any of
+// fl's secrets. The state keeps each identifier, token and value as a
+// digest, which the check blanks: an account number's 8 digits could turn
+// up among a digest's 32 by chance.
 func (fl *fakeLive) runClean(t *testing.T) error {
 	t.Helper()
 	err := fl.run(t)
 	if b, readErr := os.ReadFile(filepath.Join(fl.r.out, "report.txt")); readErr == nil {
 		fl.noSecrets(t, "the report", string(b))
+	}
+	if b, readErr := os.ReadFile(fl.r.stateFile); readErr == nil {
+		fl.noSecrets(t, "the state", stateDigest.ReplaceAllString(string(b), `"digest"`))
 	}
 	fl.noSecrets(t, "the lines printed", fl.lines()...)
 	fl.noSecrets(t, "the run's error", fmt.Sprint(err))
@@ -339,11 +349,12 @@ func fixtureRow(t *testing.T, id int64, changes ...string) string {
 // questions: the default run with every default probe, each opt-in mode,
 // and each probe again under the fake's settings for what Schwab does that
 // is not known, each a subtest. It checks every verdict; that no report,
-// line printed or error holds an identifier, a symbol, a security's
-// description or an amount of the fixtures, a path of the run's or the
-// planted user name; that nothing is written under the owner's cache; and,
-// on a guard apart from the run's, that a POST is refused. One fake clock
-// serves every wait, so the runs take seconds.
+// line printed, error or state, past its digests, holds an identifier, a
+// token, a symbol, a security's description or an amount of the fixtures, a
+// path of the run's or the planted user name; that every request waits its
+// turn in the rate limit; that nothing is written under the owner's cache;
+// and, on a guard apart from the run's, that a POST is refused. One fake
+// clock serves every wait, so the runs take seconds.
 func TestLiveOnTheFake(t *testing.T) {
 	before := liveCacheListing()
 	t.Cleanup(func() {
@@ -356,6 +367,7 @@ func TestLiveOnTheFake(t *testing.T) {
 		test func(t *testing.T)
 	}{
 		{"the default run", testDefaultRun},
+		{"the default run at 6 requests a minute", testPacingOnTheFake},
 		{"a guard apart from the run refuses a POST", func(t *testing.T) { guardRefusesPosts(t, newFakeLive(t)) }},
 		{"refusals that echo secrets", testEchoedSecretsOnTheFake},
 		{"Q1", testDepthOnTheFake},
@@ -450,6 +462,41 @@ func testDefaultRun(t *testing.T) {
 	for _, line := range fl.lines() {
 		if !strings.Contains(report, line+"\n") {
 			t.Errorf("printed %q, which is not in the report", line)
+		}
+	}
+}
+
+// Every request of the default run, the extras' bare ones and Q15's with a
+// token of their own among them, waits its turn in the rate limit that
+// every process using the app key shares: at 6 a minute, one at a time, the
+// requests reach the fake at least 10 seconds apart on the run's clock.
+func testPacingOnTheFake(t *testing.T) {
+	fl := newProbeLive(t, probeNow)
+	same := func(d time.Duration) time.Duration { return d }
+	c := NewClient(fl.r.auth, ClientConfig{RateFile: fl.r.rateFile, RatePerMinute: 6, Burst: 1})
+	c.now, c.sleep, c.jitter = fl.clock.Now, fl.clock.Sleep, same
+	fl.r.client = c
+	fl.r.deadline = time.Time{} // the run takes some 16 minutes at this rate
+	var mu sync.Mutex
+	var arrived []time.Time
+	fl.f.OnAPI(func(*http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		arrived = append(arrived, fl.clock.Now())
+	})
+	if err := fl.runClean(t); err != nil {
+		t.Fatal(err)
+	}
+	report := fl.report(t)
+	wantEvidence(t, report, "extras",
+		"a garbage token: 401, application/json, Client not authorized; correlation headers: Schwab-Client-Correlid, X-Request-Id",
+		"no token: 401, application/json, Client not authorized; correlation headers: Schwab-Client-Correlid, X-Request-Id")
+	wantVerdicts(t, report, map[string]string{"Q15": "a refresh leaves older access tokens working, and keeps the refresh token"})
+	mu.Lock()
+	defer mu.Unlock()
+	for i := 1; i < len(arrived); i++ {
+		if gap := arrived[i].Sub(arrived[i-1]); gap < 10*time.Second {
+			t.Errorf("requests %d and %d of %d came %v apart", i, i+1, len(arrived), gap)
 		}
 	}
 }
