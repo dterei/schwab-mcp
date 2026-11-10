@@ -366,6 +366,7 @@ func TestLiveOnTheFake(t *testing.T) {
 		{"Q11", testShapesOnTheFake},
 		{"Q12", testChangesOnTheFake},
 		{"Q12 with a cut answer", testChangesCutOnTheFake},
+		{"Q12 with windows by tradeDate", testChangesByTradeDateOnTheFake},
 		{"Q15", testRefreshOnTheFake},
 		{"extras", testExtrasOnTheFake},
 		{"an edge page", testEdgeOnTheFake},
@@ -1089,10 +1090,37 @@ func testChangesCutOnTheFake(t *testing.T) {
 		"{account 2}: 1 row as they were; 0 rows new to the state; the answer may have been cut at the cap, so no row can be shown gone")
 }
 
+// Q12 shows no row gone whose time lies outside the last run's window,
+// though the last run's answer held it: under windows by tradeDate, a fill
+// at 13:55 is in a window that ends at 10:00 that day, by its tradeDate,
+// midnight in New York, and a run 12 days later does not find it.
+func testChangesByTradeDateOnTheFake(t *testing.T) {
+	first := time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)
+	fl := newProbeLive(t, first, "Q12")
+	fl.f.SetTransactionRules(schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate})
+	fl.more = append(fl.more, "84000000104")
+	fl.f.AddRows(secondAccount.Hash, fixtureRow(t, metaSale, "activityId", "84000000104",
+		"time", `"2026-08-20T13:55:09+0000"`, "tradeDate", `"2026-08-20T04:00:00+0000"`))
+	if err := fl.runClean(t); err != nil {
+		t.Fatal(err)
+	}
+	wantEvidence(t, fl.report(t), "Q12", "{account 2}: 3 rows, kept for the next run; no earlier run to compare with")
+	fl.f.RemoveRow(secondAccount.Hash, 84000000104)
+	later := fl.again(t, first.AddDate(0, 0, 12), true)
+	later.more = fl.more
+	if err := later.runClean(t); err != nil {
+		t.Fatal(err)
+	}
+	report := later.report(t)
+	wantVerdicts(t, report, map[string]string{"Q12": "no row changed, went or came late since the last run"})
+	wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 0 rows new to the state")
+}
+
 // Q12 under the fake's settings: two runs, 12 days apart, the second after
-// a new login, so that their windows slide, with a row changed, a row gone
-// and a row that came late between them, and a row that the second run's
-// window no longer takes in, which is not shown gone.
+// a new login, so that their windows slide, with a row changed, in a value
+// and by a key it lost, a row gone and a row that came late between them,
+// and a row that the second run's window no longer takes in, which is not
+// shown gone.
 func testChangesOnTheFake(t *testing.T) {
 	first := time.Date(2026, 8, 20, 15, 0, 0, 0, time.UTC)
 	fl := newProbeLive(t, first, "Q12")
@@ -1106,7 +1134,7 @@ func testChangesOnTheFake(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantEvidence(t, fl.report(t), "Q12", "{account 2}: 3 rows, kept for the next run; no earlier run to compare with")
-	fl.f.ReplaceRow(secondAccount.Hash, optionClose, fixtureRow(t, optionClose, "netAmount", "311.32"))
+	fl.f.ReplaceRow(secondAccount.Hash, optionClose, fixtureRow(t, optionClose, "netAmount", "311.32", "positionId", ""))
 	fl.f.RemoveRow(secondAccount.Hash, xyzDividend)
 	fl.f.AddRows(secondAccount.Hash, fixtureRow(t, xyzDividend, "activityId", "84000000102", "time", at(8, 10), "tradeDate", at(8, 10)),
 		fixtureRow(t, xyzDividend, "activityId", "84000000103", "time", at(8, 25), "tradeDate", at(8, 25)))
@@ -1127,7 +1155,7 @@ func testChangesOnTheFake(t *testing.T) {
 		t.Errorf("the state keeps %d rows of {account 2}, want 3", len(rows))
 	}
 	wantEvidence(t, report, "Q12", "{account 1}: 0 rows as they were; 0 rows new to the state",
-		"{account 2}: 0 rows as they were; 2 rows new to the state; 1 row changed, 27 days old, in netAmount (1); "+
+		"{account 2}: 0 rows as they were; 2 rows new to the state; 1 row changed, 27 days old, in netAmount (1), positionId (1); "+
 			"1 row came late, first seen 22 days after its time; 1 row gone")
 }
 
@@ -1135,7 +1163,8 @@ func testChangesOnTheFake(t *testing.T) {
 // tokens or not, and changes the refresh token or not, each verdict after
 // waiting on the run's clock until the token is a minute old; and another
 // process's refresh between the probe's reading of the token file and its
-// own refresh, which no verdict may come from.
+// own refresh, or a refresh that gives back the same access token, which
+// no verdict may come from.
 func testRefreshOnTheFake(t *testing.T) {
 	for _, tc := range []struct {
 		revoke, rotate bool
@@ -1247,6 +1276,24 @@ func testRefreshOnTheFake(t *testing.T) {
 			t.Errorf("%d refreshes, want the other process's one", refresh)
 		}
 	})
+	t.Run("a refresh that gives back the same access token", func(t *testing.T) {
+		t.Parallel()
+		// The old and the new token would be one, and say nothing.
+		fl := newProbeLive(t, probeNow, "Q15")
+		saved, err := readToken(fl.tokenFile())
+		if err != nil {
+			t.Fatal(err)
+		}
+		fl.f.FailTokens(schwabtest.Failure{Handler: func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusOK, fmt.Sprintf(`{"expires_in":1800,"token_type":"Bearer","scope":"api","refresh_token":%q,"access_token":%q}`,
+				saved.RefreshToken, saved.AccessToken))
+		}})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		wantVerdicts(t, fl.report(t), map[string]string{"Q15": "inconclusive: the token file does not hold the refresh's new access token, " +
+			"as when another process saved one in between"})
+	})
 }
 
 // An edgeTransport sends requests on through next, but answers the first
@@ -1323,7 +1370,8 @@ func testEdgeOnTheFake(t *testing.T) {
 // The extras under the fake's settings: a window that leaves out a row at
 // its start, or at its end; a row whose time is finer than its JSON shows,
 // which settles neither bound; windows that take a row by its tradeDate;
-// and a longest window of 366 days.
+// a longest window of 366 days; and, on an account without a month-end
+// interest row, an evening fill, whose time comes before its tradeDate.
 func testExtrasOnTheFake(t *testing.T) {
 	t.Run("the tokens of the 401s", func(t *testing.T) {
 		t.Parallel()
@@ -1438,6 +1486,34 @@ func testExtrasOnTheFake(t *testing.T) {
 			report := fl.report(t)
 			wantVerdicts(t, report, map[string]string{"extras": tc.want})
 			wantEvidence(t, report, "extras", tc.evidence...)
+		})
+	}
+	for _, tc := range []struct {
+		on   schwabtest.FilterOn
+		by   string
+		line string
+	}{
+		{schwabtest.FilterOnTime, "time", "the window around its time holds it, and the window around its tradeDate does not"},
+		{schwabtest.FilterOnTradeDate, "tradeDate", "the window around its tradeDate holds it, and the window around its time does not"},
+	} {
+		t.Run("an evening fill, windows by "+tc.by, func(t *testing.T) {
+			t.Parallel()
+			// {account 1} without its month-end interest row, with a fill at
+			// 20:30 in New York, whose tradeDate is the next midnight.
+			fl := newProbeLive(t, probeNow, "Q1", "extras")
+			fl.f.SetTransactionRules(schwabtest.TransactionRules{FilterOn: tc.on})
+			fl.f.RemoveRow(firstAccount.Hash, 73508261949)
+			fl.f.AddRows(firstAccount.Hash, fixtureRow(t, 73508261943, "activityId", "84000000601",
+				"time", `"2026-08-21T00:30:00+0000"`, "tradeDate", `"2026-08-21T04:00:00+0000"`))
+			fl.more = append(fl.more, "84000000601")
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			report := fl.report(t)
+			if v := verdictOf(report, "extras"); !strings.HasSuffix(v, "; a window takes a row by its "+tc.by) {
+				t.Errorf("the extras' verdict: %s", v)
+			}
+			wantEvidence(t, report, "extras", "by time or tradeDate, of a row: "+tc.line)
 		})
 	}
 }

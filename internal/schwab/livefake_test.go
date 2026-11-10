@@ -773,6 +773,22 @@ func TestLiveProbes(t *testing.T) {
 	}
 }
 
+// A panic outside a probe's run, which no part of the run catches, such as
+// a probe's check that it can start, ends the run with an error that holds
+// nothing of the panic's.
+func TestLiveRecoversAPanic(t *testing.T) {
+	fl := newFakeLive(t)
+	fl.r.mode, fl.r.deadline = modeRate, time.Time{}
+	fl.r.probes = []liveProbe{{
+		name: "Z1", mode: modeRate,
+		run:   func(context.Context, *liveRun) verdict { return verdict{answer: "ran"} },
+		ready: func(context.Context, *liveRun) error { panic("account " + schwabtest.FixtureAccounts[0].Number) },
+	}}
+	if err := fl.run(t); fmt.Sprint(err) != "the live run panicked" {
+		t.Errorf("the run's error: %v", err)
+	}
+}
+
 // A probe's quiet reads are each checked, and each written to the report
 // only when it fails or holds a finding that the report lacks for its
 // endpoint; a finding that fails counts once, however many answers hold

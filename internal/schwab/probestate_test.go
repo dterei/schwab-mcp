@@ -794,7 +794,7 @@ func (r *liveRun) refreshAcrossRuns() []reportLine {
 
 // Q8 decides only across an ex-date between two runs' closes, on the
 // closes before it that both runs hold: unchanged is split-adjusted only,
-// all scaled by the dividend's factor dividend-adjusted, and changed
+// all scaled alike by the dividend's factor dividend-adjusted, and changed
 // otherwise neither.
 func TestCompareCloses(t *testing.T) {
 	prev := symbolCloses{AsOf: "2026-09-10", Closes: map[string]float64{"2026-09-08": 600, "2026-09-09": 610, "2026-09-10": 620}}
@@ -807,6 +807,12 @@ func TestCompareCloses(t *testing.T) {
 	}
 	q := dividendQuote{exDate: "2026-09-18", amount: 2}
 	factor := 1 - 2.0/620
+	// Closes scaled by ratios whose midpoint is the dividend's factor, though
+	// they differ: no adjustment for a dividend scales them so.
+	uneven := scaled(1)
+	for d, ratio := range map[string]float64{"2026-09-08": factor - 0.002, "2026-09-09": factor, "2026-09-10": factor + 0.002} {
+		uneven.Closes[d] = math.Round(prev.Closes[d]*ratio*100) / 100
+	}
 	for _, tc := range []struct {
 		name        string
 		prev, cur   symbolCloses
@@ -816,6 +822,7 @@ func TestCompareCloses(t *testing.T) {
 		{"unchanged", prev, scaled(1), q, adjustNone, ""},
 		{"scaled by the dividend's factor", prev, scaled(factor), q, adjustDividend, ""},
 		{"scaled otherwise", prev, scaled(0.9), q, "", "the closes before the ex-date changed, though not by the dividend's factor"},
+		{"scaled unevenly, by the dividend's factor halfway", prev, uneven, q, "", "the closes before the ex-date changed, though not by the dividend's factor"},
 		{"no earlier run", symbolCloses{}, scaled(1), q, "", "no earlier run kept its closes"},
 		{"no ex-date", prev, scaled(1), dividendQuote{}, "", "the quote gave no ex-date"},
 		{
@@ -948,7 +955,15 @@ func TestProbeHashesAcrossApps(t *testing.T) {
 	if err := writeToken(tokenFile, &token{AccessToken: "a", RefreshToken: "r", RefreshObtainedAt: login, AccessExpiresAt: login.Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	a, err := NewAuth(Config{AppKey: "app-b", AppSecret: "secret", TokenFile: tokenFile})
+	// Q10 sends nothing; a request that went would fail here, not reach
+	// Schwab.
+	stub := &stubTransport{answer: func(*http.Request) (*http.Response, error) { return nil, errors.New("Q10 sends nothing") }}
+	t.Cleanup(func() {
+		if got := stub.sent(); len(got) > 0 {
+			t.Errorf("sent %v", got)
+		}
+	})
+	a, err := NewAuth(Config{AppKey: "app-b", AppSecret: "secret", TokenFile: tokenFile, HTTPClient: &http.Client{Transport: stub}})
 	if err != nil {
 		t.Fatal(err)
 	}
