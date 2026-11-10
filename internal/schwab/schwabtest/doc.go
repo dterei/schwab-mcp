@@ -104,6 +104,9 @@
 //     never recorded.
 //   - The token endpoint's answers are application/json and carry no
 //     correlation headers; whether Schwab's do is not known.
+//   - A refresh keeps the refresh token and leaves the older access tokens
+//     working. Clients suggest the first and nothing shows the second (the
+//     roadmap's Q15); SetRotate and SetRevokeOlder give the other answers.
 //   - Every body that is a guess says so in its own text, such as the
 //     token endpoint's answer to a bad code, the authorize page's errors,
 //     the 400s for a query the fake refuses and the 404 for an unknown id,
