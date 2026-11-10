@@ -254,7 +254,7 @@ func (s *scrubber) tokensOfJSON(a *scrubAnswer, out []byte) string {
 			if !r.gram.match(n) {
 				return where + ": not " + r.gram.name
 			}
-			if !bytes.Equal(o, n) && !s.changedAtIdentifiers(string(o), string(n)) {
+			if !bytes.Equal(o, n) && !s.changedInJSON(o, n) {
 				return where + ": a kept value changed where it held no identifier"
 			}
 		case classPlaceholder:
@@ -267,7 +267,7 @@ func (s *scrubber) tokensOfJSON(a *scrubAnswer, out []byte) string {
 			case r.text.isPlaceholder(text):
 			case !r.text.isWording(text):
 				return where + ": free text that is neither its placeholder nor Schwab's wording"
-			case !bytes.Equal(o, n) && !s.changedAtIdentifiers(string(o), string(n)):
+			case !bytes.Equal(o, n) && !s.changedInJSON(o, n):
 				return where + ": Schwab's wording changed where it held no identifier"
 			}
 		}
@@ -275,11 +275,36 @@ func (s *scrubber) tokensOfJSON(a *scrubAnswer, out []byte) string {
 	return ""
 }
 
-// changedAtIdentifiers reports whether after is before with each
-// identifier in before replaced by some other text, and nothing else
-// changed, and before holds one.
+// changedAtIdentifiers reports whether after is before, a path, a query or
+// a header's value, with each identifier in before replaced by some other
+// text, and nothing else changed, and before holds one.
 func (s *scrubber) changedAtIdentifiers(before, after string) bool {
-	ms := s.ids.find(before, false)
+	at := make([]int, len(before))
+	for i := range at {
+		at[i] = i
+	}
+	return s.changedInPlace([]byte(before), []byte(after), []byte(before), at)
+}
+
+// changedInJSON reports whether after is before, a JSON string as written,
+// with each identifier in its text replaced in place by some other text,
+// and every other byte as it was, escapes included, and its text holds
+// one. The identifiers are found in the text unescaped, as pass two finds
+// them, so that an escape next to a short one, such as & written as an
+// escape before a nickname, leaves it a whole token.
+func (s *scrubber) changedInJSON(before, after []byte) bool {
+	text, at := unescapeJSON(before)
+	return s.changedInPlace(before, after, text, at)
+}
+
+// changedInPlace reports whether after is raw, a value as written, with
+// each identifier in text replaced in place by some other text, and every
+// other byte of raw as it was, and text holds one: text being what raw
+// holds unescaped, and at the offset in raw of each byte of text, as
+// unescapeJSON and unescapeHTML give it. An identifier written with
+// escapes cannot have been replaced in place.
+func (s *scrubber) changedInPlace(raw, after, text []byte, at []int) bool {
+	ms := s.ids.find(string(text), false)
 	if len(ms) == 0 {
 		return false
 	}
@@ -287,18 +312,23 @@ func (s *scrubber) changedAtIdentifiers(before, after string) bool {
 	pattern.WriteString("^")
 	prev := 0
 	for _, m := range ms {
-		pattern.WriteString(regexp.QuoteMeta(before[prev:m.start]) + "(.+?)")
-		prev = m.end
+		start, end, ok := rawSpan(at, m.start, m.end)
+		if !ok {
+			return false
+		}
+		pattern.WriteString(regexp.QuoteMeta(string(raw[prev:start])) + "(.+?)")
+		prev = end
 	}
-	pattern.WriteString(regexp.QuoteMeta(before[prev:]) + "$")
+	pattern.WriteString(regexp.QuoteMeta(string(raw[prev:])) + "$")
 	re, err := regexp.Compile(pattern.String())
-	return err == nil && re.MatchString(after)
+	return err == nil && re.Match(after)
 }
 
 // tokensOfPage is gate (iii) for an error page, out being what pass two
 // wrote of it: the same page, every byte but its slots' as it was, a slot
 // that is mapped its value's fake, and one that is kept of its grammar and
-// changed only where it held an identifier.
+// changed only where its text held an identifier, its every other byte,
+// character references included, as it was.
 func (s *scrubber) tokensOfPage(a *scrubAnswer, out []byte) string {
 	p, before := matchPageSpans(s.pages, a.raw.body)
 	q, after := matchPageSpans(s.pages, out)
@@ -312,7 +342,8 @@ func (s *scrubber) tokensOfPage(a *scrubAnswer, out []byte) string {
 			return "the page differs from the recording's outside its slots"
 		}
 		prevBefore, prevAfter = be, ae
-		was, now := html.UnescapeString(string(a.raw.body[bs:be])), html.UnescapeString(string(out[as:ae]))
+		rawWas, rawNow := a.raw.body[bs:be], out[as:ae]
+		was, now := html.UnescapeString(string(rawWas)), html.UnescapeString(string(rawNow))
 		switch slot.rule.class {
 		case classMap:
 			value := strings.TrimRight(was, ".")
@@ -323,7 +354,8 @@ func (s *scrubber) tokensOfPage(a *scrubAnswer, out []byte) string {
 			if !slot.rule.gram.match(jsonText(now)) {
 				return slot.rule.path + ": not " + slot.rule.gram.name
 			}
-			if was != now && !s.changedAtIdentifiers(was, now) {
+			text, at, _ := unescapeHTML(rawWas)
+			if !bytes.Equal(rawWas, rawNow) && !s.changedInPlace(rawWas, rawNow, text, at) {
 				return slot.rule.path + ": changed where it held no identifier"
 			}
 		}
@@ -846,8 +878,9 @@ func isWholeToken(s string, i, end int) bool {
 //     another form under scale:K, free text put back or Schwab's wording
 //     made other wording, a 429's white space changed, a page changed
 //     outside its slots, its Reference not its fake, its address off its
-//     grammar or changed, and an entry's correlation ID, status, protocol,
-//     path, query, header, extra header or header's name changed;
+//     grammar, changed or spelled otherwise, and an entry's correlation ID,
+//     status, protocol, path, query, header, extra header or header's name
+//     changed;
 //   - (iv): two hashes swapped; a hash's, an account number's, an activity
 //     ID's or an order ID's fake changed in a path alone; an id, an error's
 //     ID or a nickname given two fakes; and a masked number off its account
@@ -1029,6 +1062,10 @@ func TestScrubberGatesRefuse(t *testing.T) {
 		{
 			"a page's address changed", "gate (iii), the tokens: answer 002: the address quoted: changed where it held no identifier",
 			replace("002", "trader&#47;v1", "marketdata&#47;v1"), withPage, keep,
+		},
+		{
+			"a page's address spelled otherwise", "gate (iii), the tokens: answer 002: the address quoted: changed where it held no identifier",
+			replace("002", "&#47;trader", "/trader"), withPage, keep,
 		},
 		{
 			"an entry's correlation ID changed", "gate (iii), the tokens: answer 006: its entry's header Schwab-Client-CorrelID is not the fake of the recording's",

@@ -30,12 +30,17 @@ func escapedDigits(s string) string {
 	var b strings.Builder
 	for _, r := range s {
 		if '0' <= r && r <= '9' {
-			fmt.Fprintf(&b, "%cu%04x", '\\', r)
+			b.WriteString(escaped(r))
 		} else {
 			b.WriteRune(r)
 		}
 	}
 	return b.String()
+}
+
+// escaped returns r written as a \u escape of JSON.
+func escaped(r rune) string {
+	return fmt.Sprintf("%cu%04x", '\\', r)
 }
 
 // cashRow returns a transaction of account number, with the activity ID
@@ -196,6 +201,21 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 				}, []string{"Kip", id}
 			},
 			written: map[string]string{"003": `"description":"TRUST Account 1"`},
+		},
+		{
+			// Pass two and gate (iii) find a nickname in the text unescaped,
+			// where an escape next to it leaves it a whole token, and keep
+			// the escapes as they were.
+			name: "a nickname between escapes inside a value that is kept", amounts: keep, accounts: 1,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				id := b.id()
+				pref := preferences(preference(b.numbers[0], "Kip", "..."+b.numbers[0][5:]))
+				return []testAnswer{
+					jsonAnswer("/trader/v1/userPreference", "", 200, pref),
+					b.transactions(cashRow(b.numbers[0], id, "transferItems", cashLeg("1.25", "TRUST"+escaped('&')+"Kip"+escaped(' ')+"FUND"))),
+				}, []string{"Kip", id}
+			},
+			written: map[string]string{"003": `"description":"TRUST` + escaped('&') + `Account 1` + escaped(' ') + `FUND"`},
 		},
 		{
 			// Kept, its digits replaced, the wording would hold an account
