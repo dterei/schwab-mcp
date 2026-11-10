@@ -152,9 +152,10 @@ that followed live failures.
   ([piekstra/schwab-cli](https://github.com/piekstra/schwab-cli/blob/main/docs/api.md)),
   though in December 2025 a client fixed failures that it put down to a
   missing required parameter, and it now insists on `types`
-  ([SchwabPy](https://github.com/jaycollett/schwabpy)). This project's
-  client, and so its CLI, always sends `types`; only the live mode's extras
-  ask Schwab for a window without it ([probes](live.md#the-probes)).
+  ([SchwabPy 2.0.2](https://github.com/jaycollett/schwabpy/releases/tag/2.0.2)).
+  This project's client, and so its CLI, always sends `types`; only the live
+  mode's extras ask Schwab for a window without it
+  ([probes](live.md#the-probes)).
 - Dates are instants in UTC, formatted `yyyy-MM-dd'T'HH:mm:ss.SSSZ`.
 - The spec types `types` as a single value, but a comma-separated list
   works: schwab-py and this project's CLI send all 15 types that way.
@@ -644,7 +645,9 @@ is identical to the 2024 one, so none of this has been fixed.
 - Transaction history depth and boundaries:
   [ssandy33/regress#125](https://github.com/ssandy33/regress/issues/125),
   [Akiko0210/PersonalAssistant#25](https://github.com/Akiko0210/PersonalAssistant/pull/25),
-  [GeneBO98/tradetally#274](https://github.com/GeneBO98/tradetally/issues/274)
+  [GeneBO98/tradetally#274](https://github.com/GeneBO98/tradetally/issues/274),
+  and [z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/commit/2c760ad)'s
+  live test of May 2024 (a window of 366 days)
 - Orders: [k1xme/schwab-mcp](https://github.com/k1xme/schwab-mcp)
   (`previewOrder` on live accounts),
   [Schwabdev#110](https://github.com/tylerebowers/Schwabdev/issues/110)
@@ -675,7 +678,9 @@ is identical to the 2024 one, so none of this has been fixed.
   [schwab-sdk#6](https://github.com/jonathan-g-davis/schwab-sdk/pull/6)
   (the shape of `/userPreference`, and `isInCall` as a boolean),
   [z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/commit/2c760ad)'s
-  change of May 2024 (the shape of `/userPreference`), and
+  change of May 2024 (the shape of `/userPreference`),
+  [SchwabPy 2.0.2](https://github.com/jaycollett/schwabpy/releases/tag/2.0.2)
+  (transactions without `types`, December 2025), and
   [major/schwab-go](https://github.com/major/schwab-go)'s history (the shape
   of `/transactions/{id}`)
 - Account hashes: [Schwabdev#51](https://github.com/tylerebowers/Schwabdev/issues/51),
