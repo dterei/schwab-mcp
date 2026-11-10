@@ -924,9 +924,18 @@ func probeSymbolFilter(ctx context.Context, r *liveRun) verdict {
 	return v
 }
 
-// orderAgeLimit is the age past which an order is old, for Q5: the 60 days
-// that some say the orders endpoint keeps to.
-const orderAgeLimit = 60 * oneDay
+// The ages that Q5 goes by. orderAgeLimit is the 60 days that some say the
+// orders endpoint keeps to. Q5 counts an order as old only once it was
+// entered orderOld ago, a week later, since a list kept for 60 days by
+// calendar dates, or from some midnight, can hold one entered a day or two
+// before. And it asks for two days around an order's entry only when the
+// order was entered at most orderOldest ago, so that the two days lie in
+// the last year, which a list kept for a year holds.
+const (
+	orderAgeLimit = 60 * oneDay
+	orderOld      = orderAgeLimit + 7*oneDay
+	orderOldest   = MaxTransactionWindow - oneDay
+)
 
 // An orderSeen is an order of an answer of Schwab's orders, as the probes
 // read it: its id, when it was entered, its status, and when it was
@@ -994,46 +1003,52 @@ func ordersValues(w window) url.Values {
 
 // probeOrdersDepth is Q5, whether an account's orders are served for a year
 // or for 60 days, which the list filters by the time an order was entered.
-// It takes the oldest execution of the history rows between 60 days and a
-// year old, gets its order by id, whose enteredTime it keeps in memory
-// only, since a good-till-cancelled order can be entered weeks before its
-// fill, and asks the account's list for two days around that time, for the
-// last year and for the last 60 days, and every account's list from 61
-// days back. It answers "a year" only when an order more than 60 days old
-// by enteredTime comes back, "60 days" only when the two days around the
-// order leave it out though its id finds it, and "inconclusive" when the
-// get by id fails, or the answers say neither or both.
+// It takes the youngest execution of the history rows that is over
+// orderOld and at most orderOldest old, gets its order by id, whose
+// enteredTime it keeps in memory only, since a good-till-cancelled order
+// can be entered months before its fill, and, unless that time is over
+// orderOldest ago too, asks the account's list for two days around it, for
+// the last year and for the last 60 days, and every account's list from 61
+// days back. The youngest is the likeliest to have been entered within the
+// year. It answers "a year" only when an order entered over orderOld ago
+// comes back, "60 days" only when the two days around the order leave it
+// out though its id finds it, and "inconclusive" when the get by id fails,
+// or the answers say neither or both.
 func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 	now := r.now()
+	days := func(d time.Duration) string { return plural(int(d/oneDay), "day") }
 	var pick *Transaction
 	var acct liveAccount
 	for _, a := range r.accounts {
 		for i, row := range r.history[a.n] {
 			age := now.Sub(row.Time)
-			if a.hash == "" || row.Type != TransactionTrade || row.OrderID == 0 || row.Time.IsZero() || age <= orderAgeLimit || age > MaxTransactionWindow {
+			if a.hash == "" || row.Type != TransactionTrade || row.OrderID == 0 || row.Time.IsZero() || age <= orderOld || age > orderOldest {
 				continue
 			}
-			if pick == nil || row.Time.Before(pick.Time) {
+			if pick == nil || row.Time.After(pick.Time) {
 				pick, acct = &r.history[a.n][i], a
 			}
 		}
 	}
 	if pick == nil {
-		return inconclusive("no execution of the history rows is between 60 days and a year old")
+		return inconclusive(fmt.Sprintf("no execution of the history rows is over %s and at most %s old", days(orderOld), days(orderOldest)))
 	}
 	id := strconv.FormatInt(pick.OrderID, 10)
 	path := acct.path() + "/orders"
-	days := func(d time.Duration) string { return plural(int(d/oneDay), "day") }
 	rep, err := r.get(ctx, acct.endpoint("/orders/"+idLabel), path+"/"+id, nil, "")
 	if err != nil {
 		return inconclusive("the order of an execution " + days(now.Sub(pick.Time)) + " old could not be got by its id: " + schwabSays(err))
 	}
 	order := readOrder(rep.body)
-	switch {
+	switch entered := now.Sub(order.entered); {
 	case order.entered.IsZero():
 		return inconclusive("the order got by its id gave no time it was entered")
-	case now.Sub(order.entered) <= orderAgeLimit:
-		return inconclusive("the order got by its id was entered within the last 60 days, though its fill is older")
+	case entered <= orderOld:
+		return inconclusive("the order got by its id was entered within the last " + days(orderOld) + ", though its fill is older")
+	case entered > orderOldest:
+		// A list kept for a year would leave it out too.
+		return inconclusive("the order of an execution " + days(now.Sub(pick.Time)) + " old, got by its id, was entered " + days(entered) +
+			" ago, too long ago for two days around its entry to lie in the last year")
 	}
 	ev := lines(fmt.Sprintf("the order of an execution %s old, got by its id, was entered %s ago", days(now.Sub(pick.Time)), days(now.Sub(order.entered))))
 	// list asks for the orders entered in w, and says what came back.
@@ -1054,9 +1069,9 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 		aroundSaid += map[bool]string{true: ", the order among them", false: ", without the order"}[listed]
 	}
 	year, yearRead, yearSaid := list(acct.endpoint("/orders"), path, window{now.Add(-MaxTransactionWindow), now})
-	old := slices.ContainsFunc(year, func(o orderSeen) bool { return !o.entered.IsZero() && now.Sub(o.entered) > orderAgeLimit })
+	old := slices.ContainsFunc(year, func(o orderSeen) bool { return !o.entered.IsZero() && now.Sub(o.entered) > orderOld })
 	if yearRead {
-		yearSaid += map[bool]string{true: ", some entered more than 60 days ago", false: ", none entered more than 60 days ago"}[old]
+		yearSaid += map[bool]string{true: ", some", false: ", none"}[old] + " entered more than " + days(orderOld) + " ago"
 	}
 	_, _, sixtySaid := list(acct.endpoint("/orders"), path, window{now.Add(-orderAgeLimit), now})
 	_, _, allSaid := list("orders", "/trader/v1/orders", window{now.Add(-orderAgeLimit - oneDay), now})
@@ -1072,7 +1087,7 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 	case yes && no:
 		return inconclusive("the lists disagree: an old order came back, while two days around the order's entry left it out", ev...)
 	case yes:
-		return verdict{answer: "a year: an order entered more than 60 days ago came back", evidence: ev}
+		return verdict{answer: "a year: an order entered more than " + days(orderOld) + " ago came back", evidence: ev}
 	case no:
 		return verdict{answer: "60 days: two days around an older order's entry leave it out, though its id finds it", evidence: ev}
 	}
