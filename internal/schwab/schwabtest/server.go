@@ -285,13 +285,22 @@ func (s *Server) handlerFor(route Route, r *http.Request) http.HandlerFunc {
 		return s.overrides[route]
 	}
 	if m := s.pathMux; m != nil {
-		// A ServeMux that would redirect the request names the path it
-		// would redirect to; only a pattern of the table is a match.
-		if _, pattern := m.Handler(r); s.paths[pattern] != nil {
+		if h, _ := m.Handler(r); isPathHandler(h) {
 			return m.ServeHTTP
 		}
 	}
 	return nil
+}
+
+// A pathHandler is a handler of OverridePath's table, as its ServeMux holds
+// it. The ServeMux's own handlers, which redirect a request or refuse it,
+// are not, so a request that only one of them would answer is no match.
+type pathHandler struct{ http.HandlerFunc }
+
+// isPathHandler reports whether h is one of OverridePath's handlers.
+func isPathHandler(h http.Handler) bool {
+	_, ok := h.(pathHandler)
+	return ok
 }
 
 // own returns the fake's own answer to r, a request with a working token
@@ -427,7 +436,7 @@ func (s *Server) OverridePath(pattern string, h http.HandlerFunc) {
 	if len(s.paths) > 0 {
 		s.pathMux = http.NewServeMux()
 		for p, h := range s.paths {
-			s.pathMux.HandleFunc(p, h)
+			s.pathMux.Handle(p, pathHandler{h})
 		}
 	}
 }

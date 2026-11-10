@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -402,6 +403,39 @@ func TestOverridePath(t *testing.T) {
 	}
 	if resp, _ := get(t, s, "/trader/v1/accounts/x/what", tok); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("a refused pattern answers: %d", resp.StatusCode)
+	}
+}
+
+// OverridePath's table answers only the requests its patterns match. A
+// path that a pattern ending in a slash would redirect to, and one that no
+// pattern matches, go on down the list, to a recording or the fake's own
+// 404, as they would with no pattern set.
+func TestOverridePathMatchesOnlyItsPatterns(t *testing.T) {
+	s := New(t)
+	auth := "Bearer " + login(t, s)
+	fsys := fstest.MapFS{"recorded/2026-11-08/001.json": {Data: []byte(`{"quotes":"recorded"}`)}}
+	var e Entry
+	e.File, e.Source, e.Recorded, e.Scrub = "recorded/2026-11-08/001.json", "recorded", "2026-11-08", "abc keep"
+	e.Request.Method, e.Request.Path, e.Request.Query = http.MethodGet, "/marketdata/v1/quotes", "symbols=X"
+	e.Response.Status = http.StatusOK
+	if err := s.loadRecording(fsys, []Entry{e}, "2026-11-08"); err != nil {
+		t.Fatal(err)
+	}
+	s.OverridePath("GET /trader/v1/accounts/{hash}/orders/", Answer(http.StatusTeapot, "orders/"))
+
+	if rec := serve(t, s, "/trader/v1/accounts/x/orders/", auth); rec.Code != http.StatusTeapot || rec.Body.String() != "orders/" {
+		t.Errorf("the pattern's own path: %d %s", rec.Code, rec.Body)
+	}
+	for _, path := range []string{"/trader/v1/accounts/x/orders", "/marketdata/v1/movers"} {
+		rec := serve(t, s, path, auth)
+		if rec.Code != http.StatusNotFound || rec.Body.String() != `{"message":"Not Found (the fake has no such route)"}` {
+			t.Errorf("%s beside a pattern: %d %v %s, want the fake's own 404", path, rec.Code, rec.Header(), rec.Body)
+			continue
+		}
+		wantFakeHeaders(t, rec.Header(), http.StatusNotFound)
+	}
+	if rec := serve(t, s, "/marketdata/v1/quotes?symbols=X", auth); rec.Code != http.StatusOK || rec.Body.String() != `{"quotes":"recorded"}` {
+		t.Errorf("the recording beside a pattern: %d %s", rec.Code, rec.Body)
 	}
 }
 
