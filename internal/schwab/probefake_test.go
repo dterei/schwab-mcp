@@ -471,9 +471,12 @@ const checksTransactions = 3
 // counts once the newest window answers again; four 429s, one for each of
 // the Client's tries, and in a subtest of its own an Invalid account
 // number, at the walk's third window, neither of which becomes the
-// verdict, that account's walk ending interrupted; and each way the cap can
+// verdict, that account's walk ending interrupted; each way the cap can
 // meet a request for several types, under which the oldest window that
-// held rows is narrowed until the oldest row comes back.
+// held rows, and no other, is narrowed until the oldest row comes back;
+// windows by tradeDate, under which that window cannot be narrowed; and an
+// allowance spent narrowing, whose oldest row the verdict gives as a date
+// or earlier.
 func testDepthOnTheFake(t *testing.T) {
 	t.Run("windows before 2022 refused", func(t *testing.T) {
 		t.Parallel()
@@ -585,6 +588,13 @@ func testDepthOnTheFake(t *testing.T) {
 		capped = append(capped, withKeys(baseTransaction, "activityId", strconv.Itoa(84000000001+i), "accountNumber", strconv.Quote(thirdAccount.Number),
 			"type", strconv.Quote(r.typ), "time", strconv.Quote(day(r.day)), "tradeDate", strconv.Quote(day(r.day))))
 	}
+	// At the cap of two, {account 1}'s and {account 2}'s oldest windows that
+	// held rows hold two each, and each is narrowed once; {account 2}'s
+	// newest window, of three rows, is cut too, but not narrowed.
+	cut := func(n int, date, narrowed string) string {
+		return fmt.Sprintf("{account %d}: the oldest row is of %s, New York time; the 3 windows before it answered 200 with []; "+
+			"the oldest window that held rows may have been cut at the cap, so it was narrowed and asked again %s; the window of 2000: 200 with []", n, date, narrowed)
+	}
 	for _, tc := range []struct {
 		mode     schwabtest.CapMode
 		name     string
@@ -606,10 +616,60 @@ func testDepthOnTheFake(t *testing.T) {
 			if err := fl.runClean(t); err != nil {
 				t.Fatal(err)
 			}
-			wantEvidence(t, fl.report(t), "Q1", "{account 3}: the oldest row is of 2024-05-01, New York time; the 3 windows before it answered 200 with []; "+
-				"the oldest window that held rows may have been cut at the cap, so it was narrowed and asked again "+tc.narrowed+"; the window of 2000: 200 with []")
+			wantEvidence(t, fl.report(t), "Q1", cut(1, "2023-06-12", "1 time"), cut(2, "2025-01-14", "1 time"), cut(3, "2024-05-01", tc.narrowed))
 		})
 	}
+	t.Run("the cap with windows by tradeDate", func(t *testing.T) {
+		t.Parallel()
+		// Two rows on {account 3} in the walk's second window by their
+		// tradeDate, the older of them from before the window's start by its
+		// time, so that the window cannot be narrowed to end at it.
+		fl := newProbeLive(t, probeNow, "Q1")
+		fl.r.pageCap = 2
+		fl.f.SetTransactionRules(schwabtest.TransactionRules{Cap: 2, FilterOn: schwabtest.FilterOnTradeDate})
+		for i, r := range []struct{ time, trade string }{
+			{"2024-09-01T12:00:00+0000", "2024-09-02T04:00:00+0000"},
+			{"2025-01-10T15:00:00+0000", "2025-01-10T05:00:00+0000"},
+		} {
+			id := strconv.Itoa(84000000701 + i)
+			fl.more = append(fl.more, id)
+			fl.f.AddRows(thirdAccount.Hash, withKeys(baseTransaction, "activityId", id, "accountNumber", strconv.Quote(thirdAccount.Number),
+				"time", strconv.Quote(r.time), "tradeDate", strconv.Quote(r.trade)))
+		}
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q1": "a window older than an account's history answers 200 with []" +
+			"; the oldest rows, by New York date: {account 1} 2023-06-12, {account 2} 2025-01-14"})
+		wantEvidence(t, report, "Q1", "{account 3}: the walk was interrupted after 5 requests by an oldest window that held as many rows as the cap, "+
+			"the oldest of them from before its start, so it settles nothing")
+	})
+	t.Run("an allowance spent narrowing", func(t *testing.T) {
+		t.Parallel()
+		// Sixty daily rows on {account 3} at a cap of two: narrowing two
+		// days at a time, the walk spends its allowance first, so that the
+		// oldest row it saw may not be the oldest.
+		fl := newProbeLive(t, probeNow, "Q1")
+		fl.r.pageCap = 2
+		fl.f.SetTransactionRules(schwabtest.TransactionRules{Cap: 2})
+		for i := range 60 {
+			at := schwabTime(time.Date(2024, 5, 1, 15, 0, 0, 0, time.UTC).AddDate(0, 0, i))
+			id := strconv.Itoa(84000000801 + i)
+			fl.more = append(fl.more, id)
+			fl.f.AddRows(thirdAccount.Hash, withKeys(baseTransaction, "activityId", id, "accountNumber", strconv.Quote(thirdAccount.Number),
+				"time", strconv.Quote(at), "tradeDate", strconv.Quote(at)))
+		}
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q1": "a window older than an account's history answers 200 with []" +
+			"; the oldest rows, by New York date: {account 1} 2023-06-12, {account 2} 2025-01-14, {account 3} 2024-06-04 or earlier"})
+		wantEvidence(t, report, "Q1", "{account 3}: the walk spent its allowance of 30 requests before it ended; "+
+			"the oldest row it saw is of 2024-06-04, New York time, and older ones may be left; "+
+			"the oldest window that held rows may have been cut at the cap, so it was narrowed and asked again 24 times")
+	})
 }
 
 // Q4 under the fake's settings: symbol= dropping the rows that name the

@@ -213,10 +213,13 @@ type heldRows struct {
 // answers 200; else the walk ends interrupted, as after a 5xx, with no
 // verdict for that account. The oldest window that held rows, and only it,
 // is split when its answer may have been cut at the cap: its end is
-// narrowed to the oldest row returned until fewer come back. Each account's
+// narrowed to the oldest row returned until fewer come back, and an oldest
+// row from before the window's start interrupts the walk. Each account's
 // walk sends at most walkAllowance requests, walkControl among them. The
-// rows it reads are the history rows that later probes read. Whether older
-// activity exists that Schwab does not serve stays the owner's to judge.
+// verdict gives each account's oldest row's New York date, "or earlier"
+// when the walk ended before the history did. The rows it reads are the
+// history rows that later probes read. Whether older activity exists that
+// Schwab does not serve stays the owner's to judge.
 func probeDepth(ctx context.Context, r *liveRun) verdict {
 	var v verdict
 	sent := false
@@ -237,7 +240,11 @@ func probeDepth(ctx context.Context, r *liveRun) verdict {
 			first = cmp.Or(first, res.refusal)
 		}
 		if !res.oldest.IsZero() && res.how != walkInterrupted {
-			oldest = append(oldest, a.label()+" "+nyDate(res.oldest))
+			date := nyDate(res.oldest)
+			if res.how != walkRefused && !res.passedHistory() {
+				date += " or earlier" // the walk ended before the account's history did
+			}
+			oldest = append(oldest, a.label()+" "+date)
 		}
 	}
 	v.evidence = append(v.evidence, reportLine{text: "whether older activity exists that Schwab does not serve is the owner's to judge: " +
@@ -329,6 +336,12 @@ func (r *liveRun) walk(ctx context.Context, a liveAccount, sent *bool) walkResul
 			return res
 		case held.oldest.IsZero() || !next.end.Before(held.w.end):
 			res.how, res.why = walkInterrupted, "an oldest window that held as many rows as the cap, none older than another"
+			return res
+		case !next.end.After(next.start):
+			// A window that takes rows by another time than theirs, such as
+			// their tradeDate, can give one from before its start, and none
+			// can be narrowed to end there.
+			res.how, res.why = walkInterrupted, "an oldest window that held as many rows as the cap, the oldest of them from before its start"
 			return res
 		}
 		rows, err := ask(next)
