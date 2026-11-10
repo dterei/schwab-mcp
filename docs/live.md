@@ -47,6 +47,15 @@ git work tree, decided by the folders' identity, not by their paths, so a
 link or a path in another case cannot slip one in. When the default is
 refused, as for a home folder kept in git, name another with the flag.
 
+On Linux and macOS the run makes every file it writes, and every folder
+it makes, readable only by you, wherever they are. On Windows they take
+their folders' permissions instead, which in your user profile, where the
+defaults are, means only you. So on Windows give `-live.out` and
+`-live.state` only a folder that only you can read, such as one in your
+user profile, never a shared one such as `C:\Users\Public` or a network
+drive: the report is meant for you to read first, and the raw folder and
+the state with its key give your account numbers back.
+
 ### Modes, budgets and time
 
 | Mode | What runs | Budget, token requests included | How long |
@@ -134,8 +143,9 @@ the next one compares with.
 
 ## The report
 
-`report.txt` in the out folder, readable only by you, written section by
-section as the run goes, so that a run that stops keeps what it has:
+`report.txt` in the out folder, readable only by you (on Windows, as its
+folder is), written section by section as the run goes, so that a run
+that stops keeps what it has:
 
 - the toolchain, the commit, the time, the mode and the probes;
 - each answer, under its endpoint's template, such as
@@ -193,8 +203,9 @@ before its end, or a line left out fails the test; the report says which.
 
 `state.json` holds what probes compare across runs, and `state.key` the key
 of its digests, beside it: by default in `<user cache dir>/schwabtx/live/`,
-or where `-live.state` puts them, both readable only by you, and refused
-inside the module or a git work tree, as the out folder is.
+or where `-live.state` puts them, both readable only by you (on Windows,
+as their folder is), and refused inside the module or a git work tree, as
+the out folder is.
 
 Every account number, hash, id and token in it is an HMAC-SHA256 digest
 under the key, 32 random bytes made on the first run. The key keeps the
@@ -221,8 +232,8 @@ line in, or take it out.
 ## Recording
 
 With `-live.record`, each answer of the API, never a token request, is kept
-under `raw/` in the out folder, the folder readable only by you and never
-written over:
+under `raw/` in the out folder, the folder readable only by you (on
+Windows, as the out folder is) and never written over:
 
 - `NNN.body`: the bytes as Schwab sent them;
 - `NNN.json`: the method, path and query as sent; the status, the protocol
