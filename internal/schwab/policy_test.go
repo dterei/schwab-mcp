@@ -43,6 +43,12 @@ type rule struct {
 	text  *freeText  // the wording that free text may hold as it is
 }
 
+// onClosedList reports whether raw, a value at r's path, is on the closed
+// list of r's enum: Schwab's own word, such as CASH, which names no one.
+func (r rule) onClosedList(raw []byte) bool {
+	return r.class == classKeep && r.gram.values != nil && r.gram.match(raw)
+}
+
 // rulesAt returns r at each of paths.
 func rulesAt(r rule, paths []string) []rule {
 	rs := make([]rule, len(paths))
@@ -100,8 +106,12 @@ type nestedTable struct {
 
 // rule returns the rule for the values at path, the keys that lead to
 // them, and whether the table has one. Keys match in any case, as the
-// decoders match keys to fields.
+// decoders match keys to fields. A nil table, as of an answer that is not
+// JSON, has none.
 func (t *table) rule(path []string) (rule, bool) {
+	if t == nil {
+		return rule{}, false
+	}
 	for _, r := range t.rules {
 		if keysMatch(path, r.keys) {
 			return r, true

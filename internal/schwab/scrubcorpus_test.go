@@ -128,8 +128,8 @@ func leftOut(o *scrubOutput, name string) string {
 // The planted corpus beyond F reaches the routes by which a value of the
 // recording could leak that F's own values cannot reach, one case each:
 // each planted value is mapped, so that the output holds it nowhere,
-// written or decoded, or its file is left out with a reason that holds no
-// value.
+// written or decoded, but as a value of an enum's list, Schwab's own word;
+// or its file is left out with a reason that holds no value.
 func TestScrubberPlantedCorpus(t *testing.T) {
 	keep, scale := amountsPolicy{mode: "keep"}, amountsPolicy{mode: "scale", k: 20}
 	akamai := string(readTestdata(t, "errors/akamai_403.html"))
@@ -216,6 +216,40 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 				}, []string{"Kip", id}
 			},
 			written: map[string]string{"003": `"description":"TRUST` + escaped('&') + `Account 1` + escaped(' ') + `FUND"`},
+		},
+		{
+			// A value on its enum's closed list is Schwab's word, whatever a
+			// nickname is spelled as, so it is kept, and is no leak.
+			name: "a nickname that is a value of an enum", amounts: keep, accounts: 1,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				id := b.id()
+				return []testAnswer{
+					jsonAnswer("/trader/v1/userPreference", "", 200, preferences(preference(b.numbers[0], "CASH", "..."+b.numbers[0][5:]))),
+					b.transactions(cashRow(b.numbers[0], id)),
+				}, []string{"CASH", id}
+			},
+			written: map[string]string{"002": `"nickName":"Account 1"`, "003": `"subAccount":"CASH"`},
+		},
+		{
+			// A symbol is kept only as a symbol, which its nickname's fake is
+			// not, so its file is left out, and the rest written.
+			name: "a nickname that a symbol is", amounts: keep, accounts: 1,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				id := b.id()
+				leg := `[{"instrument":{"assetType":"EQUITY","status":"ACTIVE","symbol":"KIP"},"amount":1.25,"cost":0.0}]`
+				return []testAnswer{
+					jsonAnswer("/trader/v1/userPreference", "", 200, preferences(preference(b.numbers[0], "KIP", "..."+b.numbers[0][5:]))),
+					b.transactions(cashRow(b.numbers[0], id, "transferItems", leg)),
+				}, []string{"KIP", id}
+			},
+			written: map[string]string{"001": `"hashValue"`, "002": `"nickName":"Account 1"`},
+			check: func(t *testing.T, _ corpusBase, o *scrubOutput) {
+				// Pass two leaves it out itself, before the value hygiene
+				// tests would.
+				if why := leftOut(o, "003"); why != "transferItems.instrument.symbol: not a symbol" {
+					t.Errorf("answer 003 is left out for %q, want for its symbol", why)
+				}
+			},
 		},
 		{
 			// Kept, its digits replaced, the wording would hold an account
@@ -995,11 +1029,13 @@ func TestScrubberMapsInKind(t *testing.T) {
 // decoded and then unescaped as a path and a query, each number as written
 // and as the whole number it is, a page's text unescaped, an entry's file,
 // path, query and headers, and last a body's bytes as written, in which
-// only identifiers of 6 characters or more count.
+// only identifiers of 6 characters or more count. A value on its enum's
+// closed list is in none of them, but one off it is, and the same text at
+// a path of free text.
 func TestLeakTexts(t *testing.T) {
 	has := slices.Contains[[]leakText]
 	b := []byte(`{"k%32":"a%2529b","n":2.9470135E7}`)
-	texts := textsOf(b)
+	texts := textsOf(b, nil)
 	for _, want := range []leakText{
 		{where: `"k%32", its key`, text: "k%32", key: true},
 		{where: `"k%32", its key`, text: "k2", key: true},
@@ -1016,13 +1052,24 @@ func TestLeakTexts(t *testing.T) {
 	if last := texts[len(texts)-1]; last.text != string(b) || !last.long || last.where != "the answer" {
 		t.Errorf("the last text is %+v, want the bytes as written", last)
 	}
-	page := textsOf([]byte("<html><p>18&#46;9e%2Fx</p></html>"))
+	page := textsOf([]byte("<html><p>18&#46;9e%2Fx</p></html>"), nil)
 	if !has(page, leakText{where: "the page", text: "<html><p>18.9e%2Fx</p></html>"}) ||
 		!has(page, leakText{where: "the page", text: "<html><p>18.9e/x</p></html>"}) {
 		t.Errorf("a page's texts: %+v", page)
 	}
-	if white := textsOf([]byte(" \n")); len(white) != 1 || !white[0].long {
+	if white := textsOf([]byte(" \n"), nil); len(white) != 1 || !white[0].long {
 		t.Errorf("white space's texts: %+v", white)
+	}
+	row := []byte(`{"subAccount":"CASH","status":"GIFT","description":"CASH"}`)
+	var got []string
+	for _, l := range textsOf(row, transactionTable) {
+		got = append(got, l.where+"="+l.text)
+	}
+	if want := []string{
+		"subAccount, its key=subAccount", "status, its key=status", "description, its key=description",
+		"status=GIFT", "description=CASH", `the answer={"subAccount":"","status":"GIFT","description":"CASH"}`,
+	}; !slices.Equal(got, want) {
+		t.Errorf("the texts of a row: %q, want %q", got, want)
 	}
 	var e schwabtest.Entry
 	e.File, e.Request.Path, e.Request.Query = "recorded/2026-11-08/001.json", "/trader/v1/accounts/a%2Fb", "x=%41"

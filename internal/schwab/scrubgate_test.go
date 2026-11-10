@@ -787,12 +787,12 @@ func transactionResiduals(rec *node, add func(string, ...*big.Rat)) {
 func (s *scrubber) gateLeaks(o *scrubOutput) string {
 	var texts []leakText
 	for _, f := range o.files {
-		for _, t := range slices.Concat(textsOf(f.body), entryTexts(f.entry)) {
+		for _, t := range slices.Concat(textsOf(f.body, f.from.table), entryTexts(f.entry)) {
 			t.where = "answer " + f.from.raw.name + ": " + t.where
 			texts = append(texts, t)
 		}
 	}
-	for _, t := range textsOf(o.entriesJSON()) {
+	for _, t := range textsOf(o.entriesJSON(), nil) {
 		t.where = "entries.json: " + t.where
 		texts = append(texts, t)
 	}

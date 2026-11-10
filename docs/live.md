@@ -258,12 +258,13 @@ What it does:
   an account whose hash changed during it, is refused.
 - Every other value is kept only where the scrub policy says what it may
   be: an enum of its list, a time, a symbol, a security's name and so on.
-  Free text is kept when it is Schwab's own wording, such as "Dividend
-  Reinvest", and else becomes `DESCRIPTION N` or `MESSAGE N`, the same text
-  the same N. A value at a path that no rule covers, an answer of a kind
-  the policy has no table for, such as orders and market data, an answer
-  cut short, or a page other than Schwab's known error pages, leaves its
-  file out.
+  A value of an enum's list, such as `CASH`, is Schwab's own word and
+  stays as it is, even where a nickname is spelled the same. Free text is
+  kept when it is Schwab's own wording, such as "Dividend Reinvest", and
+  else becomes `DESCRIPTION N` or `MESSAGE N`, the same text the same N. A
+  value at a path that no rule covers, an answer of a kind the policy has
+  no table for, such as orders and market data, an answer cut short, or a
+  page other than Schwab's known error pages, leaves its file out.
 - Each new value is put in place of the old in Schwab's bytes, which are
   never encoded again, so key order, keys sent twice, white space, number
   literals and escapes stay as Schwab sent them.

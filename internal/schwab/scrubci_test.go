@@ -316,8 +316,8 @@ func scrubAnswers(t *testing.T, answers []testAnswer, cfg scrubConfig) (*scrubOu
 
 // leaksOf returns each of values that out holds anywhere, its files and
 // their entries, entries.json, review.txt and the shapes, as written and
-// decoded, as gate (v) searches; values of fewer than 6 characters as whole
-// tokens.
+// decoded, as gate (v) searches, a value of an enum's list aside; values of
+// fewer than 6 characters as whole tokens.
 func leaksOf(out *scrubOutput, values []string) []string {
 	set := newIdentSet()
 	for _, v := range values {
@@ -325,10 +325,10 @@ func leaksOf(out *scrubOutput, values []string) []string {
 	}
 	var texts []leakText
 	for _, f := range out.files {
-		texts = append(texts, textsOf(f.body)...)
+		texts = append(texts, textsOf(f.body, f.from.table)...)
 		texts = append(texts, entryTexts(f.entry)...)
 	}
-	texts = append(texts, textsOf(out.entriesJSON())...)
+	texts = append(texts, textsOf(out.entriesJSON(), nil)...)
 	for _, s := range append([]string{out.review}, mapValues(out.shapes)...) {
 		for _, form := range unescapedForms(s) {
 			texts = append(texts, leakText{where: "text", text: form})

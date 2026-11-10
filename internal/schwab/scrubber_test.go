@@ -610,7 +610,7 @@ func (s *scrubber) scrubAnswer(a *scrubAnswer) {
 		s.scrubEntry(a)
 	}
 	if a.refused == "" {
-		if where, v := s.leakIn(a.body, a.out); v != nil {
+		if where, v := s.leakIn(a.body, a.table, a.out); v != nil {
 			a.refuse(where + ": " + string(v.id) + " that the scrubber could not replace")
 		}
 	}
@@ -778,8 +778,14 @@ func (s *scrubber) scaleValue(a *scrubAnswer, raw []byte) ([]byte, string) {
 
 // keepValue returns raw, a value that r keeps, as it is, a string with any
 // identifier in it replaced; or why it cannot be kept: it is not of r's
-// grammar, or holds an identifier that cannot be replaced.
+// grammar, or holds an identifier that cannot be replaced. A value on its
+// enum's closed list, such as CASH, is Schwab's own word, which names no
+// one, even where a nickname is spelled the same, so nothing in it is
+// replaced.
 func (s *scrubber) keepValue(r rule, raw []byte) ([]byte, string) {
+	if r.onClosedList(raw) {
+		return raw, ""
+	}
 	out := raw
 	if raw[0] == '"' {
 		var why string
@@ -1015,25 +1021,35 @@ type leakText struct {
 }
 
 // textsOf returns the texts of body, an answer as written, that the checks
-// for leaks search: the raw bytes, for identifiers of 6 characters or more;
-// for JSON, each key and string decoded, each unescaped as a path and as a
-// query too, and each number as written and as a whole number; for a page,
-// its text unescaped, and that unescaped as a path and as a query.
-func textsOf(body []byte) []leakText {
+// for leaks search, tab being its kind's table, or nil: the raw bytes, for
+// identifiers of 6 characters or more; for JSON, each key and string
+// decoded, each unescaped as a path and as a query too, and each number as
+// written and as a whole number; for a page, its text unescaped, and that
+// unescaped as a path and as a query. A value on its enum's closed list,
+// such as CASH, is Schwab's own word, which names no one, though a
+// nickname may be spelled the same: it is searched in no form, its bytes
+// left out of the raw bytes too.
+func textsOf(body []byte, tab *table) []leakText {
 	var texts []leakText
 	addForms := func(where, text string, key bool) {
 		for _, f := range unescapedForms(text) {
 			texts = append(texts, leakText{where: where, text: f, key: key})
 		}
 	}
+	raw := body
 	switch schwabtest.ExtensionFor(body) {
 	case ".json":
+		var schwab []splice
 		walkJSON(body, func(sc jsonScalar) {
-			raw := body[sc.start:sc.end]
-			if str, ok := jsonString(raw); ok {
+			lit := body[sc.start:sc.end]
+			if r, ok := tab.rule(sc.path); ok && r.onClosedList(lit) {
+				schwab = append(schwab, splice{start: sc.start + 1, end: sc.end - 1})
+				return
+			}
+			if str, ok := jsonString(lit); ok {
 				addForms(pathName(sc.path), str, false)
-			} else if isJSONNumber(raw) {
-				for _, f := range numberForms(raw) {
+			} else if isJSONNumber(lit) {
+				for _, f := range numberForms(lit) {
 					texts = append(texts, leakText{where: pathName(sc.path), text: f, number: true})
 				}
 			}
@@ -1042,12 +1058,13 @@ func textsOf(body []byte) []leakText {
 				addForms(pathName(append(slices.Clip(path), k))+", its key", k, true)
 			}
 		})
+		raw = applySplices(body, schwab)
 	case ".html":
 		addForms("the page", html.UnescapeString(string(body)), false)
 	}
 	// The bytes as written, last, so that a value found is named by where
 	// it is first.
-	return append(texts, leakText{where: "the answer", text: string(body), long: true})
+	return append(texts, leakText{where: "the answer", text: string(raw), long: true})
 }
 
 // unescapedForms returns text, and text unescaped as a path and as a query
@@ -1089,10 +1106,11 @@ func entryTexts(e schwabtest.Entry) []leakText {
 	return texts
 }
 
-// leakIn returns where body, an answer as written, or e, its index entry,
-// holds an identifier of the recording, and which; or "", nil.
-func (s *scrubber) leakIn(body []byte, e schwabtest.Entry) (string, *identValue) {
-	for _, t := range slices.Concat(textsOf(body), entryTexts(e)) {
+// leakIn returns where body, an answer as written of a kind whose table is
+// tab, or e, its index entry, holds an identifier of the recording, and
+// which; or "", nil.
+func (s *scrubber) leakIn(body []byte, tab *table, e schwabtest.Entry) (string, *identValue) {
+	for _, t := range slices.Concat(textsOf(body, tab), entryTexts(e)) {
 		if v := s.leakInText(t); v != nil {
 			return t.where, v
 		}
