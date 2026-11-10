@@ -329,7 +329,8 @@ func (s *Server) queryDate(q url.Values, name string) (time.Time, *answer) {
 	}
 	if dateAlone.MatchString(v[0]) {
 		// Schwab's reported wording, with the value cut short, whatever it
-		// is, so that the body stays small.
+		// is, so that the body stays small. Only the wording was reported:
+		// the status and the rest of the body are guesses.
 		value := v[0][:min(len(v[0]), 64)]
 		a := s.built(http.StatusBadRequest, []byte(`{"message":`+string(jsonString("'"+value+"' is not a valid value for "+name))+`}`))
 		return time.Time{}, &a

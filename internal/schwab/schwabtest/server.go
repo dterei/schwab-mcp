@@ -329,7 +329,9 @@ func (s *Server) own(route Route, r *http.Request) answer {
 }
 
 // unauthorized returns the answer to an API request without a working
-// access token: Schwab's 401, with an ID of its own. It needs the lock.
+// access token: Schwab's 401 to a token it does not take, with an ID of
+// its own. Of Schwab's answer to a request without any token, only the
+// status was kept. It needs the lock.
 func (s *Server) unauthorized() answer {
 	a := s.built(http.StatusUnauthorized, nil)
 	a.body = []byte(strings.Replace(notAuthorizedBody, cannedID, s.uuid(), 1))

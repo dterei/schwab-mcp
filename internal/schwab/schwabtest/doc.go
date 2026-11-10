@@ -17,10 +17,10 @@
 // Code, or through the authorize page, as a browser would. LoadFixtures
 // gives the fake the fixtures' three accounts, and AddAccount and AddRow
 // give it others. Script, Queue, Override and OverridePath make the API
-// answer as a test needs, the canned answers, such as TooMany and
-// AccessDenied, being Schwab's own; FailTokens does the same for the token
-// endpoint. Requests, APICalls, TokenRequests and Grants say what the fake
-// was sent.
+// answer as a test needs, with a handler of the test's or a canned answer,
+// such as TooMany or AccessDenied, each of which says whether Schwab was
+// seen sending it; FailTokens does the same for the token endpoint.
+// Requests, APICalls, TokenRequests and Grants say what the fake was sent.
 //
 // # What it imitates
 //
@@ -100,6 +100,10 @@
 //   - Code works any number of times and never lapses, so that tests can
 //     log in again and again; Schwab's codes, and the authorize page's,
 //     work once within 30 seconds.
+//   - The authorize page leaves every access token working, though
+//     Schwab's guide says that a login started there and then abandoned
+//     ends the current one; RevokeAccess, which ends them all, can stand
+//     in for that.
 //   - A wrong app key or secret gets invalid_client with 401, a status
 //     never recorded.
 //   - The token endpoint's answers are application/json and carry no
@@ -110,14 +114,21 @@
 //   - Every body that is a guess says so in its own text, such as the
 //     token endpoint's answer to a bad code, the authorize page's errors,
 //     the 400s for a query the fake refuses and the 404 for an unknown id,
-//     so that no output can pass one off as Schwab's.
+//     so that no output can pass one off as Schwab's. Two answers that
+//     hold Schwab's words are guesses in part and do not say so: the 401
+//     to a request without any token sends NotAuthorized's body, though of
+//     Schwab's answer to such a request only the status was kept; and a
+//     query date alone gets the wording Schwab was reported to send, in a
+//     body and with a status that are guesses.
 //   - A stale hash gets Invalid account number, as an account number does;
 //     that is inferred, not seen.
 //   - How the cap meets a request for several types, whether a window's
-//     bounds are inclusive, and whether it takes rows by time or by
-//     tradeDate are not known. The defaults are guesses, each settable in
-//     TransactionRules, as is the longest window, one calendar year.
-//   - Query dates are taken in the forms seen taken, RFC 3339 instants
-//     with Z or an offset, and no others; a date alone gets the wording
-//     Schwab was reported to send.
+//     bounds are inclusive, whether it takes rows by time or by tradeDate,
+//     and which rows symbol= keeps are not known. The defaults are
+//     guesses, each settable in TransactionRules, as is the longest
+//     window, one calendar year. By default symbol= keeps the rows with a
+//     leg whose instrument.symbol or underlyingSymbol is the symbol.
+//   - Query dates are taken as RFC 3339 instants with Z or an offset and a
+//     fraction of up to 9 digits, or none; only a fraction of 3 digits
+//     with Z was seen taken.
 package schwabtest
