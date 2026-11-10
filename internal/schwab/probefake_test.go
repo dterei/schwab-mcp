@@ -1954,7 +1954,9 @@ func watchFills(t *testing.T, start time.Time, rules schwabtest.TransactionRules
 // watch and filled a minute later, whose row comes two and a half minutes
 // after the fill, so between the polls 2 and 3 minutes after it, whether
 // windows take it by its time or, dated its day's midnight, by its
-// tradeDate; a Friday evening's fill whose row, dated Monday, windows by
+// tradeDate; a fill 23 seconds past the minute, whose row comes between
+// the polls 1m37s and 2m37s after it, which the verdict rounds out to whole
+// minutes; a Friday evening's fill whose row, dated Monday, windows by
 // tradeDate take in only past the poll; an order filled three hours before
 // the watch, whose row is there from the start, and one filled at 12:30 the
 // day before, whose row, there from the start too and dated that day's
@@ -1974,6 +1976,15 @@ func testFillsOnTheFake(t *testing.T) {
 		if n := fl.f.APICalls(); n != 2+30*2*3 {
 			t.Errorf("%d requests, want the account numbers, the preferences and 30 polls of two for each account", n)
 		}
+	})
+	t.Run("a fill off the minute", func(t *testing.T) {
+		t.Parallel()
+		// At 11:05:23, with its row at 11:07:53: the polls at 11:07 and
+		// 11:08 bound the time from 1m37s to 2m37s.
+		fl := watchFills(t, probeNow, schwabtest.TransactionRules{}, watchedFill{filled: soon.Add(23 * time.Second), after: 150 * time.Second})
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q13": "a fill's trade appears from 1 to 3 minutes after the fill"})
+		wantEvidence(t, report, "Q13", "rows that came during the watch: 1, from 1 to 3 minutes after the fills")
 	})
 	midnight := time.Date(2026, 9, 1, 4, 0, 0, 0, time.UTC)     // the fill's day's, in New York
 	dayBefore := time.Date(2026, 8, 31, 16, 30, 0, 0, time.UTC) // 12:30 in New York, the Monday before

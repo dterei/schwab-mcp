@@ -352,10 +352,11 @@ func wantLines(t *testing.T, text string, lines ...string) {
 
 // A run on the fake without probes reads the account numbers and the
 // user's preferences first, then checks every account endpoint once: the
-// accounts both ways, each account both ways, its last year of
-// transactions and the first of them by id. Every request is a read, and
-// every answer is in the report, with its status, Content-Type,
-// correlation headers, records and findings, as are the keys seen and the
+// accounts both ways, with their positions and without, each account both
+// ways, its last year of transactions and the first of them by id. Every
+// request is a read, and every answer is in the report, with its status,
+// Content-Type, correlation headers, records and findings, as are the keys
+// seen, those of the positions and their instruments among them, and the
 // guard's accounting. The report holds no identifier of the fixtures, no
 // path of the run's and not the user name, and nor do the lines printed,
 // each of which is in the report. The state and its key are made, and
@@ -382,6 +383,7 @@ func TestLiveChecksOnTheFake(t *testing.T) {
 		"## accounts/{account 2}/transactions/{id}", acct,
 		"## accounts/{account 3}/transactions", "200, application/json, 0 records; correlation headers: Schwab-Client-Correlid, X-Request-Id",
 		"## the keys seen", "AccountNumber: 3 records", "  new to liveKeys: none", "  of liveKeys, not seen: none",
+		"Instrument: 37 records", "Position: 12 records", "  new to liveKeys: none", "  of liveKeys, not seen: none",
 		"## the guard", "budget: 180 requests, token requests included; 15 sent", "answers by status: 200: 15", "token requests: 0",
 		"429s: 0", "failures of the network: 0", "refusals: none", "stopped: no", "did not run: none",
 		"## before sharing", "W-8: no line reveals W-8 withholding rows", "the run passed",
@@ -403,6 +405,25 @@ func TestLiveChecksOnTheFake(t *testing.T) {
 	for i, r := range rs {
 		if r.Method != http.MethodGet || !strings.HasPrefix(r.Path, "/trader/v1/") || i < 2 && r.Route != []schwabtest.Route{schwabtest.AccountNumbersRoute, schwabtest.UserPreferenceRoute}[i] {
 			t.Errorf("request %d: %s %s, %s", i, r.Method, r.Path, r.Route)
+		}
+	}
+	paths := map[string]string{"/trader/v1/accounts": "accounts"}
+	for i, a := range schwabtest.FixtureAccounts {
+		paths["/trader/v1/accounts/"+a.Hash] = fmt.Sprintf("accounts/{account %d}", i+1)
+	}
+	for path, name := range paths {
+		with, without := 0, 0
+		for _, r := range rs {
+			switch {
+			case r.Path != path:
+			case r.Query == "fields=positions":
+				with++
+			case r.Query == "":
+				without++
+			}
+		}
+		if with != 1 || without != 1 {
+			t.Errorf("%s: asked %d times with its positions and %d without, want once each", name, with, without)
 		}
 	}
 	var st stateJSON
