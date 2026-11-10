@@ -667,9 +667,9 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 // A recording that the scrubber cannot keep apart from its fakes is
 // refused whole, with a reason that holds no value: more accounts than
 // fakes, a hash of two accounts, an account of two hashes, a fixed fake that
-// is a value of the recording, as an account's, a hash's, a masked
-// number's or the streamer's ID's can be, and an answer whose time sent is
-// not known, which leaves the recording's day unknown.
+// is a value of the recording, as an account's, a hash's or the streamer's
+// ID's can be, and an answer whose time sent is not known, which leaves the
+// recording's day unknown.
 func TestScrubberRefusesRecordings(t *testing.T) {
 	b := newCorpusBase(t, 13, 24)
 	for _, tc := range []struct {
@@ -689,11 +689,6 @@ func TestScrubberRefusesRecordings(t *testing.T) {
 		{"a hash that is the fake hash of its account", []testAnswer{
 			jsonAnswer("/trader/v1/accounts/accountNumbers", "", 200, `[{"accountNumber":"`+b.numbers[0]+`","hashValue":"`+schwabtest.FixtureAccounts[0].Hash+`"}]`),
 		}, "the fake of an account's hash could be taken for an identifier of the recording"},
-		{"a masked number that is its fake", []testAnswer{
-			jsonAnswer("/trader/v1/accounts/accountNumbers", "", 200, `[{"accountNumber":"22222135","hashValue":"`+b.hashes[0]+`"}]`),
-			jsonAnswer("/trader/v1/userPreference", "", 200, `{"accounts":[{"accountNumber":"22222135","primaryAccount":true,"type":"BROKERAGE",`+
-				`"nickName":"Kip","displayAcctId":"...135","autoPositionEffect":false,"accountColor":"Green"}],"streamerInfo":[],"offers":[]}`),
-		}, "the fake of a masked account number could be taken for an identifier of the recording"},
 		{"a streamer's ID that is its fake", []testAnswer{
 			jsonAnswer("/trader/v1/userPreference", "", 200, `{"accounts":[],"streamerInfo":[{"streamerSocketUrl":"wss://streamer-api.schwab.com/ws",`+
 				`"schwabClientCustomerId":"`+schwabtest.StreamerCustomerID+`","schwabClientCorrelId":"`+b.p.value(idCorrelation, "c")+`",`+
@@ -720,6 +715,45 @@ func TestScrubberRefusesRecordings(t *testing.T) {
 		}
 		if out != nil || slices.ContainsFunc(slices.Concat(b.numbers, b.hashes), func(v string) bool { return strings.Contains(err.Error(), v) }) {
 			t.Errorf("%s: an output, or a value in the error: %v", tc.name, err)
+		}
+	}
+}
+
+// A masked number whose fake could be taken for one of the recording's
+// values, as when an account ends with the digits that its own fake or
+// another account's ends with, leaves out each answer that holds it, with
+// why, and the rest of the recording is written. The fakes follow the
+// accounts' places, so every recording of such a login would meet it, and
+// refusing the recording whole would refuse them all.
+func TestScrubberLeavesOutAMaskedNumberLikeAFake(t *testing.T) {
+	b := newCorpusBase(t, 13, 2)
+	for _, tc := range []struct {
+		name    string
+		numbers []string // the accounts, whose fakes' masked numbers are ...135 and ...398
+	}{
+		{"its own fake's digits", []string{"22222135", "33333777"}},
+		{"another's fake's digits", []string{"33333777", "22222135"}},
+	} {
+		numbers := `[{"accountNumber":"` + tc.numbers[0] + `","hashValue":"` + b.hashes[0] + `"},` +
+			`{"accountNumber":"` + tc.numbers[1] + `","hashValue":"` + b.hashes[1] + `"}]`
+		answers := []testAnswer{
+			jsonAnswer("/trader/v1/accounts/accountNumbers", "", 200, numbers),
+			jsonAnswer("/trader/v1/userPreference", "", 200, preferences(
+				preference(tc.numbers[0], "Kip", "..."+tc.numbers[0][5:]), preference(tc.numbers[1], "Lou", "..."+tc.numbers[1][5:]))),
+		}
+		out, err := scrubAnswers(t, answers, scrubConfig{})
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if why, want := leftOut(out, "002"), "accounts.displayAcctId: a masked account number whose fake could be taken for an identifier of the recording"; why != want {
+			t.Errorf("%s: the preferences are left out for %q, want %q", tc.name, why, want)
+		}
+		if len(out.files) != 1 || out.files[0].from.raw.name != "001" {
+			t.Errorf("%s: wrote %d files, want the account numbers' answer alone", tc.name, len(out.files))
+		}
+		if leaks := leaksOf(out, slices.Concat(tc.numbers, b.hashes, []string{"Kip", "Lou", "...135", "...777"})); len(leaks) > 0 {
+			t.Errorf("%s: the output holds %q", tc.name, leaks)
 		}
 	}
 }

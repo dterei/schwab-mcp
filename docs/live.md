@@ -280,7 +280,10 @@ What it does:
   same order; nicknames become `Account 1`, `Account 2` and so on; the
   streamer's IDs, correlation IDs, errors' IDs and Akamai's Reference
   become the fixtures' fakes. A recording of more than 23 accounts, or of
-  an account whose hash changed during it, is refused.
+  an account whose hash changed during it, is refused. A masked number
+  whose fake would read as one of the recording's own, as when an account
+  ends with the three digits its fake ends with, leaves out each answer
+  that holds it, such as the user's preferences, with why.
 - Every other value is kept only where the scrub policy says what it may
   be: an enum of its list, a time, a symbol, a security's name and so on.
   A kept value that holds an identifier keeps every other character, as a

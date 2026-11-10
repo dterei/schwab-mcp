@@ -530,7 +530,11 @@ func (s *scrubber) fakeAccount(number string) string {
 // many digits in the same order; nicknames Account N; the streamer's IDs
 // their fixed fakes; errors' and correlation IDs UUIDs of the counter; and
 // Akamai's References AkamaiReference. No fake could be taken for an
-// identifier of the recording.
+// identifier of the recording. A masked number has only its account's
+// last digits for its own, which another of the recording's can end with,
+// so it is left without a fake when its fake would be one of the
+// recording's values, and the answers that hold it are left out, rather
+// than the recording refused.
 func (s *scrubber) giveFakes() error {
 	if err := s.ids.giveAccountFakes(s.accounts); err != nil {
 		return err
@@ -549,10 +553,8 @@ func (s *scrubber) giveFakes() error {
 				fakes = append(fakes, fake)
 			}
 		}
-		if len(fakes) == 1 {
-			if v.fake = fakes[0]; s.ids.collides(v.fake) {
-				return errors.New("the fake of a masked account number could be taken for an identifier of the recording")
-			}
+		if len(fakes) == 1 && !s.ids.collides(fakes[0]) {
+			v.fake = fakes[0]
 		}
 	}
 	used := map[string]bool{}
@@ -761,8 +763,11 @@ func (s *scrubber) mapValue(a *scrubAnswer, id identifier, sc jsonScalar, raw []
 			return nil, "a masked account number with no account number beside it"
 		}
 		fake, why := s.displayFake(str, number)
-		if why != "" {
+		switch {
+		case why != "":
 			return nil, why
+		case s.ids.collides(fake):
+			return nil, "a masked account number whose fake could be taken for an identifier of the recording"
 		}
 		a.review.mapped[id]++
 		return jsonText(fake), ""
