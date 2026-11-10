@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -566,6 +567,138 @@ func testEchoedSecretsOnTheFake(t *testing.T) {
 			t.Errorf("%d refreshes, want the one after the refusal", refresh)
 		}
 	})
+}
+
+// testNetworkFailuresOnTheFake runs on the fake with failures of the
+// network, whose errors name this machine's address and port: a listener
+// that resets each connection as the run reads the user's preferences, and
+// a refresh, after a 401 two minutes into the login, whose token requests
+// time out twice. The report
+// says what failed, and Schwab's 401, but neither it nor the lines printed
+// hold the address of either end of a connection.
+func testNetworkFailuresOnTheFake(t *testing.T) {
+	t.Run("connections reset", func(t *testing.T) {
+		t.Parallel()
+		fl := newFakeLive(t)
+		addr, peers := resettingListener(t)
+		reset := &http.Transport{DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		}}
+		t.Cleanup(reset.CloseIdleConnections)
+		fl.r.auth.cfg.HTTPClient = &http.Client{Transport: routeTransport{path: "/trader/v1/userPreference", to: reset, next: fl.r.auth.cfg.HTTPClient.Transport}}
+		err := fl.runClean(t)
+		if err == nil || !strings.Contains(err.Error(), "it stopped before its end: three failures of the network in a row") {
+			t.Errorf("the run's error: %v", err)
+		}
+		report := fl.report(t)
+		if !strings.Contains(report, "## userPreference\nfailed: GET /trader/v1/userPreference after 3 tries: ") {
+			t.Errorf("the report:\n%s", report)
+		}
+		if len(peers()) == 0 {
+			t.Error("no connection reached the listener")
+		}
+		noAddresses(t, fl, append(peers(), addr)...)
+	})
+	t.Run("a refresh that times out", func(t *testing.T) {
+		t.Parallel()
+		fl := newFakeLive(t)
+		local, schwab := net.ParseIP("2001:db8:85a3::8a2e:370:7334"), net.ParseIP("192.0.2.17")
+		timeout := &net.OpError{
+			Op: "read", Net: "tcp", Source: &net.TCPAddr{IP: local, Port: 51234}, Addr: &net.TCPAddr{IP: schwab, Port: 443},
+			Err: os.ErrDeadlineExceeded,
+		}
+		fl.r.auth.cfg.HTTPClient = &http.Client{Transport: routeTransport{path: tokenPath, to: failingTransport{timeout}, next: fl.r.auth.cfg.HTTPClient.Transport}}
+		fl.f.Queue(schwabtest.UserPreferenceRoute, schwabtest.NotAuthorized)
+		fl.more = append(fl.more, local.String(), schwab.String())
+		fl.clock.set(liveNow.Add(2 * time.Minute)) // a token issued moments ago is not refreshed
+		if err := fl.runClean(t); fmt.Sprint(err) != "the live run failed: the user's preferences could not be read" {
+			t.Errorf("the run's error: %v", err)
+		}
+		report := fl.report(t)
+		if !strings.Contains(report, "\nfailed: refreshing the access token after 2 tries: Post \"https://{address}/v1/oauth/token\": read tcp: i/o timeout, "+
+			"after the request got: HTTP 401 from Schwab: Client not authorized (correlation ID {correlation id ") {
+			t.Errorf("the report:\n%s", report)
+		}
+		wantLines(t, report, "failures of the network: 2")
+		noAddresses(t, fl)
+	})
+}
+
+// noAddresses fails the test if the report of fl or a line it printed
+// holds an address of a connection, by its arrow, or one of addrs.
+func noAddresses(t *testing.T, fl *fakeLive, addrs ...string) {
+	t.Helper()
+	for _, text := range append(fl.lines(), fl.report(t)) {
+		if strings.Contains(text, "->") {
+			t.Errorf("an address of a connection in %q", text)
+		}
+		for _, a := range addrs {
+			if strings.Contains(text, a) {
+				t.Errorf("%s in %q", a, text)
+			}
+		}
+	}
+}
+
+// resettingListener listens on the loopback and resets each connection it
+// takes, as a network that drops one does. It returns its address, and a
+// func that returns the addresses the connections came from, this
+// machine's.
+func resettingListener(t *testing.T) (addr string, peers func() []string) {
+	t.Helper()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	var mu sync.Mutex
+	var from []string
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			from = append(from, c.RemoteAddr().String())
+			mu.Unlock()
+			if tc, ok := c.(*net.TCPConn); ok {
+				_ = tc.SetLinger(0) // a reset, not a close
+			}
+			_ = c.Close()
+		}
+	}()
+	return ln.Addr().String(), func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(from)
+	}
+}
+
+// A routeTransport sends the requests of a path through to, and the rest
+// through next.
+type routeTransport struct {
+	path     string
+	to, next http.RoundTripper
+}
+
+// RoundTrip sends req by its path.
+func (rt routeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.EscapedPath() == rt.path {
+		return rt.to.RoundTrip(req)
+	}
+	return rt.next.RoundTrip(req)
+}
+
+// A failingTransport fails each request with its error, sending nothing.
+type failingTransport struct{ err error }
+
+// RoundTrip fails req.
+func (ft failingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	closeBody(req)
+	return nil, ft.err
 }
 
 // writeJSON writes body, JSON, with status, as the fake's own answers are

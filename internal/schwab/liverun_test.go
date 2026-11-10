@@ -515,7 +515,9 @@ func firstActivityID(rep *reply) string {
 // accounts/{account 1}/transactions: its status, Content-Type, the names
 // of its correlation headers and its records, and what checkAnswer finds,
 // once the scrubber has learned the answer's identifiers. A finding that
-// fails fails the run. A kind of "" is an endpoint whose answers hold no
+// fails fails the run. A read that fails is reported by Schwab's status
+// and words, or by what else failed, without the addresses that a failure
+// of the network names. A kind of "" is an endpoint whose answers hold no
 // records of this package's, such as the orders' or Market Data's, which
 // is reported without records or findings. Once the run has stopped, or
 // past its deadline, it sends nothing and returns ctx's error.
@@ -551,7 +553,7 @@ func (r *liveRun) fetch(ctx context.Context, c *Client, endpoint, path string, q
 			}
 			sec.addf("failed with %d, %s; %s", se.Status, contentType(se.Header), correlationNames(se.Header))
 		}
-		sec.add("failed: " + err.Error())
+		sec.add("failed: " + failureText(err))
 		r.write(sec)
 		return nil, err
 	}

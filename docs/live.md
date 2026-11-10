@@ -153,6 +153,10 @@ messages, scrubbed. It never holds a record, an account number, a hash, an
 id, a balance, a quantity, a symbol of yours or a description: a
 transaction's description is printed only when it is Schwab's own wording
 for a kind of row, such as "Ordinary Dividend~SYM", with the symbol masked.
+A failure of the network is told by what failed, such as
+`read tcp: i/o timeout`, without the addresses that its error names, your
+computer's among them; an address that an error quotes some other way
+shows as `{address}`.
 
 A scrubber of the run's own replaces what the run has seen with labels:
 each account and its hash by its place in the account numbers, as

@@ -370,6 +370,7 @@ func TestLiveOnTheFake(t *testing.T) {
 		{"the default run at 6 requests a minute", testPacingOnTheFake},
 		{"a guard apart from the run refuses a POST", func(t *testing.T) { guardRefusesPosts(t, newFakeLive(t)) }},
 		{"refusals that echo secrets", testEchoedSecretsOnTheFake},
+		{"failures of the network", testNetworkFailuresOnTheFake},
 		{"Q1", testDepthOnTheFake},
 		{"Q4", testSymbolFilterOnTheFake},
 		{"Q5", testOrdersDepthOnTheFake},

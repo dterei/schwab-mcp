@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -632,6 +633,54 @@ func (s *liveScrubber) learnError(err error) {
 	}
 }
 
+// addressText matches an address in an error's text, with or without its
+// port, as net writes one: an IPv4 address, or an IPv6 address in
+// brackets.
+var addressText = regexp.MustCompile(`(?:\b\d{1,3}(?:\.\d{1,3}){3}\b|\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(?:%[^\]\s]*)?\])(?::\d+)?`)
+
+// failureText returns the text of err, a read's failure, for the report,
+// without the addresses that a failure of the network names. A
+// connection's error names both its ends, this machine's address and port
+// among them: on the owner's computer, its address on the local network,
+// or a global IPv6 address, which can hold its hardware address. A failed
+// lookup names the resolver's address. The scrubber learns none of them.
+// So each of net's errors in err, under the Client's tries or in a
+// refresh's failure that it wraps, is told by its operation, its network
+// and its cause alone, and any address left, as in an error that quotes
+// one of net's without wrapping it, becomes {address}.
+func failureText(err error) string {
+	text := err.Error()
+	var walk func(e error)
+	walk = func(e error) {
+		if e == nil {
+			return
+		}
+		// Each error before those it wraps, whose text it holds.
+		switch ne := e.(type) { //nolint:errorlint // each error of the tree is looked at in turn, below
+		case *net.OpError:
+			if ne.Err != nil {
+				told := ne.Op
+				if ne.Net != "" {
+					told += " " + ne.Net
+				}
+				text = strings.ReplaceAll(text, ne.Error(), told+": "+ne.Err.Error())
+			}
+		case *net.DNSError:
+			text = strings.ReplaceAll(text, ne.Error(), "lookup "+ne.Name+": "+ne.Err)
+		}
+		switch u := e.(type) { //nolint:errorlint // walking the tree by hand
+		case interface{ Unwrap() error }:
+			walk(u.Unwrap())
+		case interface{ Unwrap() []error }:
+			for _, inner := range u.Unwrap() {
+				walk(inner)
+			}
+		}
+	}
+	walk(err)
+	return addressText.ReplaceAllString(text, "{address}")
+}
+
 // fixtureScrubber returns a scrubber that has learned the fixtures' own
 // answers, with home as the home folder.
 func fixtureScrubber(t *testing.T, home string) *liveScrubber {
@@ -950,6 +999,58 @@ func TestScrubberLearnsSecrets(t *testing.T) {
 	} {
 		if got := s.scrub(tc.in); got != tc.want {
 			t.Errorf("scrub(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// A failure of the network reaches the report without the addresses it
+// names, wherever it lies: a connection's two ends, IPv4, or IPv6 with a
+// zone, under the Client's tries, the try before's included; a lookup's
+// resolver; a refresh's failure under the url.Error of the Auth's request,
+// beside Schwab's answer, which stays as it is; errors joined; and an
+// address quoted by an error that does not wrap net's.
+func TestFailureText(t *testing.T) {
+	local := &net.TCPAddr{IP: net.ParseIP("192.168.1.23"), Port: 51234}
+	global := &net.TCPAddr{IP: net.ParseIP("2001:db8:85a3::8a2e:370:7334"), Port: 51235}
+	linkLocal := &net.TCPAddr{IP: net.ParseIP("fe80::1c2b:3cff:fe4d:5e6f"), Port: 51236, Zone: "en0"}
+	schwab := &net.TCPAddr{IP: net.ParseIP("203.0.113.7"), Port: 443}
+	reset := func(op string, source net.Addr) *net.OpError {
+		return &net.OpError{Op: op, Net: "tcp", Source: source, Addr: schwab, Err: os.NewSyscallError(op, errors.New("connection reset by peer"))}
+	}
+	lookup := &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "api.schwabapi.com", Server: "[fe80::1%en0]:53", IsNotFound: true}}
+	refused := newError(http.StatusUnauthorized, http.Header{"Content-Type": {"application/json"}}, []byte(`{"message":"Client not authorized"}`))
+	refresh := fmt.Errorf("refreshing the access token after 2 tries: %w",
+		&url.Error{Op: "Post", URL: "https://api.schwabapi.com/v1/oauth/token", Err: reset("read", global)})
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			"tries", fmt.Errorf("%w; the try before got: %w", fmt.Errorf("GET /x after 2 tries: %w", reset("write", local)), fmt.Errorf("GET /x: %w", reset("read", linkLocal))),
+			"GET /x after 2 tries: write tcp: write: connection reset by peer; the try before got: GET /x: read tcp: read: connection reset by peer",
+		},
+		{"a lookup", fmt.Errorf("GET /x: %w", lookup), "GET /x: dial tcp: lookup api.schwabapi.com: no such host"},
+		{
+			"a refresh's", fmt.Errorf("%w, after the request got: %w", refresh, refused),
+			`refreshing the access token after 2 tries: Post "https://api.schwabapi.com/v1/oauth/token": read tcp: read: connection reset by peer, ` +
+				"after the request got: HTTP 401 from Schwab: Client not authorized",
+		},
+		{"joined", errors.Join(reset("write", local), lookup), "write tcp: write: connection reset by peer\ndial tcp: lookup api.schwabapi.com: no such host"},
+		{
+			"quoted, not wrapped", errors.New("cannot retry err [" + reset("write", global).Error() + "] after the body was written"),
+			"cannot retry err [write tcp {address}->{address}: write: connection reset by peer] after the body was written",
+		},
+		{"Schwab's", refused, "HTTP 401 from Schwab: Client not authorized"},
+	} {
+		got := failureText(tc.err)
+		if got != tc.want {
+			t.Errorf("%s:\n got %s\nwant %s", tc.name, got, tc.want)
+		}
+		for _, addr := range []string{"192.168.1.23", "2001:db8", "fe80:", "203.0.113.7", "51234", "51235", "51236"} {
+			if strings.Contains(got, addr) {
+				t.Errorf("%s: %q holds %q", tc.name, got, addr)
+			}
 		}
 	}
 }
