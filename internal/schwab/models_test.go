@@ -932,13 +932,26 @@ func testdataRecords(t testing.TB) map[reflect.Type][]json.RawMessage {
 
 // Taking out, or making null, any one key of a testdata record that Schwab
 // sends on every record of its kind, at any depth, gives the record that
-// key's absence as its one problem.
+// key's absence as its one problem. Each key path is taken out of the first
+// record of its type that has it, and a record of a shape seen already is
+// passed over before it is read, so that the cost follows the shapes of the
+// records rather than their number, which a recording can make large.
 func TestDropAnyAlwaysPresentKey(t *testing.T) {
 	seen := map[string]bool{}
 	for typ, records := range testdataRecords(t) {
+		done, shapes := map[string]bool{}, map[string]bool{}
 		for i, raw := range records {
+			shape := recordShape(raw)
+			if shapes[shape] {
+				continue
+			}
+			shapes[shape] = true
 			record := decodeAny(t, raw)
 			for _, path := range alwaysPresent(typ, record, nil) {
+				if done[keyPath(path)] {
+					continue
+				}
+				done[keyPath(path)] = true
 				for _, to := range []any{gone, nil} {
 					b, err := json.Marshal(changed(record, path, to))
 					if err != nil {

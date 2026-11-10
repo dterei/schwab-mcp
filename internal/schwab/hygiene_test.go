@@ -35,6 +35,21 @@ func indexedFiles(t testing.TB) []indexedFile {
 	return files
 }
 
+// handMadeFiles returns the files that indexedFiles returns but the
+// recordings: those that TestValueHygieneCatches plants values in, whose
+// number does not grow with the recordings committed beside them, which
+// TestValueHygiene checks.
+func handMadeFiles(t testing.TB) []indexedFile {
+	t.Helper()
+	var files []indexedFile
+	for _, e := range schwabtest.Index() {
+		if e.Source != "recorded" {
+			files = append(files, indexedFile{entry: e, body: readTestdata(t, e.File)})
+		}
+	}
+	return files
+}
+
 // eachKey calls f with each key of each object within n, with the path
 // that it ends.
 func eachKey(n *node, path []string, f func(path []string)) {
@@ -770,8 +785,10 @@ func newAnswer(method, path string, status int, body string) edit {
 }
 
 // Each rule of checkValues finds a value planted against it, one at a time
-// in today's fixtures, and names the file it is in, while a fake planted
-// where a rule admits one is found by none.
+// in the hand-made fixtures, and names the file it is in, while a fake
+// planted where a rule admits one is found by none. Each case checks the
+// hand-made fixtures alone, so that its cost does not grow with the rows of
+// the recordings committed beside them, which TestValueHygiene checks once.
 func TestValueHygieneCatches(t *testing.T) {
 	quote := func(s string) string { return string(jsonText(s)) }
 	asked := "http&#58;&#47;&#47;api&#46;schwabapi&#46;com&#47;v1&#47;oauth&#47;token"
@@ -1055,7 +1072,7 @@ func TestValueHygieneCatches(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			files := indexedFiles(t)
+			files := handMadeFiles(t)
 			i := slices.IndexFunc(files, func(f indexedFile) bool { return f.entry.File == tc.file })
 			if i < 0 {
 				var e schwabtest.Entry

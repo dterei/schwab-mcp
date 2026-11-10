@@ -160,9 +160,11 @@ func takes(kind string, raw []byte) bool {
 //     changes nothing, and Raw is the bytes sent.
 //
 // An account's problems include its positions'. Each member is changed in
-// the first record that has its path, so that the cost follows the shapes
-// of the records rather than their number, and a member that its object
-// already repeats is left as it is, since its last copy counts.
+// the first record that has its path, and a record of a shape seen already,
+// which has no other path, is passed over before it is read, so that the
+// cost follows the shapes of the records rather than their number; a member
+// that its object already repeats is left as it is, since its last copy
+// counts.
 func TestEveryMemberMutated(t *testing.T) {
 	var mu sync.Mutex
 	mutated := map[string]bool{}
@@ -170,8 +172,13 @@ func TestEveryMemberMutated(t *testing.T) {
 		for typ, records := range testdataRecords(t) {
 			t.Run(typ.Name(), func(t *testing.T) {
 				t.Parallel()
-				done := map[string]bool{}
+				done, shapes := map[string]bool{}, map[string]bool{}
 				for i, raw := range records {
+					shape := recordShape(raw)
+					if shapes[shape] {
+						continue
+					}
+					shapes[shape] = true
 					for _, path := range mutateMembers(t, typ, i, raw, done) {
 						mu.Lock()
 						mutated[path] = true
