@@ -41,9 +41,9 @@ import (
 //     ids'; and each linear identity of the records, such as a trade's
 //     netAmount against its legs' costs, is off by K times what it was, K
 //     the scale factor or 1, computed exactly from the numbers as written;
-//   - (v) leaks: no identifier of the recording, no local path and not the
-//     user name in any file, entry, review.txt or shape, searched as
-//     written and decoded.
+//   - (v) leaks: no identifier of the recording and no local path, the
+//     user name as the folder of a home among them, in any file, entry,
+//     review.txt or shape, searched as written and decoded.
 func (s *scrubber) checkGates(o *scrubOutput) error {
 	for _, g := range []struct {
 		name  string
@@ -781,9 +781,15 @@ func transactionResiduals(rec *node, add func(string, ...*big.Rat)) {
 	}
 }
 
-// gateLeaks is gate (v): no identifier of the recording, no local path
-// and not the user name in what would be written: each file, as written
-// and decoded, its entry, entries.json, review.txt and each shape report.
+// gateLeaks is gate (v): no identifier of the recording and no local path
+// in what would be written: each file, as written and decoded, its entry,
+// entries.json, review.txt and each shape report. A local path is the home
+// folder or another path the scrubber was given, in any of their
+// spellings, or the user name, the home folder's last element, as the
+// folder of a home elsewhere. The user name alone is not looked for:
+// Schwab's words and the scrubber's own can spell it, as max does in a
+// header's max-age, trader in every path and json in every file's name and
+// in review.txt, and nothing but a path would bring it into the output.
 func (s *scrubber) gateLeaks(o *scrubOutput) string {
 	var texts []leakText
 	for _, f := range o.files {
@@ -806,7 +812,7 @@ func (s *scrubber) gateLeaks(o *scrubOutput) string {
 		}
 	}
 	local := newLiveScrubber()
-	local.setHome(s.cfg.home)
+	local.addPath(homeLabel, s.cfg.home)
 	for _, p := range s.cfg.paths {
 		local.addPath("{path}", p)
 	}
@@ -821,47 +827,44 @@ func (s *scrubber) gateLeaks(o *scrubOutput) string {
 		if local.holds(t.text) {
 			return t.where + ": a local path"
 		}
-		// The user name is looked for in values, not in Schwab's own names,
-		// the keys, which a short user name could be, as type or cost.
-		if user != "" && !t.key && !t.long && holdsUserName(t.text, user) {
+		if user != "" && holdsHomeOf(t.text, user) {
 			return t.where + ": the user name"
 		}
 	}
 	return ""
 }
 
-// holdsUserName reports whether text holds word, the user name, as a whole
-// token, with no letter, digit or underscore next to it, in any case where
-// the file system takes names in any case, as on macOS and Windows. A user
-// name may be a short word, such as al, which "Free Balance" holds but not
-// as a token.
-func holdsUserName(text, word string) bool {
-	if len(word) < 2 {
-		return false
-	}
-	t, w := text, word
-	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
-		t, w = asciiLower(text), asciiLower(word)
-	}
-	for i := 0; ; {
-		j := strings.Index(t[i:], w)
-		if j < 0 {
-			return false
-		}
-		start, end := i+j, i+j+len(w)
-		if isWholeToken(t, start, end) {
-			return true
-		}
-		i = start + 1
-	}
-}
+// homeFolders are the folders that hold the users' homes, as a path spells
+// them on Linux, on macOS and on Windows.
+var homeFolders = []string{"/home/", "/Users/", `\Users\`}
 
-// isWholeToken reports whether s[i:end] has no letter, digit or underscore
-// next to it.
-func isWholeToken(s string, i, end int) bool {
-	before, _ := utf8.DecodeLastRuneInString(s[:i])
-	after, _ := utf8.DecodeRuneInString(s[end:])
-	return (i == 0 || !wordRune(before)) && (end == len(s) || !wordRune(after))
+// holdsHomeOf reports whether text holds a home of user, a user name: the
+// name after one of homeFolders, with no letter, digit, underscore or
+// hyphen after it, which would make it part of another name; in any case
+// where the file system takes names in any case, as on macOS and Windows.
+func holdsHomeOf(text, user string) bool {
+	fold := runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+	if fold {
+		text = asciiLower(text)
+	}
+	for _, folder := range homeFolders {
+		home := folder + user
+		if fold {
+			home = asciiLower(home)
+		}
+		for i := 0; ; {
+			j := strings.Index(text[i:], home)
+			if j < 0 {
+				break
+			}
+			end := i + j + len(home)
+			if after, _ := utf8.DecodeRuneInString(text[end:]); end == len(text) || !wordRune(after) && after != '-' {
+				return true
+			}
+			i += j + 1
+		}
+	}
+	return false
 }
 
 // Each gate refuses an output broken against it, through the test hook,
@@ -889,7 +892,8 @@ func isWholeToken(s string, i, end int) bool {
 //   - (v): one mapping switched off in a body, in a query, in a path where
 //     no id goes, in a header's value, in a string written with an escape,
 //     and in a page written with a character reference; an identifier in a
-//     shape; a local path, under the home folder or not; and the user name.
+//     shape; a local path, under the home folder or not; and the user name
+//     as the folder of a home elsewhere.
 func TestScrubberGatesRefuse(t *testing.T) {
 	planted, p := plantF(t, 3)
 	home := filepath.Join(t.TempDir(), "zq9user")
@@ -1258,7 +1262,10 @@ func TestScrubberGatesRefuse(t *testing.T) {
 			"the recording's folder, outside the home folder", "gate (v), leaks: review.txt: a local path",
 			func(_ *testing.T, o *scrubOutput) { o.review += raw + "\n" }, nil, keep,
 		},
-		{"the user name", "gate (v), leaks: review.txt: the user name", func(_ *testing.T, o *scrubOutput) { o.review += "by zq9user\n" }, nil, keep},
+		{
+			"the user name as a home's folder", "gate (v), leaks: review.txt: the user name",
+			func(_ *testing.T, o *scrubOutput) { o.review += "/Users/zq9user/raw\n" }, nil, keep,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			answers := tc.answers
@@ -1281,9 +1288,48 @@ func TestScrubberGatesRefuse(t *testing.T) {
 	if _, err := scrubAnswers(t, planted, scrubConfig{amounts: keep, home: home, hook: func(*scrubOutput) {}}); err != nil {
 		t.Errorf("an output that the hook leaves alone: %v", err)
 	}
-	// A user name that is one of Schwab's keys, such as amount, is looked
-	// for in values, not in keys.
+	// A user name that Schwab's words or the scrubber's own spell is not
+	// taken for the user's: amount, a key; max, in a header's max-age;
+	// trader, in every path; json, in every file's name.
 	if _, err := scrubAnswers(t, planted, scrubConfig{amounts: keep, home: filepath.Join(t.TempDir(), "amount")}); err != nil {
 		t.Errorf("the user amount: %v", err)
+	}
+	hsts := b.accountNumbers()
+	hsts.header.Set("Strict-Transport-Security", "max-age=31536000 ; includeSubDomains")
+	hsts.header.Set("Cache-Control", "no-cache, no-store, max-age=0, must-revalidate")
+	for _, user := range []string{"max", "trader", "json"} {
+		if out, err := scrubAnswers(t, []testAnswer{hsts}, scrubConfig{amounts: keep, home: filepath.Join(t.TempDir(), user)}); err != nil || len(out.files) != 1 {
+			t.Errorf("the user %s: %v", user, err)
+		}
+	}
+}
+
+// The user name counts in an output only as the folder of a home, in each
+// system's form of one, and in any case where the file system takes names
+// in any case.
+func TestHoldsHomeOf(t *testing.T) {
+	folds := runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+	for _, tc := range []struct {
+		text, user string
+		want       bool
+	}{
+		{"/home/zq9user", "zq9user", true},
+		{"open /home/zq9user/raw: denied", "zq9user", true},
+		{"see /Users/zq9user: gone", "zq9user", true},
+		{`C:\Users\zq9user\AppData`, "zq9user", true},
+		{"/home/zq9user.old", "zq9user", true},
+		{"/home/zq9user2", "zq9user", false},
+		{"/home/zq9user-old", "zq9user", false},
+		{"/home/zq9user_old", "zq9user", false},
+		{"/var/zq9user", "zq9user", false},
+		{"by zq9user", "zq9user", false},
+		{"no-cache, max-age=0", "max", false},
+		{"GET /trader/v1/accounts", "trader", false},
+		{"recorded/2026-11-08/001.json", "json", false},
+		{"/users/ZQ9USER", "zq9user", folds},
+	} {
+		if got := holdsHomeOf(tc.text, tc.user); got != tc.want {
+			t.Errorf("holdsHomeOf(%q, %q) = %v, want %v", tc.text, tc.user, got, tc.want)
+		}
 	}
 }

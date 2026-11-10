@@ -66,7 +66,7 @@ func parseAmounts(s string) (amountsPolicy, error) {
 type scrubConfig struct {
 	amounts amountsPolicy
 	version string   // the scrubber's: the commit and whether the tree is modified, or "unknown"
-	home    string   // the home folder, which, with the user name, its last element, no output may hold
+	home    string   // the home folder, which no output may hold, nor its last element, the user name, as the folder of a home
 	paths   []string // other local paths that no output may hold, such as the recording's folder
 	// hook, for tests, changes the output once the scrubber has made it and
 	// before the gates check it, to show what each gate refuses.

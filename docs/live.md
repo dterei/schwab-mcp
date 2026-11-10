@@ -300,8 +300,11 @@ What it does:
   values that the policy changes changed, each account's hash and masked
   number agreeing with its number, ids equal where they were equal, every
   sum of the records off by K times what it was, and no identifier of the
-  recording, local path or user name anywhere, written or decoded. Any
-  failure writes nothing.
+  recording or local path anywhere, written or decoded: not your home
+  folder, the recording's, the out folder or this module's, in any
+  spelling, nor your user name as the folder of a home, such as
+  `/home/<name>`. Your user name alone is not looked for, since Schwab's
+  words can spell it, as `max-age` does `max`. Any failure writes nothing.
 - A file that a test CI runs over every committed fixture would fail on
   is left out, with why: the value hygiene tests, `checkAnswer`, which
   fails on a record's problem or a key that no field takes, and the test
