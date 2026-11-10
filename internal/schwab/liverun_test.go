@@ -189,7 +189,7 @@ func runLive(ctx context.Context, r *liveRun) (err error) {
 			if r.scrub.holds(text) {
 				text = "the live run failed, and its error held something that the run saw, so it is not shown"
 			}
-			err = errors.New(text)
+			err = errors.New(unmark(text))
 		}
 	}()
 	if err := r.setUp(); err != nil {

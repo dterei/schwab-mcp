@@ -39,8 +39,9 @@ type liveReport struct {
 	// clean scrubs a line or a section; a test replaces it to show that the
 	// self-check catches what the scrubber missed.
 	clean func(string) string
-	// written holds each section as it was written, w8 how many lines were
-	// marked W-8, and problems why the report fails the run.
+	// written holds each section as it was written, with said's marks, w8
+	// how many lines were marked W-8, and problems why the report fails the
+	// run.
 	written  []string
 	w8       int
 	problems []string
@@ -54,6 +55,11 @@ type reportSection struct {
 }
 
 // A reportLine is a line of the report, and whether it reveals W-8 rows.
+// Its text is the run's own words, which may name Schwab's keys, headers
+// and wording, with any of Schwab's own words in it marked by said, such
+// as a message that is not on its wording: the scrubber hides the
+// owner's nicknames and symbols only there, and every identifier and path
+// anywhere.
 type reportLine struct {
 	text string
 	w8   bool
@@ -87,14 +93,16 @@ func newLiveReport(file string, scrub *liveScrubber, show func(string)) (*liveRe
 }
 
 // write scrubs and checks s, adds it to the end of the report, and prints
-// its lines. A line, or the whole section, that the self-check finds
-// something in is left out, without a word of it shown, and fails the run.
+// its lines, without said's marks. A line, or the whole section, that the
+// self-check finds something in is left out, without a word of it shown,
+// and fails the run.
 func (rp *liveReport) write(s *reportSection) error {
 	title := rp.clean(s.title)
 	if rp.scrub.holds(title) {
 		title = "a section"
 		rp.problems = append(rp.problems, "the title of a section held something that the run saw, so it was left out")
 	}
+	title = unmark(title)
 	var b strings.Builder
 	b.WriteString("## " + title + "\n")
 	shown := []string{"## " + title}
@@ -110,7 +118,7 @@ func (rp *liveReport) write(s *reportSection) error {
 			w8++
 		}
 		b.WriteString(text + "\n")
-		shown = append(shown, text)
+		shown = append(shown, unmark(text))
 	}
 	b.WriteString("\n")
 	section := b.String()
@@ -126,7 +134,7 @@ func (rp *liveReport) write(s *reportSection) error {
 	if err != nil {
 		return err
 	}
-	_, err = f.WriteString(section)
+	_, err = f.WriteString(unmark(section))
 	if err = errors.Join(err, f.Close()); err != nil {
 		return err
 	}
@@ -148,7 +156,7 @@ func (rp *liveReport) finish() error {
 			text = "## (a section left out: it held something that the run saw)\n\n"
 			rp.problems = append(rp.problems, "a section held something that the run saw only later, so it was left out")
 		}
-		b.WriteString(text)
+		b.WriteString(unmark(text))
 	}
 	return replacePrivate(rp.file, []byte(b.String()))
 }
@@ -359,22 +367,26 @@ func TestLiveReport(t *testing.T) {
 // because the scrubber missed it, is left out, without a word of it printed
 // or written, and fails the run, as is a value split over two lines, which
 // only the whole section shows; so is a section that holds something the
-// scrubber learned only after it was written.
+// scrubber learned only after it was written. A nickname in Schwab's words
+// is something the run saw, while in the run's own words it is a word that
+// spells one, which is printed as it is, and said's marks are never printed.
 func TestLiveReportSelfCheck(t *testing.T) {
 	s := newLiveScrubber()
 	s.addAccount(1, "29470135", "HASH1234")
+	s.addName("Zq Fund")
 	rp, shown := testReport(t, s)
 	rp.clean = func(text string) string { return text } // a scrubber that misses everything
 	sec := &reportSection{title: "accounts/HASH1234"}
-	sec.add("fine")
+	sec.add("fine, as the Zq Fund words go")
 	sec.add("account 29470135")
+	sec.add("Schwab said: " + said("no Zq Fund here"))
 	if err := rp.write(sec); err != nil {
 		t.Fatal(err)
 	}
-	if err := rp.write(&reportSection{title: "ok", lines: []reportLine{{text: "line"}}}); err != nil {
+	if err := rp.write(&reportSection{title: "ok", lines: []reportLine{{text: "line, " + said("as Schwab says")}}}); err != nil {
 		t.Fatal(err)
 	}
-	s.addName("zq9 first\nzq9 second")
+	s.addIdent("streamer correl id", "zq9 first\nzq9 second")
 	if err := rp.write(&reportSection{title: "split", lines: []reportLine{{text: "zq9 first"}, {text: "zq9 second"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -384,13 +396,13 @@ func TestLiveReportSelfCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := readFile(t, rp.file) + strings.Join(*shown, "\n")
-	for _, v := range []string{"29470135", "HASH1234", "1004517638295", "zq9 first\nzq9 second"} {
+	for _, v := range []string{"29470135", "HASH1234", "1004517638295", "zq9 first\nzq9 second", "no Zq Fund", "\x02", "\x03"} {
 		if strings.Contains(got, v) {
 			t.Errorf("the report or the lines printed hold %q:\n%s", v, got)
 		}
 	}
-	if !strings.Contains(got, "## a section\nfine\n") || !strings.Contains(got, "## ok\nline\n") ||
-		!strings.Contains(got, "## split\n(left out: it held something that the run saw)\n") || len(rp.problems) != 4 {
+	if !strings.Contains(got, "## a section\nfine, as the Zq Fund words go\n\n") || !strings.Contains(got, "## ok\nline, as Schwab says\n") ||
+		!strings.Contains(got, "## split\n(left out: it held something that the run saw)\n") || len(rp.problems) != 5 {
 		t.Errorf("the report:\n%s\nproblems %q", got, rp.problems)
 	}
 }

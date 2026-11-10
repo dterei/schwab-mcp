@@ -1315,6 +1315,56 @@ func TestLiveScrubsWhatAProbeSays(t *testing.T) {
 	fl.noSecrets(t, "the report", report)
 }
 
+// An owner's values that the report's own words spell come out as those
+// words, never as a label that would show what it hides: holdings of
+// Symbotic, SYM, the mask of Schwab's wording; of FactSet, FDS, with a
+// transfer that Schwab describes as TRF FDS TO TYPE 2; and of Agora, API;
+// and an account nicknamed Schwab, or Dividend. Schwab's wording in Q11,
+// the probes' sentences, Schwab's errors and the names of its headers are
+// printed as written, and no line holds a label of a nickname or a
+// symbol: the scrubber hides those only in Schwab's own words, which here
+// quote none.
+func TestLiveKeepsItsOwnWords(t *testing.T) {
+	for _, nick := range []string{"Schwab", "Dividend"} {
+		t.Run("a nickname "+nick, func(t *testing.T) {
+			t.Parallel()
+			fl := newProbeLive(t, probeNow, "Q1", "Q11", "extras", "Q6")
+			holding := func(id int64, sym string) string {
+				return strings.ReplaceAll(fixtureRow(t, 73508261947, "activityId", strconv.FormatInt(id, 10)), `"VBR"`, `"`+sym+`"`)
+			}
+			fl.f.AddRows(firstAccount.Hash, holding(84000000402, "SYM"), holding(84000000403, "FDS"), holding(84000000405, "API"),
+				fixtureRow(t, 73508261953, "activityId", "84000000404", "description", `"TRF FDS TO TYPE 2"`))
+			fl.f.SetUserPreference(strings.Replace(string(readTestdata(t, "user_preference.json")), `"`+firstAccount.Nickname+`"`, `"`+nick+`"`, 1))
+			err := fl.runClean(t)
+			report := fl.report(t)
+			if err != nil {
+				t.Fatalf("%v\n%s", err, report)
+			}
+			if nick != "Schwab" && !fl.r.scrub.hides(nick) || !fl.r.scrub.hides("SYM") || !fl.r.scrub.hides("FDS") || !fl.r.scrub.hides("API") {
+				t.Fatal("the scrubber did not learn the planted values")
+			}
+			wantVerdicts(t, report, map[string]string{"Q6": `the login's scope is "api"; no read of the account API was refused as unauthorized`})
+			wantEvidence(t, report, "Q1", "whether older activity exists that Schwab does not serve is the owner's to judge: "+
+				"compare each account's oldest row with when it opened, when it was enabled for thinkorswim, and schwab.com's History")
+			wantEvidence(t, report, "Q11",
+				`  1: "Dividend Reinvest"; legs (COLLECTIVE_INVESTMENT, amount +, cost not 0, OPENING); ids activityId, positionId; the legs' costs sum to netAmount: yes`,
+				`  2: "Ordinary Dividend~SYM"; legs (CURRENCY, amount +, cost 0); ids activityId; the legs' costs sum to netAmount: no`,
+				`  1: "TRF FDS TO TYPE #"; legs (CURRENCY, amount +, cost 0); ids activityId; the legs' costs sum to netAmount: no`,
+				w8Mark+`  1: "W-8 Withholding~SYM"; legs (CURRENCY, amount -, cost 0); ids activityId; the legs' costs sum to netAmount: no`)
+			wantEvidence(t, report, "extras", "a startDate that is a date alone: refused, HTTP 400, '2026-08-31' is not a valid value for startDate")
+			wantLines(t, report, "## accounts/accountNumbers", "200, application/json, 3 records; correlation headers: Schwab-Client-Correlid, X-Request-Id")
+			if !regexp.MustCompile(`\nfailed: HTTP 400 from Schwab: '2026-08-31' is not a valid value for startDate \(correlation ID \{correlation id \d+\}\)\n`).MatchString(report) {
+				t.Errorf("no failure from Schwab, as written, in:\n%s", report)
+			}
+			for _, text := range append(fl.lines(), report) {
+				if strings.Contains(text, "{nickname") || strings.Contains(text, "{symbol") {
+					t.Errorf("a label of a nickname or a symbol in %q", text)
+				}
+			}
+		})
+	}
+}
+
 // A run whose login talks to another server than the guard's origin, or
 // whose origin is not https, sends nothing.
 func TestLiveTakesItsOrigin(t *testing.T) {

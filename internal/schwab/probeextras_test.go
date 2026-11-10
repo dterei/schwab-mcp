@@ -263,11 +263,11 @@ func probeExtras(ctx context.Context, r *liveRun) verdict {
 			continue
 		}
 		e := newError(rep.status, rep.header, rep.body)
-		said := strconv.Itoa(rep.status) + ", " + contentType(rep.header)
-		if s := e.says(); s != "" && rep.status != http.StatusOK {
-			said += ", " + s
+		answered := strconv.Itoa(rep.status) + ", " + contentType(rep.header)
+		if s := errorSays(e); s != "" && rep.status != http.StatusOK {
+			answered += ", " + s
 		}
-		add("%s: %s; %s", tok.name, said, correlationNames(rep.header))
+		add("%s: %s; %s", tok.name, answered, correlationNames(rep.header))
 	}
 	v.answer = bounds + "; " + filter
 	return v

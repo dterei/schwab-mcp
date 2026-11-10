@@ -133,14 +133,15 @@ func cutShort(rows []Transaction, pageCap int) bool {
 }
 
 // schwabSays returns what err, a read's failure, says, for the report:
-// Schwab's status and words, which the report's scrubber cleans of the
-// run's identifiers, or the kind of failure, for one that is not Schwab's
-// answer.
+// Schwab's status and words, a message of its wording as it is and any
+// other text marked as Schwab's, which the report's scrubber cleans of the
+// run's identifiers, nicknames and symbols; or the kind of failure, for one
+// that is not Schwab's answer.
 func schwabSays(err error) string {
 	se, ok := errors.AsType[*Error](err)
 	switch {
 	case ok && se.says() != "":
-		return fmt.Sprintf("HTTP %d, %s", se.Status, se.says())
+		return fmt.Sprintf("HTTP %d, %s", se.Status, errorSays(se))
 	case ok:
 		return fmt.Sprintf("HTTP %d", se.Status)
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
@@ -1276,9 +1277,9 @@ func probeShapes(_ context.Context, r *liveRun) verdict {
 // when it says something of the window: not a 429, a 401, Invalid account
 // number, the edge's page, a 5xx, a 3xx or a failure of the network, nor a
 // refusal of the newest window or one after which the newest window, asked
-// again, fails; a JSON 403 counts, as a 400 does. With the allowance spent
-// it cannot ask the newest window again, and with the run stopped it says
-// so.
+// again, fails; a JSON 403 counts, as a 400 does, and what Schwab said is
+// kept, marked as its own words. With the allowance spent it cannot ask the
+// newest window again, and with the run stopped it says so.
 func TestWalkFailed(t *testing.T) {
 	answer := func(status int, body string) error {
 		return newError(status, http.Header{"Content-Type": {"application/json"}}, []byte(body))
@@ -1315,10 +1316,10 @@ func TestWalkFailed(t *testing.T) {
 			"a refusal, then the newest window refused", nil, refusal, false, 3, refusal, walkInterrupted,
 			"a refusal, after which the newest window, asked again at once, did not answer 200",
 		},
-		{"a refusal, then the newest window answers", nil, refusal, false, 3, nil, walkRefused, "HTTP 400, the window is too old"},
+		{"a refusal, then the newest window answers", nil, refusal, false, 3, nil, walkRefused, "HTTP 400, " + said("the window is too old")},
 		{
 			"a JSON 403, then the newest window answers", nil, answer(http.StatusForbidden, `{"message":"not served"}`), false, 3, nil,
-			walkRefused, "HTTP 403, not served",
+			walkRefused, "HTTP 403, " + said("not served"),
 		},
 	} {
 		ctx := tc.ctx

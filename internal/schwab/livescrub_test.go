@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -40,15 +41,16 @@ const homeLabel = "~"
 // a text; a shorter one is matched only as a whole token.
 const longValue = 6
 
-// A liveScrubber keeps identifiers, secrets and local paths out of what a
-// live run prints and writes. scrub replaces, in any text, each identifier,
-// secret and path that the run has seen with a label, such as {account 2}
-// for an account number, {access token 1} for a token or ~ for the home
-// folder, and holds, the self-check, says whether a text still holds one.
-// It is built from the run's paths, the app's key and secret, the login's
-// tokens and the run's first answers, and learns more as requests go and
-// answers arrive. Identifiers and secrets are matched escaped too, as a
-// path or a form spells them.
+// A liveScrubber keeps identifiers, secrets, local paths and the owner's
+// nicknames and symbols out of what a live run prints and writes. scrub
+// replaces, in a text, each identifier, secret and path that the run has
+// seen, and each nickname and symbol in Schwab's own words, with a label,
+// such as {account 2} for an account number, {access token 1} for a token
+// or ~ for the home folder, and holds, the self-check, says whether a text
+// still holds one. It is built from the run's paths, the app's key and
+// secret, the login's tokens and the run's first answers, and learns more
+// as requests go and answers arrive. Identifiers and secrets are matched
+// escaped too, as a path or a form spells them.
 //
 // It matches as a strings.Replacer cannot:
 //   - an identifier, a nickname or a symbol of 6 characters or more
@@ -57,12 +59,21 @@ const longValue = 6
 //   - identifiers, which are digits and letters, in any case, and
 //     nicknames and symbols as they are, since a symbol in capitals, such
 //     as "ALL", is a word in lower case;
+//   - nicknames and symbols only in Schwab's own words, which said marks,
+//     such as an error's message, which can quote them. The rest of a
+//     text is the run's own words, or Schwab's names, its keys, headers
+//     and wording, which hold none of the owner's but can spell one, as
+//     "no read of the account API was refused" spells the symbol API: a
+//     label there, in words the reader knows, would show what it hides;
 //   - paths anywhere, and in any case where the file system takes a path
 //     in any case, as on macOS and Windows;
 //   - the user name, the home folder's last element, only as a path
-//     component, since a short one, such as "ed", is inside many words.
+//     component, since a short one, such as "ed", is inside many words,
+//     and never inside the API's own paths, such as /trader/v1/.
 //
-// At each place the longest value wins.
+// At each place the longest value wins. Schwab's own name is not hidden as
+// a nickname: the report and Schwab's words name the broker throughout, so
+// showing it shows nothing, while a label in its place would.
 type liveScrubber struct {
 	mu sync.Mutex
 	// foldPaths says whether paths and the user name match in any case.
@@ -88,6 +99,52 @@ type scrubPath struct {
 	label string
 }
 
+// The marks that said puts around Schwab's own words in a text: control
+// characters, which no value holds, and which unmark takes out before the
+// text is printed or written.
+const (
+	saidOpen  = '\x02'
+	saidClose = '\x03'
+)
+
+// said returns text, Schwab's own words, such as a message that is not on
+// its wording, marked for the report's scrubber, which hides nicknames and
+// symbols only in such words. Any mark that text holds is taken out first,
+// so that Schwab's words cannot end the marking early.
+func said(text string) string {
+	return string(saidOpen) + unmark(text) + string(saidClose)
+}
+
+// unmark returns text without said's marks, as it is printed or written.
+func unmark(text string) string {
+	return strings.Map(func(r rune) rune {
+		if r == saidOpen || r == saidClose {
+			return -1
+		}
+		return r
+	}, text)
+}
+
+// saidSpans returns the spans of text that said marks, without the marks:
+// each from after an opening mark to the closing mark after it, or to the
+// end of text if none does.
+func saidSpans(text string) [][2]int {
+	var spans [][2]int
+	for i := 0; i < len(text); {
+		open := strings.IndexRune(text[i:], saidOpen)
+		if open < 0 {
+			break
+		}
+		start, end := i+open+1, len(text)
+		if n := strings.IndexRune(text[start:], saidClose); n >= 0 {
+			end = start + n
+		}
+		spans = append(spans, [2]int{start, end})
+		i = end + 1
+	}
+	return spans
+}
+
 // newLiveScrubber returns a scrubber that has seen nothing, which matches
 // paths in any case on macOS and Windows.
 func newLiveScrubber() *liveScrubber {
@@ -101,8 +158,10 @@ func newLiveScrubber() *liveScrubber {
 }
 
 // scrub returns text with each value the scrubber knows replaced by its
-// label. A replacement can make a short value next to it a whole token, so
-// text is scrubbed again until nothing changes.
+// label: a nickname or a symbol only in what said marks, and every other
+// value anywhere. The marks stay, for unmark to take out. A replacement can
+// make a short value next to it a whole token, so text is scrubbed again
+// until nothing changes.
 func (s *liveScrubber) scrub(text string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -117,8 +176,8 @@ func (s *liveScrubber) scrub(text string) string {
 }
 
 // holds reports whether text holds a value that the scrubber knows, outside
-// the labels: the self-check, which a line must pass before it is printed
-// or written.
+// the labels, where scrub would match it: the self-check, which a line must
+// pass before it is printed or written.
 func (s *liveScrubber) holds(text string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -150,7 +209,8 @@ func (s *liveScrubber) replace(text string) (string, bool) {
 // each walks text, which it needs s.mu for, calling f for each part in
 // turn, until f returns false: a value it holds, as its start, its end and
 // its label; or anything else, a label or a character, as its start, minus
-// its end, and "". A value is never matched across or inside a label.
+// its end, and "". A value is never matched across or inside a label, and a
+// nickname or a symbol only inside what said marks.
 func (s *liveScrubber) each(text string, f func(i, end int, label string) bool) {
 	t := s.newText(text)
 	var spans [][]int
@@ -159,7 +219,8 @@ func (s *liveScrubber) each(text string, f func(i, end int, label string) bool) 
 			spans = append(spans, span)
 		}
 	}
-	for i, k := 0, 0; i < len(text); {
+	words := saidSpans(text)
+	for i, k, w := 0, 0, 0; i < len(text); {
 		if k < len(spans) && i == spans[k][0] {
 			if !f(i, -spans[k][1], "") {
 				return
@@ -172,7 +233,14 @@ func (s *liveScrubber) each(text string, f func(i, end int, label string) bool) 
 		if k < len(spans) {
 			limit = spans[k][0]
 		}
-		if end, label := s.match(t, i, limit); end > i {
+		for w < len(words) && words[w][1] <= i {
+			w++
+		}
+		names := -1 // where a name at i must end by: the end of Schwab's words that i lies in
+		if w < len(words) && words[w][0] <= i {
+			names = min(limit, words[w][1])
+		}
+		if end, label := s.match(t, i, limit, names); end > i {
 			if !f(i, end, label) {
 				return
 			}
@@ -214,8 +282,9 @@ func (s *liveScrubber) newText(text string) *scrubText {
 }
 
 // match returns where the longest value that t holds at byte i, ending by
-// limit, ends, and its label; or -1 for none.
-func (s *liveScrubber) match(t *scrubText, i, limit int) (end int, label string) {
+// limit, ends, and its label; or -1 for none. A nickname or a symbol must
+// end by names, which is -1 where none may be matched.
+func (s *liveScrubber) match(t *scrubText, i, limit, names int) (end int, label string) {
 	end = -1
 	take := func(e int, l string) {
 		if e <= limit && e > end {
@@ -229,7 +298,7 @@ func (s *liveScrubber) match(t *scrubText, i, limit int) (end int, label string)
 		if l, ok := s.idents[n][t.lower[i:i+n]]; ok && whole(t.s, i, i+n) {
 			take(i+n, l)
 		}
-		if l, ok := s.names[n][t.s[i:i+n]]; ok && whole(t.s, i, i+n) {
+		if l, ok := s.names[n][t.s[i:i+n]]; ok && i+n <= names && whole(t.s, i, i+n) {
 			take(i+n, l)
 		}
 	}
@@ -239,11 +308,27 @@ func (s *liveScrubber) match(t *scrubText, i, limit int) (end int, label string)
 		}
 	}
 	if s.user != nil {
-		if e := t.pathAt(*s.user, i, s.foldPaths); e > i && isComponent(t.s, i, e) {
+		if e := t.pathAt(*s.user, i, s.foldPaths); e > i && isComponent(t.s, i, e) && !inAPIPath(t.s, i, e) {
 			take(e, s.user.label)
 		}
 	}
 	return end, label
+}
+
+// apiPaths are the starts of the paths of Schwab's APIs, whose words, such
+// as trader, are Schwab's, not a user name.
+var apiPaths = append(slices.Clone(liveAPIPrefixes), tokenPath)
+
+// inAPIPath reports whether s[i:end] lies inside the start of one of
+// apiPaths in s.
+func inAPIPath(s string, i, end int) bool {
+	for _, p := range apiPaths {
+		// A p that holds s[i:end] starts from end-len(p) to i.
+		if lo := max(0, end-len(p)); strings.Contains(s[lo:min(len(s), i+len(p))], p) {
+			return true
+		}
+	}
+	return false
 }
 
 // pathAt returns where p ends if t holds it at byte i, in any case if fold
@@ -401,9 +486,10 @@ func (s *liveScrubber) addName(value string) {
 
 // addNameLocked gives value, a name of kind, such as "nickname" or
 // "symbol", which is matched as it is, the next label of its kind, unless
-// it has one. It needs s.mu.
+// it has one, or it is Schwab's own name, in any case, which is not hidden.
+// It needs s.mu.
 func (s *liveScrubber) addNameLocked(kind, value string) {
-	if short(value) {
+	if short(value) || strings.EqualFold(value, "Schwab") {
 		return
 	}
 	if _, ok := s.names[len(value)][value]; ok {
@@ -635,21 +721,25 @@ func (s *liveScrubber) learnError(err error) {
 
 // addressText matches an address in an error's text, with or without its
 // port, as net writes one: an IPv4 address, or an IPv6 address in
-// brackets.
-var addressText = regexp.MustCompile(`(?:\b\d{1,3}(?:\.\d{1,3}){3}\b|\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(?:%[^\]\s]*)?\])(?::\d+)?`)
+// brackets, whose zone takes in no mark of said's.
+var addressText = regexp.MustCompile(`(?:\b\d{1,3}(?:\.\d{1,3}){3}\b|\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(?:%[^\]\s\x02\x03]*)?\])(?::\d+)?`)
 
 // failureText returns the text of err, a read's failure, for the report,
-// without the addresses that a failure of the network names. A
-// connection's error names both its ends, this machine's address and port
-// among them: on the owner's computer, its address on the local network,
-// or a global IPv6 address, which can hold its hardware address. A failed
-// lookup names the resolver's address. The scrubber learns none of them.
-// So each of net's errors in err, under the Client's tries or in a
-// refresh's failure that it wraps, is told by its operation, its network
-// and its cause alone, and any address left, as in an error that quotes
-// one of net's without wrapping it, becomes {address}.
+// with Schwab's words marked, as errorText marks them, and without the
+// addresses that a failure of the network names, or the query that a
+// request's address holds. A connection's error names both its ends, this
+// machine's address and port among them: on the owner's computer, its
+// address on the local network, or a global IPv6 address, which can hold
+// its hardware address. A failed lookup names the resolver's address. The
+// scrubber learns none of them. So each of net's errors in err, under the
+// Client's tries or in a refresh's failure that it wraps, is told by its
+// operation, its network and its cause alone, and any address left, as in
+// an error that quotes one of net's without wrapping it, becomes
+// {address}. A request's address, which url's errors quote whole, is cut
+// to its path: its query can hold a symbol of the owner's, outside
+// Schwab's words, where the scrubber does not look for one.
 func failureText(err error) string {
-	text := err.Error()
+	text := unmark(err.Error())
 	var walk func(e error)
 	walk = func(e error) {
 		if e == nil {
@@ -663,10 +753,17 @@ func failureText(err error) string {
 				if ne.Net != "" {
 					told += " " + ne.Net
 				}
-				text = strings.ReplaceAll(text, ne.Error(), told+": "+ne.Err.Error())
+				text = strings.ReplaceAll(text, unmark(ne.Error()), told+": "+unmark(ne.Err.Error()))
 			}
 		case *net.DNSError:
-			text = strings.ReplaceAll(text, ne.Error(), "lookup "+ne.Name+": "+ne.Err)
+			text = strings.ReplaceAll(text, unmark(ne.Error()), "lookup "+ne.Name+": "+ne.Err)
+		case *url.Error:
+			if u, perr := url.Parse(ne.URL); perr == nil && u.RawQuery != "" {
+				u.RawQuery = ""
+				text = strings.ReplaceAll(text, strconv.Quote(unmark(ne.URL)), strconv.Quote(u.String()))
+			}
+		case *Error:
+			text = strings.ReplaceAll(text, unmark(ne.Error()), errorText(ne))
 		}
 		switch u := e.(type) { //nolint:errorlint // walking the tree by hand
 		case interface{ Unwrap() error }:
@@ -679,6 +776,49 @@ func failureText(err error) string {
 	}
 	walk(err)
 	return addressText.ReplaceAllString(text, "{address}")
+}
+
+// errorText returns e's text, as Error gives it, with Schwab's words in it
+// as errorSays marks them: its status and the run's own words stay as
+// they are, so that "HTTP 400 from Schwab" never shows a label in place of
+// a nickname spelled Schwab. Its correlation ID and its Reference are
+// identifiers, which the scrubber hides anywhere.
+func errorText(e *Error) string {
+	text := unmark(e.Error())
+	if says := unmark(e.says()); says != "" {
+		// Error puts what Schwab says first, after its status and tries.
+		text = strings.Replace(text, ": "+says, ": "+errorSays(e), 1)
+	}
+	return text
+}
+
+// errorSays returns what e says, as says gives it, for the report: a
+// message of Schwab's wording as it is, since it names no one, and any
+// other text, its message, its errors or what its page says, marked by said,
+// as Schwab's own words that can quote a nickname or a symbol.
+func errorSays(e *Error) string {
+	says := e.says()
+	var parts []string
+	if e.Message != "" {
+		parts = append(parts, e.Message)
+	}
+	for _, s := range e.Errors {
+		if s != "" && s != e.Message {
+			parts = append(parts, s)
+		}
+	}
+	switch {
+	case says == "":
+		return ""
+	case strings.Join(parts, "; ") != says:
+		return said(says) // a page's, or the start of a body
+	}
+	for i, p := range parts {
+		if _, ok := onWordingOf(schwabMessages, p); !ok {
+			parts[i] = said(p)
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 // fixtureScrubber returns a scrubber that has learned the fixtures' own
@@ -698,7 +838,8 @@ func fixtureScrubber(t *testing.T, home string) *liveScrubber {
 // the fixtures' answers by its kind, in the order met: nicknames, as they
 // are, the display IDs, the streamer's customer and correlation IDs, each
 // activity, order and position ID, and each symbol, as it is, but for the
-// benchmarks that the report names.
+// benchmarks that the report names. Each is found in Schwab's words, as
+// said marks them.
 func TestScrubberLabelsTheFixtures(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "zqplanted")
 	s := fixtureScrubber(t, home)
@@ -719,14 +860,14 @@ func TestScrubberLabelsTheFixtures(t *testing.T) {
 		{"/ESH25_P5050:XCME of /ESH25:XCME, and CURRENCY_USD", "{symbol 11} of {symbol 10}, and {symbol 7}"},
 		{"SPY and VTI, aapl and Meta, XYZW and BNDS", "SPY and VTI, aapl and Meta, XYZW and BNDS"},
 	} {
-		if got := s.scrub(tc.in); got != tc.want {
+		if got := s.scrub(said(tc.in)); got != said(tc.want) {
 			t.Errorf("scrub(%q) = %q, want %q", tc.in, got, tc.want)
 		}
-		if s.holds(s.scrub(tc.in)) {
+		if s.holds(s.scrub(said(tc.in))) {
 			t.Errorf("%q still holds a value once scrubbed", tc.in)
 		}
 	}
-	if !s.holds("29470135") || !s.holds("Options & Margin") || !s.holds(strings.ToLower(fixtureHash(1))) || !s.holds("'BND'") {
+	if !s.holds("29470135") || !s.holds(said("Options & Margin")) || !s.holds(strings.ToLower(fixtureHash(1))) || !s.holds(said("'BND'")) {
 		t.Error("the self-check does not find the fixtures' values")
 	}
 	for value, want := range map[string]bool{"BND": true, "XYZ   260918C00050000": true, "61803398": true, "SPY": false, "VTI": false, "bnd": false, "BN": false} {
@@ -768,11 +909,11 @@ func TestScrubberShortValuesAreWholeTokens(t *testing.T) {
 		{"/accounts/zq9%20hash%2F+1/x and zq9 HASH/+1", "/accounts/{hash 1}/x and {hash 1}"},
 		{"hash=zq9+hash%2F%2B1&x=1", "hash={hash 1}&x=1"},
 	} {
-		if got := s.scrub(tc.in); got != tc.want {
+		if got := s.scrub(said(tc.in)); got != said(tc.want) {
 			t.Errorf("scrub(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
-	if s.holds("Edward") || s.holds("a12345") || !s.holds("Ed!") || !s.holds("x1234567y") || !s.holds("MarginX") {
+	if s.holds(said("Edward")) || s.holds("a12345") || !s.holds(said("Ed!")) || !s.holds("x1234567y") || !s.holds(said("MarginX")) {
 		t.Error("the self-check takes short values otherwise than scrub does")
 	}
 }
@@ -803,9 +944,9 @@ func TestScrubberScrubsUntilNothingChanges(t *testing.T) {
 	s := newLiveScrubber()
 	s.addName("Ed")
 	s.addIdent("account", "29470135")
-	in := "Ed29470135 and 29470135Ed"
+	in := said("Ed29470135 and 29470135Ed")
 	got := s.scrub(in)
-	if want := "{nickname 1}{account 1} and {account 1}{nickname 1}"; got != want {
+	if want := said("{nickname 1}{account 1} and {account 1}{nickname 1}"); got != want {
 		t.Errorf("scrub(%q) = %q, want %q", in, got, want)
 	}
 	if s.holds(got) {
@@ -820,16 +961,16 @@ func TestScrubberLeavesLabelsAlone(t *testing.T) {
 	s.addName("account")
 	s.addName("id")
 	s.addAccount(1, "29470135", "HASH01")
-	in := "accounts/{account 1}/transactions/{id} for account 29470135"
+	in := said("accounts/{account 1}/transactions/{id} for account 29470135")
 	got := s.scrub(in)
-	if want := "{nickname 1}s/{account 1}/transactions/{id} for {nickname 1} {account 1}"; got != want {
+	if want := said("{nickname 1}s/{account 1}/transactions/{id} for {nickname 1} {account 1}"); got != want {
 		t.Errorf("scrub(%q) = %q, want %q", in, got, want)
 	}
 	if again := s.scrub(got); again != got || s.holds(got) {
 		t.Errorf("scrubbed again: %q, holding a value: %v", again, s.holds(got))
 	}
 	for _, text := range []string{"{account 29470135}", "{29470135}", "{Account 1} id", "{account 9} id"} {
-		if !s.holds(text) {
+		if !s.holds(said(text)) {
 			t.Errorf("the self-check passes %q", text)
 		}
 	}
@@ -837,6 +978,66 @@ func TestScrubberLeavesLabelsAlone(t *testing.T) {
 	s.addPath("{rate file}", odd)
 	if got := s.scrub(odd); got != odd || s.holds(got) {
 		t.Errorf("scrub(%q) = %q, matched across a label", odd, got)
+	}
+}
+
+// A nickname or a symbol is hidden only in Schwab's own words, which said
+// marks, while an identifier is hidden anywhere: the rest of a text is the
+// run's own words and Schwab's names and wording, which can spell a
+// nickname or a symbol, as "no read of the account API was refused" spells
+// the symbol API, where a label would show what it hides. The marks stay,
+// for unmark to take out; said takes out any mark in Schwab's words first,
+// and a mark left open runs to the end. Schwab's own name, in any case, is
+// not hidden as a nickname.
+func TestScrubberHidesNamesInSchwabsWords(t *testing.T) {
+	s := newLiveScrubber()
+	s.learnAnswer([]byte(`{"accounts":[{"accountNumber":"29470135","nickName":"Dividend"},{"nickName":"Schwab"},{"nickName":"schwab"}],` +
+		`"legs":[{"instrument":{"symbol":"API"}},{"instrument":{"symbol":"SYM"}}]}`))
+	for _, tc := range []struct{ in, want string }{
+		{"no read of the account API was refused", "no read of the account API was refused"},
+		{`"Ordinary Dividend~SYM" of 29470135`, `"Ordinary Dividend~SYM" of {account 1}`},
+		{
+			"HTTP 400 from Schwab: " + said("no API of 29470135, Dividend's, at Schwab"),
+			"HTTP 400 from Schwab: " + said("no {symbol 1} of {account 1}, {nickname 1}'s, at Schwab"),
+		},
+		{said("schwab or SCHWAB"), said("schwab or SCHWAB")},
+		{said("API") + " API " + said("SYM"), said("{symbol 1}") + " API " + said("{symbol 2}")},
+		{"open \x02API, Dividend", "open \x02{symbol 1}, {nickname 1}"},
+		{"API\x03 Dividend", "API\x03 Dividend"},
+	} {
+		got := s.scrub(tc.in)
+		if got != tc.want {
+			t.Errorf("scrub(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		if s.holds(got) {
+			t.Errorf("%q still holds a value once scrubbed", tc.in)
+		}
+	}
+	if s.holds("the account API") || !s.holds(said("the account API")) || !s.holds("29470135") {
+		t.Error("the self-check takes names otherwise than scrub does")
+	}
+	if got := said("zq\x02 and \x03zq"); got != "\x02zq and zq\x03" || unmark(got) != "zq and zq" {
+		t.Errorf("said = %q, unmarked %q", got, unmark(got))
+	}
+	if !s.hides("API") || s.hides("Schwab") {
+		t.Error("the scrubber hides a symbol API, or a nickname Schwab, otherwise")
+	}
+}
+
+// The user name is a path component anywhere but inside the start of one
+// of the API's own paths, whose words are Schwab's.
+func TestScrubberLeavesTheAPIsPathsAlone(t *testing.T) {
+	const api = `GET /trader/v1/accounts and /marketdata/v1/quotes, after Post "https://h/v1/oauth/token": no`
+	for _, user := range []string{"trader", "v1", "marketdata", "oauth", "token"} {
+		s := newLiveScrubber()
+		s.setHome(filepath.Join(t.TempDir(), user))
+		if got := s.scrub(api); got != api || s.holds(api) {
+			t.Errorf("user %s: scrub(%q) = %q", user, api, got)
+		}
+		in := "/srv/" + user + "/x"
+		if got, want := s.scrub(in), "/srv/{user}/x"; got != want {
+			t.Errorf("user %s: scrub(%q) = %q, want %q", user, in, got, want)
+		}
 	}
 }
 
@@ -933,7 +1134,7 @@ func TestScrubberLearns(t *testing.T) {
 		`"accountNumber": 81234567, "hashValue": "HASH9", "flag": true, "list": [{"NICKNAME": "Zq Fund"}], ` +
 		`"legs": [{"instrument": {"symbol": "ZQ   260918C00050000", "underlyingSymbol": "ALL", "rootSymbol": "ZQR", "uniformSymbol": "ZQU"}}, ` +
 		`{"instrument": {"symbol": "SPY"}}]}]`))
-	if got, want := s.scrub("ZQ   260918C00050000 of ALL, all, ZQR, ZQU and SPY"), "{symbol 1} of {symbol 2}, all, {symbol 3}, {symbol 4} and SPY"; got != want {
+	if got, want := s.scrub(said("ZQ   260918C00050000 of ALL, all, ZQR, ZQU and SPY")), said("{symbol 1} of {symbol 2}, all, {symbol 3}, {symbol 4} and SPY"); got != want {
 		t.Errorf("the symbols scrubbed: %q, want %q", got, want)
 	}
 	s.learnHeader(http.Header{
@@ -945,9 +1146,9 @@ func TestScrubberLearns(t *testing.T) {
 	}
 	err := fmt.Errorf("one: %w; two: %w", errors.New("x"), fmt.Errorf("wrapped: %w", inner))
 	s.learnError(err)
-	in := "51234567890 71234567890 9.5 81234567 HASH9 Zq Fund corr-zq1 req-zq2 corr-zq3 18.zq4.5 req-zq5 91234567 application/json true"
-	want := "{activity id 1} {order id 1} {position id 1} {account 1} {hash 1} {nickname 1} {correlation id 1} " +
-		"{correlation id 2} {correlation id 3} {reference 1} {correlation id 4} {account 2} application/json true"
+	in := said("51234567890 71234567890 9.5 81234567 HASH9 Zq Fund corr-zq1 req-zq2 corr-zq3 18.zq4.5 req-zq5 91234567 application/json true")
+	want := said("{activity id 1} {order id 1} {position id 1} {account 1} {hash 1} {nickname 1} {correlation id 1} " +
+		"{correlation id 2} {correlation id 3} {reference 1} {correlation id 4} {account 2} application/json true")
 	if got := s.scrub(in); got != want {
 		t.Errorf("scrub(%q)\n = %q\nwant %q", in, got, want)
 	}
@@ -1008,7 +1209,10 @@ func TestScrubberLearnsSecrets(t *testing.T) {
 // zone, under the Client's tries, the try before's included; a lookup's
 // resolver; a refresh's failure under the url.Error of the Auth's request,
 // beside Schwab's answer, which stays as it is; errors joined; and an
-// address quoted by an error that does not wrap net's.
+// address quoted by an error that does not wrap net's. A request's address
+// comes without its query. Schwab's answer keeps its status and its
+// wording as they are, with its other words marked as Schwab's, in which
+// no mark of Schwab's own is kept.
 func TestFailureText(t *testing.T) {
 	local := &net.TCPAddr{IP: net.ParseIP("192.168.1.23"), Port: 51234}
 	global := &net.TCPAddr{IP: net.ParseIP("2001:db8:85a3::8a2e:370:7334"), Port: 51235}
@@ -1042,6 +1246,20 @@ func TestFailureText(t *testing.T) {
 			"cannot retry err [write tcp {address}->{address}: write: connection reset by peer] after the body was written",
 		},
 		{"Schwab's", refused, "HTTP 401 from Schwab: Client not authorized"},
+		{
+			"a request's query", fmt.Errorf("GET /trader/v1/x: %w", &url.Error{Op: "Get", URL: "https://api.schwabapi.com/trader/v1/x?symbol=ZQ&types=TRADE", Err: reset("read", local)}),
+			`GET /trader/v1/x: Get "https://api.schwabapi.com/trader/v1/x": read tcp: read: connection reset by peer`,
+		},
+		{
+			"Schwab's words", newError(http.StatusBadRequest, http.Header{"Schwab-Client-Correlid": {"corr-zq"}}, []byte(`{"message":"Invalid account number","errors":["zq is not one"]}`)),
+			"HTTP 400 from Schwab: Invalid account number; " + said("zq is not one") + " (correlation ID corr-zq)",
+		},
+		{
+			"Schwab's words after its tries", &Error{Status: http.StatusServiceUnavailable, Tries: 3, Message: "zq\u0002down\u0003 now", Code: "zq.fault"},
+			"HTTP 503 from Schwab after 3 tries: " + said("zqdown now") + " (zq.fault)",
+		},
+		{"Schwab's page", newError(http.StatusBadGateway, http.Header{}, []byte("upstream zq")), "HTTP 502 from Schwab: " + said("upstream zq")},
+		{"Schwab's code", newError(http.StatusBadRequest, http.Header{}, []byte(`{"error":"invalid_grant"}`)), "HTTP 400 from Schwab: invalid_grant"},
 	} {
 		got := failureText(tc.err)
 		if got != tc.want {
