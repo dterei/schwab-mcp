@@ -828,6 +828,7 @@ func probeRefresh(ctx context.Context, r *liveRun) (v verdict) {
 	t2, readErr := readToken(r.auth.tokenFile)
 	switch {
 	case err != nil:
+		r.stopIfRefused(err)
 		return inconclusive("the refresh failed: " + schwabSays(err))
 	case readErr != nil:
 		return inconclusive("the token file could not be read after the refresh")

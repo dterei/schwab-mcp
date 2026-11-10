@@ -194,15 +194,14 @@ func liveMode(rate bool, watch, snapshot string, budget int) (mode string, at ti
 	return mode, time.Duration(clock.Hour())*time.Hour + time.Duration(clock.Minute())*time.Minute, nil
 }
 
-// loginReady returns an error unless st, the saved login, is one that
-// Schwab has not refused and that has not lapsed by now, and a warning when
-// it lapses within a day, which a long run could outlast.
+// loginReady returns an error unless st, the saved login, is one that has
+// not lapsed by now, and a warning when it lapses within a day, which a
+// long run could outlast. Whether Schwab has ended it, as a later login
+// does, only a refresh shows, which stops the run.
 func loginReady(st Status, now time.Time) (warning string, err error) {
 	switch {
 	case !st.LoggedIn:
 		return "", errors.New("no login is saved; run `schwabtx login` first")
-	case st.Rejected != nil:
-		return "", errors.New("Schwab refused the saved login; run `schwabtx login` first")
 	case !st.ExpiresAt.IsZero() && !now.Before(st.ExpiresAt):
 		return "", errors.New("the saved login has lapsed; run `schwabtx login` first")
 	case !st.ExpiresAt.IsZero() && st.ExpiresAt.Sub(now) < 24*time.Hour:
@@ -295,8 +294,8 @@ func TestLiveMode(t *testing.T) {
 	}
 }
 
-// A live run needs a saved login that Schwab has not refused and that has
-// not lapsed, and warns of one that lapses within a day.
+// A live run needs a saved login that has not lapsed, and warns of one that
+// lapses within a day.
 func TestLoginReady(t *testing.T) {
 	now := testNow
 	for _, tc := range []struct {
@@ -306,7 +305,6 @@ func TestLoginReady(t *testing.T) {
 		err     string
 	}{
 		{"none", Status{}, "", "no login is saved; run `schwabtx login` first"},
-		{"refused", Status{LoggedIn: true, Rejected: ErrLoginExpired}, "", "Schwab refused the saved login; run `schwabtx login` first"},
 		{"lapsed", Status{LoggedIn: true, ExpiresAt: now}, "", "the saved login has lapsed; run `schwabtx login` first"},
 		{"lapsing", Status{LoggedIn: true, ExpiresAt: now.Add(5 * time.Hour)}, "warning: the login lapses in 5h0m0s; a long run may outlast it", ""},
 		{"fresh", Status{LoggedIn: true, ExpiresAt: now.Add(6 * 24 * time.Hour)}, "", ""},

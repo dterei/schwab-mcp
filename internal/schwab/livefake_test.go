@@ -1259,6 +1259,49 @@ func TestLiveNeedsItsFirstAnswers(t *testing.T) {
 	}
 }
 
+// A login that Schwab has ended, as a later login ends it, shows only when
+// a refresh is refused, here the first request's, its access token having
+// lapsed, or Q15's own: the run stops at once, and says to log in again.
+// So does a refresh that Schwab refuses for the app's key or secret,
+// saying to check them. Nothing more is sent.
+func TestLiveStopsAtARefusedLogin(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		spoil func(fl *fakeLive)
+		want  error
+	}{
+		{"an ended login", func(fl *fakeLive) { fl.f.EndLogin() }, errLoginRefused},
+		{"a wrong app secret", func(fl *fakeLive) { fl.r.auth.cfg.AppSecret = "zq-not-the-secret" }, errAppRefused},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fl := newFakeLive(t)
+			fl.clock.set(liveNow.Add(31 * time.Minute))
+			fl.r.deadline = fl.clock.Now().Add(9 * time.Minute)
+			tc.spoil(fl)
+			err := fl.run(t)
+			if want := "the live run failed: it stopped before its end: " + tc.want.Error(); fmt.Sprint(err) != want {
+				t.Errorf("the run's error: %v, want %q", err, want)
+			}
+			wantLines(t, fl.report(t), "## the guard", "budget: 60 requests, token requests included; 1 sent", "token requests: 1",
+				"stopped: "+tc.want.Error(), "did not run: the account numbers (stopped part way), the user's preferences, the checks")
+			if n := fl.f.APICalls(); n != 0 {
+				t.Errorf("%d requests of the API after the refusal", n)
+			}
+		})
+	}
+	t.Run("Q15's refresh", func(t *testing.T) {
+		fl := newProbeLive(t, probeNow, "Q15", "Q6")
+		fl.f.EndLogin() // its access token works on, until a refresh
+		err := fl.runClean(t)
+		if want := "the live run failed: it stopped before its end: " + errLoginRefused.Error(); fmt.Sprint(err) != want {
+			t.Errorf("the run's error: %v, want %q", err, want)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q15": "inconclusive: the refresh failed: HTTP 400"})
+		wantLines(t, report, "## the guard", "stopped: "+errLoginRefused.Error(), "did not run: probe Q15 (stopped part way), probe Q6")
+	})
+}
+
 // An account of the account numbers' answer is named by its place in it,
 // its number and its hash alike, even when an account before it lacks a
 // hash, which fails the run.

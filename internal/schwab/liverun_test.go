@@ -37,6 +37,14 @@ var errRunDeadline = errors.New("the run's deadline passed")
 // an hour.
 var errEdgePage = errors.New("Schwab's edge network refused a request with an Access Denied page")
 
+// errLoginRefused and errAppRefused are why a run stops when Schwab refuses
+// a refresh of the saved login, as it does once a later login has replaced
+// it, or refuses the app's key or secret: no request after it could work.
+var (
+	errLoginRefused = errors.New("Schwab refused the saved login; run `schwabtx login` first")
+	errAppRefused   = errors.New("Schwab refused the app's key or secret; check SCHWAB_APP_KEY and SCHWAB_APP_SECRET")
+)
+
 // A liveRun is a run of the live mode. Its caller gives it everything it
 // uses, so that CI runs it against the fake in seconds, with a fake clock
 // and nothing written outside a temporary folder, while TestLive gives it
@@ -545,6 +553,7 @@ func (r *liveRun) fetch(ctx context.Context, c *Client, endpoint, path string, q
 	sec := &reportSection{title: endpoint}
 	rep, err := c.get(ctx, path, query)
 	if err != nil {
+		r.stopIfRefused(err)
 		if se, ok := errors.AsType[*Error](err); ok {
 			if (se.Status == http.StatusUnauthorized || se.Status == http.StatusForbidden) && strings.HasPrefix(path, "/trader/v1/") {
 				r.mu.Lock()
@@ -672,6 +681,19 @@ func (r *liveRun) wait(ctx context.Context, d time.Duration) error {
 // guard sends nothing more.
 func (r *liveRun) stop(cause error) {
 	r.guard.stop(cause)
+}
+
+// stopIfRefused stops the run, saying what to do, when err, a request's
+// failure, says that Schwab refused the saved login or the app's key or
+// secret. A login that Schwab has ended shows only so: the token file holds
+// it as it was, and only a refresh asks Schwab.
+func (r *liveRun) stopIfRefused(err error) {
+	switch {
+	case errors.Is(err, ErrLoginExpired):
+		r.stop(errLoginRefused)
+	case errors.Is(err, ErrAppRejected):
+		r.stop(errAppRefused)
+	}
 }
 
 // fail records why the run fails, a reason without values.

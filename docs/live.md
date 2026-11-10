@@ -20,8 +20,11 @@ go test ./internal/schwab -run '^TestLive$' -live -v
   `.env` is not read, so export it first.
 - The login comes from `SCHWAB_TOKEN_FILE`, or else the default token file,
   as for `schwabtx`. The live mode never logs in: it stops and asks you to
-  run `schwabtx login` when there is no login, when Schwab has refused it, or
-  when it has lapsed, and warns when it lapses within a day.
+  run `schwabtx login` when there is no login, when it has lapsed, or when
+  Schwab refuses it, as Schwab does once a later login has replaced it,
+  which shows only when the run refreshes it; and it warns when the login
+  lapses within a day. A refresh that Schwab refuses for the app's key or
+  secret stops it too, and it asks you to check them.
 - `-v` prints the report's lines as the run writes them, and where the
   report is; without it, `go test` prints them only when the run fails.
 
