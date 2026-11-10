@@ -416,7 +416,7 @@ func testDefaultRun(t *testing.T) {
 		"Q11":    "13 shapes among 14 rows of 6 types",
 		"Q12":    "inconclusive: no earlier run to compare with; this run's rows are kept for the next",
 		"extras": "a window's start is inclusive and its end inclusive; a window takes a row by its time",
-		"Q8":     "inconclusive: it needs a run before an ex-date and one after; this run's closes are kept for the next",
+		"Q8":     adjustNeedsTwo,
 		"Q15":    "a refresh leaves older access tokens working, and keeps the refresh token",
 		"Q6":     `the login's scope is "api"; no read of the account API was refused as unauthorized`,
 	})
@@ -1039,7 +1039,10 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 // Q8 under the fake's settings: an app without the Market Data product,
 // and two runs across an ex-date, four weeks apart, so the second after a
 // new login, whose closes before it are as they were, or scaled by the
-// dividend's factor.
+// dividend's factor; the closes of the first run kept by a run on the
+// ex-date that cannot read its own, with when the first read them; and a
+// first run on the ex-date's morning, which reads closes adjusted already,
+// so that no verdict may come from it.
 func testAdjustmentOnTheFake(t *testing.T) {
 	t.Run("no Market Data product", func(t *testing.T) {
 		t.Parallel()
@@ -1059,8 +1062,9 @@ func testAdjustmentOnTheFake(t *testing.T) {
 		if err := fl.runClean(t); err != nil {
 			t.Fatal(err)
 		}
-		// A week later, SPY's history is refused and VTI's empty.
-		middle := fl.again(t, probeNow.AddDate(0, 0, 8), true)
+		// On the ex-date, before the open, SPY's history is refused and VTI's
+		// empty: the first run's closes are kept, read before the ex-date.
+		middle := fl.again(t, time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC), true)
 		fl.f.OverridePath("GET /marketdata/v1/pricehistory", func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Query().Get("symbol") == "SPY" {
 				writeJSON(w, http.StatusBadRequest, `{"message":"a guess: no history"}`)
@@ -1093,7 +1097,7 @@ func testAdjustmentOnTheFake(t *testing.T) {
 			if err := fl.runClean(t); err != nil {
 				t.Fatal(err)
 			}
-			wantVerdicts(t, fl.report(t), map[string]string{"Q8": "inconclusive: it needs a run before an ex-date and one after; this run's closes are kept for the next"})
+			wantVerdicts(t, fl.report(t), map[string]string{"Q8": adjustNeedsTwo})
 			later := fl.again(t, time.Date(2026, 9, 29, 15, 0, 0, 0, time.UTC), true)
 			if err := later.runClean(t); err != nil {
 				t.Fatal(err)
@@ -1103,7 +1107,30 @@ func testAdjustmentOnTheFake(t *testing.T) {
 			wantEvidence(t, report, "Q8", "SPY: across the ex-date 2026-09-18, its closes are "+tc.want, "VTI: across the ex-date 2026-09-18, its closes are "+tc.want)
 		})
 	}
+	t.Run("a first run on the ex-date's morning", func(t *testing.T) {
+		t.Parallel()
+		// At 08:00 in New York on the ex-date, before its candle, the closes
+		// are adjusted already: the next run finds them as they were.
+		fl := newProbeLive(t, time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC), "Q8")
+		fakeMarket{exDate: marketExDate, amount: 1.9, adjusted: true}.serve(fl)
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		wantVerdicts(t, fl.report(t), map[string]string{"Q8": adjustNeedsTwo})
+		later := fl.again(t, time.Date(2026, 9, 29, 15, 0, 0, 0, time.UTC), true)
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q8": adjustNeedsTwo})
+		wantEvidence(t, report, "Q8", "SPY: the last run came after the last close before its ex-date, 2026-09-18",
+			"VTI: the last run came after the last close before its ex-date, 2026-09-18")
+	})
 }
+
+// adjustNeedsTwo is Q8's verdict while no two runs lie either side of an
+// ex-date.
+const adjustNeedsTwo = "inconclusive: it needs a run before the last close before an ex-date, and one after the ex-date; this run's closes are kept for the next"
 
 // Q10 under the fake's settings: two runs on one state, under two logins,
 // with the same hashes, and with one rehashed between them, as Schwab is

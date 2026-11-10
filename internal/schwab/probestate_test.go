@@ -33,10 +33,12 @@ type adjustState struct {
 }
 
 // A symbolCloses is one symbol's daily closes as one run read them: by New
-// York date, and the date of the last.
+// York date, the date of the last, and when the run read them. A run that
+// cannot read them keeps the last run's, with when that run read them.
 type symbolCloses struct {
 	AsOf   string             `json:"asOf"`
 	Closes map[string]float64 `json:"closes"`
+	Read   time.Time          `json:"read"`
 }
 
 // A dividendQuote is what a quote says of a symbol's last dividend: its
@@ -112,23 +114,53 @@ const (
 	adjustDividend = "dividend-adjusted"
 )
 
-// compareCloses decides, for one symbol, whether Schwab adjusted the
-// closes before an ex-date that lies between prev's last close and cur's:
-// unchanged means split-adjusted only, and all scaled by 1 - D/P, D the
+// sessionClose returns when the regular session of day, a New York date,
+// closes: 16:00 in New York.
+func sessionClose(day string) time.Time {
+	d, err := time.ParseInLocation(time.DateOnly, day, newYork())
+	if err != nil {
+		panic(err) // the dates of closes come from DateInNewYork
+	}
+	return time.Date(d.Year(), d.Month(), d.Day(), 16, 0, 0, 0, newYork())
+}
+
+// compareCloses decides, for one symbol, whether Schwab adjusted its
+// closes for the dividend that q gives, between prev, the closes the last
+// run read, and cur, this run's. The adjustment may come at any time from
+// the close of the last session before the ex-date, whose price sets its
+// factor, to the end of the ex-date. So the last run must have read its
+// closes before that close, and this run after the ex-date, each by when
+// it read them, as a run in between could read closes adjusted already,
+// or not yet. The last session before the ex-date is the last day before
+// it among this run's closes. Only the closes before the ex-date that both
+// runs hold count, and of the last run's only those of days that had ended
+// when it read them: a close read during its day is a price of that day.
+// Unchanged means split-adjusted only, and all scaled by 1 - D/P, D the
 // dividend and P the close before the ex-date, dividend-adjusted. It
 // returns the answer, or "" with why there is none.
 func compareCloses(prev, cur symbolCloses, q dividendQuote) (answer, why string) {
 	switch {
-	case len(prev.Closes) == 0:
+	case len(prev.Closes) == 0 || prev.Read.IsZero():
 		return "", "no earlier run kept its closes"
 	case q.exDate == "":
 		return "", "the quote gave no ex-date"
-	case prev.AsOf >= q.exDate || q.exDate > cur.AsOf:
-		return "", "no ex-date lies between the last run's closes and this run's"
+	case nyDate(cur.Read) <= q.exDate:
+		return "", "its ex-date, " + q.exDate + ", is not over yet"
+	case cur.AsOf < q.exDate:
+		return "", "this run's closes end before its ex-date, " + q.exDate
+	}
+	lastSession := ""
+	for d := range cur.Closes {
+		if d < q.exDate && d > lastSession {
+			lastSession = d
+		}
+	}
+	if lastSession != "" && !prev.Read.Before(sessionClose(lastSession)) {
+		return "", "the last run came after the last close before its ex-date, " + q.exDate
 	}
 	var dates []string
 	for d := range prev.Closes {
-		if _, ok := cur.Closes[d]; ok && d < q.exDate {
+		if _, ok := cur.Closes[d]; ok && d < q.exDate && d < nyDate(prev.Read) {
 			dates = append(dates, d)
 		}
 	}
@@ -159,10 +191,12 @@ func compareCloses(prev, cur symbolCloses, q dividendQuote) (answer, why string)
 // probeAdjustment is Q8, whether daily price bars are adjusted for
 // dividends or only for splits. Each run reads the benchmarks' quotes, for
 // their last ex-date, and a year of their daily closes, and keeps the
-// closes, public data, in the state; after an ex-date between two runs,
-// closes before it unchanged mean split-adjusted only, and all scaled by
-// the dividend's factor dividend-adjusted. A 401 "Client not authorized"
-// means the app has no Market Data product, which it reports as such.
+// closes, public data, in the state with when it read them. After an
+// ex-date between two runs, the last run's before the close of the session
+// before it and this run's after it, closes before it unchanged mean
+// split-adjusted only, and all scaled by the dividend's factor
+// dividend-adjusted. A 401 "Client not authorized" means the app has no
+// Market Data product, which it reports as such.
 func probeAdjustment(ctx context.Context, r *liveRun) verdict {
 	q := url.Values{"symbols": {strings.Join(liveBenchmarks, ",")}, "fields": {"quote,fundamental"}}
 	rep, err := r.get(ctx, "marketdata/quotes", "/marketdata/v1/quotes", q, "")
@@ -201,6 +235,7 @@ func probeAdjustment(ctx context.Context, r *liveRun) verdict {
 			}
 			continue
 		}
+		cur.Read = r.now()
 		next.Symbols[sym] = cur
 		answer, why := compareCloses(prev.Symbols[sym], cur, quotes[sym])
 		if answer == "" {
@@ -215,7 +250,7 @@ func probeAdjustment(ctx context.Context, r *liveRun) verdict {
 	}
 	switch len(answers) {
 	case 0:
-		v.answer = "inconclusive: it needs a run before an ex-date and one after; this run's closes are kept for the next"
+		v.answer = "inconclusive: it needs a run before the last close before an ex-date, and one after the ex-date; this run's closes are kept for the next"
 	case 1:
 		v.answer = "daily closes are " + slices.Collect(maps.Keys(answers))[0]
 	default:
@@ -815,14 +850,41 @@ func (r *liveRun) refreshAcrossRuns() []reportLine {
 	return lines(line)
 }
 
-// Q8 decides only across an ex-date between two runs' closes, on the
-// closes before it that both runs hold: unchanged is split-adjusted only,
-// all scaled alike by the dividend's factor dividend-adjusted, and changed
+// Q8 decides only across an ex-date that lies between two runs, by when
+// each read its closes: the last run before the close of the session
+// before the ex-date, the last day before it among this run's closes, and
+// this run after the ex-date, its closes reaching it. It compares the
+// closes before the ex-date that both runs hold, of days that had ended
+// when the last run read them: unchanged is split-adjusted only, all
+// scaled alike by the dividend's factor dividend-adjusted, and changed
 // otherwise neither.
 func TestCompareCloses(t *testing.T) {
-	prev := symbolCloses{AsOf: "2026-09-10", Closes: map[string]float64{"2026-09-08": 600, "2026-09-09": 610, "2026-09-10": 620}}
+	at := func(day string, hour, minute int) time.Time {
+		d, err := time.ParseInLocation(time.DateOnly, day, newYork())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return time.Date(d.Year(), d.Month(), d.Day(), hour, minute, 0, 0, newYork())
+	}
+	// The last run, on Friday 2026-09-11 before the open, a week before the
+	// ex-date, holds the closes of three days before it.
+	prev := symbolCloses{
+		AsOf: "2026-09-10", Read: at("2026-09-11", 9, 0),
+		Closes: map[string]float64{"2026-09-08": 600, "2026-09-09": 610, "2026-09-10": 620},
+	}
+	withRead := func(sc symbolCloses, read time.Time) symbolCloses {
+		sc.Read = read
+		return sc
+	}
+	// This run, on Monday 2026-09-28, holds the closes of each weekday from
+	// 2026-09-08 to the Friday before it, those that prev holds scaled by f.
 	scaled := func(f float64) symbolCloses {
-		cur := symbolCloses{AsOf: "2026-09-25", Closes: map[string]float64{"2026-09-25": 640}}
+		cur := symbolCloses{AsOf: "2026-09-25", Read: at("2026-09-28", 10, 0), Closes: map[string]float64{}}
+		for day := at("2026-09-08", 0, 0); !day.After(at("2026-09-25", 0, 0)); day = day.AddDate(0, 0, 1) {
+			if day.Weekday() != time.Saturday && day.Weekday() != time.Sunday {
+				cur.Closes[nyDate(day)] = 630
+			}
+		}
 		for d, c := range prev.Closes {
 			cur.Closes[d] = math.Round(c*f*100) / 100
 		}
@@ -836,6 +898,26 @@ func TestCompareCloses(t *testing.T) {
 	for d, ratio := range map[string]float64{"2026-09-08": factor - 0.002, "2026-09-09": factor, "2026-09-10": factor + 0.002} {
 		uneven.Closes[d] = math.Round(prev.Closes[d]*ratio*100) / 100
 	}
+	// A last run during Friday's session, which read Friday's close as it
+	// stood then, a price that the day's close need not be.
+	during := withRead(prev, at("2026-09-11", 11, 0))
+	during.Closes = maps.Clone(prev.Closes)
+	during.Closes["2026-09-11"] = 633
+	stale := scaled(1)
+	stale.AsOf, stale.Read = "2026-09-17", at("2026-09-21", 10, 0)
+	for d := range stale.Closes {
+		if d > stale.AsOf {
+			delete(stale.Closes, d)
+		}
+	}
+	noneInCommon := scaled(1)
+	for d := range prev.Closes {
+		delete(noneInCommon.Closes, d)
+	}
+	const (
+		notByFactor = "the closes before the ex-date changed, though not by the dividend's factor"
+		lastTooLate = "the last run came after the last close before its ex-date, 2026-09-18"
+	)
 	for _, tc := range []struct {
 		name        string
 		prev, cur   symbolCloses
@@ -844,28 +926,25 @@ func TestCompareCloses(t *testing.T) {
 	}{
 		{"unchanged", prev, scaled(1), q, adjustNone, ""},
 		{"scaled by the dividend's factor", prev, scaled(factor), q, adjustDividend, ""},
-		{"scaled otherwise", prev, scaled(0.9), q, "", "the closes before the ex-date changed, though not by the dividend's factor"},
-		{"scaled unevenly, by the dividend's factor halfway", prev, uneven, q, "", "the closes before the ex-date changed, though not by the dividend's factor"},
+		{"scaled otherwise", prev, scaled(0.9), q, "", notByFactor},
+		{"scaled unevenly, by the dividend's factor halfway", prev, uneven, q, "", notByFactor},
 		{"no earlier run", symbolCloses{}, scaled(1), q, "", "no earlier run kept its closes"},
+		{"an earlier run's closes without when it read them", withRead(prev, time.Time{}), scaled(1), q, "", "no earlier run kept its closes"},
 		{"no ex-date", prev, scaled(1), dividendQuote{}, "", "the quote gave no ex-date"},
+		{"the last run on the ex-date's morning", withRead(prev, at("2026-09-18", 8, 0)), scaled(1), q, "", lastTooLate},
+		{"the last run on the evening before the ex-date", withRead(prev, at("2026-09-17", 20, 0)), scaled(1), q, "", lastTooLate},
+		{"the last run at the close before the ex-date", withRead(prev, at("2026-09-17", 16, 0)), scaled(1), q, "", lastTooLate},
+		{"the last run a minute before the close before the ex-date", withRead(prev, at("2026-09-17", 15, 59)), scaled(1), q, adjustNone, ""},
+		{"the last run during a session, whose close it read early", during, scaled(1), q, adjustNone, ""},
+		{"this run on the ex-date, after its close", prev, withRead(scaled(1), at("2026-09-18", 17, 0)), q, "", "its ex-date, 2026-09-18, is not over yet"},
+		{"an ex-date after this run", prev, scaled(1), dividendQuote{exDate: "2026-09-29", amount: 2}, "", "its ex-date, 2026-09-29, is not over yet"},
+		{"this run's closes ending before the ex-date", prev, stale, q, "", "this run's closes end before its ex-date, 2026-09-18"},
 		{
-			"an ex-date before the last run's closes", prev, scaled(1),
+			"an ex-date before the last run", prev, scaled(1),
 			dividendQuote{exDate: "2026-09-10", amount: 2},
-			"",
-			"no ex-date lies between the last run's closes and this run's",
+			"", "the last run came after the last close before its ex-date, 2026-09-10",
 		},
-		{
-			"an ex-date after this run's", prev, scaled(1),
-			dividendQuote{exDate: "2026-09-26", amount: 2},
-			"",
-			"no ex-date lies between the last run's closes and this run's",
-		},
-		{
-			"no close in common", prev,
-			symbolCloses{AsOf: "2026-09-25", Closes: map[string]float64{"2026-09-25": 640}},
-			q, "",
-			"the two runs have no close before the ex-date in common",
-		},
+		{"no close in common", prev, noneInCommon, q, "", "the two runs have no close before the ex-date in common"},
 	} {
 		if answer, why := compareCloses(tc.prev, tc.cur, tc.q); answer != tc.answer || why != tc.why {
 			t.Errorf("%s: %q, %q; want %q, %q", tc.name, answer, why, tc.answer, tc.why)

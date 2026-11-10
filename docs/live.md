@@ -115,7 +115,7 @@ why; the question stays open until a run settles it.
 | Q4 | default | Whether the symbol filter keeps dividends and W-8 withholdings | Asks for a symbol's rows with `symbol=` and without; a verdict needs the symbol's own trade back and a row of another symbol left out. It sends only a symbol that the scrubber hides, so that a refusal quoting it shows a label |
 | Q5 | default | Whether an account's orders are served for a year or 60 days | Gets the order of the youngest execution over 67 days old by id, then asks the list for two days around when it was entered, if they lie within the last year. An order counts as old only past 67 days, since a list kept for 60 days by calendar dates can hold one a little older |
 | Q6 | default | Whether `scope=readonly` gives a token that cannot trade | Reports the scope Schwab granted, and whether any read was refused as unauthorized. Log in with `&scope=readonly` added to the login link to try it; whether such a token cannot trade stays open, since only an order could show it |
-| Q8 | default | Whether daily price bars are adjusted for dividends | Keeps SPY's and VTI's daily closes in the state; after an ex-date between two runs, compares them. Needs the Market Data product |
+| Q8 | default | Whether daily price bars are adjusted for dividends | Keeps SPY's and VTI's daily closes in the state, with when it read them, and compares them across an ex-date: the earlier run must come before the close of the last session before the ex-date, and the later one after the ex-date, since Schwab may adjust the closes at any time in between. Needs the Market Data product |
 | Q10 | default | Whether account hashes stay the same across logins and apps | Keeps keyed digests of each account's hash; a run after your weekly login compares them |
 | Q11 | default | How kinds of event show up in transactions | Counts the shapes of the history's rows |
 | Q12 | default | Whether rows change after they post, and how long after | Keeps keyed digests of the last 60 days' rows; a later run names the keys that changed, the rows gone and the rows that came late. A row counts as gone or late only when both its time and its tradeDate lie in the windows that would show it, since which of the two a window goes by is not known, and only against an answer that the cap cannot have cut |
@@ -187,11 +187,11 @@ the token file, and never share them. The report says only "the same",
 "changed" or "new", never a digest. A state without its key is refused;
 move both away to start afresh.
 
-It holds Q8's daily closes of SPY and VTI, which are public; Q10's hashes
-under each account number, with the login's time and the app key's digest;
-Q12's rows of the last 60 days, with a digest of each key path, their time
-and tradeDate, and the time each was first seen; and Q15's refresh tokens,
-with the login's time.
+It holds Q8's daily closes of SPY and VTI, which are public, with when they
+were read; Q10's hashes under each account number, with the login's time and
+the app key's digest; Q12's rows of the last 60 days, with a digest of each
+key path, their time and tradeDate, and the time each was first seen; and
+Q15's refresh tokens, with the login's time.
 
 ## W-8 lines
 
