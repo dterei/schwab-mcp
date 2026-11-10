@@ -381,6 +381,7 @@ func TestLiveOnTheFake(t *testing.T) {
 		{"Q12", testChangesOnTheFake},
 		{"Q12 with a cut answer", testChangesCutOnTheFake},
 		{"Q12 with windows by tradeDate", testChangesByTradeDateOnTheFake},
+		{"Q1 and Q12 without a row", testNoRowsOnTheFake},
 		{"Q15", testRefreshOnTheFake},
 		{"extras", testExtrasOnTheFake},
 		{"an edge page", testEdgeOnTheFake},
@@ -909,6 +910,52 @@ func testScopeOnTheFake(t *testing.T) {
 		if refused < 4 {
 			t.Errorf("%d requests refused, want the walk's, Q5's and the extras'", refused)
 		}
+	})
+}
+
+// Accounts that Schwab answers every window of with [], as it does an
+// account whose history it does not serve, show Q1 nothing of where a
+// history ends, whether the older windows answer [] too or are refused,
+// and Q12, run again, no row to compare: both are inconclusive, with the
+// walks as evidence.
+func testNoRowsOnTheFake(t *testing.T) {
+	t.Run("every window empty", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q1", "Q12")
+		fl.f.Override(schwabtest.TransactionsRoute, schwabtest.Answer(http.StatusOK, "[]", "Content-Type", "application/json"))
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{
+			"Q1":  "inconclusive: no account with rows walked past its history",
+			"Q12": "inconclusive: no earlier run to compare with; this run's rows are kept for the next",
+		})
+		wantEvidence(t, report, "Q1", "{account 1}: no row back to 2000-01-01, where the walk stops; every window answered 200 with []; the window of 2000: 200 with []")
+		later := fl.again(t, probeNow.AddDate(0, 0, 3), false)
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report = later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "inconclusive: no row to compare, of the last run's or of this run's within the last run's window"})
+		wantEvidence(t, report, "Q12", "{account 1}: 0 rows as they were; 0 rows new to the state")
+	})
+	t.Run("older windows refused", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q1")
+		fl.f.Override(schwabtest.TransactionsRoute, schwabtest.Answer(http.StatusOK, "[]", "Content-Type", "application/json"))
+		fl.f.OnAPI(func(r *http.Request) {
+			if schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute && r.URL.Query().Get("startDate") < "2020" {
+				fl.f.Script(schwabtest.Answer(http.StatusBadRequest, `{"message":"a guess: too old"}`, "Content-Type", "application/json"))
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q1": "inconclusive: no account with rows walked past its history"})
+		wantEvidence(t, report, "Q1", "{account 1}: no row in the windows it read; then a window was refused, HTTP 400, a guess: too old, "+
+			"and the newest window, asked again at once, answered 200; the window of 2000: refused, HTTP 400, a guess: too old")
 	})
 }
 

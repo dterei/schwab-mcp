@@ -524,7 +524,9 @@ type changesSeen struct {
 // postingLatency before that run. A late row posted from the last run to
 // this one, which bound how long after its time it came. Both times count,
 // since whether a window takes a row by its time or by its tradeDate is not
-// known.
+// known. With no row to compare, none of the state's seen again or shown
+// gone and none of this run's in the last run's window, as for accounts
+// without activity, it says nothing.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
@@ -537,6 +539,7 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var v verdict
 	var read, compared bool
 	var changed, gone, late bool
+	seen := 0 // the rows that either run's could be held against
 	for _, a := range r.accounts {
 		if a.hash == "" {
 			continue
@@ -554,6 +557,7 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 			continue
 		}
 		compared = true
+		seen += cs.same + cs.changedRows + cs.gone + cs.late + cs.near
 		changed, gone, late = changed || cs.changedRows > 0, gone || cs.gone > 0, late || cs.late > 0
 		v.evidence = append(v.evidence, reportLine{text: cs.line(a)})
 	}
@@ -565,6 +569,9 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 		return inconclusive("no account's window was read", v.evidence...)
 	case !compared:
 		v.answer = "inconclusive: no earlier run to compare with; this run's rows are kept for the next"
+		return v
+	case seen == 0:
+		v.answer = "inconclusive: no row to compare, of the last run's or of this run's within the last run's window"
 		return v
 	}
 	var found []string

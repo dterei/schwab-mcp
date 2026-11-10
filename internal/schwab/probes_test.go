@@ -190,9 +190,12 @@ type walkResult struct {
 
 // passedHistory reports whether res's walk went past its account's
 // history: three empty windows, or one or two before walkFloor, older than
-// its oldest row, or no row at all back to walkFloor.
+// its oldest row. A walk that found no row back to walkFloor did not:
+// Schwab answers [] to every window of an account whose history it does
+// not serve, as one not enabled for thinkorswim, so that says nothing of
+// where a history ends.
 func (res walkResult) passedHistory() bool {
-	return res.how == walkEnded && (res.empty > 0 || res.oldest.IsZero())
+	return res.how == walkEnded && res.empty > 0 && !res.oldest.IsZero()
 }
 
 // A heldRows is a window that held rows, with the oldest of them, and
@@ -212,15 +215,17 @@ type heldRows struct {
 // answer only when it is not a 429, a 401, Invalid account number or the
 // edge's page, and the account's newest window, asked again at once,
 // answers 200; else the walk ends interrupted, as after a 5xx, with no
-// verdict for that account. The oldest window that held rows, and only it,
-// is split when its answer may have been cut at the cap: its end is
-// narrowed to the oldest row returned until fewer come back, and an oldest
-// row from before the window's start interrupts the walk. Each account's
-// walk sends at most walkAllowance requests, walkControl among them. The
-// verdict gives each account's oldest row's New York date, "or earlier"
-// when the walk ended before the history did. The rows it reads are the
-// history rows that later probes read. Whether older activity exists that
-// Schwab does not serve stays the owner's to judge.
+// verdict for that account. A walk that found no row is evidence alone: an
+// old window's answer to an account without rows, [] or a refusal, says
+// nothing of where a history ends. The oldest window that held rows, and
+// only it, is split when its answer may have been cut at the cap: its end
+// is narrowed to the oldest row returned until fewer come back, and an
+// oldest row from before the window's start interrupts the walk. Each
+// account's walk sends at most walkAllowance requests, walkControl among
+// them. The verdict gives each account's oldest row's New York date, "or
+// earlier" when the walk ended before the history did. The rows it reads
+// are the history rows that later probes read. Whether older activity
+// exists that Schwab does not serve stays the owner's to judge.
 func probeDepth(ctx context.Context, r *liveRun) verdict {
 	var v verdict
 	sent := false
@@ -236,7 +241,7 @@ func probeDepth(ctx context.Context, r *liveRun) verdict {
 		switch {
 		case res.passedHistory():
 			ended = append(ended, a.label())
-		case res.how == walkRefused:
+		case res.how == walkRefused && !res.oldest.IsZero():
 			refused = append(refused, a.label())
 			first = cmp.Or(first, res.refusal)
 		}
@@ -252,7 +257,7 @@ func probeDepth(ctx context.Context, r *liveRun) verdict {
 		"compare each account's oldest row with when it opened, when it was enabled for thinkorswim, and schwab.com's History"})
 	switch {
 	case len(ended)+len(refused) == 0:
-		v.answer = "inconclusive: no account's walk went past its history"
+		v.answer = "inconclusive: no account with rows walked past its history"
 		return v
 	case len(refused) == 0:
 		v.answer = "a window older than an account's history answers 200 with []"
@@ -1383,8 +1388,8 @@ func TestWalkLine(t *testing.T) {
 			t.Errorf("line(%+v):\n got %s\nwant %s", tc.res, got, tc.want)
 		}
 	}
-	if (walkResult{how: walkEnded, empty: 0, oldest: oldest}).passedHistory() || !(walkResult{how: walkEnded}).passedHistory() ||
-		!(walkResult{how: walkEnded, empty: 2, oldest: oldest}).passedHistory() || (walkResult{how: walkRefused, empty: 3}).passedHistory() {
+	if (walkResult{how: walkEnded, empty: 0, oldest: oldest}).passedHistory() || (walkResult{how: walkEnded}).passedHistory() ||
+		!(walkResult{how: walkEnded, empty: 2, oldest: oldest}).passedHistory() || (walkResult{how: walkRefused, empty: 3, oldest: oldest}).passedHistory() {
 		t.Error("passedHistory")
 	}
 }
