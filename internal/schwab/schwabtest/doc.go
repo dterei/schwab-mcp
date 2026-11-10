@@ -79,14 +79,18 @@
 //  3. Without a working access token it gets the 401, and nothing below
 //     happens.
 //  4. It is recorded, in Requests.
-//  5. The answer is the first of: the next Script entry; the route's next
+//  5. A method other than GET or HEAD gets a 405, a guess that says so,
+//     and nothing below happens: every endpoint the fake knows takes GET
+//     alone, so a test that scripts its answers still sees a request sent
+//     with another method fail.
+//  6. The answer is the first of: the next Script entry; the route's next
 //     Queue entry; the route's Override, or, for a path that no Route
 //     serves, OverridePath's handler for it; the answer LoadRecording
 //     loaded for exactly this method, path and query; the fake's own. A
 //     nil Script or Queue entry is taken from its list but answers
 //     nothing, so the request goes on down the list.
 //
-// Steps 2 to 5 are one step under the fake's lock, and every handler runs
+// Steps 2 to 6 are one step under the fake's lock, and every handler runs
 // after the lock is released, so a handler may call the Server's methods.
 // So may OnAPI's and OnToken's hooks, which run without the lock. OnGrant's
 // hook, the clock given to SetNow and TransactionRules.MaxWindow run under
@@ -113,13 +117,14 @@
 //     roadmap's Q15); SetRotate and SetRevokeOlder give the other answers.
 //   - Every body that is a guess says so in its own text, such as the
 //     token endpoint's answer to a bad code, the authorize page's errors,
-//     the 400s for a query the fake refuses and the 404 for an unknown id,
-//     so that no output can pass one off as Schwab's. Two answers that
-//     hold Schwab's words are guesses in part and do not say so: the 401
-//     to a request without any token sends NotAuthorized's body, though of
-//     Schwab's answer to such a request only the status was kept; and a
-//     query date alone gets the wording Schwab was reported to send, in a
-//     body and with a status that are guesses.
+//     the 400s for a query the fake refuses, the 405 for a method other
+//     than GET and the 404 for an unknown id, so that no output can pass
+//     one off as Schwab's. Two answers that hold Schwab's words are
+//     guesses in part and do not say so: the 401 to a request without any
+//     token sends NotAuthorized's body, though of Schwab's answer to such
+//     a request only the status was kept; and a query date alone gets the
+//     wording Schwab was reported to send, in a body and with a status
+//     that are guesses.
 //   - A stale hash gets Invalid account number, as an account number does;
 //     that is inferred, not seen.
 //   - How the cap meets a request for several types, whether a window's

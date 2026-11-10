@@ -29,11 +29,15 @@ func ok(body string) http.HandlerFunc {
 	return answer(http.StatusOK, body, "Content-Type", "application/json")
 }
 
-// requested returns the path and query of the fake's API requests.
+// requested returns the path and query of the fake's API requests, each of
+// which must be a GET.
 func requested(t *testing.T, f *fakeOAuth) []*url.URL {
 	t.Helper()
 	var us []*url.URL
 	for _, r := range f.Requests() {
+		if r.Method != http.MethodGet {
+			t.Errorf("%s %s, want GET", r.Method, r.URL)
+		}
 		u, err := url.Parse(r.URL)
 		if err != nil {
 			t.Fatal(err)

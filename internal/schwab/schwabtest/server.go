@@ -250,13 +250,18 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		Method: r.Method, Route: route, URL: r.URL.String(), Path: r.URL.EscapedPath(), Query: r.URL.RawQuery,
 		Token: tok, Header: r.Header.Clone(),
 	})
-	h := s.handlerFor(route, r)
-	if h == nil {
-		h = s.replayFor(r)
-	}
+	var h http.HandlerFunc
 	var a answer
-	if h == nil {
-		a = s.own(route, r)
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		a = s.notAllowed()
+	} else {
+		h = s.handlerFor(route, r)
+		if h == nil {
+			h = s.replayFor(r)
+		}
+		if h == nil {
+			a = s.own(route, r)
+		}
 	}
 	s.mu.Unlock()
 	if h != nil {
@@ -328,6 +333,15 @@ func (s *Server) own(route Route, r *http.Request) answer {
 	default:
 		return s.built(http.StatusNotFound, []byte(`{"message":"Not Found (the fake has no such route)"}`))
 	}
+}
+
+// notAllowed returns the answer to an API request of a method other than
+// GET or HEAD, which every endpoint the fake knows takes alone: a 405, a
+// guess that says so. It needs the lock.
+func (s *Server) notAllowed() answer {
+	a := s.built(http.StatusMethodNotAllowed, []byte(`{"message":"a guess: Schwab's answer to this method is not recorded"}`))
+	a.header["Allow"] = []string{"GET, HEAD"}
+	return a
 }
 
 // unauthorized returns the answer to an API request without a working
@@ -414,9 +428,10 @@ func (s *Server) Override(route Route, h http.HandlerFunc) {
 // Route serves, such as "GET /trader/v1/accounts/{hash}/orders". The
 // handler sees the request's Pattern and PathValue as pattern gives them.
 // Setting a pattern again replaces its handler. A pattern outside the API,
-// one that matches a request some Route serves (Override is for those), or
-// one that conflicts with another pattern set fails the test, and the
-// patterns stay as they were.
+// one for a method that the fake answers with 405 before any handler, one
+// that matches a request some Route serves (Override is for those), or one
+// that conflicts with another pattern set fails the test, and the patterns
+// stay as they were.
 func (s *Server) OverridePath(pattern string, h http.HandlerFunc) {
 	s.t.Helper()
 	s.mu.Lock()
@@ -461,6 +476,9 @@ func checkPattern(pattern string, others []string) (err error) {
 	}
 	if !slices.ContainsFunc(apiPrefixes, func(p string) bool { return strings.HasPrefix(sample.URL.Path, p) }) {
 		return fmt.Errorf("it is not under %s, so the fake would never ask it", strings.Join(apiPrefixes, " or "))
+	}
+	if sample.Method != http.MethodGet && sample.Method != http.MethodHead {
+		return fmt.Errorf("the fake answers %s with 405 before any handler", sample.Method)
 	}
 	if route, ok := routeOf(sample.Method, sample.URL.EscapedPath()); ok {
 		return fmt.Errorf("%s serves the requests it matches; use Override", route)

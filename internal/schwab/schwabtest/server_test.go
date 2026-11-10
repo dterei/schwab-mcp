@@ -342,6 +342,64 @@ func TestScriptQueueOverride(t *testing.T) {
 	wantReported(t, r, "no such Route", func() { s.Override("GET /x", Answer(200, "")) })
 }
 
+// The API takes GET and HEAD alone. A request of another method with a
+// working token is recorded and gets the fake's 405, a guess that says so,
+// ahead of every Script entry, Override, pattern and recording, so that a
+// test that scripts its answers still sees a client's wrong method fail.
+func TestMethodNotAllowed(t *testing.T) {
+	r := &recorder{TB: t}
+	s := New(r)
+	auth := "Bearer " + login(t, s)
+	fsys := fstest.MapFS{"recorded/2026-11-08/001.json": {Data: []byte(`{}`)}}
+	var e Entry
+	e.File, e.Source, e.Recorded, e.Scrub = "recorded/2026-11-08/001.json", "recorded", "2026-11-08", "abc keep"
+	e.Request.Method, e.Request.Path = http.MethodPost, "/trader/v1/accounts/x/orders"
+	e.Response.Status = http.StatusCreated
+	if err := s.loadRecording(fsys, []Entry{e}, "2026-11-08"); err != nil {
+		t.Fatal(err)
+	}
+	s.Script(Answer(http.StatusTeapot, "scripted"))
+	s.Override(TestRoute, Answer(http.StatusTeapot, "overridden"))
+	s.OverridePath("/marketdata/v1/", Answer(http.StatusTeapot, "market data"))
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/trader/v1/test"},
+		{http.MethodPost, "/trader/v1/accounts/x/orders"},
+		{http.MethodPut, "/trader/v1/accounts/x/orders/1"},
+		{http.MethodDelete, "/marketdata/v1/quotes"},
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), tc.method, tc.path, nil)
+		req.Header.Set("Authorization", auth)
+		rec := httptest.NewRecorder()
+		s.srv.Config.Handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed || !strings.Contains(rec.Body.String(), "a guess") ||
+			rec.Header().Get("Allow") != "GET, HEAD" {
+			t.Errorf("%s %s: %d %v %s", tc.method, tc.path, rec.Code, rec.Header(), rec.Body)
+		}
+		wantFakeHeaders(t, rec.Header(), http.StatusMethodNotAllowed)
+	}
+	var methods []string
+	for _, rq := range s.Requests() {
+		methods = append(methods, rq.Method)
+	}
+	if want := []string{"POST", "POST", "PUT", "DELETE"}; !slices.Equal(methods, want) {
+		t.Errorf("recorded %q, want %q", methods, want)
+	}
+	if rec := serve(t, s, "/trader/v1/test", auth); rec.Code != http.StatusTeapot || rec.Body.String() != "scripted" {
+		t.Errorf("a GET after them did not get the Script entry: %d %s", rec.Code, rec.Body)
+	}
+	head := httptest.NewRequestWithContext(t.Context(), http.MethodHead, "/trader/v1/test", nil)
+	head.Header.Set("Authorization", auth)
+	rec := httptest.NewRecorder()
+	s.srv.Config.Handler.ServeHTTP(rec, head)
+	if rec.Code != http.StatusTeapot {
+		t.Errorf("HEAD did not get the Override: %d", rec.Code)
+	}
+	if errs := r.took(); len(errs) > 0 {
+		t.Fatalf("reported %q", errs)
+	}
+	wantReported(t, r, "405", func() { s.OverridePath("POST /trader/v1/accounts/{hash}/orders", Answer(http.StatusCreated, "")) })
+}
+
 // OverridePath answers the paths without a Route that its patterns match,
 // with the pattern's Pattern and PathValue, and refuses patterns that a
 // Route or another pattern would shadow.
