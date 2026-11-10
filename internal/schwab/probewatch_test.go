@@ -207,42 +207,110 @@ func probeBalances(ctx context.Context, r *liveRun) verdict {
 }
 
 // The watch of fills, Q13: a poll a minute for half an hour, of the orders
-// of the last day and the TRADE rows of the last two hours.
+// entered in the last day and of the TRADE rows that their fills can have.
 const (
 	fillsEvery      = time.Minute
 	fillsPolls      = 30
 	fillsOrdersBack = oneDay
-	fillsRowsBack   = 2 * time.Hour
 )
 
-// A fillSeen is a filled order that Q13's polls saw, and its row.
-type fillSeen struct {
-	filled  time.Time // the fill, by the order's last execution or its closeTime
-	rowPoll int       // the poll at which its row was first seen, or -1
+// nyMidnight returns the midnight in New York that begins the day days
+// after t's day there.
+func nyMidnight(t time.Time, days int) time.Time {
+	ny := t.In(newYork())
+	return time.Date(ny.Year(), ny.Month(), ny.Day()+days, 0, 0, 0, 0, ny.Location())
 }
 
-// latency returns what the polls at polls say of f's row: the least and the
-// most it can have taken to come, and whether it was there at the first
-// poll, which bounds it only from above.
-func (f fillSeen) latency(polls []time.Time) (least, most time.Duration, first bool) {
-	most = polls[f.rowPoll].Sub(f.filled)
-	if f.rowPoll == 0 {
-		return 0, most, true
+// lastDated returns the latest time by which a window takes in the row of
+// a fill at t, whether windows go by a row's time or by its tradeDate, which
+// is not known. A row's time is the fill, and its tradeDate the fill or the
+// midnight that begins its day in New York, both by t. But a fill from
+// 18:00 to 04:00 there, in the evening and overnight sessions, may be booked
+// on the next trading day, as Q2 asks, so its row may be dated the midnight
+// that begins the next weekday, holidays aside, which a window ending at t
+// leaves out.
+func lastDated(t time.Time) time.Time {
+	if h := t.In(newYork()).Hour(); h >= overnightTil && h < eveningFrom {
+		return t
 	}
-	return max(polls[f.rowPoll-1].Sub(f.filled), 0), most, false
+	next := nyMidnight(t, 1)
+	for next.Weekday() == time.Saturday || next.Weekday() == time.Sunday {
+		next = nyMidnight(next, 1)
+	}
+	return next
+}
+
+// A fillSeen is a filled order that Q13's polls saw: its account, by its
+// place in the account numbers, and its fill, by the order's last execution
+// or its closeTime.
+type fillSeen struct {
+	account int
+	filled  time.Time
+}
+
+// A rowsRead is one of Q13's reads of an account's TRADE rows: when it
+// went, and the orderIds of the rows it got, or nil when it failed.
+type rowsRead struct {
+	at     time.Time
+	orders map[string]bool
+}
+
+// How the row of a fill stands at the end of Q13's watch.
+const (
+	rowCame    = iota // in a read of the watch, after one without it
+	rowThere          // in the first read that went, which bounds its time only from above
+	rowMissing        // in no read, the last of them after the fill
+	rowUnread         // in no read, none of them after the fill
+)
+
+// latency returns how the row of the order id, filled at filled, stands in
+// reads, its account's reads of rows in time order, and what they allow of
+// the time from the fill to the row: for a row that came, from the last read
+// without it, or the fill, to the first read with it; for a row there at the
+// first read, up to that read; and for a row missing, more than the time to
+// the last read. A read that failed says nothing, nor does a read before the
+// fill hold its row, though one may hold the row of an earlier execution of
+// the same order.
+func latency(reads []rowsRead, id string, filled time.Time) (how int, least, most time.Duration) {
+	var before time.Time // the last read that went without the row
+	for _, rd := range reads {
+		switch {
+		case rd.orders == nil:
+			continue
+		case rd.orders[id] && !rd.at.Before(filled) && before.IsZero():
+			return rowThere, 0, rd.at.Sub(filled)
+		case rd.orders[id] && !rd.at.Before(filled):
+			return rowCame, max(before.Sub(filled), 0), rd.at.Sub(filled)
+		}
+		before = rd.at
+	}
+	if before.IsZero() || before.Before(filled) {
+		return rowUnread, 0, 0
+	}
+	return rowMissing, before.Sub(filled), 0
 }
 
 // probeFills is Q13, how soon after a fill its trade appears in the
 // transactions, after the owner places a trade by hand. Every minute for
-// half an hour it reads each account's orders of the last day and its
-// TRADE rows of the last two hours; for each filled order it finds the poll
-// at which a row with its orderId first came, and so the minutes from the
-// fill to the row, bounded by that poll and the one before. A row there at
-// the first poll bounds the time only from above.
+// half an hour it reads each account's orders entered in the last day and
+// its TRADE rows over every time that their fills' rows can be dated by:
+// from the midnight in New York that begins the day a day before the watch,
+// to the poll, or later for a fill of the evening or overnight sessions,
+// whose row may be dated the next trading day. For each filled order it
+// finds the first read that held a row with its orderId, and so the
+// minutes from the fill to the row, bounded by that read and the one
+// before. A row there at the first read bounds the time only from above,
+// and a row that never came only from below; a read that failed says
+// nothing.
 func probeFills(ctx context.Context, r *liveRun) verdict {
 	start := r.now()
+	// Every fill lies after the earliest entry that the orders' span takes
+	// in, so after this midnight, and so does the midnight that begins its
+	// day, a tradeDate that rows carry.
+	from := nyMidnight(start.Add(-fillsOrdersBack), 0)
 	fills := map[string]*fillSeen{} // by the order's id
-	var polls []time.Time
+	reads := map[int][]rowsRead{}   // by the account's place
+	polls, failedOrders, failedRows := 0, 0, 0
 	for poll := range fillsPolls {
 		at := start.Add(time.Duration(poll) * fillsEvery)
 		if wait := at.Sub(r.now()); wait > 0 {
@@ -254,74 +322,115 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 			break
 		}
 		at = r.now()
-		polls = append(polls, at)
+		polls++
 		for _, a := range r.accounts {
 			if a.hash == "" {
 				continue
 			}
-			if rep, err := r.read(ctx, a.endpoint("/orders"), a.path()+"/orders", ordersValues(window{at.Add(-fillsOrdersBack), at}), ""); err == nil {
-				orders, _ := readOrders(rep.body)
-				for _, o := range orders {
-					if o.id != "" && !o.filled.IsZero() && fills[o.id] == nil {
-						fills[o.id] = &fillSeen{filled: o.filled, rowPoll: -1}
-					}
-				}
+			rep, err := r.read(ctx, a.endpoint("/orders"), a.path()+"/orders", ordersValues(window{at.Add(-fillsOrdersBack), at}), "")
+			var orders []orderSeen
+			if err == nil {
+				orders, err = readOrders(rep.body)
 			}
-			q, err := TransactionQuery{Start: at.Add(-fillsRowsBack), End: at, Types: []TransactionType{TransactionTrade}}.values()
 			if err != nil {
-				panic(err) // two hours is always a window
+				failedOrders++
 			}
+			for _, o := range orders {
+				if o.id != "" && !o.filled.IsZero() && fills[o.id] == nil {
+					fills[o.id] = &fillSeen{account: a.n, filled: o.filled}
+				}
+			}
+			end := at
+			for _, f := range fills {
+				if f.account == a.n {
+					end = maxTime(end, lastDated(f.filled))
+				}
+			}
+			q, err := TransactionQuery{Start: from, End: end, Types: []TransactionType{TransactionTrade}}.values()
+			if err != nil {
+				panic(err) // a few days is always a window
+			}
+			rd := rowsRead{at: at}
 			if rep, err := r.read(ctx, a.endpoint("/transactions"), a.path()+"/transactions", q, "transactions"); err == nil {
-				rows, _ := decodeList[Transaction](rep.body)
-				for _, row := range rows {
-					if f := fills[strconv.FormatInt(row.OrderID, 10)]; row.OrderID != 0 && f != nil && f.rowPoll < 0 {
-						f.rowPoll = len(polls) - 1
+				if rows, err := decodeList[Transaction](rep.body); err == nil {
+					rd.orders = map[string]bool{}
+					for _, row := range rows {
+						if row.OrderID != 0 {
+							rd.orders[strconv.FormatInt(row.OrderID, 10)] = true
+						}
 					}
 				}
 			}
+			if rd.orders == nil {
+				failedRows++
+			}
+			reads[a.n] = append(reads[a.n], rd)
 		}
 	}
-	v := verdict{evidence: lines(fmt.Sprintf("%s, a minute apart; %s filled in the last day", plural(len(polls), "poll"), plural(len(fills), "order")))}
+	v := verdict{evidence: lines(fmt.Sprintf("%s, a minute apart; %s filled in the last day", plural(polls, "poll"), plural(len(fills), "order")))}
+	if failedOrders+failedRows > 0 {
+		v.evidence = append(v.evidence, reportLine{text: fmt.Sprintf("reads that failed: %d of the orders, %d of the rows", failedOrders, failedRows)})
+	}
 	if len(fills) == 0 {
 		v.answer = "inconclusive: no order of the last day was filled; place a trade by hand, then run the watch"
 		return v
 	}
 	minutes := func(d time.Duration) int { return int(math.Ceil(d.Minutes())) }
-	var least, most, upTo []int
-	missing := 0
-	for _, f := range fills {
-		if f.rowPoll < 0 {
-			missing++
-			continue
-		}
-		lo, hi, first := f.latency(polls)
-		if first {
+	var least, most, upTo, waited []int
+	unread := 0
+	for id, f := range fills {
+		switch how, lo, hi := latency(reads[f.account], id, f.filled); how {
+		case rowCame:
+			least, most = append(least, int(lo.Minutes())), append(most, minutes(hi))
+		case rowThere:
 			upTo = append(upTo, minutes(hi))
-			continue
+		case rowMissing:
+			waited = append(waited, int(lo.Minutes()))
+		default:
+			unread++
 		}
-		least, most = append(least, int(lo.Minutes())), append(most, minutes(hi))
 	}
 	if len(least) > 0 {
-		v.evidence = append(v.evidence, reportLine{text: fmt.Sprintf("rows that came during the watch: %d, from %d to %d minutes after the fills",
-			len(least), slices.Min(least), slices.Max(most))})
+		v.evidence = append(v.evidence, reportLine{text: fmt.Sprintf("rows that came during the watch: %d, %s after the fills",
+			len(least), minutesSpan(slices.Min(least), slices.Max(most)))})
 	}
 	if len(upTo) > 0 {
 		v.evidence = append(v.evidence, reportLine{text: fmt.Sprintf("rows there at the first poll: %d, within %d minutes of the fills", len(upTo), slices.Max(upTo))})
 	}
-	if missing > 0 {
-		v.evidence = append(v.evidence, reportLine{text: fmt.Sprintf("filled orders without a row by the watch's end: %d", missing)})
+	if len(waited) > 0 {
+		v.evidence = append(v.evidence, reportLine{text: fmt.Sprintf("filled orders without a row by the watch's end: %d, %s after the fills",
+			len(waited), minutesSpan(slices.Min(waited), slices.Max(waited)))})
+	}
+	if unread > 0 {
+		v.evidence = append(v.evidence, reportLine{text: fmt.Sprintf("filled orders whose rows no read after the fill could show: %d", unread)})
 	}
 	switch {
 	case ctx.Err() != nil && len(least) == 0:
 		v.answer = "inconclusive: the run stopped before a fill's row came"
 	case len(least) > 0:
-		v.answer = fmt.Sprintf("a fill's trade appears from %d to %d minutes after the fill", slices.Min(least), slices.Max(most))
+		v.answer = fmt.Sprintf("a fill's trade appears %s after the fill", minutesSpan(slices.Min(least), slices.Max(most)))
+		if len(waited) > 0 {
+			v.answer += fmt.Sprintf(", though %s had none by the watch's end, %d minutes or more after it", plural(len(waited), "other fill"), slices.Min(waited))
+		}
+	case len(waited) > 0 && len(upTo) == 0:
+		v.answer = fmt.Sprintf("no fill's trade appeared by the watch's end, %s after the fills", minutesSpan(slices.Min(waited), slices.Max(waited)))
+	case len(waited) > 0:
+		v.answer = "inconclusive: no fill's row came during the watch: some were there at the first poll, and the others had not come by its end"
 	case len(upTo) > 0:
 		v.answer = fmt.Sprintf("inconclusive: every fill's row was there at the first poll, within %d minutes of its fill; place a trade just before the watch to measure it", slices.Max(upTo))
 	default:
-		v.answer = fmt.Sprintf("no fill's trade appeared within the watch's %v", time.Duration(fillsPolls)*fillsEvery)
+		v.answer = "inconclusive: no read of the rows went after a fill"
 	}
 	return v
+}
+
+// minutesSpan returns the span from lo to hi minutes as the report gives
+// it: "from 2 to 3 minutes", or "3 minutes" when they are one.
+func minutesSpan(lo, hi int) string {
+	if lo == hi {
+		return plural(lo, "minute")
+	}
+	return fmt.Sprintf("from %d to %d minutes", lo, hi)
 }
 
 // rateSteps are Q14's steps, in requests a minute, a minute each: never
@@ -589,22 +698,73 @@ func TestMoveOf(t *testing.T) {
 	}
 }
 
-// A fill's row came after the poll before the one that saw it, and by
-// that one; a row there at the first poll is bounded only from above.
+// A fill's row came after the last read that went without it, or the fill,
+// and by the first read that held it; a row there at the first read that
+// went is bounded only from above, and one that never came only from
+// below, by the last read. A read that failed says nothing, and a read
+// before the fill does not hold its row, though it may hold the row of an
+// earlier execution of the order.
 func TestFillLatency(t *testing.T) {
 	base := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
-	polls := []time.Time{base, base.Add(time.Minute), base.Add(2 * time.Minute), base.Add(3 * time.Minute)}
+	const id = "1004517700001"
+	// reads returns a read at each minute from base, holding the row from
+	// the minute from on, or never with from -1, and failing at the
+	// minutes of failed.
+	reads := func(n, from int, failed ...int) []rowsRead {
+		var rs []rowsRead
+		for i := range n {
+			rd := rowsRead{at: base.Add(time.Duration(i) * time.Minute)}
+			if !slices.Contains(failed, i) {
+				rd.orders = map[string]bool{"1": true}
+				if from >= 0 && i >= from {
+					rd.orders[id] = true
+				}
+			}
+			rs = append(rs, rd)
+		}
+		return rs
+	}
 	for _, tc := range []struct {
-		f           fillSeen
+		name        string
+		reads       []rowsRead
+		filled      time.Time
+		how         int
 		least, most time.Duration
-		first       bool
 	}{
-		{fillSeen{filled: base.Add(-10 * time.Minute), rowPoll: 0}, 0, 10 * time.Minute, true},
-		{fillSeen{filled: base.Add(30 * time.Second), rowPoll: 3}, 90 * time.Second, 150 * time.Second, false},
-		{fillSeen{filled: base.Add(90 * time.Second), rowPoll: 2}, 0, 30 * time.Second, false},
+		{"there at the first read", reads(4, 0), base.Add(-10 * time.Minute), rowThere, 0, 10 * time.Minute},
+		{"there at the first read that went", reads(4, 1, 0), base.Add(-10 * time.Minute), rowThere, 0, 11 * time.Minute},
+		{"came", reads(4, 3), base.Add(30 * time.Second), rowCame, 90 * time.Second, 150 * time.Second},
+		{"came after the fill and a read", reads(4, 2), base.Add(90 * time.Second), rowCame, 0, 30 * time.Second},
+		{"came after a read that failed", reads(4, 3, 2), base.Add(30 * time.Second), rowCame, 30 * time.Second, 150 * time.Second},
+		{"an earlier execution's row before the fill", reads(4, 0), base.Add(90 * time.Second), rowCame, 0, 30 * time.Second},
+		{"missing", reads(4, -1), base.Add(-10 * time.Minute), rowMissing, 13 * time.Minute, 0},
+		{"missing, the last read failed", reads(4, -1, 3), base.Add(-10 * time.Minute), rowMissing, 12 * time.Minute, 0},
+		{"no read went", reads(4, 0, 0, 1, 2, 3), base.Add(-10 * time.Minute), rowUnread, 0, 0},
+		{"no read went after the fill", reads(4, -1, 2, 3), base.Add(90 * time.Second), rowUnread, 0, 0},
 	} {
-		if least, most, first := tc.f.latency(polls); least != tc.least || most != tc.most || first != tc.first {
-			t.Errorf("latency(%+v) = %v, %v, %v; want %v, %v, %v", tc.f, least, most, first, tc.least, tc.most, tc.first)
+		if how, least, most := latency(tc.reads, id, tc.filled); how != tc.how || least != tc.least || most != tc.most {
+			t.Errorf("%s: latency = %d, %v, %v; want %d, %v, %v", tc.name, how, least, most, tc.how, tc.least, tc.most)
+		}
+	}
+}
+
+// The row of a fill is dated by the fill at the latest, but for a fill of
+// the evening or overnight sessions, from 18:00 to 04:00 in New York, which
+// may be dated the midnight that begins the next weekday there.
+func TestLastDated(t *testing.T) {
+	ny := newYork()
+	at := func(day, h, m int) time.Time { return time.Date(2026, 9, day, h, m, 0, 0, ny) }
+	for _, tc := range []struct{ fill, want time.Time }{
+		{at(1, 4, 0), at(1, 4, 0)},     // a Tuesday's pre-market
+		{at(1, 11, 5), at(1, 11, 5)},   // its session
+		{at(1, 17, 59), at(1, 17, 59)}, // its after-hours
+		{at(1, 18, 0), at(2, 0, 0)},    // its evening, to Wednesday
+		{at(1, 3, 59), at(2, 0, 0)},    // its overnight session
+		{at(4, 19, 5), at(7, 0, 0)},    // a Friday's evening, to Monday
+		{at(5, 1, 0), at(7, 0, 0)},     // a Saturday's small hours
+	} {
+		if got := lastDated(tc.fill); !got.Equal(tc.want) {
+			t.Errorf("lastDated(%v) = %v, want %v", tc.fill, got, tc.want)
 		}
 	}
 }
