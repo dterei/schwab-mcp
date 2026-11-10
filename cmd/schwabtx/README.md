@@ -153,11 +153,16 @@ its `fetched_at`.
 go test ./cmd/schwabtx
 ```
 
-The tests run the whole tool against a fake Schwab server: login, token
-refresh, paging backwards through windows, merging accounts, splitting
-truncated responses, rate-limit retries and snapshots. They also run the
-scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
-`snapshot.ps1` with each PowerShell on Windows.
+The tests run the whole tool against the fake Schwab server that the
+project's tests share,
+[`internal/schwab/schwabtest`](../../internal/schwab/schwabtest): a login
+through the fake's authorize page, from the link the tool prints, token
+refresh, paging backwards through windows, old windows answered with an
+empty list as Schwab answers them, merging accounts, splitting truncated
+responses however the fake caps them, Schwab's own error answers,
+rate-limit retries and snapshots. They also run the scheduler scripts as a
+scheduler would: `snapshot.sh` on Linux and macOS, `snapshot.ps1` with each
+PowerShell on Windows.
 
 ## Open questions
 
