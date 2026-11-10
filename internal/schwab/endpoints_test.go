@@ -3,10 +3,15 @@ package schwab
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -146,6 +151,46 @@ func TestTransactionsEscapeTheHash(t *testing.T) {
 			t.Errorf("requested %s", p)
 		}
 	}
+}
+
+// A query sends its dates in UTC whatever the machine's zone: the test
+// binary, run again with New York's zone as the machine's, sends the dates
+// it sends here. Changing time.Local in this process instead would race
+// with goroutines that earlier tests leave behind, which read it.
+func TestTransactionsQueryInTheMachinesZone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Go on Windows takes the machine's zone from the system, not from TZ")
+	}
+	zone := filepath.Join(t.TempDir(), "newyork.tzif")
+	if err := os.WriteFile(zone, newYorkZone, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), "SCHWAB_TEST_HELPER=query", "TZ="+zone)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the helper: %v: %s", err, out)
+	}
+	// -18000 is New York's offset in January, so the helper ran in its zone.
+	if got, want := strings.TrimSpace(string(out)), "2026-01-02T08:04:05.678Z 2026-01-02T09:04:05.678Z -18000"; got != want {
+		t.Errorf("in New York's zone, the query sent %q, want %q", got, want)
+	}
+}
+
+// queryHelper is the helper process for
+// TestTransactionsQueryInTheMachinesZone: it prints the dates that a query
+// of an hour sends, and the offset from UTC, in seconds, of the machine's
+// zone at its start.
+func queryHelper() int {
+	start := time.Date(2026, 1, 2, 3, 4, 5, 678e6, time.FixedZone("EST", -5*3600))
+	v, err := TransactionQuery{Start: start, End: start.Add(time.Hour)}.values()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	_, offset := start.Local().Zone()
+	fmt.Println(v.Get("startDate"), v.Get("endDate"), offset)
+	return 0
 }
 
 // A query Schwab would refuse fails before any request.
@@ -426,8 +471,9 @@ func TestTransactionsFromTheFixtures(t *testing.T) {
 			}
 		}
 		got := map[string]int{}
-		// In a zone of its own, so that a client that sends local times
-		// shows.
+		// In a zone of its own, so that a client that sends a time in its
+		// own zone, not UTC's, shows; one that sends the machine's is
+		// TestTransactionsQueryInTheMachinesZone's to find.
 		for end := testNow.In(time.FixedZone("EST", -5*3600)); ; {
 			start := end.Add(-window)
 			txs, err := cl.Transactions(t.Context(), hashes[fa.Number], TransactionQuery{Start: start, End: end})

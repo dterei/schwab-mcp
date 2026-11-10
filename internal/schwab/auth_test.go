@@ -36,13 +36,15 @@ func TestMain(m *testing.M) {
 
 // helper is the other process. "access" prints an access token; "hold" takes
 // the lock on the login, says so and keeps it until its stdin closes; "rate"
-// is rateHelper.
+// is rateHelper; "query" is queryHelper.
 func helper(role string) int {
 	ctx := context.Background()
 	tokenFile := os.Getenv("SCHWAB_TEST_TOKEN_FILE")
 	switch role {
 	case "rate":
 		return rateHelper()
+	case "query":
+		return queryHelper()
 	case "access":
 		a, err := NewAuth(Config{AppKey: testKey, AppSecret: testSecret, BaseURL: os.Getenv("SCHWAB_TEST_URL"), TokenFile: tokenFile})
 		if err == nil {
