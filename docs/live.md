@@ -178,10 +178,11 @@ streamer IDs, activity, order and position IDs, correlation IDs, the
 edge's reference numbers, your app's key and secret, every token of the
 login that the run holds, sends or is given, and every symbol in an answer
 but SPY and VTI, which the run names itself; your home folder as `~`, your
-user name as `{user}`, and the run's files and folders by name. An ID, a
-key or a token is found escaped too, as a path or a form spells it. Q4
-sends no symbol that the scrubber does not hide: not SPY or VTI, nor one
-of a single character, which is too short to hide.
+user name as `{user}` where a path holds it as the folder of a home, such
+as `/home/<name>`, and the run's files and folders by name. An ID, a key or
+a token is found escaped too, as a path or a form spells it. Q4 sends no
+symbol that the scrubber does not hide: not SPY or VTI, nor one of a single
+character, which is too short to hide.
 
 Nicknames and symbols are hidden only in Schwab's own words, such as an
 error message that is not its wording, which could quote one. The rest of
@@ -190,9 +191,11 @@ and wording, which hold none of yours but can spell one: "no read of the
 account API was refused" spells a symbol API, and "Ordinary Dividend~SYM"
 a symbol SYM. A label there, in words a reader knows, would show what it
 hides, so such a word is printed as it is. So is a nickname of Schwab,
-which the report names throughout, and your user name inside the API's
-own paths, such as `/trader/v1/`. Every line is checked for what the run
-has seen, where the scrubber would hide it, before it is printed or
+which the report names throughout, and your user name anywhere but as the
+folder of a home: the API's paths and the run's own words can spell it, as
+`accounts/{account 2}/orders` spells a user named orders, and nothing but
+a local path brings it into the report. Every line is checked for what the
+run has seen, where the scrubber would hide it, before it is printed or
 written, and a line that still holds something is left out, unshown, and
 fails the run.
 

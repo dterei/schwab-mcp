@@ -1329,10 +1329,11 @@ func TestLiveLabelsAccountsByTheirPlace(t *testing.T) {
 // What a probe says of an answer that it read itself, past the run's own
 // reads, holds no correlation ID either, of a refusal or of a success: the
 // guard learns those of every answer as it arrives. Nor does it hold the
-// home folder, shown as ~, or the user name, in a path elsewhere.
+// home folder, shown as ~, or the user name, as the folder of a home
+// elsewhere.
 func TestLiveScrubsWhatAProbeSays(t *testing.T) {
 	fl := newFakeLive(t)
-	elsewhere := string(filepath.Separator) + filepath.Join("srv", plantedUser, "x")
+	elsewhere := string(filepath.Separator) + filepath.Join("Users", plantedUser, "x") // a home of the user's, not the run's
 	fl.r.probes = []liveProbe{{name: "Z1", mode: modeDefault, run: func(ctx context.Context, r *liveRun) verdict {
 		_, err := r.client.Get(ctx, "/trader/v1/accounts/"+schwabtest.UnknownHash, nil)
 		rep, okErr := r.client.get(ctx, "/trader/v1/userPreference", nil)
@@ -1351,11 +1352,40 @@ func TestLiveScrubsWhatAProbeSays(t *testing.T) {
 	report := fl.report(t)
 	sep := string(filepath.Separator)
 	if !strings.Contains(report, "## probe Z1\nverdict: HTTP 400 from Schwab: Invalid account number (correlation ID {correlation id ") ||
-		!strings.Contains(report, "\nlooked in ~"+sep+"y and "+sep+"srv"+sep+"{user}"+sep+"x\n") ||
+		!strings.Contains(report, "\nlooked in ~"+sep+"y and "+sep+"Users"+sep+"{user}"+sep+"x\n") ||
 		!regexp.MustCompile(`\na success's correlation ID: \{correlation id \d+\}\n`).MatchString(report) {
 		t.Errorf("the report:\n%s", report)
 	}
 	fl.noSecrets(t, "the report", report)
+}
+
+// A user named as a word of the API's paths, such as orders, keeps the
+// report's templates and its failures' paths as they are: no {user} stands
+// in them, which would show the user name to a reader who knows them.
+func TestLiveKeepsTheAPIsWordsForAUser(t *testing.T) {
+	for _, user := range []string{"accounts", "orders", "transactions", "trader"} {
+		t.Run(user, func(t *testing.T) {
+			t.Parallel()
+			fl := newProbeLive(t, probeNow, "Q1", "Q5", "extras")
+			fl.r.home = filepath.Join(fl.dir, "home", user)
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			report := fl.report(t)
+			for _, line := range append(fl.lines(), strings.Split(report, "\n")...) {
+				if strings.Contains(line, "{user}") {
+					t.Errorf("a label of the user name in %q", line)
+				}
+			}
+			wantLines(t, report, "## accounts/{account 2}/orders/{id}", "## accounts/{account 2}/orders", "## accounts/{account 1}/transactions/{id}")
+			if !strings.Contains(report, "\nfailed: HTTP 400 from Schwab: '2026-08-31' is not a valid value for startDate") {
+				t.Errorf("no failure from Schwab, as written, in:\n%s", report)
+			}
+			if s := fl.r.scrub; s.scrub(filepath.Join(string(filepath.Separator)+"Users", user, "x")) != filepath.Join(string(filepath.Separator)+"Users", "{user}", "x") {
+				t.Errorf("the user name is not hidden as the folder of a home")
+			}
+		})
+	}
 }
 
 // An owner's values that the report's own words spell come out as those

@@ -67,9 +67,11 @@ const longValue = 6
 //     label there, in words the reader knows, would show what it hides;
 //   - paths anywhere, and in any case where the file system takes a path
 //     in any case, as on macOS and Windows;
-//   - the user name, the home folder's last element, only as a path
-//     component, since a short one, such as "ed", is inside many words,
-//     and never inside the API's own paths, such as /trader/v1/.
+//   - the user name, the home folder's last element, only as the folder of
+//     a home, after /home/, /Users/ or \Users\: nothing but a local path
+//     brings it into a line, while the run's own words and the API's paths
+//     can spell it, as accounts/{account 1}/orders spells a user orders,
+//     and a short one, such as "ed", is inside many words.
 //
 // At each place the longest value wins. Schwab's own name is not hidden as
 // a nickname: the report and Schwab's words name the broker throughout, so
@@ -308,27 +310,11 @@ func (s *liveScrubber) match(t *scrubText, i, limit, names int) (end int, label 
 		}
 	}
 	if s.user != nil {
-		if e := t.pathAt(*s.user, i, s.foldPaths); e > i && isComponent(t.s, i, e) && !inAPIPath(t.s, i, e) {
+		if e := t.pathAt(*s.user, i, s.foldPaths); e > i && homeOf(t.s, i, e, s.foldPaths) {
 			take(e, s.user.label)
 		}
 	}
 	return end, label
-}
-
-// apiPaths are the starts of the paths of Schwab's APIs, whose words, such
-// as trader, are Schwab's, not a user name.
-var apiPaths = append(slices.Clone(liveAPIPrefixes), tokenPath)
-
-// inAPIPath reports whether s[i:end] lies inside the start of one of
-// apiPaths in s.
-func inAPIPath(s string, i, end int) bool {
-	for _, p := range apiPaths {
-		// A p that holds s[i:end] starts from end-len(p) to i.
-		if lo := max(0, end-len(p)); strings.Contains(s[lo:min(len(s), i+len(p))], p) {
-			return true
-		}
-	}
-	return false
 }
 
 // pathAt returns where p ends if t holds it at byte i, in any case if fold
@@ -359,13 +345,17 @@ func whole(s string, i, end int) bool {
 	return (i == 0 || !wordRune(before)) && (end == len(s) || !wordRune(after))
 }
 
-// isComponent reports whether s[i:end], the user name found in s, is a
-// component of a path: after a separator, and before another, the end, or
-// anything that cannot go on a name, such as a space, a colon or a dot.
-func isComponent(s string, i, end int) bool {
-	before, _ := utf8.DecodeLastRuneInString(s[:i])
-	after, _ := utf8.DecodeRuneInString(s[end:])
-	return i > 0 && (before == '/' || before == '\\') && (end == len(s) || !wordRune(after) && after != '-')
+// homeOf reports whether s[i:end], the user name found in s, is the folder
+// of a home: after one of homeFolders, in any case where fold is set, and
+// before a separator, the end, or anything that cannot go on a name, such
+// as a space, a colon or a dot.
+func homeOf(s string, i, end int, fold bool) bool {
+	if after, _ := utf8.DecodeRuneInString(s[end:]); end < len(s) && (wordRune(after) || after == '-') {
+		return false
+	}
+	return slices.ContainsFunc(homeFolders, func(f string) bool {
+		return i >= len(f) && (s[i-len(f):i] == f || fold && strings.EqualFold(s[i-len(f):i], f))
+	})
 }
 
 // wordRune reports whether r is part of a word: a letter, a digit or an
@@ -1024,18 +1014,20 @@ func TestScrubberHidesNamesInSchwabsWords(t *testing.T) {
 	}
 }
 
-// The user name is a path component anywhere but inside the start of one
-// of the API's own paths, whose words are Schwab's.
+// The user name is hidden only as the folder of a home, so the API's own
+// paths and the run's templates, which spell a user named as one of their
+// words, are left as they are, wherever the word stands in them.
 func TestScrubberLeavesTheAPIsPathsAlone(t *testing.T) {
-	const api = `GET /trader/v1/accounts and /marketdata/v1/quotes, after Post "https://h/v1/oauth/token": no`
-	for _, user := range []string{"trader", "v1", "marketdata", "oauth", "token"} {
+	const api = `GET /trader/v1/accounts/{hash 1}/orders and /marketdata/v1/quotes, after Post "https://h/v1/oauth/token": no; ` +
+		"accounts/{account 2}/transactions/{id}, accounts/accountNumbers, orders, marketdata/pricehistory"
+	for _, user := range []string{"trader", "v1", "marketdata", "oauth", "token", "accounts", "orders", "transactions", "accountNumbers", "pricehistory"} {
 		s := newLiveScrubber()
 		s.setHome(filepath.Join(t.TempDir(), user))
 		if got := s.scrub(api); got != api || s.holds(api) {
 			t.Errorf("user %s: scrub(%q) = %q", user, api, got)
 		}
-		in := "/srv/" + user + "/x"
-		if got, want := s.scrub(in), "/srv/{user}/x"; got != want {
+		in := "/home/" + user + "/x"
+		if got, want := s.scrub(in), "/home/{user}/x"; got != want {
 			t.Errorf("user %s: scrub(%q) = %q, want %q", user, in, got, want)
 		}
 	}
@@ -1059,8 +1051,9 @@ func TestScrubberLeavesRootsAlone(t *testing.T) {
 
 // The home folder is shown as ~, and a file or folder of the run's by its
 // label, the longest path winning; on macOS and Windows a path in another
-// case is matched too. The user name is matched only as a path component,
-// after a slash or a backslash, so that a short one is not found in words.
+// case is matched too. The user name is matched only as the folder of a
+// home, after /home/, /Users/ or \Users\, so that a short one is not found
+// in words, nor in another folder's path.
 func TestScrubberPaths(t *testing.T) {
 	dir := t.TempDir()
 	home := filepath.Join(dir, "ed")
@@ -1077,8 +1070,8 @@ func TestScrubberPaths(t *testing.T) {
 				{filepath.Join(home, "config", "token.json") + " could be read by others", "{token file} could be read by others"},
 				{filepath.Join(home, "config", "token.json.lock"), "{token file}.lock"},
 				{filepath.Join(dir, "cache", "rate-1") + " cannot be used", "{rate file} cannot be used"},
-				{"/srv/ed/x, C:\\Users\\ed\\y, /srv/ed: gone, /srv/ed.", "/srv/{user}/x, C:\\Users\\{user}\\y, /srv/{user}: gone, /srv/{user}."},
-				{"Ed received edits at /srv/eddie, /srv/ed-old and /srv/x_ed", "Ed received edits at /srv/eddie, /srv/ed-old and /srv/x_ed"},
+				{"/home/ed/x, C:\\Users\\ed\\y, /Users/ed: gone, /var/home/ed.", "/home/{user}/x, C:\\Users\\{user}\\y, /Users/{user}: gone, /var/home/{user}."},
+				{"Ed received edits at /home/eddie, /home/ed-old, /home/x_ed and /srv/ed", "Ed received edits at /home/eddie, /home/ed-old, /home/x_ed and /srv/ed"},
 			} {
 				if got := s.scrub(tc.in); got != tc.want {
 					t.Errorf("scrub(%q) = %q, want %q", tc.in, got, tc.want)
@@ -1087,7 +1080,8 @@ func TestScrubberPaths(t *testing.T) {
 			if got := s.scrub(upper); (got == homeLabel) != fold {
 				t.Errorf("scrub(%q) = %q", upper, got)
 			}
-			if s.holds(upper) != fold || s.holds("/srv/ED/x") != fold || !s.holds(home) || s.holds("Ed received edits") {
+			if s.holds(upper) != fold || s.holds("/HOME/ED/x") != fold || s.holds("/HOME/ed/x") != fold || !s.holds(home) ||
+				s.holds("Ed received edits") || s.holds("/srv/ed/x") {
 				t.Error("the self-check takes paths otherwise than scrub does")
 			}
 			if runtime.GOOS == "windows" { // where a path may come with slashes too
