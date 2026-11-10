@@ -421,10 +421,14 @@ func TestModelsCoverEveryKey(t *testing.T) {
 	}
 }
 
-// No account number is part of another value in the testdata, in any file
-// of the fake's index that holds JSON, so that a test that looks for leaked
-// account numbers can search for them as text.
-func TestTestdataAccountNumbersStandAlone(t *testing.T) {
+// standAloneProblems returns where an account number of files, the value
+// of an accountNumber key in any case, as a string or a whole number, as
+// Schwab may send it, is part of another value of theirs, or of another
+// account number, so that a test that looks for leaked account numbers can
+// search for them as text; and how many account numbers they hold. It
+// reads every file that holds JSON.
+func standAloneProblems(t *testing.T, files []indexedFile) (problems []string, accounts int) {
+	t.Helper()
 	var numbers []string
 	var values []string
 	var walk func(key string, v any)
@@ -439,43 +443,64 @@ func TestTestdataAccountNumbersStandAlone(t *testing.T) {
 				walk(key, x)
 			}
 		case string:
-			if key == "accountNumber" {
+			if strings.EqualFold(key, "accountNumber") {
 				numbers = append(numbers, v)
 			} else {
 				values = append(values, v)
 			}
 		default:
 			b, _ := json.Marshal(v)
-			values = append(values, string(b))
+			if n, ok := v.(float64); ok && strings.EqualFold(key, "accountNumber") && n == float64(int64(n)) {
+				numbers = append(numbers, string(b))
+			} else {
+				values = append(values, string(b))
+			}
 		}
 	}
-	for _, e := range schwabtest.Index() {
-		b := readTestdata(t, e.File)
-		if schwabtest.ExtensionFor(b) != ".json" {
+	for _, f := range files {
+		if schwabtest.ExtensionFor(f.body) != ".json" {
 			continue
 		}
 		var v any
-		if err := json.Unmarshal(b, &v); err != nil {
-			t.Fatalf("%s: %v", e.File, err)
+		if err := json.Unmarshal(f.body, &v); err != nil {
+			t.Fatalf("%s: %v", f.entry.File, err)
 		}
 		walk("", v)
 	}
 	slices.Sort(numbers)
 	numbers = slices.Compact(numbers)
-	if len(numbers) < len(schwabtest.FixtureAccounts) {
-		t.Errorf("the JSON files hold %d account numbers, fewer than the fixtures' %d", len(numbers), len(schwabtest.FixtureAccounts))
-	}
 	for _, n := range numbers {
 		for _, v := range values {
 			if strings.Contains(v, n) {
-				t.Errorf("account number %s is in the value %q", n, v)
+				problems = append(problems, fmt.Sprintf("account number %s is in the value %q", n, v))
 			}
 		}
 		for _, m := range numbers {
 			if m != n && strings.Contains(m, n) {
-				t.Errorf("account number %s is in account number %s", n, m)
+				problems = append(problems, fmt.Sprintf("account number %s is in account number %s", n, m))
 			}
 		}
+	}
+	return problems, len(numbers)
+}
+
+// No account number is part of another value in the testdata, in any file
+// of the fake's index that holds JSON, a recording as well as the hand-made
+// ones, so that a test that looks for leaked account numbers can search for
+// them as text. An account number sent as a number is one too, at its key
+// in any case.
+func TestTestdataAccountNumbersStandAlone(t *testing.T) {
+	problems, accounts := standAloneProblems(t, indexedFiles(t))
+	if accounts < len(schwabtest.FixtureAccounts) {
+		t.Errorf("the JSON files hold %d account numbers, fewer than the fixtures' %d", accounts, len(schwabtest.FixtureAccounts))
+	}
+	for _, p := range problems {
+		t.Error(p)
+	}
+	numberAt := `[{"accountNumber":` + schwabtest.FixtureAccounts[0].Number + `,"x":"` + schwabtest.FixtureAccounts[1].Number + `"},` +
+		`{"AccountNumber":"` + schwabtest.FixtureAccounts[1].Number + `","y":1` + schwabtest.FixtureAccounts[0].Number + `}]`
+	if problems, accounts := standAloneProblems(t, []indexedFile{{body: []byte(numberAt)}}); accounts != 2 || len(problems) != 2 {
+		t.Errorf("account numbers as a number and at a key in another case: %d, %q", accounts, problems)
 	}
 }
 

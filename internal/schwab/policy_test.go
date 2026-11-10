@@ -1099,8 +1099,9 @@ func policyEntry(method, path string, status int) schwabtest.Entry {
 }
 
 // Each fixture is of its route's kind, or of errors: the account routes'
-// 200 answers by route, and every file of testdata/errors, the pages and
-// the 429's white space among them, on any path. A 200 of another route,
+// 200 answers by route, a recording's too, and every file of
+// testdata/errors and every other answer of a recording, the pages and the
+// 429's white space among them, on any path. A 200 of another route,
 // or an answer that is not a 200 and has no shape of Schwab's errors, is of
 // no kind.
 func TestPolicyKinds(t *testing.T) {
@@ -1111,7 +1112,16 @@ func TestPolicyKinds(t *testing.T) {
 	}
 	for _, e := range schwabtest.Index() {
 		want, ok := routes[e.File]
-		if !ok && strings.HasPrefix(e.File, "errors/") {
+		switch {
+		case e.Source == "recorded":
+			// A recording is of the kind the scrubber took it for: of its
+			// route's, for a 200, and else of errors.
+			want, ok = errorsKind, true
+			if route, _ := e.Route(); e.Response.Status == http.StatusOK {
+				k, _ := kindOfRoute(route)
+				want = k.name
+			}
+		case !ok && strings.HasPrefix(e.File, "errors/"):
 			want, ok = errorsKind, true
 		}
 		if got, has := policyKindOf(pages, e, readTestdata(t, e.File)); got != want || has != ok {
