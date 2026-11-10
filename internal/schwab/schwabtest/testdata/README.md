@@ -84,10 +84,12 @@ The scrubber is `TestScrub` in package schwab, which reads the raw folder
 that the live mode's `-live.record` keeps and writes, to a folder outside
 this module, the candidate files under `recorded/<date>/`, their entries in
 `entries.json`, and `review.txt`, which says what was mapped, replaced and
-left out, and which rows of W-8 withholding to decide on, without a value
-of the recording. It checks its output against the recording before it
-writes any of it, and leaves out a file that the tests CI runs over the
-files here would fail on. docs/live.md says how to run it.
+left out, which values it kept but for an identifier inside them, such as
+a nickname in a security's name, and which rows of W-8 withholding to
+decide on, without a value of the recording. It checks its output against
+the recording before it writes any of it, and leaves out a file that the
+tests CI runs over the files here would fail on. docs/live.md says how to
+run it.
 
 To add a recording, the owner:
 

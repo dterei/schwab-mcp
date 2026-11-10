@@ -258,13 +258,15 @@ What it does:
   an account whose hash changed during it, is refused.
 - Every other value is kept only where the scrub policy says what it may
   be: an enum of its list, a time, a symbol, a security's name and so on.
-  A value of an enum's list, such as `CASH`, is Schwab's own word and
-  stays as it is, even where a nickname is spelled the same. Free text is
-  kept when it is Schwab's own wording, such as "Dividend Reinvest", and
-  else becomes `DESCRIPTION N` or `MESSAGE N`, the same text the same N. A
-  value at a path that no rule covers, an answer of a kind the policy has
-  no table for, such as orders and market data, an answer cut short, or a
-  page other than Schwab's known error pages, leaves its file out.
+  A kept value that holds an identifier keeps every other character, as a
+  security's name keeps its words around a nickname's fake; a value of an
+  enum's list, such as `CASH`, is Schwab's own word and stays as it is,
+  even where a nickname is spelled the same. Free text is kept when it is
+  Schwab's own wording, such as "Dividend Reinvest", and else becomes
+  `DESCRIPTION N` or `MESSAGE N`, the same text the same N. A value at a
+  path that no rule covers, an answer of a kind the policy has no table
+  for, such as orders and market data, an answer cut short, or a page
+  other than Schwab's known error pages, leaves its file out.
 - Each new value is put in place of the old in Schwab's bytes, which are
   never encoded again, so key order, keys sent twice, white space, number
   literals and escapes stay as Schwab sent them.
@@ -290,7 +292,8 @@ What it writes, in the out folder:
   named by their numbers in the recording, and nothing else;
 - `entries.json`: their entries for `index.json`, each with source
   `recorded`, its date, the scrubber's commit and the amounts policy;
-- `review.txt`: what it wrote and mapped, what it left out and why, the
+- `review.txt`: what it wrote and mapped, what it left out and why, each
+  identifier it replaced inside a value it otherwise kept, the
   placeholders, the values mapped at keys in another case, and the rows
   of W-8 withholding, all without a value of the recording;
 - `shapes/`: under `refuse`, the shape of each answer left out for its
@@ -301,7 +304,10 @@ To commit a recording:
 
 1. Read `review.txt` whole, and then the candidate files. The scrubber
    replaces what it knows to be an identifier and any text it does not
-   know as Schwab's, but you know your own values best.
+   know as Schwab's, but you know your own values best. A nickname of 6
+   characters or more is replaced in any case, so a word of a public name,
+   such as a fund's, that is spelled as one is replaced too: `review.txt`
+   lists each value an identifier was replaced inside.
 2. Decide on each row of W-8 withholding, which shows that an account is a
    nonresident's: keep its file, or leave it out.
 3. Copy `recorded/<date>/` into

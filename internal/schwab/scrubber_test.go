@@ -137,10 +137,29 @@ func (a *scrubAnswer) refuse(why string) {
 // answerReview is what review.txt says of an answer besides why it is left
 // out, if it is.
 type answerReview struct {
-	mapped       map[identifier]int // how many values of each kind it maps
+	mapped       map[identifier]int // how many values of each kind it maps, in its body and its path
+	inside       []insideValue      // each identifier replaced inside a value that is otherwise kept
 	placeholders []string           // each free text replaced, as its path and its placeholder
 	otherCase    []string           // the paths, as sent, of mapped values at keys in another case
 	w8           []string           // the rows of W-8 withholding, by their activity IDs' fakes
+}
+
+// An insideValue is an identifier that the scrubber replaced inside a
+// value that it otherwise kept, such as a nickname inside a security's
+// name: where the value is, as review.txt names it, and what the
+// identifier is. A public name can hold a word spelled as a nickname, so
+// review.txt lists each for the owner to check.
+type insideValue struct {
+	where string
+	id    identifier
+}
+
+// replacedInside records that the identifiers ids were replaced inside the
+// value at where.
+func (r *answerReview) replacedInside(where string, ids []identifier) {
+	for _, id := range ids {
+		r.inside = append(r.inside, insideValue{where: where, id: id})
+	}
 }
 
 // A scrubber makes fixtures of a live run's recording: it reads each
@@ -683,7 +702,7 @@ func (s *scrubber) scrubJSON(a *scrubAnswer) {
 		case classScale:
 			out, why = s.scaleValue(a, raw)
 		case classKeep:
-			out, why = s.keepValue(r, raw)
+			out, why = s.keepValue(a, r, where, raw)
 		case classPlaceholder:
 			out, why = s.placeholderValue(a, r, sc, raw)
 		}
@@ -776,26 +795,28 @@ func (s *scrubber) scaleValue(a *scrubAnswer, raw []byte) ([]byte, string) {
 	return scaleLiteral(raw, s.cfg.amounts.k), ""
 }
 
-// keepValue returns raw, a value that r keeps, as it is, a string with any
-// identifier in it replaced; or why it cannot be kept: it is not of r's
-// grammar, or holds an identifier that cannot be replaced. A value on its
-// enum's closed list, such as CASH, is Schwab's own word, which names no
-// one, even where a nickname is spelled the same, so nothing in it is
-// replaced.
-func (s *scrubber) keepValue(r rule, raw []byte) ([]byte, string) {
+// keepValue returns raw, a value that r keeps, at where in a's body, as it
+// is, a string with any identifier in it replaced, which a's review
+// records; or why it cannot be kept: it is not of r's grammar, or holds an
+// identifier that cannot be replaced. A value on its enum's closed list,
+// such as CASH, is Schwab's own word, which names no one, even where a
+// nickname is spelled the same, so nothing in it is replaced.
+func (s *scrubber) keepValue(a *scrubAnswer, r rule, where string, raw []byte) ([]byte, string) {
 	if r.onClosedList(raw) {
 		return raw, ""
 	}
 	out := raw
+	var ids []identifier
 	if raw[0] == '"' {
 		var why string
-		if out, why = s.replaceInJSONString(raw); why != "" {
+		if out, ids, why = s.replaceInJSONString(raw); why != "" {
 			return nil, why
 		}
 	}
 	if !r.gram.match(out) {
 		return nil, "not " + r.gram.name
 	}
+	a.review.replacedInside(where, ids)
 	return out, ""
 }
 
@@ -820,8 +841,9 @@ func (s *scrubber) placeholderValue(a *scrubAnswer, r rule, sc jsonScalar, raw [
 	// Wording that held an account number, as the fraction of a time that
 	// a message quotes can, would hold a fake one once it is replaced,
 	// which no value but an account number may.
-	if out, why := s.replaceInJSONString(raw); why == "" {
+	if out, ids, why := s.replaceInJSONString(raw); why == "" {
 		if kept, _ := jsonString(out); r.text.isWording(kept) && !holdsFakeAccount(kept) {
+			a.review.replacedInside(pathName(sc.path), ids)
 			return out, ""
 		}
 	}
@@ -843,39 +865,43 @@ func (s *scrubber) placeholderValue(a *scrubAnswer, r rule, sc jsonScalar, raw [
 // replaceInJSONString returns raw, a JSON string, with each identifier in
 // its text replaced by its fake, spliced into its bytes where the
 // identifier is written as it is, so that every other byte, escapes
-// included, stays. It never encodes the string again, which would change
-// bytes outside the identifier, such as & into \u0026. An identifier
-// that is written only with escapes, such as a digit as \u0032, or that
-// has no fake, gives why instead.
-func (s *scrubber) replaceInJSONString(raw []byte) ([]byte, string) {
+// included, stays, and what each identifier replaced is. It never encodes
+// the string again, which would change bytes outside the identifier, such
+// as & into \u0026. An identifier that is written only with escapes, such
+// as a digit as \u0032, or that has no fake, gives why instead.
+func (s *scrubber) replaceInJSONString(raw []byte) ([]byte, []identifier, string) {
 	text, at := unescapeJSON(raw)
 	var splices []splice
+	var ids []identifier
 	for _, m := range s.ids.find(string(text), false) {
 		if m.v.fake == "" {
-			return nil, "holds " + string(m.v.id) + ", which has no fake"
+			return nil, nil, "holds " + string(m.v.id) + ", which has no fake"
 		}
 		start, end, ok := rawSpan(at, m.start, m.end)
 		if !ok {
-			return nil, "holds " + string(m.v.id) + " written with escapes"
+			return nil, nil, "holds " + string(m.v.id) + " written with escapes"
 		}
 		splices = append(splices, splice{start: start, end: end, with: []byte(fakeSpelled(m.v, string(text[m.start:m.end])))})
+		ids = append(ids, m.v.id)
 	}
-	return applySplices(raw, splices), ""
+	return applySplices(raw, splices), ids, ""
 }
 
 // replaceInText returns text, a path, a query or a header's value, with
-// each identifier in it replaced by its fake, or why it cannot be: it holds
-// one that has no fake. One written with escapes is found by the leak
-// check, which unescapes.
-func (s *scrubber) replaceInText(text string) (string, string) {
+// each identifier in it replaced by its fake, and what each identifier
+// replaced is; or why it cannot be: it holds one that has no fake. One
+// written with escapes is found by the leak check, which unescapes.
+func (s *scrubber) replaceInText(text string) (string, []identifier, string) {
 	var splices []splice
+	var ids []identifier
 	for _, m := range s.ids.find(text, false) {
 		if m.v.fake == "" {
-			return "", "holds " + string(m.v.id) + ", which has no fake"
+			return "", nil, "holds " + string(m.v.id) + ", which has no fake"
 		}
 		splices = append(splices, splice{start: m.start, end: m.end, with: []byte(fakeSpelled(m.v, text[m.start:m.end]))})
+		ids = append(ids, m.v.id)
 	}
-	return string(applySplices([]byte(text), splices)), ""
+	return string(applySplices([]byte(text), splices)), ids, ""
 }
 
 // matchPageSpans returns the page of pages that body is, and the spans of
@@ -924,6 +950,7 @@ func (s *scrubber) scrubPage(a *scrubAnswer) {
 			a.review.mapped[slot.rule.id]++
 		default:
 			var page []splice
+			var ids []identifier
 			for _, found := range s.ids.find(string(text), false) {
 				rs, re, ok := rawSpan(at, found.start, found.end)
 				switch {
@@ -936,12 +963,14 @@ func (s *scrubber) scrubPage(a *scrubAnswer) {
 					return
 				}
 				page = append(page, splice{start: rs, end: re, with: []byte(fakeSpelled(found.v, string(text[found.start:found.end])))})
+				ids = append(ids, found.v.id)
 			}
 			out = string(applySplices(raw, page))
 			if !slot.rule.gram.match(jsonText(html.UnescapeString(out))) {
 				a.refuse(slot.rule.path + ": not " + slot.rule.gram.name)
 				return
 			}
+			a.review.replacedInside(slot.rule.path, ids)
 		}
 		splices = append(splices, splice{start: start, end: end, with: []byte(out)})
 	}
@@ -952,21 +981,28 @@ func (s *scrubber) scrubPage(a *scrubAnswer) {
 // each identifier replaced, its status, the values of the headers that
 // KeptHeader keeps, a correlation ID's fake in place of its own, and the
 // names alone of the rest, Content-Length among them, whose value would be
-// stale once a value changes length.
+// stale once a value changes length. a's review counts the path's
+// identifiers with those its body maps, since a path names its account and
+// its id by design, and lists those of the query and the headers' values.
 func (s *scrubber) scrubEntry(a *scrubAnswer) {
 	m := a.raw.meta
 	var e schwabtest.Entry
 	e.File = "recorded/" + s.date + "/" + a.raw.name + schwabtest.ExtensionFor(a.body)
 	e.Request.Method = m.Request.Method
+	var ids []identifier
 	var why string
-	if e.Request.Path, why = s.replaceInText(m.Request.Path); why != "" {
+	if e.Request.Path, ids, why = s.replaceInText(m.Request.Path); why != "" {
 		a.refuse("the request's path " + why)
 		return
 	}
-	if e.Request.Query, why = s.replaceInText(m.Request.Query); why != "" {
+	for _, id := range ids {
+		a.review.mapped[id]++
+	}
+	if e.Request.Query, ids, why = s.replaceInText(m.Request.Query); why != "" {
 		a.refuse("the request's query " + why)
 		return
 	}
+	a.review.replacedInside("the request's query", ids)
 	e.Response.Status, e.Response.Proto, e.Response.Uncompressed = m.Response.Status, m.Response.Proto, m.Response.Uncompressed
 	e.Response.Headers = map[string][]string{}
 	others := slices.Clone(m.Response.OtherHeaders)
@@ -989,10 +1025,11 @@ func (s *scrubber) scrubEntry(a *scrubAnswer) {
 				out = v.fake
 				a.review.mapped[idTrace]++
 			default:
-				if out, why = s.replaceInText(value); why != "" {
+				if out, ids, why = s.replaceInText(value); why != "" {
 					a.refuse("the header " + name + " " + why)
 					return
 				}
+				a.review.replacedInside("the header "+name, ids)
 			}
 			values = append(values, out)
 		}
@@ -1189,10 +1226,11 @@ func (s *scrubber) mask(text string) string {
 }
 
 // reviewText returns review.txt: what was written and what was mapped in
-// each file, which answers were left out and why, the placeholders, the
-// mapped values at keys in another case, the rows of W-8 withholding to
-// decide on, and what scaling hides. It holds key paths, routes, counts and
-// placeholders, never a value of the recording.
+// each file, which answers were left out and why, the identifiers replaced
+// inside values kept otherwise, the placeholders, the mapped values at
+// keys in another case, the rows of W-8 withholding to decide on, and what
+// scaling hides. It holds key paths, routes, counts and placeholders, never
+// a value of the recording.
 func (s *scrubber) reviewText(o *scrubOutput) string {
 	var b strings.Builder
 	written := len(o.files)
@@ -1216,7 +1254,7 @@ func (s *scrubber) reviewText(o *scrubOutput) string {
 			b.WriteString(l + "\n")
 		}
 	}
-	var wrote, left, placeholders, otherCase, w8 []string
+	var wrote, left, inside, placeholders, otherCase, w8 []string
 	for _, a := range s.answers {
 		for _, p := range a.review.otherCase {
 			otherCase = append(otherCase, a.raw.name+": "+p)
@@ -1234,6 +1272,9 @@ func (s *scrubber) reviewText(o *scrubOutput) string {
 			line += "; mapped " + mapped
 		}
 		wrote = append(wrote, line)
+		for _, l := range insideCounts(a.review.inside) {
+			inside = append(inside, file+": "+l)
+		}
 		for _, p := range a.review.placeholders {
 			placeholders = append(placeholders, file+": "+p)
 		}
@@ -1243,6 +1284,14 @@ func (s *scrubber) reviewText(o *scrubOutput) string {
 	}
 	section("Written to recorded/"+s.date+"/", wrote)
 	section("Left out", left)
+	if len(inside) > 0 {
+		section("Identifiers replaced inside values kept otherwise", append([]string{
+			"Each value below kept every character but an identifier found in it, which its fake replaced. A word",
+			"of a public name, such as a fund's, spelled as a nickname is replaced too, and in any case where the",
+			"nickname has 6 characters or more: check each.",
+			"",
+		}, inside...))
+	}
 	section("Free text replaced by placeholders, the same text by the same placeholder", placeholders)
 	section("Values mapped at keys in another case", otherCase)
 	section("Rows of W-8 withholding, which show that an account is a nonresident's: decide on each", w8)
@@ -1271,6 +1320,26 @@ func mappedCounts(counts map[identifier]int) string {
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// insideCounts returns, for review.txt, each place in vs, the identifiers
+// replaced inside the values of an answer, with how many of each kind were
+// replaced there, such as "transferItems.instrument.description: 2 of an
+// account's nickname", in the order first met.
+func insideCounts(vs []insideValue) []string {
+	counts := map[insideValue]int{}
+	var order []insideValue
+	for _, v := range vs {
+		if counts[v] == 0 {
+			order = append(order, v)
+		}
+		counts[v]++
+	}
+	lines := make([]string, len(order))
+	for i, v := range order {
+		lines[i] = v.where + ": " + strconv.Itoa(counts[v]) + " of " + string(v.id)
+	}
+	return lines
 }
 
 // shapeReport returns the shape of a, an answer left out for its money,

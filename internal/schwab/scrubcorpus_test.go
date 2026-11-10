@@ -129,7 +129,9 @@ func leftOut(o *scrubOutput, name string) string {
 // recording could leak that F's own values cannot reach, one case each:
 // each planted value is mapped, so that the output holds it nowhere,
 // written or decoded, but as a value of an enum's list, Schwab's own word;
-// or its file is left out with a reason that holds no value.
+// or its file is left out with a reason that holds no value. review.txt
+// lists each identifier replaced inside a value kept otherwise, with the
+// paths' identifiers counted among those mapped.
 func TestScrubberPlantedCorpus(t *testing.T) {
 	keep, scale := amountsPolicy{mode: "keep"}, amountsPolicy{mode: "scale", k: 20}
 	akamai := string(readTestdata(t, "errors/akamai_403.html"))
@@ -144,9 +146,11 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 		// 001, and the values planted besides the accounts'.
 		answers func(b corpusBase) ([]testAnswer, []string)
 		// written holds the answers written, by name, each with what its
-		// body must hold; leftOut those left out, with a word of why.
+		// body must hold; leftOut those left out, with a word of why; and
+		// review the lines that review.txt must hold.
 		written map[string]string
 		leftOut map[string]string
+		review  []string
 		check   func(t *testing.T, b corpusBase, o *scrubOutput)
 	}{
 		{
@@ -201,6 +205,7 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 				}, []string{"Kip", id}
 			},
 			written: map[string]string{"003": `"description":"TRUST Account 1"`},
+			review:  []string{"003.json: transferItems.instrument.description: 1 of an account's nickname"},
 		},
 		{
 			// Pass two and gate (iii) find a nickname in the text unescaped,
@@ -216,6 +221,7 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 				}, []string{"Kip", id}
 			},
 			written: map[string]string{"003": `"description":"TRUST` + escaped('&') + `Account 1` + escaped(' ') + `FUND"`},
+			review:  []string{"003.json: transferItems.instrument.description: 1 of an account's nickname"},
 		},
 		{
 			// A value on its enum's closed list is Schwab's word, whatever a
@@ -279,6 +285,7 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 				return []testAnswer{a}, nil
 			},
 			written: map[string]string{"002": `{"message":"Invalid account number"}`},
+			review:  []string{"002.json: the header Vary: 1 of an account number"},
 			check: func(t *testing.T, _ corpusBase, o *scrubOutput) {
 				if v := fileNamed(t, o, "002").entry.Response.Headers["Vary"]; len(v) != 1 || v[0] != "Accept, x-account-"+fake(2) {
 					t.Errorf("Vary is %q, want account 3's fake in place of its number", v)
@@ -293,6 +300,45 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 				return []testAnswer{b.transactions(cashRow(b.numbers[0], id, "transferItems", leg))}, []string{id}
 			},
 			leftOut: map[string]string{"002": "transferItems.instrument.instrumentId: an account number that the scrubber could not replace"},
+		},
+		{
+			name: "an account number in a query", amounts: keep, accounts: 3,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				id := b.id()
+				a := b.transactions(cashRow(b.numbers[0], id))
+				a.query += "&symbol=" + b.numbers[1]
+				return []testAnswer{a}, []string{id}
+			},
+			review: []string{
+				"002.json: GET /trader/v1/accounts/{hash}/transactions?types&symbol, 200 (transactions); " +
+					"mapped 1 of an account number, 1 of an account's hash, 1 of an activity ID",
+				"002.json: the request's query: 1 of an account number",
+			},
+			check: func(t *testing.T, _ corpusBase, o *scrubOutput) {
+				if q := fileNamed(t, o, "002").entry.Request.Query; q != "types=TRADE&symbol="+fake(1) {
+					t.Errorf("the query %s, want account 2's fake in place of its number", q)
+				}
+			},
+		},
+		{
+			// Schwab's wording takes an account's type of two digits, which
+			// an id of two digits can be; an escape next to it, here of the
+			// space, leaves it a whole token.
+			name: "an id inside Schwab's wording", amounts: keep, accounts: 3,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				id, other := b.id(), b.id()
+				return []testAnswer{b.transactions(
+					cashRow(b.numbers[0], id, "positionId", "47"),
+					cashRow(b.numbers[0], other, "description", `"TRF FDS TO TYPE`+escaped(' ')+`47"`),
+				)}, []string{id, other}
+			},
+			written: map[string]string{"002": `"description":"TRF FDS TO TYPE` + escaped(' ') + `10"`},
+			review:  []string{"002.json: description: 1 of a position ID"},
+			check: func(t *testing.T, _ corpusBase, o *scrubOutput) {
+				if body := fileNamed(t, o, "002").body; !bytes.Contains(body, []byte(`"positionId":10}`)) {
+					t.Errorf("the position ID is not 10, the fake that the wording holds: %s", body)
+				}
+			},
 		},
 		{
 			name: "an account number escaped in a query", amounts: keep, accounts: 3,
@@ -343,6 +389,7 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 				return []testAnswer{a}, []string{"47.3c5d7e9f.1792539999.4a5b6c"}
 			},
 			written: map[string]string{"002": "accounts&#47;" + schwabtest.FixtureAccounts[1].Hash + "&#47;transactions"},
+			review:  []string{"002.html: the address quoted: 1 of an account's hash"},
 			check: func(t *testing.T, _ corpusBase, o *scrubOutput) {
 				if n := strings.Count(string(fileNamed(t, o, "002").body), reference); n != 2 {
 					t.Errorf("the page holds AkamaiReference, its dots written &#46;, %d times, want 2", n)
@@ -470,13 +517,21 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 		{
 			name: "a nickname in another case inside a value that is kept", amounts: keep, accounts: 1,
 			answers: func(b corpusBase) ([]testAnswer, []string) {
-				id := b.id()
+				id, other := b.id(), b.id()
 				return []testAnswer{
 					jsonAnswer("/trader/v1/userPreference", "", 200, preferences(preference(b.numbers[0], "Rainy Day Fund", "..."+b.numbers[0][5:]))),
-					b.transactions(cashRow(b.numbers[0], id, "transferItems", cashLeg("1.25", "RAINY DAY FUND"))),
-				}, []string{"Rainy Day Fund", id}
+					b.transactions(
+						cashRow(b.numbers[0], id, "transferItems", cashLeg("1.25", "RAINY DAY FUND")),
+						cashRow(b.numbers[0], other, "transferItems", cashLeg("1.25", "rainy day fund"))),
+				}, []string{"Rainy Day Fund", id, other}
 			},
 			written: map[string]string{"003": `"description":"ACCOUNT 1"`},
+			review:  []string{"003.json: transferItems.instrument.description: 2 of an account's nickname"},
+			check: func(t *testing.T, _ corpusBase, o *scrubOutput) {
+				if body := fileNamed(t, o, "003").body; !bytes.Contains(body, []byte(`"description":"account 1"`)) {
+					t.Errorf("the nickname in lower case is not replaced in lower case: %s", body)
+				}
+			},
 		},
 		{
 			// In another case, a word of Schwab's own is far likelier
@@ -577,6 +632,11 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 			for name, want := range tc.leftOut {
 				if why := leftOut(out, name); !strings.Contains(why, want) {
 					t.Errorf("answer %s is left out for %q, want %q", name, why, want)
+				}
+			}
+			for _, line := range tc.review {
+				if !strings.Contains(out.review, "\n"+line+"\n") {
+					t.Errorf("review.txt holds no line %q:\n%s", line, out.review)
 				}
 			}
 			if leaks := leaksOf(out, slices.Concat(planted, b.numbers, b.hashes)); len(leaks) > 0 {
