@@ -517,7 +517,9 @@ func onTransactions(fl *fakeLive, f func(n int32)) {
 const checksTransactions = 3
 
 // Q1's walk under the fake's settings: windows before a date refused, which
-// counts once the newest window answers again; four 429s, one for each of
+// counts once the newest window answers again; a second between requests,
+// and an allowance spent before the walk reaches 2000, or in reaching it,
+// which leaves no request for the control; four 429s, one for each of
 // the Client's tries, and in a subtest of its own an Invalid account
 // number, at the walk's third window, neither of which becomes the
 // verdict, that account's walk ending interrupted; each way the cap can
@@ -580,6 +582,25 @@ func testDepthOnTheFake(t *testing.T) {
 			if gap := walk[i].Sub(walk[i-1]); gap < time.Second {
 				t.Errorf("requests %d and %d of the walk came %v apart", i, i+1, gap)
 			}
+		}
+	})
+	t.Run("an allowance spent reaching 2000", func(t *testing.T) {
+		t.Parallel()
+		// From mid-2029, an account without rows reaches 2000 with the last
+		// request of its allowance, which leaves none for the control.
+		fl := newProbeLive(t, time.Date(2029, 6, 1, 15, 0, 0, 0, time.UTC), "Q1")
+		var third atomic.Int32 // {account 3}'s requests for transactions
+		fl.f.OnAPI(func(r *http.Request) {
+			if schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute && r.PathValue("hash") == thirdAccount.Hash {
+				third.Add(1)
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		wantEvidence(t, fl.report(t), "Q1", "{account 3}: no row back to 2000-01-01, where the walk stops; every window answered 200 with []")
+		if n := third.Load(); n != 1+walkAllowance {
+			t.Errorf("{account 3} had %d requests for transactions, want the check's and %d", n, walkAllowance)
 		}
 	})
 	for _, tc := range []struct {
@@ -1122,7 +1143,9 @@ func testHashesOnTheFake(t *testing.T) {
 
 // Q12 shows no row gone from an answer that may have been cut at the cap,
 // nor late against a last run's answer that may have been: the row that the
-// cap left out of that answer is new to the state, though it was there.
+// cap left out of that answer is new to the state, though it was there. And
+// the state keeps a row that a cut answer left out, so that a complete
+// answer after it shows the row changed, or gone.
 func testChangesCutOnTheFake(t *testing.T) {
 	t.Run("this run's answer", func(t *testing.T) {
 		t.Parallel()
@@ -1160,6 +1183,55 @@ func testChangesCutOnTheFake(t *testing.T) {
 		wantEvidence(t, report, "Q12", "{account 1}: 0 rows as they were; 0 rows new to the state",
 			"{account 2}: 1 row as they were; 1 row new to the state; the last run's answer may have been cut at the cap, so no row can be shown late")
 	})
+	// Three runs a day apart, the second's answer cut at the cap, which
+	// leaves out the XYZ dividend; the third, complete again, finds it
+	// changed, or gone.
+	for _, tc := range []struct {
+		name   string
+		change func(t *testing.T, fl *fakeLive)
+		want   string
+		found  string
+	}{
+		{
+			"a row that a cut answer left out, changed after it",
+			func(t *testing.T, fl *fakeLive) {
+				fl.f.ReplaceRow(secondAccount.Hash, xyzDividend, fixtureRow(t, xyzDividend, "netAmount", "26"))
+			},
+			"rows changed after they posted", "1 row changed, 50 days old, in netAmount (1)",
+		},
+		{
+			"a row that a cut answer left out, gone after it",
+			func(_ *testing.T, fl *fakeLive) { fl.f.RemoveRow(secondAccount.Hash, xyzDividend) },
+			"rows went", "1 row gone",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fl := newProbeLive(t, probeNow, "Q12")
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			fl.f.SetTransactionRules(schwabtest.TransactionRules{Cap: 1})
+			cut := fl.again(t, probeNow.AddDate(0, 0, 1), false)
+			cut.r.pageCap = 1
+			if err := cut.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			wantEvidence(t, cut.report(t), "Q12",
+				"{account 2}: 1 row as they were; 0 rows new to the state; the answer may have been cut at the cap, so no row can be shown gone")
+			fl.f.SetTransactionRules(schwabtest.TransactionRules{})
+			tc.change(t, fl)
+			last := cut.again(t, probeNow.AddDate(0, 0, 2), false)
+			last.r.pageCap = MaxTransactions
+			if err := last.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			report := last.report(t)
+			wantVerdicts(t, report, map[string]string{"Q12": tc.want})
+			wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 0 rows new to the state; "+tc.found+
+				"; the last run's answer may have been cut at the cap, so no row can be shown late")
+		})
+	}
 }
 
 // Q12 under windows by tradeDate, where a window's edge can lie between a
@@ -1828,10 +1900,12 @@ func watchFills(t *testing.T, start time.Time, rules schwabtest.TransactionRules
 // windows take it by its time or, dated its day's midnight, by its
 // tradeDate; a Friday evening's fill whose row, dated Monday, windows by
 // tradeDate take in only past the poll; an order filled three hours before
-// the watch, whose row is there from the start; a fill whose row never
-// comes, alone, beside one whose row comes, and beside one whose row is
-// there from the start; a watch whose every read of rows fails; and a
-// watch in which nothing fills.
+// the watch, whose row is there from the start, and one filled at 12:30 the
+// day before, whose row, there from the start too and dated that day's
+// midnight, the reads of rows must reach back to, by its time or by its
+// tradeDate; a fill whose row never comes, alone, beside one whose row
+// comes, and beside one whose row is there from the start; a watch whose
+// every read of rows fails; and a watch in which nothing fills.
 func testFillsOnTheFake(t *testing.T) {
 	soon := probeNow.Add(5 * time.Minute) // 11:05 in New York, a Tuesday
 	t.Run("a fill", func(t *testing.T) {
@@ -1845,7 +1919,8 @@ func testFillsOnTheFake(t *testing.T) {
 			t.Errorf("%d requests, want the account numbers, the preferences and 30 polls of two for each account", n)
 		}
 	})
-	midnight := time.Date(2026, 9, 1, 4, 0, 0, 0, time.UTC) // the fill's day's, in New York
+	midnight := time.Date(2026, 9, 1, 4, 0, 0, 0, time.UTC)     // the fill's day's, in New York
+	dayBefore := time.Date(2026, 8, 31, 16, 30, 0, 0, time.UTC) // 12:30 in New York, the Monday before
 	for _, by := range []struct {
 		name string
 		on   schwabtest.FilterOn
@@ -1854,6 +1929,14 @@ func testFillsOnTheFake(t *testing.T) {
 			t.Parallel()
 			fl := watchFills(t, probeNow, schwabtest.TransactionRules{FilterOn: by.on}, watchedFill{filled: soon, tradeDate: midnight, after: 150 * time.Second})
 			wantVerdicts(t, fl.report(t), map[string]string{"Q13": "a fill's trade appears from 2 to 3 minutes after the fill"})
+		})
+		t.Run("a fill the day before the watch, dated that day's midnight, in windows by "+by.name, func(t *testing.T) {
+			t.Parallel()
+			fl := watchFills(t, probeNow, schwabtest.TransactionRules{FilterOn: by.on}, watchedFill{filled: dayBefore, tradeDate: midnight.AddDate(0, 0, -1)})
+			report := fl.report(t)
+			wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: every fill's row was there at the first poll, within 1350 minutes of its fill; " +
+				"place a trade just before the watch to measure it"})
+			wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "rows there at the first poll: 1, within 1350 minutes of the fills")
 		})
 	}
 	t.Run("a Friday evening's fill dated Monday, in windows by tradeDate", func(t *testing.T) {

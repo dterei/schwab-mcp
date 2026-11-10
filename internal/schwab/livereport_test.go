@@ -399,7 +399,8 @@ func TestLiveReportSelfCheck(t *testing.T) {
 // by the user, and read on every later run, so that a digest stays the same
 // from run to run; another key gives other digests, and so does another
 // purpose. A digest is the HMAC-SHA256 of the purpose and the value, cut to
-// 16 bytes, and the state's file holds no value it was given to digest.
+// 16 bytes, and the state's file holds no value it was given to digest. A
+// state or a key that others can read is made private again.
 func TestStateDigests(t *testing.T) {
 	dir := t.TempDir()
 	file, keyFile := filepath.Join(dir, "live", "state.json"), filepath.Join(dir, "live", "state.key")
@@ -440,7 +441,8 @@ func TestStateDigests(t *testing.T) {
 	if readFile(t, keyFile) != key || strings.Contains(readFile(t, file), "29470135") {
 		t.Errorf("the key changed, or the state holds the value:\n%s", readFile(t, file))
 	}
-	other, err := openState(filepath.Join(dir, "other", "state.json"), filepath.Join(dir, "other", "state.key"), func(string) {})
+	otherFile := filepath.Join(dir, "other", "state.json") // never saved
+	other, err := openState(otherFile, filepath.Join(dir, "other", "state.key"), func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,15 +461,29 @@ func TestStateDigests(t *testing.T) {
 			t.Errorf("%s: %v, %v; want mode %v", path, info.Mode(), err, want)
 		}
 	}
-	if err := os.Chmod(file, 0o640); err != nil { // readable by its group
-		t.Fatal(err)
-	}
-	var warned []string
-	if _, err := openState(file, keyFile, func(msg string) { warned = append(warned, msg) }); err != nil || len(warned) != 1 {
-		t.Errorf("a state others could read: %v, warned %q", err, warned)
-	}
-	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o600 {
-		t.Errorf("the state made private: %v, %v", info.Mode(), err)
+	// A file that others can read, as one copied in by hand, is made
+	// private again on a later run, with a warning that names it: the state
+	// readable by its group, its key by everyone, and a key by everyone
+	// before there is a state.
+	for _, tc := range []struct {
+		state, path string
+		mode        os.FileMode
+	}{
+		{file, file, 0o640},
+		{file, keyFile, 0o644},
+		{otherFile, filepath.Join(dir, "other", "state.key"), 0o644},
+	} {
+		if err := os.Chmod(tc.path, tc.mode); err != nil {
+			t.Fatal(err)
+		}
+		var warned []string
+		_, err := openState(tc.state, filepath.Join(filepath.Dir(tc.state), "state.key"), func(msg string) { warned = append(warned, msg) })
+		if err != nil || len(warned) != 1 || !strings.HasPrefix(warned[0], tc.path+" ") {
+			t.Errorf("%s at mode %v: %v, warned %q", tc.path, tc.mode, err, warned)
+		}
+		if info, err := os.Stat(tc.path); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("%s made private: %v, %v", tc.path, info.Mode(), err)
+		}
 	}
 }
 
