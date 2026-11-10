@@ -195,11 +195,12 @@ What runs where:
 - **The live mode** ([docs/live.md](docs/live.md)), by hand and never in CI:
   `go test ./internal/schwab -run '^TestLive$' -live -v` probes Schwab's real
   API with your saved login, checks each answer against the records, and
-  runs the probes of the roadmap's
-  [open questions](docs/ROADMAP.md#open-questions). It only reads, and its
-  report leaves out account numbers, hashes, IDs and balances, each line
-  checked for what the run has seen before it is written, so that you can
-  share it once you have read it.
+  runs the default probes of the roadmap's
+  [open questions](docs/ROADMAP.md#open-questions); the watches and the rate
+  probe each run alone, with a flag of their own and `-timeout 0`. It only
+  reads, and its report leaves out account numbers, hashes, IDs and balances,
+  each line checked for what the run has seen before it is written, so that
+  you can share it once you have read it.
 
 ## License
 
