@@ -19,7 +19,7 @@ import (
 
 // reportHeading opens report.txt.
 const reportHeading = "schwabtx live report: what Schwab's API answered, as key paths, kinds, counts and statuses.\n" +
-	"It holds no account number, hash, id, balance or description; read it before you share it.\n\n"
+	"It holds no account number, hash, id or balance, and no description but Schwab's own wording; read it before you share it.\n\n"
 
 // w8Mark marks a line of the report that reveals W-8 withholding rows,
 // which show the owner's nonresident tax status: the owner decides on each

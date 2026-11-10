@@ -3,8 +3,9 @@
 `TestLive` in `internal/schwab` probes Schwab's real API with your saved
 login. It checks every answer against this project's records, runs probes
 that settle the [open questions](ROADMAP.md#open-questions), and writes a
-report without account numbers, hashes, ids, balances or descriptions, for
-you to read and then share. It only reads, and it never runs in CI.
+report without account numbers, hashes, ids or balances, and without
+descriptions but Schwab's own wording, for you to read and then share. It
+only reads, and it never runs in CI.
 
 ## Running it
 
@@ -148,11 +149,15 @@ folder is), written section by section as the run goes, so that a run
 that stops keeps what it has:
 
 - the toolchain, the commit, the time, the mode and the probes;
-- each answer, under its endpoint's template, such as
-  `accounts/{account 2}/transactions`: its status, `Content-Type`, the names
-  of its correlation headers, how many records it held, and what the checks
-  found: a record's problems, a key that no field takes, a key sent twice in
-  one object;
+- each answer of the reads made once, the account numbers, the
+  preferences, the checks, Q5's orders and Q8's market data, under its
+  endpoint's template, such as `accounts/{account 2}/transactions`: its
+  status, `Content-Type`, the names of its correlation headers, how many
+  records it held, and what the checks found: a record's problems, a key
+  that no field takes, a key sent twice in one object; and of the reads a
+  probe repeats, such as Q1's walk, Q4's and Q12's windows, the extras and
+  the polls of the opt-in modes, only an answer that fails or brings a
+  finding new to its endpoint;
 - the keys seen on each type of record, against the keys the tests expect;
 - each probe's verdict and evidence;
 - the guard's accounting: the budget, the answers by status, the token
@@ -163,9 +168,10 @@ that stops keeps what it has:
 It holds key paths, kinds, counts, statuses, header names, New York dates
 where a question needs one, Schwab's own wording, and Schwab's error
 messages, scrubbed. It never holds a record, an account number, a hash, an
-id, a balance, a quantity, a symbol of yours or a description: a
-transaction's description is printed only when it is Schwab's own wording
-for a kind of row, such as "Ordinary Dividend~SYM", with the symbol masked.
+id, a balance, a quantity, a symbol of yours longer than a character, or a
+description: a transaction's description is printed only when it is
+Schwab's own wording for a kind of row, such as "Ordinary Dividend~SYM",
+with the symbol masked.
 A failure of the network is told by what failed, such as
 `read tcp: i/o timeout`, without the addresses that its error names, your
 computer's among them, or the query of the request's address; an address
@@ -180,9 +186,11 @@ login that the run holds, sends or is given, and every symbol in an answer
 but SPY and VTI, which the run names itself; your home folder as `~`, your
 user name as `{user}` where a path holds it as the folder of a home, such
 as `/home/<name>`, and the run's files and folders by name. An ID, a key or
-a token is found escaped too, as a path or a form spells it. Q4 sends no
-symbol that the scrubber does not hide: not SPY or VTI, nor one of a single
-character, which is too short to hide.
+a token is found escaped too, as a path or a form spells it. A symbol or a
+nickname of a single character is never hidden, since it is too short to
+hide without garbling the report: an error of Schwab's that quotes one
+shows it. Q4 sends no symbol that the scrubber does not hide: not SPY or
+VTI, nor one of a single character.
 
 Nicknames and symbols are hidden only in Schwab's own words, such as an
 error message that is not its wording, or an error's code that is not one
