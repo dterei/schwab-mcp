@@ -99,8 +99,10 @@ func maskWording(text string) string {
 // onWording returns the entry of schwabWording that text is, and whether
 // there is one: text and the entry are the same once each is masked as
 // maskWording masks it, so that "W-8 Withholding~BND" is "W-8
-// Withholding~SYM" and "TRF FDS TO TYPE 12" is "TRF FDS TO TYPE #". The
-// case counts, as Schwab's wording keeps to one.
+// Withholding~SYM" and "TRF FDS TO TYPE 12" is "TRF FDS TO TYPE #". What
+// follows the last "~" must be a symbol, as isSymbol says, so that "W-8
+// Withholding~ACME BANK" is not on it. The case counts, as Schwab's wording
+// keeps to one.
 func onWording(text string) (string, bool) {
 	return onWordingOf(schwabWording, text)
 }
@@ -109,6 +111,9 @@ func onWording(text string) (string, bool) {
 // schwabDescriptions, that text is, and whether there is one, as onWording
 // matches text with the whole.
 func onWordingOf(part []string, text string) (string, bool) {
+	if i := strings.LastIndex(text, "~"); i >= 0 && !isSymbol(text[i+1:]) {
+		return "", false
+	}
 	masked := maskWording(text)
 	for _, e := range wordingEntries {
 		if slices.Contains(part, e.entry) && e.re.MatchString(masked) {
@@ -186,6 +191,7 @@ func TestSchwabWording(t *testing.T) {
 		"'29470135' is not a valid value for startDate", "'abc' is not a valid value for startDate",
 		"'2024-04-04 or 29470135' is not a valid value for startDate", "'2024-04-04' is not a valid value for endDate",
 		"Invalid account number 29470135", "Exception while authenticating refresh token [tokenDigest=abc]",
+		"Ordinary Dividend~", "W-8 Withholding~ACME BANK", "Ordinary Dividend~bnd", "Ordinary Dividend~29470135",
 		"Dividend Reinvest~BND", "Ordinary Dividend~BND~",
 	} {
 		if entry, ok := onWording(text); ok {
@@ -218,6 +224,7 @@ func TestSchwabWordingParts(t *testing.T) {
 		{"'2024-04-04T15:54:14.000Z' is not a valid value for startDate", false, true},
 		{"Unauthorized", false, true},
 		{"Invalid account number~BND", false, false},
+		{"Ordinary Dividend~ACME BANK", false, false},
 		{"Wire Incoming from ACME BANK", false, false},
 	} {
 		_, description := onWordingOf(schwabDescriptions, tc.text)
