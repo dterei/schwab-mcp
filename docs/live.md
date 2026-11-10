@@ -315,7 +315,11 @@ To commit a recording:
    hand-made files and never over them, and add the entries of
    `entries.json` to the list in
    `internal/schwab/schwabtest/testdata/index.json`, the one index of
-   every fixture.
+   every fixture. The module keeps one recording a day, scrubbed whole so
+   that its fakes agree, and a second recording's files would take the
+   first's names: the scrubber refuses a recording of a day that the
+   module holds one of already. If the new one is to replace it, remove
+   that folder and its entries first, and scrub again.
 4. Run `go test ./...`. The value hygiene tests, the census and
    `checkAnswer` read every indexed file, so a failure names what is wrong.
    A file that fails cannot be committed as it is: leave it out, or extend

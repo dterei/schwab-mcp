@@ -95,7 +95,9 @@ To add a recording, the owner:
 
 1. reads `review.txt` and the candidate files;
 2. copies `recorded/<date>/` here, the day it was recorded, beside the
-   hand-made files and never over them;
+   hand-made files and never over them, and only for a day not here yet:
+   a day keeps one recording, scrubbed whole so that its fakes agree, and
+   the scrubber refuses a day that is here already;
 3. adds the entries of `entries.json` to `index.json`, each with source
    `recorded`, its date in `recorded` and the scrubber's version and
    amounts policy in `scrub`;

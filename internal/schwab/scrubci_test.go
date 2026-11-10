@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
@@ -528,11 +529,12 @@ func recordAnswers(t *testing.T, answers []testAnswer) string {
 // The scrubber's front door refuses, before it writes anything, a run in
 // CI, a run without an out folder or with one that is there already or is
 // inside the module or a git work tree, a policy for amounts it does not
-// know, and a folder that holds no recording or a broken one; and it writes
-// a recording that it takes to a folder of its own, readable only by the
-// user: the candidate fixtures alone under recorded/<date>/, and
-// entries.json, review.txt and shapes/ beside them, review.txt naming the
-// index that the entries go in.
+// know, a folder that holds no recording or a broken one, and a recording
+// of a day that the module holds a recording of already, whose files' names
+// it would take; and it writes a recording that it takes to a folder of its
+// own, readable only by the user: the candidate fixtures alone under
+// recorded/<date>/, and entries.json, review.txt and shapes/ beside them,
+// review.txt naming the index that the entries go in.
 func TestScrubFolders(t *testing.T) {
 	module := plantModule(t)
 	home := filepath.Join(t.TempDir(), "zq9user")
@@ -568,27 +570,45 @@ func TestScrubFolders(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	day := testNow.UTC().Format(time.DateOnly)
+	held := filepath.Join(module, "internal", "schwab", "schwabtest", "testdata", "recorded", day)
 	for _, tc := range []struct {
 		name, raw, out, amounts string
 		env                     []string
+		held                    bool // the module holds a recording of the day
 		want                    string
 	}{
-		{"in CI", raw, filepath.Join(dir, "a"), "refuse", []string{"CI", "true"}, "never runs in CI"},
-		{"in GitHub's", raw, filepath.Join(dir, "a"), "refuse", []string{"GITHUB_ACTIONS", "true"}, "never runs in CI"},
-		{"no out folder", raw, "", "refuse", nil, "-scrub.out is required"},
-		{"amounts unknown", raw, filepath.Join(dir, "a"), "scale:1", nil, "-scrub.amounts takes"},
-		{"out inside the module", raw, filepath.Join(module, "out"), "refuse", nil, "inside the module"},
-		{"out inside a work tree", raw, filepath.Join(repo, "out"), "refuse", nil, "inside a git work tree"},
-		{"out there already", raw, dir, "refuse", nil, "exists; -scrub.out names a folder that the scrubber makes"},
-		{"no recording", t.TempDir(), filepath.Join(dir, "a"), "refuse", nil, "holds no answer of a recording"},
-		{"half an answer", broken, filepath.Join(dir, "a"), "refuse", nil, "not both"},
-		{"a key the scrubber does not know", unknownKey, filepath.Join(dir, "a"), "refuse", nil, "cannot be read whole"},
+		{"in CI", raw, filepath.Join(dir, "a"), "refuse", []string{"CI", "true"}, false, "never runs in CI"},
+		{"in GitHub's", raw, filepath.Join(dir, "a"), "refuse", []string{"GITHUB_ACTIONS", "true"}, false, "never runs in CI"},
+		{"no out folder", raw, "", "refuse", nil, false, "-scrub.out is required"},
+		{"amounts unknown", raw, filepath.Join(dir, "a"), "scale:1", nil, false, "-scrub.amounts takes"},
+		{"out inside the module", raw, filepath.Join(module, "out"), "refuse", nil, false, "inside the module"},
+		{"out inside a work tree", raw, filepath.Join(repo, "out"), "refuse", nil, false, "inside a git work tree"},
+		{"out there already", raw, dir, "refuse", nil, false, "exists; -scrub.out names a folder that the scrubber makes"},
+		{"no recording", t.TempDir(), filepath.Join(dir, "a"), "refuse", nil, false, "holds no answer of a recording"},
+		{"half an answer", broken, filepath.Join(dir, "a"), "refuse", nil, false, "not both"},
+		{"a key the scrubber does not know", unknownKey, filepath.Join(dir, "a"), "refuse", nil, false, "cannot be read whole"},
+		{
+			"a day the module holds a recording of", raw, filepath.Join(dir, "a"), "refuse", nil, true,
+			"the module holds a recording of " + day + " already, in internal/schwab/schwabtest/testdata/recorded/" + day + "/",
+		},
 	} {
+		if tc.held {
+			if err := os.MkdirAll(held, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(held, "001.json"), []byte("[]"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if _, err := run(tc.raw, tc.out, tc.amounts, tc.env...); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want an error that says %q", tc.name, err, tc.want)
 		}
 		if _, err := os.Lstat(filepath.Join(dir, "a")); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("%s: the out folder was made: %v", tc.name, err)
+		}
+		if err := os.RemoveAll(filepath.Join(module, "internal")); err != nil {
+			t.Fatal(err)
 		}
 	}
 
@@ -620,7 +640,6 @@ func TestScrubFolders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	day := testNow.UTC().Format("2006-01-02")
 	if want := []string{
 		".", "entries.json", "recorded", "recorded/" + day, "recorded/" + day + "/001.json", "recorded/" + day + "/003.txt",
 		"review.txt", "shapes", "shapes/002.txt",

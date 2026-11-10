@@ -228,18 +228,14 @@ func newScrubber(t testing.TB, answers []recordedAnswer, cfg scrubConfig) (*scru
 		placeholders: map[string]map[string]int{},
 	}
 	s.ids.schwab = schwabWords(t, s.pages)
-	var first time.Time
-	for i := range answers {
-		a := &answers[i]
-		if a.meta.Sent.IsZero() {
-			return nil, fmt.Errorf("answer %s has no time sent", a.name)
-		}
-		if first.IsZero() || a.meta.Sent.Before(first) {
-			first = a.meta.Sent
-		}
-		s.answers = append(s.answers, s.newAnswer(*a))
+	date, err := recordingDate(answers)
+	if err != nil {
+		return nil, err
 	}
-	s.date = first.UTC().Format(time.DateOnly)
+	s.date = date
+	for _, a := range answers {
+		s.answers = append(s.answers, s.newAnswer(a))
+	}
 	if err := s.collect(); err != nil {
 		return nil, err
 	}
@@ -247,6 +243,22 @@ func newScrubber(t testing.TB, answers []recordedAnswer, cfg scrubConfig) (*scru
 		return nil, err
 	}
 	return s, nil
+}
+
+// recordingDate returns the day of answers, a recording, in UTC, as
+// YYYY-MM-DD: the day its first answer was sent. An answer whose time sent
+// is not known leaves the day unknown, which refuses the recording.
+func recordingDate(answers []recordedAnswer) (string, error) {
+	var first time.Time
+	for _, a := range answers {
+		if a.meta.Sent.IsZero() {
+			return "", fmt.Errorf("answer %s has no time sent", a.name)
+		}
+		if first.IsZero() || a.meta.Sent.Before(first) {
+			first = a.meta.Sent
+		}
+	}
+	return first.UTC().Format(time.DateOnly), nil
 }
 
 // newAnswer returns the answer a as the scrubber reads it: its request and
@@ -1242,7 +1254,9 @@ func (s *scrubber) reviewText(o *scrubOutput) string {
 		"1. Read this file whole, and the files themselves.\n" +
 		"2. Decide on each row of W-8 withholding below: keep it, or leave its file out.\n" +
 		"3. Copy recorded/" + s.date + "/ to internal/schwab/schwabtest/testdata/recorded/" + s.date + "/,\n" +
-		"   and add the entries of entries.json to the list in\n" +
+		"   which must not be there yet: the module keeps one recording a day, scrubbed whole so that\n" +
+		"   its fakes agree. If one is there, this one may only replace it: first remove that folder\n" +
+		"   and its entries in index.json. Then add the entries of entries.json to the list in\n" +
 		"   internal/schwab/schwabtest/testdata/index.json, the one index of every fixture.\n" +
 		"4. Run go test ./... and commit nothing that fails.\n")
 	section := func(title string, lines []string) {

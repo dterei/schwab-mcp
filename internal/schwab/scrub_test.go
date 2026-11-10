@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -94,8 +95,12 @@ func scrubRefusesCI(getenv func(string) string) error {
 // and returns what to tell the owner. It refuses before it reads anything
 // in CI, without -scrub.out, with a policy for amounts that it does not
 // know, and for an out folder that exists or is inside the module or a git
-// work tree, where the fixtures could be committed unread. It writes
-// nothing unless the gates take the whole output.
+// work tree, where the fixtures could be committed unread. It refuses a
+// recording of a day that the module holds a recording of already, in
+// schwabtest's testdata/recorded/<date>/: the module keeps one a day,
+// scrubbed whole so that its fakes agree, and the files of a second would
+// take the names of the first's. It writes nothing unless the gates take
+// the whole output.
 func scrubFolders(t testing.TB, r scrubRun) (string, error) {
 	t.Helper()
 	if err := scrubRefusesCI(r.getenv); err != nil {
@@ -125,6 +130,16 @@ func scrubFolders(t testing.TB, r scrubRun) (string, error) {
 	answers, err := readRecording(raw)
 	if err != nil {
 		return "", fmt.Errorf("reading the recording in %s: %w", raw, err)
+	}
+	date, err := recordingDate(answers)
+	if err != nil {
+		return "", err
+	}
+	held := path.Join("internal/schwab/schwabtest/testdata/recorded", date)
+	if _, err := os.Lstat(filepath.Join(r.module, filepath.FromSlash(held))); err == nil {
+		return "", fmt.Errorf("the module holds a recording of %s already, in %s/, and keeps one a day, scrubbed whole "+
+			"so that its fakes agree: this one's files would take its files' names. If this one is to replace it, "+
+			"remove that folder, and its entries in index.json, first", date, held)
 	}
 	o, err := scrubRecording(t, answers, scrubConfig{
 		amounts: amounts, version: r.version(), home: r.home, paths: []string{raw, out, r.module},
