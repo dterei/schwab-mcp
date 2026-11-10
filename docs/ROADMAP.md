@@ -581,8 +581,9 @@ it.
   York to 10:00 the next day, which needs holdings with prices.
 - **Does the transactions `symbol` filter keep dividends and withholdings**,
   which name their security only in their description? Probe: Q4, in the
-  default run, which needs a symbol in your history with both a trade and a
-  dividend.
+  default run, which needs a symbol in your history, other than SPY, VTI or
+  one of a single character, with both a trade and a dividend or a W-8
+  withholding.
 - **Does the per-account orders endpoint serve a year or only 60 days?** The
   spec and community clients disagree. Probe: Q5, in the default run, which
   needs an order that filled more than 67 days ago, within the year.
