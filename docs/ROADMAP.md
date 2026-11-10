@@ -208,7 +208,13 @@ and HTTP code into `internal/schwab` with what the history store needs.
       [the live mode](live.md)). CI runs its harness and every probe against
       the fake
 - [ ] Answer the open questions below that a probe can settle, starting with
-      how far back transactions go and what Schwab returns past that point
+      how far back transactions go and what Schwab returns past that point.
+      The probes are built, and each question names its own; a question
+      stays open until a run against a real account settles it. For the
+      default probes, export the app's key and secret, run `schwabtx login`,
+      then `go test ./internal/schwab -run '^TestLive$' -live -v`; the
+      watches and the rate probe each run alone (see
+      [the live mode](live.md#running-it))
 
 ### M2. Full transaction history, stored locally
 
@@ -548,8 +554,12 @@ Everything planned, by area.
 
 ## Open questions
 
-Most of these can be settled with a short probe against a real account in
-milestone 1.
+Most of these can be settled with a probe against a real account. Each one
+that can names its probe in [the live mode](live.md#the-probes) and the run
+it takes: the default run, or a watch or the rate probe, each of which runs
+alone. CI runs every probe against the fake, which settles nothing about
+Schwab, so a question stays open until a run against a real account answers
+it.
 
 - **How far back do transactions go, and what does Schwab return for a window
   older than that (an error or an empty list)?** Schwab documents at most a
@@ -558,56 +568,76 @@ milestone 1.
   Schwab saying it starts when the account was enabled for thinkorswim.
   Another, in 2026, got empty lists for windows past an account's history
   ([schwab-cli](https://github.com/piekstra/schwab-cli/blob/main/docs/api.md)),
-  so an empty window does not show that the history has ended.
+  so an empty window does not show that the history has ended. Probe: Q1,
+  in the default run.
 - **Does a fill between 6 PM and midnight in New York, in the futures or
   overnight sessions, carry its instant in `tradeDate`, or the next day's
   midnight?** A futures-option fill at 00:15 carried its instant. It decides
-  which day such a fill is booked on.
+  which day such a fill is booked on. Probe: Q2, in the default run, which
+  needs such a fill in your history.
 - **When do initial balances move to the new session**, and do they then
   hold the close? A snapshot taken after that could stand for the close.
+  Probe: Q3, a watch of balances (`-live.watch=balances`) from 15:45 in New
+  York to 10:00 the next day, which needs holdings with prices.
 - **Does the transactions `symbol` filter keep dividends and withholdings**,
-  which name their security only in their description?
+  which name their security only in their description? Probe: Q4, in the
+  default run, which needs a symbol in your history with both a trade and a
+  dividend.
 - **Does the per-account orders endpoint serve a year or only 60 days?** The
-  spec and community clients disagree.
+  spec and community clients disagree. Probe: Q5, in the default run, which
+  needs an order that filled more than 67 days ago, within the year.
 - **Does `scope=readonly` give a token that cannot trade?** It appears in
   Schwab's own spec. Most community clients send no scope, and the one
   project known to send `readonly` has reported no effect. If it works,
   `schwabtx login` should request it unless asked for trading, and the token
   file should record which kind of login it holds, so the server registers
   order tools only when trading is enabled and the token allows it.
-  Switching trading on then takes one new login.
+  Switching trading on then takes one new login. Probe: Q6, in the default
+  run after a login with `&scope=readonly` added to the login link. It
+  reports the scope Schwab granted, but whether the token cannot trade stays
+  open: only an order could show it, and the live mode sends none.
 - **Does `previewOrder` work on live accounts?** One community server says it
-  returns 404 there; others use it.
+  returns 404 there; others use it. No probe: it would need a POST, and the
+  live mode only reads.
 - **Are daily price bars adjusted for dividends, or only for splits?** If only
   for splits, the API has no record of a benchmark's past dividends, so total
-  return before the first recorded dividend needs a file you import.
+  return before the first recorded dividend needs a file you import. Probe:
+  Q8, over two default runs, one before the last close ahead of an ex-date of
+  SPY or VTI and one after the ex-date; it needs the Market Data product.
 - **How do you confirm an order in a client that cannot elicit?**
   jkoelker/schwab-mcp sends each order to Discord or Signal for approval. A
   command in your own terminal is simpler, but an assistant that can run
-  shell commands, as coding agents can, could run it itself.
+  shell commands, as coding agents can, could run it itself. No probe: it is
+  a question of design, not of Schwab's API.
 - **Are account hashes stable across logins and across developer apps?**
   Schwabdev's maintainer believes a new login changes them; other clients
   treat them as stable. The store keeps data by account number either way.
+  Probe: Q10, over default runs either side of a new login, or with another
+  app's key.
 - **How do option expirations and assignments, transfers in kind, corporate
   actions, money market sweeps and other transfers show up in
   transactions?** No public sample shows an expiration, an assignment, a
   transfer in kind or a corporate action; those are probably
   RECEIVE_AND_DELIVER rows. This decides the classification rules in
-  milestone 2.
+  milestone 2. Probe: Q11, in the default run, which counts the shapes of
+  the rows in your history, and so shows only the kinds of event your
+  accounts have had.
 - **Do transactions change after they post (pending to valid,
   cancellations), and how long after?** This decides the overlap for
-  incremental syncs.
+  incremental syncs. Probe: Q12, over two default runs or more.
 - **How soon after a fill does the trade appear in transactions?** This
   decides whether a sync triggered by a stream event needs a delayed
-  re-check.
+  re-check. Probe: Q13, a watch of fills (`-live.watch=fills`) for half an
+  hour after you place a trade by hand.
 - **How far under 120 a minute does Schwab refuse requests, and are bursts
   what it refuses?** It answers 429 with no Retry-After, and has done so to a
   client sending 19 a minute (see [the API notes](schwab-api.md#rate-limits)).
-  This decides the limit's rate and burst.
+  This decides the limit's rate and burst. Probe: Q14, the rate probe
+  (`-live.rate`), about ten minutes while nothing else uses the app key.
 - **Does a refresh end the older access tokens, and does it ever change the
   refresh token?** Community clients suggest that it does not change the
   refresh token. The login code copes either way, but each answer saves
-  requests.
+  requests. Probe: Q15, in the default run.
 
 ## Risks
 

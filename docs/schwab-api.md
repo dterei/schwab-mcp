@@ -18,7 +18,8 @@ The authority is <https://developer.schwab.com>. These notes come from:
 Checked in October 2026, and for the account endpoints again in November
 2026. Where live behavior is known to differ from the spec, it says so.
 Things nobody has pinned down are collected under
-[open questions](ROADMAP.md#open-questions).
+[open questions](ROADMAP.md#open-questions); most of them have a probe in
+[the live mode](live.md#the-probes), named below where a note awaits one.
 
 ## Access and app setup
 
@@ -65,7 +66,9 @@ Things nobody has pinned down are collected under
   schwab-py, Schwabdev and this project's CLI send no scope;
   sudowealth/schwab-api sends `api offline_access`; ssandy33/regress has sent
   `scope=readonly` since May 2026 without reporting any effect. Whether
-  `readonly` limits the token is unknown.
+  `readonly` limits the token is unknown: [probe Q6](live.md#the-probes)
+  reports the scope Schwab grants, but only an order could show that a
+  token cannot trade.
 - **The code** comes back URL-encoded in the redirect, must be decoded, and
   expires in about 30 seconds.
 - **Token requests** are `POST /v1/oauth/token` with HTTP Basic auth (app key
@@ -94,10 +97,11 @@ Things nobody has pinned down are collected under
   token at a time", Schwabdev's maintainer in
   [Schwabdev#40](https://github.com/tylerebowers/Schwabdev/issues/40)). So
   processes that use one login share its token file and re-read it before they
-  refresh. Whether a refresh ends older access tokens is not known. schwab-py's
-  warning that two programs sharing a token file lock each other out was
-  copied from its TD Ameritrade predecessor, whose refresh tokens did change.
-  Schwabdev serializes refreshes with a database lock.
+  refresh. Whether a refresh ends older access tokens is not known
+  ([probe Q15](live.md#the-probes)). schwab-py's warning that two programs
+  sharing a token file lock each other out was copied from its TD Ameritrade
+  predecessor, whose refresh tokens did change. Schwabdev serializes
+  refreshes with a database lock.
 - **A refused refresh token** gets HTTP 400 with `unsupported_token_type`. The
   real reason is nested, as JSON, in `error_description`: `invalid_grant`,
   "Refresh token is invalid, expired or revoked", in 2026 reports, and
@@ -123,7 +127,7 @@ with `{"message": "Invalid account number"}`
 | GET | `/accounts/accountNumbers` | `[{accountNumber, hashValue}]`; see [account numbers](#user-preferences-and-account-numbers) |
 | GET | `/accounts` | Every linked account. Add `fields=positions` for holdings (the only documented `fields` value). See [positions and balances](#positions-and-balances). |
 | GET | `/accounts/{hash}` | One account, same shape |
-| GET | `/accounts/{hash}/orders` | `fromEnteredTime` and `toEnteredTime` required, `maxResults` (default 3000), `status`. The spec says at most a year; schwab-py says 60 days. |
+| GET | `/accounts/{hash}/orders` | `fromEnteredTime` and `toEnteredTime` required, `maxResults` (default 3000), `status`. The spec says at most a year; schwab-py says 60 days ([probe Q5](live.md#the-probes)). |
 | POST | `/accounts/{hash}/orders` | 201 with an empty body; the new order's URL, ending in its ID, is in the `Location` header |
 | GET, PUT, DELETE | `/accounts/{hash}/orders/{orderId}` | Get, replace or cancel. A replace cancels the order and creates a new one, with a new `Location`. |
 | GET | `/orders` | Orders across all accounts; `fromEnteredTime` must be within 60 days |
@@ -150,7 +154,8 @@ that followed live failures.
 - The spec types `types` as a single value, but a comma-separated list
   works: schwab-py and this project's CLI send all 15 types that way.
 - A `symbol` filter may leave out dividends and withholdings, which name
-  their security only in their description (untested).
+  their security only in their description (untested;
+  [probe Q4](live.md#the-probes)).
 
 **Limits.**
 
@@ -160,8 +165,8 @@ that followed live failures.
 - A window that comes back with 3000 rows may have been cut short, so split
   it and ask again.
 
-**How far back.** Not documented. The one-year limit is per request, not a
-retention period.
+**How far back.** Not documented ([probe Q1](live.md#the-probes)). The
+one-year limit is per request, not a retention period.
 
 - schwab-py's docs, jkoelker/schwab-mcp and TradeZella say 60 days. That
   probably comes from the wording for orders; schwab-cli got 121-day-old rows
@@ -217,12 +222,13 @@ retention period.
   futures-option fill at 00:15 in New York included. A fill between 6 PM and
   midnight there (CME's evening session, or Schwab's overnight session from
   8 PM), which no sample shows, may be booked on the next trading day (see
-  the roadmap's open questions). Order rows by `time`: ordering by
-  `tradeDate` puts sales before the purchases they close. Monthly interest
-  is posted around 9 PM in New York on the last business day of the month,
-  which is the next day in UTC. `settlementDate` is midnight in New
-  York, and absent on executions. All are `2024-04-04T15:56:07+0000`: no
-  fraction and an offset without a colon (see [encodings](#encodings)).
+  the roadmap's open questions and [probe Q2](live.md#the-probes)). Order
+  rows by `time`: ordering by `tradeDate` puts sales before the purchases
+  they close. Monthly interest is posted around 9 PM in New York on the last
+  business day of the month, which is the next day in UTC. `settlementDate`
+  is midnight in New York, and absent on executions. All are
+  `2024-04-04T15:56:07+0000`: no fraction and an offset without a colon (see
+  [encodings](#encodings)).
 - **Legs.** Each transfer item has `instrument`, `amount` and `cost`, and
   some have `price`, `feeType` and `positionEffect` (OPENING or CLOSING).
   - On a trade, a security leg's `amount` is the signed quantity in shares
@@ -276,7 +282,8 @@ retention period.
     not deposits ([LumiBot](https://github.com/Lumiwealth/lumibot)).
 
   No public sample shows expirations, assignments, transfers in kind or
-  corporate actions; they are probably RECEIVE_AND_DELIVER.
+  corporate actions; they are probably RECEIVE_AND_DELIVER
+  ([probe Q11](live.md#the-probes)).
 - Rows are not in time order, even within one type: jwplatta's twelve TRADE
   fills of January 2025 come in no order, and z-Wind's history, grouped by
   type and newest first within each, may be one answer per type joined.
@@ -396,7 +403,8 @@ retention period.
   `hashValue` 64 characters. Schwabdev's maintainer believes the hash changes
   with the refresh token
   ([Schwabdev#51](https://github.com/tylerebowers/Schwabdev/issues/51)); other
-  clients treat it as stable, with no evidence either way. So keep data by
+  clients treat it as stable, with no evidence either way
+  ([probe Q10](live.md#the-probes)). So keep data by
   account number, and look the hashes up again for each run. The account
   number is the one key present in all four endpoints.
 
@@ -473,7 +481,8 @@ Indexes take a `$` prefix wherever the index itself is named: quotes
   requests a minute, one with a single request in flight
   ([marketlake#533](https://github.com/l3a0/marketlake/issues/533)). So no
   client-side limit prevents every 429; back off and try again. Whether
-  bursts are what Schwab refuses is not known.
+  bursts are what Schwab refuses is not known
+  ([probe Q14](live.md#the-probes)).
 - **The stream** has its own limits (see [streaming](#streaming)).
 
 ## Streaming

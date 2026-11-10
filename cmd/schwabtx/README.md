@@ -168,7 +168,9 @@ PowerShell on Windows.
 
 - How far back Schwab serves transactions is not documented (see
   [the API notes](../../docs/schwab-api.md#transactions)). It only affects
-  `-lookback` and `-window`.
+  `-lookback` and `-window`. Probe Q1 of
+  [the live mode](../../docs/live.md#the-probes) walks your accounts'
+  history back to find out.
 
 ## Troubleshooting
 
