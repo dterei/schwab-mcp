@@ -82,9 +82,10 @@ Things nobody has pinned down are collected under
   every response reported). A refresh token works for 7 days from the browser
   login, and refreshing does not extend that. A refresh gives back the same
   refresh token, or at least never ends the old one: community clients send
-  the login's original refresh token all week. It can stop sooner, after a
-  later login (below). schwab-py forces a new login at 6.5 days and
-  jkoelker/schwab-mcp at 5.
+  the login's original refresh token all week, though none has compared the
+  token that comes back with the one sent ([probe Q15](live.md#the-probes)).
+  It can stop sooner, after a later login (below). schwab-py forces a new
+  login at 6.5 days and jkoelker/schwab-mcp at 5.
 - **Callback URLs** must be `https`, match the registered value exactly
   (a trailing slash difference gives an "Access Denied" page) and use
   `127.0.0.1`, not `localhost`. An app may register several, comma-separated.
@@ -344,7 +345,9 @@ one-year limit is per request, not a retention period.
   request: in the evening it follows extended-hours prices, and it moves
   again on Sunday evening, while `initialBalances.liquidationValue` (equal to
   `accountValue`) stays at the start of the session. A daily snapshot taken
-  in the evening therefore does not hold the close. In current balances,
+  in the evening therefore does not hold the close. When initial balances
+  move to the next session, and whether they then hold the close, is not
+  known ([probe Q3](live.md#the-probes)). In current balances,
   `liquidationValue` equals `cashBalance + longMarketValue + mutualFundValue
   + longOptionMarketValue + shortOptionMarketValue + shortMarketValue +
   bondValue + moneyMarketFund + savings` to the cent in every sample, and
