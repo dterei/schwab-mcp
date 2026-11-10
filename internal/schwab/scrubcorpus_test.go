@@ -585,115 +585,6 @@ func TestScrubberLeavesOut(t *testing.T) {
 	}
 }
 
-// Each gate refuses an output broken against it, one at a time, through the
-// test hook, before anything is written, naming itself and holding no
-// value: a problem introduced (i), a key dropped (ii), a value that the
-// policy keeps changed (iii), two hashes swapped (iv), and one mapping
-// switched off, a local path and the user name (v).
-func TestScrubberGatesRefuse(t *testing.T) {
-	planted, p := plantF(t, 3)
-	home := filepath.Join(t.TempDir(), "zq9user")
-	replace := func(name, old, with string) func(t *testing.T, o *scrubOutput) {
-		return func(t *testing.T, o *scrubOutput) {
-			t.Helper()
-			f := fileNamed(t, o, name)
-			if !bytes.Contains(f.body, []byte(old)) {
-				t.Fatalf("answer %s holds no %s", name, old)
-			}
-			f.body = bytes.Replace(f.body, []byte(old), []byte(with), 1)
-		}
-	}
-	nickname := p.planted[idNickname][schwabtest.FixtureAccounts[0].Nickname]
-	b := newCorpusBase(t, 29, 3)
-	page := strings.Replace(strings.ReplaceAll(string(readTestdata(t, "errors/akamai_403.html")),
-		strings.ReplaceAll(schwabtest.AkamaiReference, ".", "&#46;"), "47&#46;3c5d7e9f&#46;1792539999&#46;4a5b6c"),
-		"http&#58;&#47;&#47;api&#46;schwabapi&#46;com&#47;v1&#47;oauth&#47;token",
-		"https&#58;&#47;&#47;api&#46;schwabapi&#46;com&#47;trader&#47;v1&#47;accounts&#47;"+b.hashes[0], 1)
-	withPage := []testAnswer{b.accountNumbers(), {
-		path: "/trader/v1/accounts/" + b.hashes[0], status: 403, header: http.Header{"Content-Type": {"text/html; charset=utf-8"}}, body: page,
-	}}
-	onlyNumbers := []testAnswer{b.accountNumbers()}
-	scale := amountsPolicy{mode: "scale", k: 20}
-	for _, tc := range []struct {
-		name, gate string
-		hook       func(t *testing.T, o *scrubOutput)
-		answers    []testAnswer  // the recording, or F planted
-		amounts    amountsPolicy // keep, if not set
-	}{
-		{"a problem introduced", "gate (i), decoding: answer 003", replace("003", `"time": "2024-04-04T15:56:07+0000"`, `"time": "zq9"`), nil, amountsPolicy{}},
-		{"a key dropped", "gate (ii), the census: answer 003", replace("003", `"description": "Dividend Reinvest",`, ""), nil, amountsPolicy{}},
-		{
-			"a key sent twice made to differ", "gate (ii), the census: answer 003",
-			replace("003", "\"assetType\": \"COLLECTIVE_INVESTMENT\"\n", "\"assetType\": \"EQUITY\"\n"), nil,
-			amountsPolicy{},
-		},
-		{"a kept value changed", "gate (iii), the tokens: answer 003", replace("003", `"subAccount": "CASH"`, `"subAccount": "MARGIN"`), nil, amountsPolicy{}},
-		{"two hashes swapped", "gate (iv), relations", func(t *testing.T, o *scrubOutput) {
-			h1, h2 := schwabtest.FixtureAccounts[0].Hash, schwabtest.FixtureAccounts[1].Hash
-			replace("001", h1, "swap")(t, o)
-			replace("001", h2, h1)(t, o)
-			replace("001", "swap", h2)(t, o)
-		}, nil, amountsPolicy{}},
-		{"one mapping switched off", "gate (v), leaks", replace("005", `"Account 1"`, `"`+nickname+`"`), nil, amountsPolicy{}},
-		{"an entry's correlation ID changed", "gate (iii), the tokens: answer 006", func(t *testing.T, o *scrubOutput) {
-			f := fileNamed(t, o, "006")
-			f.entry.Response.Headers["Schwab-Client-CorrelID"] = []string{counterID(99)}
-		}, nil, amountsPolicy{}},
-		{"a page changed outside its slots", "gate (iii), the tokens: answer 013", replace("013", "Whitelabel Error Page", "Whitelabel Error page"), nil, amountsPolicy{}},
-		{"a page's line end changed before its slots", "gate (iii), the tokens: answer 002", func(t *testing.T, o *scrubOutput) {
-			f := fileNamed(t, o, "002")
-			f.body = bytes.Replace(f.body, []byte("\n"), []byte("\r\n"), 1)
-		}, withPage, amountsPolicy{}},
-		{"a page's line end changed after its slots", "gate (iii), the tokens: answer 002", func(t *testing.T, o *scrubOutput) {
-			f := fileNamed(t, o, "002")
-			f.body = append(bytes.TrimSuffix(f.body, []byte("\n")), "\r\n"...)
-		}, withPage, amountsPolicy{}},
-		{"an amount not K times the recording's", "gate (iii), the tokens: answer 003", replace("003", `"netAmount": -54.0,`, `"netAmount": -54.1,`), nil, scale},
-		{"two hashes swapped where only the account numbers name them", "gate (iv), relations: answer 001", func(t *testing.T, o *scrubOutput) {
-			h1, h2 := schwabtest.FixtureAccounts[0].Hash, schwabtest.FixtureAccounts[1].Hash
-			replace("001", h1, "swap")(t, o)
-			replace("001", h2, h1)(t, o)
-			replace("001", "swap", h2)(t, o)
-		}, onlyNumbers, amountsPolicy{}},
-		{"an id given two fakes", "gate (iv), relations", func(t *testing.T, o *scrubOutput) {
-			f := fileNamed(t, o, "003")
-			f.body = regexp.MustCompile(`"activityId": [0-9]+`).ReplaceAll(f.body, []byte(`"activityId": 10000000099`))
-		}, nil, amountsPolicy{}},
-		{"a masked number off its account", "gate (iv), relations", replace("005", `"...135"`, `"...136"`), nil, amountsPolicy{}},
-		{"a local path", "gate (v), leaks: review.txt: a local path", func(_ *testing.T, o *scrubOutput) {
-			o.review += filepath.Join(home, "raw") + "\n"
-		}, nil, amountsPolicy{}},
-		{"the user name", "gate (v), leaks: review.txt: the user name", func(_ *testing.T, o *scrubOutput) { o.review += "by zq9user\n" }, nil, amountsPolicy{}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			answers, amounts := tc.answers, tc.amounts
-			if answers == nil {
-				answers = planted
-			}
-			if amounts.mode == "" {
-				amounts = amountsPolicy{mode: "keep"}
-			}
-			out, err := scrubAnswers(t, answers, scrubConfig{amounts: amounts, home: home, hook: func(o *scrubOutput) { tc.hook(t, o) }})
-			if err == nil || out != nil || !strings.HasPrefix(err.Error(), tc.gate) {
-				t.Fatalf("%v, want %s", err, tc.gate)
-			}
-			for _, v := range slices.Concat(p.values(), b.numbers, b.hashes) {
-				if strings.Contains(err.Error(), v) {
-					t.Errorf("the refusal holds a planted value: %v", err)
-				}
-			}
-		})
-	}
-	if _, err := scrubAnswers(t, planted, scrubConfig{amounts: amountsPolicy{mode: "keep"}, home: home, hook: func(*scrubOutput) {}}); err != nil {
-		t.Errorf("an output that the hook leaves alone: %v", err)
-	}
-	// A user name that is one of Schwab's keys, such as amount, is looked
-	// for in values, not in keys.
-	if _, err := scrubAnswers(t, planted, scrubConfig{amounts: amountsPolicy{mode: "keep"}, home: filepath.Join(t.TempDir(), "amount")}); err != nil {
-		t.Errorf("the user amount: %v", err)
-	}
-}
-
 // The amounts policies: refuse writes only answers that hold no money, and
 // the shapes of the rest, which hold no value; keep keeps every number as
 // it was; and scale:20 multiplies every amount by 20 exactly, its decimals
@@ -794,7 +685,8 @@ func TestScrubberAmounts(t *testing.T) {
 // exactly from the numbers as written: a residual that the recording has
 // is the same in what keep writes and K times it under scale:K, while any
 // number changed by other than K, such as a leg's cost by a cent, moves a
-// residual, which gate (iv) refuses.
+// residual, which gate (iv) refuses, as it refuses records that hold other
+// identities than before.
 func TestScrubberIdentities(t *testing.T) {
 	planted, _ := plantF(t, 6)
 	for _, name := range []string{"002", "003", "004"} {
@@ -843,6 +735,17 @@ func TestScrubberIdentities(t *testing.T) {
 	}
 	if !found {
 		t.Error("no residual of 0.000637 in the fixtures")
+	}
+	// Records that hold other identities than before, as a trade made a
+	// journal does, are refused whatever their residuals.
+	s := &scrubber{cfg: scrubConfig{amounts: amountsPolicy{mode: "keep"}}}
+	a := &scrubAnswer{kind: "transactions", raw: recordedAnswer{body: []byte(planted[3].body)}}
+	journal := bytes.Replace(a.raw.body, []byte(`"type": "TRADE"`), []byte(`"type": "JOURNAL"`), 1)
+	if bytes.Equal(journal, a.raw.body) {
+		t.Fatal("no trade to make a journal")
+	}
+	if why := s.identities(a, journal); why != "its records hold other identities than the recording's" {
+		t.Errorf("a trade made a journal: %q", why)
 	}
 }
 

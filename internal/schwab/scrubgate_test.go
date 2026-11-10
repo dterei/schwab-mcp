@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"testing"
 	"unicode/utf8"
 
 	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
@@ -257,10 +258,17 @@ func (s *scrubber) tokensOfJSON(a *scrubAnswer, out []byte) string {
 				return where + ": a kept value changed where it held no identifier"
 			}
 		case classPlaceholder:
-			text, _ := jsonString(n)
-			wording := r.text.isWording(text) && s.changedAtIdentifiers(string(o), string(n))
-			if !bytes.Equal(o, n) && !r.text.isPlaceholder(text) && !wording {
-				return where + ": free text changed into what is neither its placeholder nor Schwab's wording"
+			// Every value, changed or not: free text that pass two kept as
+			// it was must be Schwab's wording, as much as a changed one.
+			text, isString := jsonString(n)
+			switch {
+			case !isString:
+				return where + ": free text that is not a string"
+			case r.text.isPlaceholder(text):
+			case !r.text.isWording(text):
+				return where + ": free text that is neither its placeholder nor Schwab's wording"
+			case !bytes.Equal(o, n) && !s.changedAtIdentifiers(string(o), string(n)):
+				return where + ": Schwab's wording changed where it held no identifier"
 			}
 		}
 	}
@@ -822,4 +830,368 @@ func isWholeToken(s string, i, end int) bool {
 	before, _ := utf8.DecodeLastRuneInString(s[:i])
 	after, _ := utf8.DecodeRuneInString(s[end:])
 	return (i == 0 || !wordRune(before)) && (end == len(s) || !wordRune(after))
+}
+
+// Each gate refuses an output broken against it, through the test hook,
+// before anything is written, naming itself, the answer and why, and
+// holding no value. Each check of a gate has a case that the gates before
+// it let through:
+//
+//   - (i): a problem introduced, an error's code changed, and an error made
+//     to say nothing;
+//   - (ii): a key dropped, and a key sent twice made to differ;
+//   - (iii): white space changed, two keys swapped, a value of another JSON
+//     kind, an id in another form, a kept value off its grammar or changed,
+//     money that keep keeps changed, money not K times what it was or in
+//     another form under scale:K, free text put back or Schwab's wording
+//     made other wording, a 429's white space changed, a page changed
+//     outside its slots, its Reference not its fake, its address off its
+//     grammar or changed, and an entry's correlation ID, status, protocol,
+//     path, query, header, extra header or header's name changed;
+//   - (iv): two hashes swapped; a hash's, an account number's, an activity
+//     ID's or an order ID's fake changed in a path alone; an id, an error's
+//     ID or a nickname given two fakes; and a masked number off its account
+//     or of another form;
+//   - (v): one mapping switched off in a body, in a query, in a path where
+//     no id goes, in a header's value, in a string written with an escape,
+//     and in a page written with a character reference; an identifier in a
+//     shape; a local path; and the user name.
+func TestScrubberGatesRefuse(t *testing.T) {
+	planted, p := plantF(t, 3)
+	home := filepath.Join(t.TempDir(), "zq9user")
+	keep, refuse, scale := amountsPolicy{mode: "keep"}, amountsPolicy{mode: "refuse"}, amountsPolicy{mode: "scale", k: 20}
+	replace := func(name, old, with string) func(t *testing.T, o *scrubOutput) {
+		return func(t *testing.T, o *scrubOutput) {
+			t.Helper()
+			f := fileNamed(t, o, name)
+			if !bytes.Contains(f.body, []byte(old)) {
+				t.Fatalf("answer %s holds no %s", name, old)
+			}
+			f.body = bytes.Replace(f.body, []byte(old), []byte(with), 1)
+		}
+	}
+	entry := func(name string, change func(e *schwabtest.Entry)) func(t *testing.T, o *scrubOutput) {
+		return func(t *testing.T, o *scrubOutput) {
+			t.Helper()
+			change(&fileNamed(t, o, name).entry)
+		}
+	}
+	swapHashes := func(name string) func(t *testing.T, o *scrubOutput) {
+		return func(t *testing.T, o *scrubOutput) {
+			h1, h2 := schwabtest.FixtureAccounts[0].Hash, schwabtest.FixtureAccounts[1].Hash
+			replace(name, h1, "swap")(t, o)
+			replace(name, h2, h1)(t, o)
+			replace(name, "swap", h2)(t, o)
+		}
+	}
+	dropName := func(name, header string) func(t *testing.T, o *scrubOutput) {
+		return entry(name, func(e *schwabtest.Entry) {
+			e.Response.OtherHeaders = slices.DeleteFunc(slices.Clone(e.Response.OtherHeaders), func(n string) bool { return n == header })
+		})
+	}
+	fake := func(i int) schwabtest.FixtureAccount { return schwabtest.FixtureAccounts[i] }
+	nickname := p.planted[idNickname][fake(0).Nickname]
+	errorID := p.planted[idError]["00000000-0000-4000-8000-000000000000"]
+
+	// Recordings beyond F, each for the cases that F cannot reach.
+	b := newCorpusBase(t, 29, 3)
+	page := strings.Replace(strings.ReplaceAll(string(readTestdata(t, "errors/akamai_403.html")),
+		strings.ReplaceAll(schwabtest.AkamaiReference, ".", "&#46;"), "47&#46;3c5d7e9f&#46;1792539999&#46;4a5b6c"),
+		"http&#58;&#47;&#47;api&#46;schwabapi&#46;com&#47;v1&#47;oauth&#47;token",
+		"https&#58;&#47;&#47;api&#46;schwabapi&#46;com&#47;trader&#47;v1&#47;accounts&#47;"+b.hashes[0], 1)
+	withPage := []testAnswer{b.accountNumbers(), {
+		path: "/trader/v1/accounts/" + b.hashes[0], status: 403, header: http.Header{"Content-Type": {"text/html; charset=utf-8"}}, body: page,
+	}}
+	onlyNumbers := []testAnswer{b.accountNumbers()}
+	freeText := []testAnswer{b.accountNumbers(), b.transactions(cashRow(b.numbers[0], b.id(), "description", `"Wire Incoming JOHN Q PUBLIC 5551234"`))}
+	etag := b.accountNumbers()
+	etag.header.Set("ETag", `"x1"`)
+	withETag := []testAnswer{etag}
+	order := b.p.draw(13, plantDigits, plantDigits)
+	withOrder := []testAnswer{
+		b.accountNumbers(), b.transactions(cashRow(b.numbers[0], b.id(), "orderId", order)),
+		jsonAnswer("/trader/v1/accounts/"+b.hashes[0]+"/orders/"+order, "", 404, `{"message":"Order not found"}`),
+	}
+	refusal := `{"errors":[{"id":"` + b.p.value(idError, "e") + `","status":401,"title":"Unauthorized","detail":"Client not authorized"}]}`
+	twoErrors := []testAnswer{
+		b.accountNumbers(), jsonAnswer("/trader/v1/userPreference", "", 401, refusal), jsonAnswer("/trader/v1/accounts", "", 401, refusal),
+	}
+	twoPrefs := append(slices.Clone(planted), planted[4])
+	withQuery := []testAnswer{b.accountNumbers(), jsonAnswer("/trader/v1/accounts/"+b.hashes[0]+"/transactions", "types=TRADE&symbol="+b.numbers[1], 200, "[]")}
+	withPathHash := []testAnswer{b.accountNumbers(), jsonAnswer("/trader/v1/accounts/"+b.hashes[0]+"/x/"+b.hashes[1], "", 404, `{"message":"Not Found"}`)}
+	vary := jsonAnswer("/trader/v1/accounts/"+b.hashes[2], "", 400, `{"message":"Invalid account number"}`)
+	vary.header.Set("Vary", "Accept, x-account-"+b.numbers[2])
+	withHeader := []testAnswer{b.accountNumbers(), vary}
+
+	for _, tc := range []struct {
+		name    string
+		want    string // the refusal's start: the gate, the answer and why
+		hook    func(t *testing.T, o *scrubOutput)
+		answers []testAnswer  // the recording, or F planted
+		amounts amountsPolicy // what the scrubber does with money
+	}{
+		// (i)
+		{
+			"a problem introduced", "gate (i), decoding: answer 003: decoded, it reads otherwise than the recording's",
+			replace("003", `"time": "2024-04-04T15:56:07+0000"`, `"time": "zq9"`), nil, keep,
+		},
+		{
+			"an error's code changed", "gate (i), decoding: answer 006: decoded, it reads otherwise than the recording's",
+			replace("006", "flow.GatewayTimeout", "flow.ServiceUnavailable"), nil, keep,
+		},
+		{
+			"an error made to say nothing", "gate (i), decoding: answer 007: decoded, it reads otherwise than the recording's",
+			replace("007", `"Invalid account number"`, `""`), nil, keep,
+		},
+
+		// (ii)
+		{
+			"a key dropped", "gate (ii), the census: answer 003: the census of its records differs from the recording's",
+			replace("003", `"description": "Dividend Reinvest",`, ""), nil, keep,
+		},
+		{
+			"a key sent twice made to differ", "gate (ii), the census: answer 003: its keys sent twice differ from the recording's",
+			replace("003", "\"assetType\": \"COLLECTIVE_INVESTMENT\"\n", "\"assetType\": \"EQUITY\"\n"), nil, keep,
+		},
+
+		// (iii)
+		{
+			"white space changed", "gate (iii), the tokens: answer 003: its keys, punctuation or white space differ from the recording's",
+			replace("003", "{\n", "{\r\n"), nil, keep,
+		},
+		{
+			"two keys swapped", "gate (iii), the tokens: answer 003: its keys, punctuation or white space differ from the recording's",
+			replace("003", "\"status\": \"VALID\",\n    \"subAccount\": \"CASH\",", "\"subAccount\": \"CASH\",\n    \"status\": \"VALID\","), nil, keep,
+		},
+		{
+			"a value of another JSON kind", "gate (iii), the tokens: answer 009: errors.status: a value of another JSON kind than the recording's",
+			replace("009", `"status":401`, `"status":"401"`), nil, keep,
+		},
+		{
+			"an id in another form", "gate (iii), the tokens: answer 003: activityId: an identifier of another form than the recording's",
+			replace("003", `"activityId": `, `"activityId": -`), nil, keep,
+		},
+		{
+			"a kept value off its grammar", "gate (iii), the tokens: answer 003: subAccount: not a value of its closed list",
+			replace("003", `"subAccount": "CASH"`, `"subAccount": "GIFT"`), nil, keep,
+		},
+		{
+			"a kept value changed", "gate (iii), the tokens: answer 003: subAccount: a kept value changed where it held no identifier",
+			replace("003", `"subAccount": "CASH"`, `"subAccount": "MARGIN"`), nil, keep,
+		},
+		{
+			"money that keep keeps, changed", "gate (iii), the tokens: answer 003: netAmount: money that the policy keeps as it was, changed",
+			replace("003", `"netAmount": -2.7,`, `"netAmount": -2.8,`), nil, keep,
+		},
+		{
+			"an amount not K times the recording's", "gate (iii), the tokens: answer 003: netAmount: money that is not K times the recording's",
+			replace("003", `"netAmount": -54.0,`, `"netAmount": -54.1,`), nil, scale,
+		},
+		{
+			"an amount with a decimal more", "gate (iii), the tokens: answer 003: netAmount: money of another form than the recording's",
+			replace("003", `"netAmount": -54.0,`, `"netAmount": -54.00,`), nil, scale,
+		},
+		{
+			"free text put back", "gate (iii), the tokens: answer 002: description: free text that is neither its placeholder nor Schwab's wording",
+			replace("002", `"DESCRIPTION 1"`, `"Wire Incoming JOHN Q PUBLIC 5551234"`), freeText, keep,
+		},
+		{
+			"Schwab's wording made other wording", "gate (iii), the tokens: answer 003: description: Schwab's wording changed where it held no identifier",
+			replace("003", `"Dividend Reinvest"`, `"Sell Trade"`), nil, keep,
+		},
+		{
+			"a 429's white space changed", "gate (iii), the tokens: answer 010: it differs from the recording's",
+			func(t *testing.T, o *scrubOutput) { fileNamed(t, o, "010").body = []byte("  \n") }, nil, keep,
+		},
+		{
+			"a page changed outside its slots", "gate (iii), the tokens: answer 013: it is no longer the page it was",
+			replace("013", "Whitelabel Error Page", "Whitelabel Error page"), nil, keep,
+		},
+		{
+			"a page's line end changed before its slots", "gate (iii), the tokens: answer 002: the page differs from the recording's outside its slots",
+			replace("002", "\n", "\r\n"), withPage, keep,
+		},
+		{
+			"a page's line end changed after its slots", "gate (iii), the tokens: answer 002: the page differs from the recording's outside its slots",
+			func(t *testing.T, o *scrubOutput) {
+				f := fileNamed(t, o, "002")
+				f.body = append(bytes.TrimSuffix(f.body, []byte("\n")), "\r\n"...)
+			}, withPage, keep,
+		},
+		{
+			"a page's Reference not its fake", "gate (iii), the tokens: answer 002: the Reference: not the fake of the recording's",
+			replace("002", strings.ReplaceAll(schwabtest.AkamaiReference, ".", "&#46;"), "77&#46;0a1b2c3d&#46;1792539138&#46;5e6f"), withPage, keep,
+		},
+		{
+			"a page's address off its grammar", "gate (iii), the tokens: answer 002: the address quoted: not an address of Schwab's API",
+			replace("002", "api&#46;schwabapi&#46;com", "example&#46;com"), withPage, keep,
+		},
+		{
+			"a page's address changed", "gate (iii), the tokens: answer 002: the address quoted: changed where it held no identifier",
+			replace("002", "trader&#47;v1", "marketdata&#47;v1"), withPage, keep,
+		},
+		{
+			"an entry's correlation ID changed", "gate (iii), the tokens: answer 006: its entry's header Schwab-Client-CorrelID is not the fake of the recording's",
+			entry("006", func(e *schwabtest.Entry) { e.Response.Headers["Schwab-Client-CorrelID"] = []string{counterID(99)} }), nil, keep,
+		},
+		{
+			"an entry's status changed", "gate (iii), the tokens: answer 007: its entry's request or status differs from the recording's",
+			entry("007", func(e *schwabtest.Entry) { e.Response.Status = 401 }), nil, keep,
+		},
+		{
+			"an entry's protocol changed", "gate (iii), the tokens: answer 007: its entry's request or status differs from the recording's",
+			entry("007", func(e *schwabtest.Entry) { e.Response.Proto = "HTTP/1.0" }), nil, keep,
+		},
+		{
+			"an entry's path changed", "gate (iii), the tokens: answer 004: its entry's path changed where it held no identifier",
+			entry("004", func(e *schwabtest.Entry) { e.Request.Path += "x" }), nil, keep,
+		},
+		{
+			"an entry's query changed", "gate (iii), the tokens: answer 002: its entry's query changed where it held no identifier",
+			entry("002", func(e *schwabtest.Entry) { e.Request.Query = "fields=orders" }), nil, keep,
+		},
+		{
+			"an entry's Content-Type changed", "gate (iii), the tokens: answer 007: its entry's header Content-Type changed where it held no identifier",
+			entry("007", func(e *schwabtest.Entry) { e.Response.Headers["Content-Type"] = []string{"text/plain"} }), nil, keep,
+		},
+		{
+			"a header added to an entry", "gate (iii), the tokens: answer 007: its entry has a header that the recording's does not keep",
+			entry("007", func(e *schwabtest.Entry) { e.Response.Headers["Vary"] = []string{"Accept"} }), nil, keep,
+		},
+		{
+			"Content-Length's name lost", "gate (iii), the tokens: answer 007: its entry lost the name of a header",
+			dropName("007", "Content-Length"), nil, keep,
+		},
+		{
+			"an unkept header's name lost", "gate (iii), the tokens: answer 001: its entry lost the name of a header",
+			dropName("001", "Etag"), withETag, keep,
+		},
+
+		// (iv)
+		{
+			"two hashes swapped", "gate (iv), relations: answer 001: hashValue: a hash that is not HashFor of the account number beside it",
+			swapHashes("001"), nil, keep,
+		},
+		{
+			"two hashes swapped where only the account numbers name them",
+			"gate (iv), relations: answer 001: hashValue: a hash that is not HashFor of the account number beside it", swapHashes("001"), onlyNumbers, keep,
+		},
+		{
+			"a hash's fake changed in a path alone", "gate (iv), relations: the fakes of an account's hash are not one for each value",
+			entry("004", func(e *schwabtest.Entry) {
+				e.Request.Path = strings.Replace(e.Request.Path, fake(0).Hash, fake(1).Hash, 1)
+			}), nil, keep,
+		},
+		{
+			"an account number's fake changed in a path alone", "gate (iv), relations: the fakes of an account number are not one for each value",
+			entry("007", func(e *schwabtest.Entry) {
+				e.Request.Path = strings.Replace(e.Request.Path, fake(0).Number, fake(1).Number, 1)
+			}), nil, keep,
+		},
+		{
+			"an activity ID's fake changed in a path alone", "gate (iv), relations: the fakes of an activity ID are not one for each value",
+			entry("003", func(e *schwabtest.Entry) {
+				e.Request.Path = regexp.MustCompile(`[0-9]+$`).ReplaceAllString(e.Request.Path, "10000000099")
+			}), nil, keep,
+		},
+		{
+			"an order ID's fake changed in a path alone", "gate (iv), relations: the fakes of an order ID are not one for each value",
+			entry("003", func(e *schwabtest.Entry) {
+				e.Request.Path = regexp.MustCompile(`[0-9]+$`).ReplaceAllString(e.Request.Path, "1000000000099")
+			}), withOrder, keep,
+		},
+		{
+			"an id given two fakes", "gate (iv), relations: the fakes of an activity ID are not one for each value",
+			func(t *testing.T, o *scrubOutput) {
+				f := fileNamed(t, o, "003")
+				f.body = regexp.MustCompile(`"activityId": [0-9]+`).ReplaceAll(f.body, []byte(`"activityId": 10000000099`))
+			}, nil, keep,
+		},
+		{
+			"an error's ID given two fakes", "gate (iv), relations: the fakes of an error's ID are not one for each value",
+			replace("003", counterID(1), counterID(99)), twoErrors, keep,
+		},
+		{
+			"a nickname given two fakes", "gate (iv), relations: the fakes of an account's nickname are not one for each value",
+			replace("014", `"Account 1"`, `"Account 9"`), twoPrefs, keep,
+		},
+		{
+			"a masked number off its account",
+			"gate (iv), relations: answer 005: accounts.displayAcctId: a masked account number that does not end with the account number beside it",
+			replace("005", `"...135"`, `"...136"`), nil, keep,
+		},
+		{
+			"a masked number of another form", "gate (iv), relations: answer 005: accounts.displayAcctId: a masked account number of another form than the recording's",
+			replace("005", `"...135"`, `"..135"`), nil, keep,
+		},
+
+		// (v)
+		{
+			"one mapping switched off", "gate (v), leaks: answer 005: accounts.nickName: an account's nickname of the recording",
+			replace("005", `"Account 1"`, `"`+nickname+`"`), nil, keep,
+		},
+		{
+			"one mapping switched off in a query", "gate (v), leaks: answer 002: the request's query: an account number of the recording",
+			entry("002", func(e *schwabtest.Entry) {
+				e.Request.Query = strings.Replace(e.Request.Query, fake(1).Number, b.numbers[1], 1)
+			}), withQuery, keep,
+		},
+		{
+			"one mapping switched off in a path where no id goes", "gate (v), leaks: answer 002: the request's path: an account's hash of the recording",
+			entry("002", func(e *schwabtest.Entry) {
+				e.Request.Path = strings.Replace(e.Request.Path, fake(1).Hash, b.hashes[1], 1)
+			}), withPathHash, keep,
+		},
+		{
+			"one mapping switched off in a header's value", "gate (v), leaks: answer 002: the header Vary: an account number of the recording",
+			entry("002", func(e *schwabtest.Entry) { e.Response.Headers["Vary"] = []string{"Accept, x-account-" + b.numbers[2]} }), withHeader, keep,
+		},
+		{
+			"one mapping switched off in a string written with an escape", "gate (v), leaks: answer 009: errors.id: an error's ID of the recording",
+			func(t *testing.T, o *scrubOutput) {
+				f := fileNamed(t, o, "009")
+				escaped := fmt.Sprintf(`%cu%04x`, '\\', errorID[0]) + errorID[1:]
+				f.body = regexp.MustCompile(`"id":"[^"]*"`).ReplaceAll(f.body, []byte(`"id":"`+escaped+`"`))
+			}, nil, keep,
+		},
+		{
+			"one mapping switched off in a page written with a character reference", "gate (v), leaks: answer 002: the page: an account's hash of the recording",
+			replace("002", fake(0).Hash, "&#"+strconv.Itoa(int(b.hashes[0][0]))+";"+b.hashes[0][1:]), withPage, keep,
+		},
+		{
+			"an identifier in a shape", "gate (v), leaks: shapes/002.txt: an account number of the recording",
+			func(_ *testing.T, o *scrubOutput) {
+				o.shapes["002"] += p.planted[idAccountNumber][fake(0).Number] + "\n"
+			}, nil, refuse,
+		},
+		{
+			"a local path", "gate (v), leaks: review.txt: a local path",
+			func(_ *testing.T, o *scrubOutput) { o.review += filepath.Join(home, "raw") + "\n" }, nil, keep,
+		},
+		{"the user name", "gate (v), leaks: review.txt: the user name", func(_ *testing.T, o *scrubOutput) { o.review += "by zq9user\n" }, nil, keep},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			answers := tc.answers
+			if answers == nil {
+				answers = planted
+			}
+			out, err := scrubAnswers(t, answers, scrubConfig{amounts: tc.amounts, home: home, hook: func(o *scrubOutput) { tc.hook(t, o) }})
+			if err == nil || out != nil || !strings.HasPrefix(err.Error(), tc.want) {
+				t.Fatalf("%v, want %s", err, tc.want)
+			}
+			for _, v := range slices.Concat(p.values(), b.p.values()) {
+				if strings.Contains(err.Error(), v) {
+					t.Errorf("the refusal holds a planted value: %v", err)
+				}
+			}
+		})
+	}
+	if _, err := scrubAnswers(t, planted, scrubConfig{amounts: keep, home: home, hook: func(*scrubOutput) {}}); err != nil {
+		t.Errorf("an output that the hook leaves alone: %v", err)
+	}
+	// A user name that is one of Schwab's keys, such as amount, is looked
+	// for in values, not in keys.
+	if _, err := scrubAnswers(t, planted, scrubConfig{amounts: keep, home: filepath.Join(t.TempDir(), "amount")}); err != nil {
+		t.Errorf("the user amount: %v", err)
+	}
 }
