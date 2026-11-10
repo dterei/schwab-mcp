@@ -303,14 +303,64 @@ func TestModuleRoot(t *testing.T) {
 	}
 }
 
+// isolateGit keeps the user's git settings from the git that t runs, its own
+// and gitCommit's, until t ends: no global or system config, whose hooks,
+// templates and settings could reach past t's folders or refuse its
+// commits, and none of the GIT_ variables, such as the GIT_DIR and
+// GIT_INDEX_FILE that a git hook running the tests sets, which would take
+// git to the owner's repository. GIT_EXEC_PATH stays, which says only where
+// git's own programs are. It needs git 2.32 or later, which reads
+// GIT_CONFIG_GLOBAL.
+func isolateGit(t *testing.T) {
+	t.Helper()
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(strings.ToUpper(name), "GIT_") && !strings.EqualFold(name, "GIT_EXEC_PATH") {
+			t.Setenv(name, "") // which puts it back when t ends
+			if err := os.Unsetenv(name); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	empty := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", empty)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+}
+
 // The commit is git's HEAD, marked modified when git status prints
 // anything, and "unknown" when git fails, as outside a repository, or is
-// missing.
+// missing. The git that the test runs sees none of the user's: neither the
+// global config in the home folder nor the system config, which the test
+// names by GIT_CONFIG_SYSTEM since it may not write the machine's, here
+// each one whose hook refuses every commit; nor the GIT_DIR and
+// GIT_INDEX_FILE that a git hook running the tests sets, here those of a
+// repository of the owner's, to which its commit would go.
 func TestGitCommit(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
 	}
 	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	hooks := filepath.Join(home, "hooks")
+	if err := os.MkdirAll(hooks, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooks, "pre-commit"), []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[core]\n\thooksPath = "+filepath.ToSlash(hooks)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	owner := filepath.Join(dir, "owner")
+	t.Setenv("GIT_DIR", filepath.Join(owner, ".git"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(owner, ".git", "index"))
+	isolateGit(t)
+	t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(home, ".gitconfig")) // in place of the machine's
 	t.Setenv("GIT_CEILING_DIRECTORIES", dir)
 	repo := filepath.Join(dir, "repo")
 	if err := os.Mkdir(repo, 0o700); err != nil {
@@ -345,6 +395,9 @@ func TestGitCommit(t *testing.T) {
 	}
 	if got := gitCommit(t.Context(), repo); got != head+", modified" {
 		t.Errorf("a modified tree: %q, want %q", got, head+", modified")
+	}
+	if _, err := os.Stat(owner); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("git went to the owner's repository: %v", err)
 	}
 	t.Setenv("PATH", "")
 	if got := gitCommit(t.Context(), repo); got != "unknown" {
