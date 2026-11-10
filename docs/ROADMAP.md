@@ -55,8 +55,10 @@ current as of October 2026.
   modernc.org/sqlite, a pure-Go driver that needs x/sys too and brings a few
   small modules of its own. Each new dependency has to earn its place.
 - **Tested against a fake Schwab.** Every endpoint the code uses is imitated by
-  an in-process fake server that enforces Schwab's auth rules, as the CLI's
-  tests already do. Nothing in CI talks to the real API.
+  an in-process fake server, `internal/schwab/schwabtest`, that enforces
+  Schwab's auth rules and says which of its answers are guesses. The tests of
+  the client and the CLI share it. Nothing in CI talks to the real API; the
+  [live mode](live.md), which does, runs only by hand, and only reads.
 
 ## Where this fits
 
@@ -89,7 +91,8 @@ internal/filelock/       file locks across processes, for the token file
 internal/schwab/         Schwab API client: OAuth, token store, HTTP with
                          retries and rate limiting, typed models + raw JSON
 internal/schwab/schwabtest/
-                         the fake Schwab server used by every test
+                         the fake Schwab server that the tests run against,
+                         and its fixtures
 internal/history/        local SQLite store, sync, cash-flow classification,
                          CSV import, export
 internal/perf/           valuations, TWR, MWR/IRR, income
@@ -176,13 +179,34 @@ and HTTP code into `internal/schwab` with what the history store needs.
       balance or flag that Schwab sends only sometimes is nil when absent.
       Transactions give their trade day as a New York date, through the
       system's time zone or an embedded copy of New York's
-- [ ] `internal/schwab/schwabtest`: the fake Schwab server for those
-      endpoints, plus scrubbed recordings of real responses as fixtures
-- [ ] Fuzz tests for the parsers (Schwab timestamps, pasted redirect
-      addresses, transaction JSON)
-- [ ] A manual `-live` test mode for probing the real API, never run in CI,
+- [x] `internal/schwab/schwabtest`: the fake Schwab server for those
+      endpoints, which the tests of the client and the CLI share. It
+      imitates the token endpoint, the authorize page and the six account
+      endpoints, with Schwab's rules for tokens. It serves its fixtures byte
+      for byte: answers made by hand in the shape Schwab sends them, and
+      Schwab's error bodies and pages, rebuilt from community logs and the
+      gateway's documentation, each indexed with where it came from. Several
+      things not known about Schwab, such as how the 3000-row cap meets a
+      request for several types, are settings, whose defaults are labeled
+      guesses. A lint rule keeps it out of the programs
+- [ ] Scrubbed recordings of real responses as fixtures, beside the
+      hand-made ones. The tools for them are built: a live run's
+      `-live.record`, and the scrubber that turns its recording into
+      fixtures (see [the live mode](live.md#recording)). This waits for a
+      first recording of a real account
+- [x] Fuzz tests for the parsers (Schwab timestamps, pasted redirect
+      addresses, transaction JSON) and every other record. `make fuzz` runs
+      each target in turn, and CI runs their seeds. A table test also changes
+      the member at each key path of the fixture records in each way that
+      Schwab could, and checks that the record's problems say exactly what
+      changed
+- [x] A manual `-live` test mode for probing the real API, never run in CI,
       that also checks each real answer against the records: no record with
-      problems, no key that no field takes, and no key repeated in an object
+      problems, no key that no field takes, and no key repeated in an object.
+      It only reads, and writes a report without account numbers, hashes,
+      IDs or balances, for you to read and then share (see
+      [the live mode](live.md)). CI runs its harness and every probe against
+      the fake
 - [ ] Answer the open questions below that a probe can settle, starting with
       how far back transactions go and what Schwab returns past that point
 
