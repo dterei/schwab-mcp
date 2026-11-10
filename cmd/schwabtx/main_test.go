@@ -845,17 +845,36 @@ func TestRecordsThatShareATimeAreKept(t *testing.T) {
 }
 
 // Records that share a time are ranked by their ids, the highest first, so
-// that -n keeps the same ones whatever order Schwab sends them in.
+// that -n keeps the same ones whatever order Schwab sends them in. Here the
+// lowest id, 1001, arrives before the others, in one answer or from the
+// account listed first.
 func TestRecordsThatShareATimeAreRankedByID(t *testing.T) {
-	f, _ := setup(t)
-	f.addAccount("11112222", 1000, 3, testNow.Add(-time.Hour), 0) // three fills at one instant
-	doLogin(t)
-	out, _, err := runTx(t, "-json", "-n", "2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := idsFromJSON(t, out), []string{"1003", "1002"}; !equal(got, want) {
-		t.Errorf("got %v, want %v", got, want)
+	at := testNow.Add(-time.Hour)
+	for _, tc := range []struct {
+		name string
+		add  func(f *fakeSchwab) // ids 1001 to 1003, all at one time
+	}{
+		{"in one answer", func(f *fakeSchwab) {
+			f.SetTransactionRules(schwabtest.TransactionRules{Order: schwabtest.Shuffled}) // which sends 1001, 1002, 1003
+			f.addAccount("11112222", 1000, 3, at, 0)
+		}},
+		{"across accounts", func(f *fakeSchwab) {
+			f.addAccount("11112222", 1000, 1, at, 0)
+			f.addAccount("33334444", 1001, 2, at, 0)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := setup(t)
+			tc.add(f)
+			doLogin(t)
+			out, _, err := runTx(t, "-json", "-n", "2")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := idsFromJSON(t, out), []string{"1003", "1002"}; !equal(got, want) {
+				t.Errorf("got %v, want %v", got, want)
+			}
+		})
 	}
 }
 
