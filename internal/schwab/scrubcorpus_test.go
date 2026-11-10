@@ -202,8 +202,18 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 			// number, so it is a placeholder.
 			name: "an account number inside Schwab's wording", amounts: keep, accounts: 3,
 			answers: func(b corpusBase) ([]testAnswer, []string) {
-				id := b.id()
-				return []testAnswer{b.transactions(cashRow(b.numbers[0], id, "description", `"TRF FDS TO TYPE `+b.numbers[1]+`"`))}, []string{id}
+				quoted := `{"message":"'2024-04-04T15:54:14.` + b.numbers[1] + `Z' is not a valid value for startDate"}`
+				return []testAnswer{jsonAnswer("/trader/v1/accounts/"+b.hashes[0]+"/transactions", "", 400, quoted)}, nil
+			},
+			written: map[string]string{"002": `{"message":"MESSAGE 1"}`},
+		},
+		{
+			// An account's type is one or two digits, so a longer number is
+			// not Schwab's wording.
+			name: "a long number where Schwab's wording has an account's type", amounts: keep, accounts: 3,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				id, long := b.id(), b.p.draw(12, plantDigits, plantDigits)
+				return []testAnswer{b.transactions(cashRow(b.numbers[0], id, "description", `"TRF FDS TO TYPE `+long+`"`))}, []string{id, long}
 			},
 			written: map[string]string{"002": `"description":"DESCRIPTION 1"`},
 		},

@@ -811,9 +811,9 @@ func (s *scrubber) placeholderValue(a *scrubAnswer, r rule, sc jsonScalar, raw [
 		}
 		a.review.w8 = append(a.review.w8, row)
 	}
-	// Wording that held an account number in place of its digits, as TRF
-	// FDS TO TYPE # can, would hold a fake one, which no value but an
-	// account number may.
+	// Wording that held an account number, as the fraction of a time that
+	// a message quotes can, would hold a fake one once it is replaced,
+	// which no value but an account number may.
 	if out, why := s.replaceInJSONString(raw); why == "" {
 		if kept, _ := jsonString(out); r.text.isWording(kept) && !holdsFakeAccount(kept) {
 			return out, ""

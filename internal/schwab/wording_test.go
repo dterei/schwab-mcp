@@ -13,11 +13,12 @@ import (
 
 // Schwab's own wording: the descriptions of transactions and the messages
 // of errors that Schwab has been seen to send, each as Schwab writes it,
-// with SYM for the symbol after a "~". Text on it names no one, so a report
-// may print it and a recording may keep it; any other text, which may name
-// a bank, a payer or another account, is never printed. The probe of row
-// shapes (Q11) takes the whole of it. The recording's scrubber and the
-// value hygiene tests take it by its parts, as the scrub policy's free text
+// with SYM for the symbol after a "~", # for an account's type, and
+// <value> for a date. Text on it names no one, so a report may print it
+// and a recording may keep it; any other text, which may name a bank, a
+// payer or another account, is never printed. The probe of row shapes
+// (Q11) takes the whole of it. The recording's scrubber and the value
+// hygiene tests take it by its parts, as the scrub policy's free text
 // does: a transaction's description may be one of the descriptions, and an
 // error's message one of the messages. A text is on it as onWording says.
 var (
@@ -58,17 +59,18 @@ var (
 	schwabWording = slices.Concat(schwabDescriptions, schwabMessages)
 )
 
-// wordingValue is what <value> in an entry of schwabWording takes, once
-// masked: a date, or a date and a time, as a query sends them, and nothing
-// else, so that a message that quotes something other than a date is not
-// on the list.
-const wordingValue = `#-#-#(?:T#:#(?::#(?:\.#)?)?(?:Z|[+-]#(?::#)?)?)?`
-
-// wordingDigits are the runs of digits that maskWording masks.
-var wordingDigits = regexp.MustCompile(`[0-9]+`)
+// What # and <value> in an entry of schwabWording take: one or two
+// digits, an account's type, as in TRF FDS TO TYPE 2; and a date, or a
+// date and a time, as a query sends them. Nothing else is taken, so that
+// TRF FDS TO TYPE and a long number, or a message that quotes something
+// other than a date, is not on the list.
+const (
+	wordingType  = `[0-9]{1,2}`
+	wordingValue = `[0-9]{4}-[0-9]{2}-[0-9]{2}(?:T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]{1,9})?)?(?:Z|[+-][0-9]{2}(?::?[0-9]{2})?)?)?`
+)
 
 // wordingEntries are the entries of schwabWording as onWording matches
-// them, each masked, with the entry it stands for.
+// them, with the entry each stands for.
 var wordingEntries = func() []struct {
 	re    *regexp.Regexp
 	entry string
@@ -78,7 +80,8 @@ var wordingEntries = func() []struct {
 		entry string
 	}
 	for _, e := range schwabWording {
-		pattern := strings.ReplaceAll(regexp.QuoteMeta(maskWording(e)), regexp.QuoteMeta("<value>"), wordingValue)
+		pattern := strings.ReplaceAll(regexp.QuoteMeta(e), "#", wordingType)
+		pattern = strings.ReplaceAll(pattern, regexp.QuoteMeta("<value>"), wordingValue)
 		es = append(es, struct {
 			re    *regexp.Regexp
 			entry string
@@ -87,22 +90,14 @@ var wordingEntries = func() []struct {
 	return es
 }()
 
-// maskWording returns text as schwabWording is matched: the symbol after
-// its last "~" made SYM, and each run of digits made #.
-func maskWording(text string) string {
-	if i := strings.LastIndex(text, "~"); i >= 0 {
-		text = text[:i+1] + "SYM"
-	}
-	return wordingDigits.ReplaceAllString(text, "#")
-}
-
 // onWording returns the entry of schwabWording that text is, and whether
-// there is one: text and the entry are the same once each is masked as
-// maskWording masks it, so that "W-8 Withholding~BND" is "W-8
-// Withholding~SYM" and "TRF FDS TO TYPE 12" is "TRF FDS TO TYPE #". What
-// follows the last "~" must be a symbol, as isSymbol says, so that "W-8
-// Withholding~ACME BANK" is not on it. The case counts, as Schwab's wording
-// keeps to one.
+// there is one: text is the entry once the symbol after its last "~" is
+// made SYM, with # standing for one or two digits and <value> for a date,
+// so that "W-8 Withholding~BND" is "W-8 Withholding~SYM" and "TRF FDS TO
+// TYPE 12" is "TRF FDS TO TYPE #". What follows the last "~" must be a
+// symbol, as isSymbol says, so that "W-8 Withholding~ACME BANK" is not on
+// it. The case counts, as Schwab's wording keeps to one, and so does every
+// other digit, so that a long number is never on it.
 func onWording(text string) (string, bool) {
 	return onWordingOf(schwabWording, text)
 }
@@ -111,24 +106,27 @@ func onWording(text string) (string, bool) {
 // schwabDescriptions, that text is, and whether there is one, as onWording
 // matches text with the whole.
 func onWordingOf(part []string, text string) (string, bool) {
-	if i := strings.LastIndex(text, "~"); i >= 0 && !isSymbol(text[i+1:]) {
-		return "", false
+	if i := strings.LastIndex(text, "~"); i >= 0 {
+		if !isSymbol(text[i+1:]) {
+			return "", false
+		}
+		text = text[:i+1] + "SYM"
 	}
-	masked := maskWording(text)
 	for _, e := range wordingEntries {
-		if slices.Contains(part, e.entry) && e.re.MatchString(masked) {
+		if slices.Contains(part, e.entry) && e.re.MatchString(text) {
 			return e.entry, true
 		}
 	}
 	return "", false
 }
 
-// Schwab's wording is on the list once the symbol after a "~" and the
-// digits are masked, and what differs from it in a word, in case or by more
-// text is not: every description of the hand-made fixtures and every
+// Schwab's wording is on the list once the symbol after a "~" is masked,
+// with an account's type of one or two digits and a date where the list
+// takes one, and what differs from it in a word, in case, in a digit or by
+// more text is not: every description of the hand-made fixtures and every
 // message of their errors is on it, Schwab's reported answer to a date
-// alone too, while a message that quotes something other than a date is
-// not.
+// alone too, while a message that quotes something other than a date, or
+// a transfer to a type of more than two digits, is not.
 func TestSchwabWording(t *testing.T) {
 	var on []string
 	for _, name := range []string{"transactions.json", "transaction.json"} {
@@ -193,6 +191,9 @@ func TestSchwabWording(t *testing.T) {
 		"Invalid account number 29470135", "Exception while authenticating refresh token [tokenDigest=abc]",
 		"Ordinary Dividend~", "W-8 Withholding~ACME BANK", "Ordinary Dividend~bnd", "Ordinary Dividend~29470135",
 		"Dividend Reinvest~BND", "Ordinary Dividend~BND~",
+		"TRF FDS TO TYPE 123456789012", "TRF FDS FRM TYPE 123", "TRF FDS TO TYPE #", "TRF FDS TO TYPE 1.5", "W-9 Withholding~BND",
+		"'29470135-04-04' is not a valid value for startDate", "'2024-04-04T15:54:14.0000000000Z' is not a valid value for startDate",
+		"401 Bad Request: {\"error_description\":\"Refresh token is invalid, expired or revoked\",\"error\":\"invalid_grant\"}",
 	} {
 		if entry, ok := onWording(text); ok {
 			t.Errorf("onWording(%q) = %q, on the list", text, entry)
