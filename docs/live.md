@@ -76,8 +76,9 @@ no redirect: Go sends the bearer token on to a redirect to the same host,
 over plain http too, and a 307 or 308 sends a refresh's form, refresh token
 and all, again. A request the guard refuses stops the run at once, as do a
 spent budget, three failures of the network in a row, the run's deadline,
-and an Access Denied page from Schwab's edge network, after which more
-requests can be refused for about a quarter of an hour.
+and an Access Denied page from Schwab's edge network, whichever request
+draws it, after which more requests can be refused for about a quarter of
+an hour.
 
 The requests keep to the rate limit that every process using the app key
 on this computer shares, 100 a minute. The history walk waits a second

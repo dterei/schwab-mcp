@@ -32,6 +32,11 @@ const (
 // errRunDeadline is why a run stops at its deadline.
 var errRunDeadline = errors.New("the run's deadline passed")
 
+// errEdgePage is why a run stops at an Access Denied page of Schwab's edge
+// network, after which more requests can be refused for about a quarter of
+// an hour.
+var errEdgePage = errors.New("Schwab's edge network refused a request with an Access Denied page")
+
 // A liveRun is a run of the live mode. Its caller gives it everything it
 // uses, so that CI runs it against the fake in seconds, with a fake clock
 // and nothing written outside a temporary folder, while TestLive gives it
@@ -259,7 +264,9 @@ func (r *liveRun) probeNames() string {
 
 // connect sends every request of r's Auth and Client through a guard of
 // r's origin, which stops the run with cancel, and tells the report of the
-// Auth's warnings and the Client's.
+// Auth's warnings and the Client's. Each answer, whichever request drew
+// it, is seen as it arrives: the scrubber learns its correlation IDs, the
+// recording keeps it, and one that is not a success goes to readRefusal.
 func (r *liveRun) connect(ctx context.Context, cancel context.CancelCauseFunc) error {
 	base, err := url.Parse(r.auth.cfg.BaseURL)
 	if err != nil {
@@ -286,11 +293,29 @@ func (r *liveRun) connect(ctx context.Context, cancel context.CancelCauseFunc) e
 		if r.rec != nil {
 			r.rec.record(req, sent, resp)
 		}
+		if resp.StatusCode/100 != 2 {
+			r.readRefusal(resp)
+		}
 	}
 	r.guard = g
 	r.auth.cfg.HTTPClient = liveHTTPClient(g)
 	r.auth.cfg.Warn = r.warn
 	return nil
+}
+
+// readRefusal reads resp, an answer that is not a success, and gives it a
+// body that reads the same: the scrubber learns what it holds, and an
+// Access Denied page of Schwab's edge network stops the run before the
+// answer reaches the request's sender, so that nothing more is sent,
+// whether it came to a probe's read, a request of its own or a token
+// request.
+func (r *liveRun) readRefusal(resp *http.Response) {
+	body, _ := readWhole(resp)
+	e := newError(resp.StatusCode, resp.Header, body)
+	r.scrub.learnError(e)
+	if e.Reference != "" {
+		r.stop(errEdgePage)
+	}
 }
 
 // run runs the parts of r in turn, until the run stops: the account numbers
@@ -503,12 +528,8 @@ func (r *liveRun) fetch(ctx context.Context, c *Client, endpoint, path string, q
 	sec := &reportSection{title: endpoint}
 	rep, err := c.get(ctx, path, query)
 	if err != nil {
-		r.scrub.learnError(err)
 		if se, ok := errors.AsType[*Error](err); ok {
-			switch {
-			case se.Reference != "":
-				r.stop(errors.New("Schwab's edge network refused a request with an Access Denied page"))
-			case (se.Status == http.StatusUnauthorized || se.Status == http.StatusForbidden) && strings.HasPrefix(path, "/trader/v1/"):
+			if (se.Status == http.StatusUnauthorized || se.Status == http.StatusForbidden) && strings.HasPrefix(path, "/trader/v1/") {
 				r.mu.Lock()
 				r.refused++
 				r.mu.Unlock()
@@ -526,7 +547,6 @@ func (r *liveRun) fetch(ctx context.Context, c *Client, endpoint, path string, q
 		}
 	}
 	r.scrub.learnAnswer(rep.body)
-	r.scrub.learnHeader(rep.header)
 	if kind == "" {
 		sec.addf("%d, %s; %s", rep.status, contentType(rep.header), correlationNames(rep.header))
 		if !quiet {

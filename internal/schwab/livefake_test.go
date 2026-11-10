@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -1043,15 +1044,23 @@ func TestLiveLabelsAccountsByTheirPlace(t *testing.T) {
 }
 
 // What a probe says of an answer that it read itself, past the run's own
-// reads, holds no correlation ID either: the guard learns those of every
-// answer as it arrives. Nor does it hold the home folder, shown as ~, or the
-// user name, in a path elsewhere.
+// reads, holds no correlation ID either, of a refusal or of a success: the
+// guard learns those of every answer as it arrives. Nor does it hold the
+// home folder, shown as ~, or the user name, in a path elsewhere.
 func TestLiveScrubsWhatAProbeSays(t *testing.T) {
 	fl := newFakeLive(t)
 	elsewhere := string(filepath.Separator) + filepath.Join("srv", plantedUser, "x")
 	fl.r.probes = []liveProbe{{name: "Z1", mode: modeDefault, run: func(ctx context.Context, r *liveRun) verdict {
 		_, err := r.client.Get(ctx, "/trader/v1/accounts/"+schwabtest.UnknownHash, nil)
-		return verdict{answer: fmt.Sprint(err), evidence: []reportLine{{text: "looked in " + filepath.Join(r.home, "y") + " and " + elsewhere}}}
+		rep, okErr := r.client.get(ctx, "/trader/v1/userPreference", nil)
+		if okErr != nil {
+			t.Error(okErr)
+			return verdict{answer: "the preferences failed"}
+		}
+		return verdict{answer: fmt.Sprint(err), evidence: []reportLine{
+			{text: "looked in " + filepath.Join(r.home, "y") + " and " + elsewhere},
+			{text: "a success's correlation ID: " + rep.header.Get("Schwab-Client-Correlid")},
+		}}
 	}}}
 	if err := fl.run(t); err != nil {
 		t.Fatal(err)
@@ -1059,7 +1068,8 @@ func TestLiveScrubsWhatAProbeSays(t *testing.T) {
 	report := fl.report(t)
 	sep := string(filepath.Separator)
 	if !strings.Contains(report, "## probe Z1\nverdict: HTTP 400 from Schwab: Invalid account number (correlation ID {correlation id ") ||
-		!strings.Contains(report, "\nlooked in ~"+sep+"y and "+sep+"srv"+sep+"{user}"+sep+"x\n") {
+		!strings.Contains(report, "\nlooked in ~"+sep+"y and "+sep+"srv"+sep+"{user}"+sep+"x\n") ||
+		!regexp.MustCompile(`\na success's correlation ID: \{correlation id \d+\}\n`).MatchString(report) {
 		t.Errorf("the report:\n%s", report)
 	}
 	fl.noSecrets(t, "the report", report)

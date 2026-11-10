@@ -121,7 +121,8 @@ func rawWindow(w window, types bool) url.Values {
 // header, or none when it is "", once the rate limit lets it go, and
 // returns the answer, read as the Client's send reads one: the extras'
 // requests with a garbage token and with none, which the Client cannot
-// send. The scrubber learns what the answer holds.
+// send. The scrubber learns what the answer holds as it arrives, as it
+// does of every answer of the run's.
 func (r *liveRun) sendBare(ctx context.Context, path, authorization string) (*reply, error) {
 	if err := r.client.take(ctx); err != nil {
 		return nil, err
@@ -146,10 +147,7 @@ func (r *liveRun) sendBare(ctx context.Context, path, authorization string) (*re
 	if err != nil || len(body) > maxBody {
 		return nil, errors.New("the answer could not be read whole")
 	}
-	rep := &reply{status: resp.StatusCode, header: resp.Header, body: body}
-	r.scrub.learnHeader(rep.header)
-	r.scrub.learnError(newError(rep.status, rep.header, rep.body))
-	return rep, nil
+	return &reply{status: resp.StatusCode, header: resp.Header, body: body}, nil
 }
 
 // probeExtras sends the extras, single requests whose answers milestone 2

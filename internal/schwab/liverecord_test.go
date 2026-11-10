@@ -81,9 +81,7 @@ func (rec *recorder) record(req *http.Request, sent time.Time, resp *http.Respon
 	if req.Method != http.MethodGet || !underAPI(req.URL.EscapedPath()) {
 		return // a token request is never kept
 	}
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, int64(maxBody)+1))
-	_ = resp.Body.Close()
-	resp.Body = &readAgain{r: bytes.NewReader(body), err: readErr}
+	body, readErr := readWhole(resp)
 
 	var a rawAnswer
 	a.Request.Method, a.Request.Path, a.Request.Query = req.Method, req.URL.EscapedPath(), req.URL.RawQuery
@@ -124,6 +122,17 @@ func (rec *recorder) failure() error {
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
 	return rec.err
+}
+
+// readWhole reads resp's body whole, as the Client would, at most maxBody
+// and a byte, and gives resp a body that reads the same, and fails the same
+// if it was cut short. It returns the bytes, and why the read ended short,
+// if it did.
+func readWhole(resp *http.Response) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxBody)+1))
+	_ = resp.Body.Close()
+	resp.Body = &readAgain{r: bytes.NewReader(body), err: err}
+	return body, err
 }
 
 // readAgain is a body read already: it gives the bytes read, and then the

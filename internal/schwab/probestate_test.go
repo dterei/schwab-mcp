@@ -648,8 +648,9 @@ const (
 
 // sendWith sends one GET of the account numbers with tok, once the rate
 // limit lets it go, as the Client's send does, and returns its status: with
-// no try again, and no new token after a 401. The scrubber learns what the
-// answer holds.
+// no try again, and no new token after a 401. Only its status is read: the
+// scrubber learns what a refusal holds as it arrives, as of every answer
+// of the run's.
 func (r *liveRun) sendWith(ctx context.Context, tok string) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -660,10 +661,6 @@ func (r *liveRun) sendWith(ctx context.Context, tok string) (int, error) {
 	rep, err := r.client.send(ctx, r.auth.cfg.BaseURL+"/trader/v1/accounts/accountNumbers", tok)
 	if err != nil {
 		return 0, err
-	}
-	r.scrub.learnAnswer(rep.body)
-	if rep.status != http.StatusOK {
-		r.scrub.learnError(newError(rep.status, rep.header, rep.body))
 	}
 	return rep.status, nil
 }

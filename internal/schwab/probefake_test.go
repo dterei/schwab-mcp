@@ -368,6 +368,7 @@ func TestLiveOnTheFake(t *testing.T) {
 		{"Q12 with a cut answer", testChangesCutOnTheFake},
 		{"Q15", testRefreshOnTheFake},
 		{"extras", testExtrasOnTheFake},
+		{"an edge page", testEdgeOnTheFake},
 		{"watch=balances", testBalancesOnTheFake},
 		{"watch=fills", testFillsOnTheFake},
 		{"rate", testRateOnTheFake},
@@ -1092,6 +1093,77 @@ func testRefreshOnTheFake(t *testing.T) {
 			t.Errorf("%d refreshes, want the other process's one", refresh)
 		}
 	})
+}
+
+// An edgeTransport sends requests on through next, but answers the first
+// for which deny holds with the Access Denied page of Schwab's edge
+// network, and keeps what is sent after it.
+type edgeTransport struct {
+	next   http.RoundTripper
+	page   string
+	deny   func(req *http.Request) bool
+	mu     sync.Mutex
+	denied bool
+	after  []string
+}
+
+func (e *edgeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	e.mu.Lock()
+	if e.denied {
+		e.after = append(e.after, req.Method+" "+req.URL.Path)
+	}
+	deny := !e.denied && e.deny(req)
+	e.denied = e.denied || deny
+	e.mu.Unlock()
+	if !deny {
+		return e.next.RoundTrip(req)
+	}
+	closeBody(req)
+	resp := stubAnswer(req, http.StatusForbidden, e.page)
+	resp.Header.Set("Content-Type", "text/html")
+	return resp, nil
+}
+
+// An Access Denied page from Schwab's edge network stops the run at once,
+// whichever request draws it: the extras' request with a garbage token,
+// Q15's control with the token before its refresh, which the probes send
+// themselves, and Q15's refresh, which the Auth sends. Nothing is sent
+// after the page, and the probes after it do not run.
+func testEdgeOnTheFake(t *testing.T) {
+	var accountNumbers atomic.Int32
+	for _, tc := range []struct {
+		name   string
+		probes []string
+		deny   func(req *http.Request) bool
+		notRun string
+	}{
+		{"the extras' garbage token", []string{"Q1", "extras", "Q15", "Q6"}, func(req *http.Request) bool {
+			return req.Header.Get("Authorization") == "Bearer not-a-token"
+		}, "probe extras (stopped part way), probe Q15, probe Q6"},
+		{"Q15's control", []string{"Q15", "Q6"}, func(req *http.Request) bool {
+			// The run's first read of the account numbers, then Q15's control.
+			return req.URL.Path == "/trader/v1/accounts/accountNumbers" && accountNumbers.Add(1) == 2
+		}, "probe Q15 (stopped part way), probe Q6"},
+		{"Q15's refresh", []string{"Q15", "Q6"}, func(req *http.Request) bool {
+			return req.Method == http.MethodPost && req.URL.Path == tokenPath
+		}, "probe Q15 (stopped part way), probe Q6"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fl := newProbeLive(t, probeNow, tc.probes...)
+			e := &edgeTransport{next: fl.r.auth.cfg.HTTPClient.Transport, page: string(readTestdata(t, "errors/akamai_403.html")), deny: tc.deny}
+			fl.r.auth.cfg.HTTPClient = &http.Client{Transport: e}
+			err := fl.runClean(t)
+			if err == nil || !strings.Contains(err.Error(), "it stopped before its end: "+errEdgePage.Error()) {
+				t.Errorf("the run's error: %v", err)
+			}
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			if !e.denied || len(e.after) > 0 {
+				t.Errorf("the page was sent: %v; and after it, %q", e.denied, e.after)
+			}
+			wantLines(t, fl.report(t), "## the guard", "stopped: "+errEdgePage.Error(), "did not run: "+tc.notRun)
+		})
+	}
 }
 
 // The extras under the fake's settings: a window that leaves out a row at
