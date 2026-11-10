@@ -253,11 +253,13 @@ var marketExDate = time.Date(2026, 9, 18, 0, 0, 0, 0, newYork())
 // of the last year, before today, and the last dividend, of amount, ex on
 // exDate once the clock has reached it and a quarter before until then.
 // With adjusted set, the closes before an ex-date that has passed are
-// scaled by the dividend's factor, 1 - amount over the close before it.
+// scaled by the dividend's factor, 1 - amount over the close before it:
+// only, when it is set, those of the one symbol only.
 type fakeMarket struct {
 	exDate   time.Time
 	amount   float64
 	adjusted bool
+	only     string
 }
 
 // close returns sym's close on day, a New York date, as traded.
@@ -271,7 +273,7 @@ func (m fakeMarket) closes(sym string, now time.Time) (days []time.Time, closes 
 	ny := now.In(newYork())
 	today := time.Date(ny.Year(), ny.Month(), ny.Day(), 0, 0, 0, 0, newYork())
 	factor := 1.0
-	if m.adjusted && !now.Before(m.exDate) {
+	if m.adjusted && (m.only == "" || m.only == sym) && !now.Before(m.exDate) {
 		before := m.exDate.AddDate(0, 0, -1)
 		for before.Weekday() == time.Saturday || before.Weekday() == time.Sunday {
 			before = before.AddDate(0, 0, -1)
@@ -521,15 +523,18 @@ const checksTransactions = 3
 // Q1's walk under the fake's settings: windows before a date refused, which
 // counts once the newest window answers again; a second between requests,
 // and an allowance spent before the walk reaches 2000, or in reaching it,
-// which leaves no request for the control; four 429s, one for each of
-// the Client's tries, and in a subtest of its own an Invalid account
-// number, at the walk's third window, neither of which becomes the
-// verdict, that account's walk ending interrupted; each way the cap can
-// meet a request for several types, under which the oldest window that
-// held rows, and no other, is narrowed until the oldest row comes back;
-// windows by tradeDate, under which that window cannot be narrowed; and an
-// allowance spent narrowing, whose oldest row the verdict gives as a date
-// or earlier.
+// which leaves no request for the control; four 429s, one for each of the
+// Client's tries, and in a subtest of its own an Invalid account number, at
+// the walk's third window, neither of which becomes the verdict, that
+// account's walk ending interrupted; each way the cap can meet a request
+// for several types, under which the oldest window that held rows, and no
+// other, is narrowed until the oldest row comes back; windows by tradeDate,
+// under which that window cannot be narrowed; rows of one time over the
+// cap, which no narrower window leaves out; windows that leave out a row at
+// their end, under which a narrowed window that comes back empty ends the
+// narrowing, and rows over the cap at a window's start leave no narrower
+// window to ask; and an allowance spent narrowing, whose oldest row the
+// verdict gives as a date or earlier.
 func testDepthOnTheFake(t *testing.T) {
 	t.Run("windows before 2022 refused", func(t *testing.T) {
 		t.Parallel()
@@ -715,7 +720,69 @@ func testDepthOnTheFake(t *testing.T) {
 		wantVerdicts(t, report, map[string]string{"Q1": "a window older than an account's history answers 200 with []" +
 			"; the oldest rows, by New York date: {account 1} 2023-06-12, {account 2} 2025-01-14"})
 		wantEvidence(t, report, "Q1", "{account 3}: the walk was interrupted after 5 requests by an oldest window that held as many rows as the cap, "+
-			"the oldest of them from before its start, so it settles nothing")
+			"the oldest of them at or before its start, so it settles nothing")
+	})
+	t.Run("the cap with rows of one time", func(t *testing.T) {
+		t.Parallel()
+		// Three rows on {account 3} at one time, at a cap of two: no
+		// narrower window leaves one out, so the walk stops asking.
+		fl := newProbeLive(t, probeNow, "Q1")
+		fl.r.pageCap = 2
+		fl.f.SetTransactionRules(schwabtest.TransactionRules{Cap: 2})
+		at := strconv.Quote(schwabTime(time.Date(2024, 5, 1, 15, 0, 0, 0, time.UTC)))
+		for i := range 3 {
+			id := strconv.Itoa(84000000711 + i)
+			fl.more = append(fl.more, id)
+			fl.f.AddRows(thirdAccount.Hash, withKeys(baseTransaction, "activityId", id, "accountNumber", strconv.Quote(thirdAccount.Number), "time", at, "tradeDate", at))
+		}
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		wantEvidence(t, fl.report(t), "Q1", "{account 3}: the walk was interrupted after 7 requests by an oldest window that held as many rows as the cap, "+
+			"none older than another, so it settles nothing; the oldest window that held rows may have been cut at the cap, so it was narrowed and asked again 1 time")
+	})
+	t.Run("the cap with an exclusive end", func(t *testing.T) {
+		t.Parallel()
+		// At a cap of two, with windows that leave out a row at their end:
+		// {account 1}'s and {account 2}'s oldest windows are narrowed until
+		// one comes back empty, which ends the narrowing; and two rows on
+		// {account 3} at the start of its second window, which no older
+		// window holds, leave no narrower window to ask. A rate of 60 a
+		// minute keeps the run's clock on whole seconds, so that a row's
+		// time, which shows whole seconds, can be a window's start.
+		fl := newProbeLive(t, probeNow, "Q1")
+		fl.r.pageCap = 2
+		fl.f.SetTransactionRules(schwabtest.TransactionRules{Cap: 2, ExclusiveEnd: true})
+		c := NewClient(fl.r.auth, ClientConfig{RateFile: fl.r.rateFile, RatePerMinute: 60})
+		c.now, c.sleep, c.jitter = fl.clock.Now, fl.clock.Sleep, func(d time.Duration) time.Duration { return d }
+		fl.r.client = c
+		var n atomic.Int32
+		fl.f.OnAPI(func(r *http.Request) {
+			if schwabtest.Route(r.Pattern) != schwabtest.TransactionsRoute || r.PathValue("hash") != thirdAccount.Hash || n.Add(1) != 3 {
+				return
+			}
+			// The walk's second window, after the check's and the walk's first.
+			start, err := time.Parse(schwabTimeFormat, r.URL.Query().Get("startDate"))
+			if err != nil || start.Nanosecond() != 0 {
+				t.Errorf("the second window starts at %q", r.URL.Query().Get("startDate"))
+				return
+			}
+			at := strconv.Quote(schwabTime(start))
+			for i := range 2 {
+				id := strconv.Itoa(84000000721 + i)
+				fl.f.AddRows(thirdAccount.Hash, withKeys(baseTransaction, "activityId", id, "accountNumber", strconv.Quote(thirdAccount.Number), "time", at, "tradeDate", at))
+			}
+		})
+		fl.more = append(fl.more, "84000000721", "84000000722")
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q1": "a window older than an account's history answers 200 with []" +
+			"; the oldest rows, by New York date: {account 1} 2023-06-12, {account 2} 2025-01-14"})
+		wantEvidence(t, report, "Q1", cut(1, "2023-06-12", "1 time"), cut(2, "2025-01-14", "1 time"),
+			"{account 3}: the walk was interrupted after 5 requests by an oldest window that held as many rows as the cap, "+
+				"the oldest of them at or before its start, so it settles nothing")
 	})
 	t.Run("an allowance spent narrowing", func(t *testing.T) {
 		t.Parallel()
@@ -746,12 +813,13 @@ func testDepthOnTheFake(t *testing.T) {
 
 // Q4 under the fake's settings: symbol= dropping the rows that name the
 // symbol only after a "~", by default, keeping them, and filtering nothing,
-// which no verdict may come from. No window around BND's or XYZ's rows
-// holds a row of another symbol, so the widening makes each verdict:
-// BND's window back to 2024-03-14 takes in the VBR sale, and XYZ's, back
-// to 2026-03-12, the META sale. A refusal of symbol= that quotes the
-// symbol shows a label in its place, and a symbol that the scrubber does
-// not hide, a benchmark's, is never sent.
+// which no verdict may come from; and a control answer without the dividend
+// and the W-8 journal, of which nothing is said. No window around BND's or
+// XYZ's rows holds a row of another symbol, so the widening makes each
+// verdict: BND's window back to 2024-03-14 takes in the VBR sale, and
+// XYZ's, back to 2026-03-12, the META sale. A refusal of symbol= that
+// quotes the symbol shows a label in its place, and a symbol that the
+// scrubber does not hide, a benchmark's, is never sent.
 func testSymbolFilterOnTheFake(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -816,6 +884,31 @@ func testSymbolFilterOnTheFake(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a control answer without the dividend and the W-8 journal", func(t *testing.T) {
+		t.Parallel()
+		// {account 1}'s window without symbol= holds BND's TRADE and the VBR
+		// sale alone, as a cap could leave it: what became of the dividend
+		// and the W-8 journal, which no control answer held, is not said.
+		fl := newProbeLive(t, probeNow, "Q1", "Q4")
+		control := "[" + fixtureRow(t, 73508261946) + "," + fixtureRow(t, 73508261947) + "]"
+		fl.f.OnAPI(func(r *http.Request) {
+			q := r.URL.Query()
+			if schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute && r.PathValue("hash") == firstAccount.Hash &&
+				!q.Has("symbol") && strings.HasPrefix(q.Get("startDate"), "2024-03-14") {
+				fl.f.Script(schwabtest.Answer(http.StatusOK, control, "Content-Type", "application/json"))
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q4": "the filter drops dividends"})
+		wantEvidence(t, report, "Q4", "{account 1}: filtered, the symbol's TRADE came back, and a row of another symbol did not",
+			"{account 2}: the dividend was "+filterDropped)
+		if strings.Contains(report, "{account 1}: the dividend was") || strings.Contains(report, "{account 1}: the W-8 journal was") {
+			t.Errorf("the report says what became of rows that no control held:\n%s", sectionOf(report, "probe Q4"))
+		}
+	})
 	t.Run("a refusal that quotes the symbol", func(t *testing.T) {
 		t.Parallel()
 		fl := newProbeLive(t, probeNow, "Q1", "Q4")
@@ -976,17 +1069,18 @@ func testShapesOnTheFake(t *testing.T) {
 }
 
 // Q5 under the fake's settings: a list of orders kept for 60 days, which
-// leaves out the order that its id finds, one kept a few days longer,
-// which gives back an order entered 62 days ago, too young to count as
-// old, and one kept for 120 days, which leaves out the order too, the
-// verdict giving the bound that each shows, under the order's age; an
-// order entered weeks before its fill, which a list kept for a year gives
-// back when asked for around its entry, not its fill, one entered over a
-// year ago, which no list need give back, and one that says it was
-// entered after its fill; the youngest execution past 67 days, which is
-// the one asked about, though an older order that comes back sets the
-// bound; a list that holds an order of nearly a year, the one bound that
-// shows a year; and lists that disagree.
+// leaves out the order that its id finds, one kept a few days longer, which
+// gives back an order entered 62 days ago, too young to count as old, and
+// one kept for 120 days, which leaves out the order too, the verdict giving
+// the bound that each shows, under the order's age; an order entered weeks
+// before its fill, which a list kept for a year gives back when asked for
+// around its entry, not its fill, one entered over a year ago, which no
+// list need give back, and one that says it was entered after its fill; the
+// youngest execution past 67 days, which is the one asked about, though an
+// older order that comes back sets the bound; a list that holds an order of
+// nearly a year, the one bound that shows a year; the list of the last year
+// refused, which the two days around the entry settle alone; and lists that
+// disagree.
 func testOrdersDepthOnTheFake(t *testing.T) {
 	const unserved172 = "under 172 days: two days around the entry of an order entered 172 days ago leave it out, though its id finds it"
 	t.Run("a list kept for 60 days", func(t *testing.T) {
@@ -1121,6 +1215,27 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 		}
 		wantVerdicts(t, fl.report(t), map[string]string{"Q5": unserved172})
 	})
+	t.Run("the list of the last year refused", func(t *testing.T) {
+		t.Parallel()
+		// The two days around the entry hold the order, which settles it
+		// alone.
+		fl := newProbeLive(t, probeNow, "Q1", "Q5")
+		fl.f.OnAPI(func(r *http.Request) {
+			q := r.URL.Query()
+			from, err1 := time.Parse(schwabTimeFormat, q.Get("fromEnteredTime"))
+			to, err2 := time.Parse(schwabTimeFormat, q.Get("toEnteredTime"))
+			if err1 == nil && err2 == nil && to.Sub(from) == MaxTransactionWindow {
+				fl.f.Script(schwabtest.Answer(http.StatusBadRequest, `{"message":"a guess: too long"}`, "Content-Type", "application/json"))
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q5": "longer than 60 days: an order entered 172 days ago came back"})
+		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 1 order, the order among them",
+			"the account's orders of the last year: refused, HTTP 400, a guess: too long")
+	})
 	t.Run("a list that holds an order of nearly a year", func(t *testing.T) {
 		t.Parallel()
 		fl := newProbeLive(t, probeNow, "Q1", "Q5")
@@ -1155,13 +1270,16 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 	})
 }
 
-// Q8 under the fake's settings: an app without the Market Data product,
-// and two runs across an ex-date, four weeks apart, so the second after a
-// new login, whose closes before it are as they were, or scaled by the
+// Q8 under the fake's settings: an app without the Market Data product, and
+// two runs across an ex-date, four weeks apart, so the second after a new
+// login, whose closes before it are as they were, or scaled by the
 // dividend's factor; the closes of the first run kept by a run on the
-// ex-date that cannot read its own, with when the first read them; and a
-// first run on the ex-date's morning, which reads closes adjusted already,
-// so that no verdict may come from it.
+// ex-date that cannot read its own, with when the first read them; closes
+// adjusted for one symbol alone, which disagree; a first run on the
+// ex-date's morning, which reads closes adjusted already, so that no
+// verdict may come from it; daily runs across the ex-date, the one on its
+// morning kept beside the one before its last close; and the runs that the
+// state keeps.
 func testAdjustmentOnTheFake(t *testing.T) {
 	t.Run("no Market Data product", func(t *testing.T) {
 		t.Parallel()
@@ -1226,6 +1344,21 @@ func testAdjustmentOnTheFake(t *testing.T) {
 			wantEvidence(t, report, "Q8", "SPY: across the ex-date 2026-09-18, its closes are "+tc.want, "VTI: across the ex-date 2026-09-18, its closes are "+tc.want)
 		})
 	}
+	t.Run("closes adjusted for one symbol alone", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q8")
+		fakeMarket{exDate: marketExDate, amount: 1.9, adjusted: true, only: "SPY"}.serve(fl)
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		later := fl.again(t, time.Date(2026, 9, 29, 15, 0, 0, 0, time.UTC), true)
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q8": "inconclusive: the symbols disagree"})
+		wantEvidence(t, report, "Q8", "SPY: across the ex-date 2026-09-18, its closes are "+adjustDividend, "VTI: across the ex-date 2026-09-18, its closes are "+adjustNone)
+	})
 	t.Run("a first run on the ex-date's morning", func(t *testing.T) {
 		t.Parallel()
 		// At 08:00 in New York on the ex-date, before its candle, the closes
@@ -1558,11 +1691,12 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 // a new login, so that their windows slide, with a row changed, in a value
 // and by a key it lost, a row gone and a row that came late between them,
 // and a row that the second run's window no longer takes in, which is not
-// shown gone; and two runs three days apart, between which come the rows
-// of two fills before the first run that its answer left out: one two
-// minutes before it, whose row may have posted in the ordinary course,
-// which is not shown late, and one five hours before it, whose row came
-// late, from five hours to four days after its time.
+// shown gone; and two runs three days apart, between which come the rows of
+// two fills before the first run that its answer left out: one two minutes
+// before it, whose row may have posted in the ordinary course, which is not
+// shown late, and one five hours before it, whose row came late, from five
+// hours to four days after its time; and a row whose time changes, which
+// keeps its new time, by which it is shown gone three weeks later.
 func testChangesOnTheFake(t *testing.T) {
 	t.Run("rows changed, gone and late", func(t *testing.T) {
 		t.Parallel()
@@ -1602,6 +1736,37 @@ func testChangesOnTheFake(t *testing.T) {
 			"{account 2}: 0 rows as they were; 2 rows new to the state; 1 row changed, 27 days old, in netAmount (1), positionId (1); "+
 				"1 row came late, posted from 10 to 23 days after its time; 1 row gone")
 	})
+	t.Run("a row whose time changes", func(t *testing.T) {
+		t.Parallel()
+		// A row of 2026-07-20, which a day later says 2026-08-20, keeps its
+		// new time: three weeks on, gone from a complete answer, it lies in
+		// both runs' windows by that time, though not by its first.
+		fl := newProbeLive(t, probeNow, "Q12")
+		on20th := func(month time.Month) string {
+			return strconv.Quote(schwabTime(time.Date(2026, month, 20, 15, 0, 0, 0, time.UTC)))
+		}
+		fl.more = append(fl.more, "84000000109")
+		fl.f.AddRows(secondAccount.Hash, fixtureRow(t, xyzDividend, "activityId", "84000000109", "time", on20th(7), "tradeDate", on20th(7)))
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		fl.f.ReplaceRow(secondAccount.Hash, 84000000109, fixtureRow(t, xyzDividend, "activityId", "84000000109", "time", on20th(8), "tradeDate", on20th(8)))
+		next := fl.again(t, probeNow.Add(oneDay), false)
+		next.more = fl.more
+		if err := next.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		wantVerdicts(t, next.report(t), map[string]string{"Q12": "rows changed after they posted"})
+		fl.f.RemoveRow(secondAccount.Hash, 84000000109)
+		last := fl.again(t, probeNow.AddDate(0, 0, 22), true)
+		last.more = fl.more
+		if err := last.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := last.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "rows went"})
+		wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 0 rows new to the state; 1 row gone")
+	})
 	t.Run("rows from the hours before the last run", func(t *testing.T) {
 		t.Parallel()
 		fl := newProbeLive(t, probeNow, "Q12")
@@ -1628,10 +1793,11 @@ func testChangesOnTheFake(t *testing.T) {
 // Q15 under the fake's settings: a refresh that ends the older access
 // tokens or not, and changes the refresh token or not, each verdict after
 // waiting on the run's clock until the token is a minute old; a refresh
-// that ends them only some seconds later; and another process's refresh
-// between the probe's reading of the token file and its own refresh, or a
-// refresh that gives back the same access token, which no verdict may come
-// from.
+// that ends them only some seconds later; a run after a new login, whose
+// refresh token is not held against the last login's; and another process's
+// refresh between the probe's reading of the token file and its own
+// refresh, or a refresh that gives back the same access token, which no
+// verdict may come from.
 func testRefreshOnTheFake(t *testing.T) {
 	for _, tc := range []struct {
 		revoke, rotate bool
@@ -1685,6 +1851,21 @@ func testRefreshOnTheFake(t *testing.T) {
 			wantEvidence(t, later.report(t), "Q15", "since the last run under this login, the refresh token "+since)
 		})
 	}
+	t.Run("a run after a new login", func(t *testing.T) {
+		t.Parallel()
+		// The refresh token is held against the last run's under the same
+		// login only: a new login's is another token, and says nothing of
+		// whether a refresh changes it.
+		fl := newProbeLive(t, probeNow, "Q15")
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		later := fl.again(t, probeNow.AddDate(0, 0, 7), true)
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		wantEvidence(t, later.report(t), "Q15", "no earlier run under this login, to compare its refresh token with")
+	})
 	t.Run("a refresh that ends older tokens within 30s", func(t *testing.T) {
 		t.Parallel()
 		// The token before the refresh still works at once, and is refused
@@ -1866,10 +2047,12 @@ func testEdgeOnTheFake(t *testing.T) {
 // its start, or at its end; a row whose time is finer than its JSON shows,
 // which settles neither bound; a gateway that cuts each window's bounds to
 // whole seconds, which settles both by whole seconds, but not with an
-// exclusive end, and which, cutting one row's windows alone, makes the
-// rows disagree; windows that take a row by its tradeDate; a longest
-// window of 366 days; and, on an account without a month-end interest
-// row, an evening fill, whose time comes before its tradeDate.
+// exclusive end, and which, cutting one row's windows alone, makes the rows
+// disagree, as a window that leaves out one row alone does; a first account
+// without rows, whose next account's rows are asked about; windows that
+// take a row by its tradeDate; a longest window of 366 days; and, on an
+// account without a month-end interest row, an evening fill, whose time
+// comes before its tradeDate.
 func testExtrasOnTheFake(t *testing.T) {
 	t.Run("the tokens of the 401s", func(t *testing.T) {
 		t.Parallel()
@@ -2026,6 +2209,44 @@ func testExtrasOnTheFake(t *testing.T) {
 			wantEvidence(t, report, "extras", tc.evidence...)
 		})
 	}
+	t.Run("rows that disagree", func(t *testing.T) {
+		t.Parallel()
+		// [t.000, t+1s] around the second row answers [], as if its start
+		// were exclusive, while the first row's shows it inclusive.
+		fl := newProbeLive(t, probeNow, "Q1", "extras")
+		fl.f.OnAPI(func(r *http.Request) {
+			q := r.URL.Query()
+			if q.Get("startDate") == "2024-05-01T01:18:44.000Z" && q.Get("endDate") == "2024-05-01T01:18:45.000Z" {
+				fl.f.Script(schwabtest.Answer(http.StatusOK, "[]", "Content-Type", "application/json"))
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"extras": "the bounds: inconclusive, since the rows disagree; a window takes a row by its time"})
+		wantEvidence(t, report, "extras", "the bounds, row 1: the start is inclusive and the end inclusive",
+			"the bounds, row 2: the start is exclusive and the end inclusive")
+	})
+	t.Run("a first account without rows", func(t *testing.T) {
+		t.Parallel()
+		// {account 1}'s every window answers []: the extras ask of
+		// {account 2}'s rows.
+		fl := newProbeLive(t, probeNow, "Q1", "extras")
+		fl.f.OnAPI(func(r *http.Request) {
+			if schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute && r.PathValue("hash") == firstAccount.Hash {
+				fl.f.Script(schwabtest.Answer(http.StatusOK, "[]", "Content-Type", "application/json"))
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"extras": inclusive + "; a window takes a row by its time"})
+		wantEvidence(t, report, "extras", "a window whose start is its end, at a row's time: 200, 1 row, the row's among them",
+			"the bounds, row 1: the start is inclusive and the end inclusive",
+			"by time or tradeDate, of a row: the window around its time holds it, and the window around its tradeDate does not")
+	})
 	for _, tc := range []struct {
 		on   schwabtest.FilterOn
 		by   string

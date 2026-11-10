@@ -1126,6 +1126,12 @@ func TestCompareHash(t *testing.T) {
 	if logins, apps := compareHash(seen[:1], "h1", "L1", "A"); logins != hashNew || apps != hashNew {
 		t.Errorf("only this login's run: %s, %s", logins, apps)
 	}
+	// A hash that changed, and then stayed the same, changed: a later run
+	// that saw this run's hash does not hide an earlier one that did not.
+	changedThenSame := []hashSeen{{Hash: "h0", Login: "L1", App: "A"}, {Hash: "h1", Login: "L2", App: "A"}}
+	if logins, _ := compareHash(changedThenSame, "h1", "L3", "A"); logins != hashChanged {
+		t.Errorf("a hash that changed, then stayed: %s", logins)
+	}
 }
 
 // Q12 digests a row by key path: each scalar as JSON, an array's elements

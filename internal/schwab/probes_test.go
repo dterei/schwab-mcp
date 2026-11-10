@@ -346,8 +346,8 @@ func (r *liveRun) walk(ctx context.Context, a liveAccount, sent *bool) walkResul
 		case !next.end.After(next.start):
 			// A window that takes rows by another time than theirs, such as
 			// their tradeDate, can give one from before its start, and none
-			// can be narrowed to end there.
-			res.how, res.why = walkInterrupted, "an oldest window that held as many rows as the cap, the oldest of them from before its start"
+			// can be narrowed to end there, nor to end at its start.
+			res.how, res.why = walkInterrupted, "an oldest window that held as many rows as the cap, the oldest of them at or before its start"
 			return res
 		}
 		rows, err := ask(next)
