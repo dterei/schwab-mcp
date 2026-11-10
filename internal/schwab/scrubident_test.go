@@ -477,10 +477,11 @@ func isWholeNumber(lit []byte) bool {
 }
 
 // The set finds each identifier in a text: one of 6 characters or more
-// anywhere and in any case, but a nickname that Schwab's own words hold,
-// which only as it is; a shorter one only as a whole token, a nickname in
-// its own case alone, and in a number only as the whole number; one of one
-// character not at all; and the longest at each place.
+// anywhere and in any case, a nickname of 6 too, but a nickname that
+// Schwab's own words hold, which only as it is; a shorter one only as a
+// whole token, a nickname in its own case alone, and in a number only as
+// the whole number; one of one character not at all; and the longest at
+// each place.
 func TestIdentSetFind(t *testing.T) {
 	s := newIdentSet()
 	s.schwab = "type\nbrokerage\nbank sweep to brokerage"
@@ -492,6 +493,7 @@ func TestIdentSetFind(t *testing.T) {
 	s.add(idNickname, "A")
 	s.add(idActivity, "2947013")
 	s.add(idNickname, "Brokerage")
+	s.add(idNickname, "Savers")
 	found := func(text string, number bool) []string {
 		var out []string
 		for _, m := range s.find(text, number) {
@@ -511,6 +513,7 @@ func TestIdentSetFind(t *testing.T) {
 		{"JOINT account, Jointly", false, nil},
 		{"Options & Margin", false, []string{"Options & Margin=" + string(idNickname)}},
 		{"OPTIONS & MARGIN fund", false, []string{"OPTIONS & MARGIN=" + string(idNickname)}},
+		{"SAVERS fund", false, []string{"SAVERS=" + string(idNickname)}},
 		{"Brokerage account", false, []string{"Brokerage=" + string(idNickname)}},
 		{"BANK SWEEP TO BROKERAGE", false, nil},
 		{"Position 766 closed", false, []string{"766=" + string(idPosition)}},

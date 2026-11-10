@@ -534,6 +534,21 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 			},
 		},
 		{
+			// A query unescapes a + as a space, which the checks for leaks
+			// do too.
+			name: "a nickname in a query, a + for its space", amounts: keep, accounts: 1,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				id := b.id()
+				a := b.transactions(cashRow(b.numbers[0], id))
+				a.query += "&n=Zebulon+Fund"
+				return []testAnswer{
+					jsonAnswer("/trader/v1/userPreference", "", 200, preferences(preference(b.numbers[0], "Zebulon Fund", "..."+b.numbers[0][5:]))),
+					a,
+				}, []string{"Zebulon Fund", id}
+			},
+			leftOut: map[string]string{"003": "the request's query: an account's nickname that the scrubber could not replace"},
+		},
+		{
 			// In another case, a word of Schwab's own is far likelier
 			// Schwab's word than the nickname.
 			name: "a nickname that is Schwab's word in another case", amounts: keep, accounts: 1,

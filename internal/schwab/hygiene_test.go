@@ -828,6 +828,8 @@ func TestValueHygieneCatches(t *testing.T) {
 		},
 		{"an activity ID with a fraction", "transactions.json", setAt(`1.5`, "activityId"), "an activity ID that is not a whole number below 2^53"},
 		{"an order ID past 2^53", "transactions.json", setAt(`9007199254740993`, "orderId"), "an order ID that is not a whole number below 2^53"},
+		{"an order ID of 2^53", "transactions.json", setAt(`9007199254740992`, "orderId"), "an order ID that is not a whole number below 2^53"},
+		{"an order ID just below 2^53", "transactions.json", setAt(`9007199254740991`, "orderId"), ""},
 		{"a position ID as a string", "transactions.json", setAt(`"3926184750"`, "positionId"), ""},
 		{
 			"a position ID that holds an account number", "transactions.json", setAt(`3929470135`, "positionId"),
@@ -899,6 +901,11 @@ func TestValueHygieneCatches(t *testing.T) {
 			"securitiesAccount.zzNote: a string of 35 characters that no grammar or fake admits",
 		},
 		{
+			"a string of 20 characters of a key no field takes", "accounts.json", addAt("zzNote", `"twenty characters ok"`, "securitiesAccount"),
+			"securitiesAccount.zzNote: a string of 20 characters that no grammar or fake admits",
+		},
+		{"a string of 19 characters of a key no field takes", "accounts.json", addAt("zzNote", `"nineteen characters"`, "securitiesAccount"), ""},
+		{
 			"a long placeholder", "transactions.json", addAt("description", `"DESCRIPTION 123456789"`),
 			"description: a string of 21 characters that no grammar or fake admits",
 		},
@@ -912,6 +919,11 @@ func TestValueHygieneCatches(t *testing.T) {
 		{
 			"eight digits in a page", "errors/akamai_403.html",
 			replaceText(asked, "http&#58;&#47;&#47;api&#46;schwabapi&#46;com&#47;trader&#47;v1&#47;accounts&#47;12345678"),
+			"the page: eight digits that are no fake account number",
+		},
+		{
+			"eight digits written as character references in a page", "errors/akamai_403.html",
+			replaceText(asked, "http&#58;&#47;&#47;api&#46;schwabapi&#46;com&#47;trader&#47;v1&#47;accounts&#47;&#49;&#50;&#51;&#52;&#53;&#54;&#55;&#56;"),
 			"the page: eight digits that are no fake account number",
 		},
 		{
@@ -929,6 +941,8 @@ func TestValueHygieneCatches(t *testing.T) {
 		{"a year's max-age", "accounts.json", header("Strict-Transport-Security", "max-age=31536000"), ""},
 		{"eight digits of a spare", "accounts.json", header("Retry-After", schwabtest.SpareAccountNumbers[19]), ""},
 		{"a hash", "accounts.json", header("Vary", schwabtest.HashFor("12345678")), "the header Vary: a hash that is no fake account's"},
+		{"a run of 65 upper-case hex digits", "accounts.json", header("Vary", strings.Repeat("AB", 32)+"C"), "the header Vary: a hash that is no fake account's"},
+		{"a run of 63 upper-case hex digits", "accounts.json", header("Vary", strings.Repeat("AB", 31)+"C"), ""},
 		{
 			"a UUID", "accounts.json", header("X-Request-Id", "8f14e45f-ceea-467a-9b5c-1d2a3b4c5d6e"),
 			"the header X-Request-Id: a UUID that is neither of the fake's counter nor StreamerCorrelID",

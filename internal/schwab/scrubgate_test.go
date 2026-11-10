@@ -874,24 +874,27 @@ func isWholeToken(s string, i, end int) bool {
 //   - (ii): a key dropped, and a key sent twice made to differ;
 //   - (iii): white space changed, two keys swapped, a value of another JSON
 //     kind, an id in another form, a kept value off its grammar or changed,
-//     money that keep keeps changed, money not K times what it was or in
-//     another form under scale:K, free text put back or Schwab's wording
-//     made other wording, a 429's white space changed, a page changed
-//     outside its slots, its Reference not its fake, its address off its
-//     grammar, changed or spelled otherwise, and an entry's correlation ID,
-//     status, protocol, path, query, header, extra header or header's name
-//     changed;
+//     or its identifier's fake deleted, money that keep keeps changed, a
+//     zero changed under scale:K, money not K times what it was or in
+//     another form, a decimal more or an exponent, free text put back or
+//     Schwab's wording made other wording, a 429's white space changed, a
+//     page changed outside its slots, its Reference not its fake, its
+//     address off its grammar, changed or spelled otherwise, and an entry's
+//     correlation ID, method, status, protocol, compression, path, query,
+//     header, a header's values, extra header or header's name changed;
 //   - (iv): two hashes swapped; a hash's, an account number's, an activity
 //     ID's or an order ID's fake changed in a path alone; an id, an error's
-//     ID or a nickname given two fakes; and a masked number off its account
-//     or of another form;
+//     ID or a nickname given two fakes, and two position IDs one; and a
+//     masked number off its account or of another form;
 //   - (v): one mapping switched off in a body, in a query, in a path where
 //     no id goes, in a header's value, in a string written with an escape,
 //     and in a page written with a character reference; an identifier in a
-//     shape; a local path; and the user name.
+//     shape; a local path, under the home folder or not; and the user name.
 func TestScrubberGatesRefuse(t *testing.T) {
 	planted, p := plantF(t, 3)
 	home := filepath.Join(t.TempDir(), "zq9user")
+	// The recording's folder, which is not under the home folder.
+	raw := filepath.Join(t.TempDir(), "raw")
 	keep, refuse, scale := amountsPolicy{mode: "keep"}, amountsPolicy{mode: "refuse"}, amountsPolicy{mode: "scale", k: 20}
 	replace := func(name, old, with string) func(t *testing.T, o *scrubOutput) {
 		return func(t *testing.T, o *scrubOutput) {
@@ -955,6 +958,14 @@ func TestScrubberGatesRefuse(t *testing.T) {
 	vary := jsonAnswer("/trader/v1/accounts/"+b.hashes[2], "", 400, `{"message":"Invalid account number"}`)
 	vary.header.Set("Vary", "Accept, x-account-"+b.numbers[2])
 	withHeader := []testAnswer{b.accountNumbers(), vary}
+	withAmounts := []testAnswer{b.accountNumbers(), b.transactions(
+		cashRow(b.numbers[0], b.id(), "netAmount", "-0.0", "transferItems", cashLeg("-0.0", "USD currency")),
+		cashRow(b.numbers[0], b.id(), "netAmount", "1.250", "transferItems", cashLeg("1.250", "USD currency")),
+	)}
+	withNickname := []testAnswer{
+		b.accountNumbers(), jsonAnswer("/trader/v1/userPreference", "", 200, preferences(preference(b.numbers[0], "Kip", "..."+b.numbers[0][5:]))),
+		b.transactions(cashRow(b.numbers[0], b.id(), "transferItems", cashLeg("1.25", "TRUST Kip"))),
+	}
 
 	for _, tc := range []struct {
 		name    string
@@ -1025,6 +1036,19 @@ func TestScrubberGatesRefuse(t *testing.T) {
 			replace("003", `"netAmount": -54.0,`, `"netAmount": -54.00,`), nil, scale,
 		},
 		{
+			"an amount given an exponent of as many decimals", "gate (iii), the tokens: answer 002: netAmount: money of another form than the recording's",
+			replace("002", `"netAmount":25.000,`, `"netAmount":2.5E1,`), withAmounts, scale,
+		},
+		{
+			"a zero changed under scale:K", "gate (iii), the tokens: answer 002: netAmount: money that the policy keeps as it was, changed",
+			replace("002", `"netAmount":-0.0,`, `"netAmount":0.0,`), withAmounts, scale,
+		},
+		{
+			"an identifier's fake deleted from a kept value",
+			"gate (iii), the tokens: answer 003: transferItems.instrument.description: a kept value changed where it held no identifier",
+			replace("003", `"TRUST Account 1"`, `"TRUST "`), withNickname, keep,
+		},
+		{
 			"free text put back", "gate (iii), the tokens: answer 002: description: free text that is neither its placeholder nor Schwab's wording",
 			replace("002", `"DESCRIPTION 1"`, `"Wire Incoming JOHN Q PUBLIC 5551234"`), freeText, keep,
 		},
@@ -1072,8 +1096,16 @@ func TestScrubberGatesRefuse(t *testing.T) {
 			entry("006", func(e *schwabtest.Entry) { e.Response.Headers["Schwab-Client-CorrelID"] = []string{counterID(99)} }), nil, keep,
 		},
 		{
+			"an entry's method changed", "gate (iii), the tokens: answer 007: its entry's request or status differs from the recording's",
+			entry("007", func(e *schwabtest.Entry) { e.Request.Method = http.MethodHead }), nil, keep,
+		},
+		{
 			"an entry's status changed", "gate (iii), the tokens: answer 007: its entry's request or status differs from the recording's",
 			entry("007", func(e *schwabtest.Entry) { e.Response.Status = 401 }), nil, keep,
+		},
+		{
+			"an entry's compression changed", "gate (iii), the tokens: answer 007: its entry's request or status differs from the recording's",
+			entry("007", func(e *schwabtest.Entry) { e.Response.Uncompressed = !e.Response.Uncompressed }), nil, keep,
 		},
 		{
 			"an entry's protocol changed", "gate (iii), the tokens: answer 007: its entry's request or status differs from the recording's",
@@ -1090,6 +1122,12 @@ func TestScrubberGatesRefuse(t *testing.T) {
 		{
 			"an entry's Content-Type changed", "gate (iii), the tokens: answer 007: its entry's header Content-Type changed where it held no identifier",
 			entry("007", func(e *schwabtest.Entry) { e.Response.Headers["Content-Type"] = []string{"text/plain"} }), nil, keep,
+		},
+		{
+			"a header given a second value", "gate (iii), the tokens: answer 007: its entry's header Content-Type differs from the recording's",
+			entry("007", func(e *schwabtest.Entry) {
+				e.Response.Headers["Content-Type"] = append(slices.Clone(e.Response.Headers["Content-Type"]), "text/plain")
+			}), nil, keep,
 		},
 		{
 			"a header added to an entry", "gate (iii), the tokens: answer 007: its entry has a header that the recording's does not keep",
@@ -1153,6 +1191,17 @@ func TestScrubberGatesRefuse(t *testing.T) {
 			replace("014", `"Account 1"`, `"Account 9"`), twoPrefs, keep,
 		},
 		{
+			"two position IDs given one fake", "gate (iv), relations: the fakes of a position ID are not one for each value",
+			func(t *testing.T, o *scrubOutput) {
+				f := fileNamed(t, o, "004")
+				ids := regexp.MustCompile(`"positionId": ([0-9]+)`).FindAllSubmatchIndex(f.body, -1)
+				if len(ids) < 2 || bytes.Equal(f.body[ids[0][2]:ids[0][3]], f.body[ids[1][2]:ids[1][3]]) {
+					t.Fatal("answer 004 holds no two position IDs")
+				}
+				f.body = slices.Concat(f.body[:ids[1][2]], f.body[ids[0][2]:ids[0][3]], f.body[ids[1][3]:])
+			}, nil, keep,
+		},
+		{
 			"a masked number off its account",
 			"gate (iv), relations: answer 005: accounts.displayAcctId: a masked account number that does not end with the account number beside it",
 			replace("005", `"...135"`, `"...136"`), nil, keep,
@@ -1205,6 +1254,10 @@ func TestScrubberGatesRefuse(t *testing.T) {
 			"a local path", "gate (v), leaks: review.txt: a local path",
 			func(_ *testing.T, o *scrubOutput) { o.review += filepath.Join(home, "raw") + "\n" }, nil, keep,
 		},
+		{
+			"the recording's folder, outside the home folder", "gate (v), leaks: review.txt: a local path",
+			func(_ *testing.T, o *scrubOutput) { o.review += raw + "\n" }, nil, keep,
+		},
 		{"the user name", "gate (v), leaks: review.txt: the user name", func(_ *testing.T, o *scrubOutput) { o.review += "by zq9user\n" }, nil, keep},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1212,7 +1265,9 @@ func TestScrubberGatesRefuse(t *testing.T) {
 			if answers == nil {
 				answers = planted
 			}
-			out, err := scrubAnswers(t, answers, scrubConfig{amounts: tc.amounts, home: home, hook: func(o *scrubOutput) { tc.hook(t, o) }})
+			out, err := scrubAnswers(t, answers, scrubConfig{
+				amounts: tc.amounts, home: home, paths: []string{raw}, hook: func(o *scrubOutput) { tc.hook(t, o) },
+			})
 			if err == nil || out != nil || !strings.HasPrefix(err.Error(), tc.want) {
 				t.Fatalf("%v, want %s", err, tc.want)
 			}
