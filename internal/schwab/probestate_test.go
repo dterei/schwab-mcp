@@ -804,19 +804,20 @@ func (r *liveRun) sendWith(ctx context.Context, tok string) (int, error) {
 // probeRefresh is Q15, whether a refresh ends the older access tokens, and
 // whether it changes the refresh token. It reads the token file for its
 // access token, A1, and its refresh token, R1, together, since the Auth's
-// token in memory need not be the file's; waits on the run's clock until
-// A1 is a minute old, since Schwab's refusal of a token issued moments ago
-// leads to no refresh; and with under five minutes left on A1, says when
-// to try again. One GET with A1 is the control. Then it refreshes,
-// counting the guard's token requests across the refresh: a verdict needs
-// exactly one, and the file then holding a new access token, A2, else
-// another process refreshed in between. Then one GET with A1, one with A2,
-// and A1 again 30 seconds later. A1 answering 200 means older tokens
-// survive a refresh, and 401 that a refresh ends them; the file's refresh
-// token then equal to R1 means it was kept. It never sends R1 itself:
-// after a rotation that could end the refresh token that the file holds.
-// However it ends, it keeps the digest of the file's refresh token, to
-// compare with the next run's under the same login.
+// token in memory need not be the file's; waits on the run's clock until A1
+// is a minute old, since Schwab's refusal of a token issued moments ago
+// leads to no refresh; and with under five minutes left on A1, says when to
+// try again. One GET with A1 is the control. Then it refreshes, counting
+// the guard's token requests across the refresh: a verdict needs exactly
+// one, and the file then holding a new access token, A2, else another
+// process refreshed in between. Then one GET with A1, one with A2, and A1
+// again 30 seconds later. A1 answering 200 both times means older tokens
+// survive a refresh for 30 seconds at least, which is all that shows, and
+// 401 that a refresh ends them; the file's refresh token then equal to R1
+// means it was kept. It never sends R1 itself: after a rotation that could
+// end the refresh token that the file holds. However it ends, it keeps the
+// digest of the file's refresh token, to compare with the next run's under
+// the same login.
 func probeRefresh(ctx context.Context, r *liveRun) (v verdict) {
 	defer func() { v.evidence = append(v.evidence, r.refreshAcrossRuns()...) }()
 	t1, err := readToken(r.auth.tokenFile)
@@ -884,7 +885,7 @@ func probeRefresh(ctx context.Context, r *liveRun) (v verdict) {
 	case statuses["new"] != http.StatusOK:
 		return inconclusive("the new token answered "+strconv.Itoa(statuses["new"]), ev...)
 	case statuses["old"] == http.StatusOK && statuses["old again"] == http.StatusOK:
-		survive = "a refresh leaves older access tokens working"
+		survive = "a refresh leaves older access tokens working for " + refreshAgain.String() + " at least"
 	case statuses["old"] == http.StatusUnauthorized:
 		survive = "a refresh ends older access tokens"
 	case statuses["old"] == http.StatusOK && statuses["old again"] == http.StatusUnauthorized:

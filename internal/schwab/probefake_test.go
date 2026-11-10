@@ -414,12 +414,12 @@ func testDefaultRun(t *testing.T) {
 			"the oldest rows, by New York date: {account 1} 2023-06-12, {account 2} 2025-01-14",
 		"Q2":     "from 18:00 to midnight, no fill seen; from midnight to 04:00, tradeDate is the fill's instant",
 		"Q4":     "the filter drops dividends; it drops W-8 journals",
-		"Q5":     "a year: an order entered more than 67 days ago came back",
+		"Q5":     "longer than 60 days: an order entered 172 days ago came back",
 		"Q11":    "13 shapes among 14 rows of 6 types",
 		"Q12":    "inconclusive: no earlier run to compare with; this run's rows are kept for the next",
 		"extras": "a window's start is inclusive and its end inclusive; a window takes a row by its time",
 		"Q8":     adjustNeedsTwo,
-		"Q15":    "a refresh leaves older access tokens working, and keeps the refresh token",
+		"Q15":    "a refresh leaves older access tokens working for 30s at least, and keeps the refresh token",
 		"Q6":     `the login's scope is "api"; no read of the account API was refused as unauthorized`,
 	})
 	wantEvidence(t, report, "Q1",
@@ -493,7 +493,7 @@ func testPacingOnTheFake(t *testing.T) {
 	wantEvidence(t, report, "extras",
 		"a garbage token: 401, application/json, Client not authorized; correlation headers: Schwab-Client-Correlid, X-Request-Id",
 		"no token: 401, application/json, Client not authorized; correlation headers: Schwab-Client-Correlid, X-Request-Id")
-	wantVerdicts(t, report, map[string]string{"Q15": "a refresh leaves older access tokens working, and keeps the refresh token"})
+	wantVerdicts(t, report, map[string]string{"Q15": "a refresh leaves older access tokens working for 30s at least, and keeps the refresh token"})
 	mu.Lock()
 	defer mu.Unlock()
 	for i := 1; i < len(arrived); i++ {
@@ -976,14 +976,19 @@ func testShapesOnTheFake(t *testing.T) {
 }
 
 // Q5 under the fake's settings: a list of orders kept for 60 days, which
-// leaves out the order that its id finds, and one kept a few days longer,
+// leaves out the order that its id finds, one kept a few days longer,
 // which gives back an order entered 62 days ago, too young to count as
-// old; an order entered weeks before its fill, which a list kept for a
-// year gives back when asked for around its entry, not its fill, one
-// entered over a year ago, which no list need give back, and one that says
-// it was entered after its fill; the youngest execution past 67 days,
-// which is the one asked about; and lists that disagree.
+// old, and one kept for 120 days, which leaves out the order too, the
+// verdict giving the bound that each shows, under the order's age; an
+// order entered weeks before its fill, which a list kept for a year gives
+// back when asked for around its entry, not its fill, one entered over a
+// year ago, which no list need give back, and one that says it was
+// entered after its fill; the youngest execution past 67 days, which is
+// the one asked about, though an older order that comes back sets the
+// bound; a list that holds an order of nearly a year, the one bound that
+// shows a year; and lists that disagree.
 func testOrdersDepthOnTheFake(t *testing.T) {
+	const unserved172 = "under 172 days: two days around the entry of an order entered 172 days ago leave it out, though its id finds it"
 	t.Run("a list kept for 60 days", func(t *testing.T) {
 		t.Parallel()
 		fl := newProbeLive(t, probeNow, "Q1", "Q5")
@@ -992,7 +997,7 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q5": "60 days: two days around an older order's entry leave it out, though its id finds it"})
+		wantVerdicts(t, report, map[string]string{"Q5": unserved172})
 		wantEvidence(t, report, "Q5", "the order of an execution 172 days old, got by its id, was entered 172 days ago",
 			"two days around the order's entry: 200, 0 orders, without the order",
 			"the account's orders of the last year: 200, 0 orders, none entered more than 67 days ago",
@@ -1011,7 +1016,7 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q5": "a year: an order entered more than 67 days ago came back"})
+		wantVerdicts(t, report, map[string]string{"Q5": "longer than 60 days: an order entered 172 days ago came back"})
 		wantEvidence(t, report, "Q5", "two days around the order's entry: refused, HTTP 400, a guess: refused",
 			"the account's orders of the last year: 200, 1 order, some entered more than 67 days ago")
 	})
@@ -1025,7 +1030,7 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q5": "a year: an order entered more than 67 days ago came back"})
+		wantVerdicts(t, report, map[string]string{"Q5": "longer than 60 days: an order entered 224 days ago came back"})
 		wantEvidence(t, report, "Q5", "the order of an execution 172 days old, got by its id, was entered 224 days ago",
 			"two days around the order's entry: 200, 1 order, the order among them")
 		around := "fromEnteredTime=" + strings.ReplaceAll(gtc.entered.Add(-oneDay).Format(schwabTimeFormat), ":", "%3A")
@@ -1086,7 +1091,7 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q5": "a year: an order entered more than 67 days ago came back"})
+		wantVerdicts(t, report, map[string]string{"Q5": "longer than 60 days: an order entered 172 days ago came back"})
 		wantEvidence(t, report, "Q5", "the order of an execution 92 days old, got by its id, was entered 92 days ago",
 			"two days around the order's entry: 200, 1 order, the order among them",
 			"the account's orders of the last year: 200, 3 orders, some entered more than 67 days ago")
@@ -1101,9 +1106,34 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q5": "60 days: two days around an older order's entry leave it out, though its id finds it"})
+		wantVerdicts(t, report, map[string]string{"Q5": unserved172})
 		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 0 orders, without the order",
 			"the account's orders of the last year: 200, 1 order, none entered more than 67 days ago")
+	})
+	t.Run("a list kept for 120 days", func(t *testing.T) {
+		t.Parallel()
+		// It leaves out the META sale's order, entered 172 days ago, as a
+		// list kept for 60 days does: the verdict gives the bound.
+		fl := newProbeLive(t, probeNow, "Q1", "Q5")
+		serveOrders(fl, []fakeOrder{metaSaleOrder}, keptFor(120*oneDay))
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		wantVerdicts(t, fl.report(t), map[string]string{"Q5": unserved172})
+	})
+	t.Run("a list that holds an order of nearly a year", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q1", "Q5")
+		first := order(1004517700105, 340*oneDay)
+		fl.more = append(fl.more, strconv.FormatInt(first.id, 10))
+		serveOrders(fl, []fakeOrder{metaSaleOrder, first}, keptFor(MaxTransactionWindow))
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q5": "a year: an order entered 340 days ago came back"})
+		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 1 order, the order among them",
+			"the account's orders of the last year: 200, 2 orders, some entered more than 67 days ago")
 	})
 	t.Run("lists that disagree", func(t *testing.T) {
 		t.Parallel()
@@ -1608,9 +1638,9 @@ func testRefreshOnTheFake(t *testing.T) {
 		old            int
 		want           string
 	}{
-		{false, false, http.StatusOK, "a refresh leaves older access tokens working, and keeps the refresh token"},
+		{false, false, http.StatusOK, "a refresh leaves older access tokens working for 30s at least, and keeps the refresh token"},
 		{true, false, http.StatusUnauthorized, "a refresh ends older access tokens, and keeps the refresh token"},
-		{false, true, http.StatusOK, "a refresh leaves older access tokens working, and changes the refresh token"},
+		{false, true, http.StatusOK, "a refresh leaves older access tokens working for 30s at least, and changes the refresh token"},
 		{true, true, http.StatusUnauthorized, "a refresh ends older access tokens, and changes the refresh token"},
 	} {
 		t.Run(tc.want, func(t *testing.T) {

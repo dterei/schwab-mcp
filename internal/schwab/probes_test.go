@@ -947,13 +947,16 @@ func probeSymbolFilter(ctx context.Context, r *liveRun) verdict {
 // orders endpoint keeps to. Q5 counts an order as old only once it was
 // entered orderOld ago, a week later, since a list kept for 60 days by
 // calendar dates, or from some midnight, can hold one entered a day or two
-// before. And it asks for two days around an order's entry only when the
-// order was entered at most orderOldest ago, so that the two days lie in
-// the last year, which a list kept for a year holds.
+// before. It asks for two days around an order's entry only when the order
+// was entered at most orderOldest ago, so that the two days lie in the
+// last year, which a list kept for a year holds. And it says that a list
+// is kept for a year only when it holds an order entered orderYear ago or
+// more, within a month of a year.
 const (
 	orderAgeLimit = 60 * oneDay
 	orderOld      = orderAgeLimit + 7*oneDay
 	orderOldest   = MaxTransactionWindow - oneDay
+	orderYear     = MaxTransactionWindow - 30*oneDay
 )
 
 // An orderSeen is an order of an answer of Schwab's orders, as the probes
@@ -1029,10 +1032,12 @@ func ordersValues(w window) url.Values {
 // orderOldest ago too, asks the account's list for two days around it, for
 // the last year and for the last 60 days, and every account's list from 61
 // days back. The youngest is the likeliest to have been entered within the
-// year. It answers "a year" only when an order entered over orderOld ago
-// comes back, "60 days" only when the two days around the order leave it
-// out though its id finds it, and "inconclusive" when the get by id fails,
-// or the answers say neither or both.
+// year. It answers with the bound that the lists show: longer than 60
+// days, when an order entered over orderOld ago comes back, and a year
+// when one entered orderYear ago or more does; under the age of the order
+// that its id finds, when the two days around its entry leave it out; and
+// "inconclusive" when the get by id fails, or the answers say neither or
+// both.
 func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 	now := r.now()
 	days := func(d time.Duration) string { return plural(int(d/oneDay), "day") }
@@ -1094,9 +1099,22 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 		aroundSaid += map[bool]string{true: ", the order among them", false: ", without the order"}[listed]
 	}
 	year, yearRead, yearSaid := list(acct.endpoint("/orders"), path, window{now.Add(-MaxTransactionWindow), now})
-	old := slices.ContainsFunc(year, func(o orderSeen) bool { return !o.entered.IsZero() && now.Sub(o.entered) > orderOld })
+	// kept is how long ago the oldest order that came back was entered:
+	// the order got by its id, among the two days around its entry, or any
+	// of the last year's.
+	var kept time.Duration
+	if listed {
+		kept = now.Sub(order.entered)
+	}
+	yearOld := false
+	for _, o := range year {
+		if !o.entered.IsZero() {
+			kept = max(kept, now.Sub(o.entered))
+			yearOld = yearOld || now.Sub(o.entered) > orderOld
+		}
+	}
 	if yearRead {
-		yearSaid += map[bool]string{true: ", some", false: ", none"}[old] + " entered more than " + days(orderOld) + " ago"
+		yearSaid += map[bool]string{true: ", some", false: ", none"}[yearOld] + " entered more than " + days(orderOld) + " ago"
 	}
 	_, _, sixtySaid := list(acct.endpoint("/orders"), path, window{now.Add(-orderAgeLimit), now})
 	_, _, allSaid := list("orders", "/trader/v1/orders", window{now.Add(-orderAgeLimit - oneDay), now})
@@ -1106,15 +1124,20 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 		"the account's orders of the last 60 days: "+sixtySaid,
 		"every account's orders from 61 days back: "+allSaid,
 	)...)
-	yes := listed || old
-	no := aroundRead && !listed
+	old, no := kept > orderOld, aroundRead && !listed
+	entered := days(now.Sub(order.entered))
 	switch {
-	case yes && no:
+	case old && no:
 		return inconclusive("the lists disagree: an old order came back, while two days around the order's entry left it out", ev...)
-	case yes:
-		return verdict{answer: "a year: an order entered more than " + days(orderOld) + " ago came back", evidence: ev}
+	case kept >= orderYear:
+		return verdict{answer: "a year: an order entered " + days(kept) + " ago came back", evidence: ev}
+	case old:
+		return verdict{answer: "longer than 60 days: an order entered " + days(kept) + " ago came back", evidence: ev}
 	case no:
-		return verdict{answer: "60 days: two days around an older order's entry leave it out, though its id finds it", evidence: ev}
+		return verdict{
+			answer:   "under " + entered + ": two days around the entry of an order entered " + entered + " ago leave it out, though its id finds it",
+			evidence: ev,
+		}
 	}
 	return inconclusive("two days around the order's entry were refused, and no old order came back", ev...)
 }
