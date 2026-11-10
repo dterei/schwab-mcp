@@ -617,7 +617,7 @@ func (r *liveRun) rateSend(ctx context.Context, c *Client, i, n int, began *time
 	if i == 1 {
 		*began = r.now()
 	}
-	_, err := r.fetch(ctx, c, "accounts/accountNumbers", "/trader/v1/accounts/accountNumbers", nil, "accountNumbers", true)
+	_, err := r.fetch(ctx, c, "accounts/accountNumbers", "/trader/v1/accounts/accountNumbers", nil, "accountNumbers", true, false)
 	if err == nil {
 		return nil
 	}

@@ -193,7 +193,7 @@ func probeExtras(ctx context.Context, r *liveRun) verdict {
 	// held asks for q, and reports whether its answer holds row, and how
 	// many rows it holds, or what Schwab said.
 	held := func(q url.Values, row *Transaction) (in bool, n int, said string, ok bool) {
-		rep, err := r.read(ctx, endpoint, path, q, "transactions")
+		rep, err := r.ask(ctx, endpoint, path, q, "transactions")
 		if err != nil {
 			return false, 0, "refused, " + schwabSays(err), false
 		}
@@ -230,11 +230,11 @@ func probeExtras(ctx context.Context, r *liveRun) verdict {
 	if atRow != nil {
 		around = window{at.Add(-oneDay), at.Add(oneDay)}
 	}
-	without, err := r.read(ctx, endpoint, path, rawWindow(around, false), "transactions")
+	without, err := r.ask(ctx, endpoint, path, rawWindow(around, false), "transactions")
 	if err != nil {
 		add("a window without types: refused, %s", schwabSays(err))
 	} else {
-		every, err := r.read(ctx, endpoint, path, rawWindow(around, true), "transactions")
+		every, err := r.ask(ctx, endpoint, path, rawWindow(around, true), "transactions")
 		if err != nil {
 			add("a window without types: %d; the same window with every type: refused, %s", without.status, schwabSays(err))
 		} else {
@@ -251,7 +251,7 @@ func probeExtras(ctx context.Context, r *liveRun) verdict {
 
 	if x.byID != nil {
 		id := strconv.FormatInt(x.byID.ActivityID, 10)
-		rep, err := r.read(ctx, a.endpoint("/transactions/"+idLabel), path+"/"+id, nil, "transaction")
+		rep, err := r.ask(ctx, a.endpoint("/transactions/"+idLabel), path+"/"+id, nil, "transaction")
 		switch {
 		case err != nil:
 			add("a row by its id: refused, %s", schwabSays(err))
@@ -263,12 +263,12 @@ func probeExtras(ctx context.Context, r *liveRun) verdict {
 			add("a row by its id differs from its row in the list")
 		}
 	}
-	_, err = r.read(ctx, "accounts/{unknown hash}", "/trader/v1/accounts/"+url.PathEscape(schwabtest.UnknownHash), nil, "account")
+	_, err = r.ask(ctx, "accounts/{unknown hash}", "/trader/v1/accounts/"+url.PathEscape(schwabtest.UnknownHash), nil, "account")
 	add("an unknown hash: %s", map[bool]string{true: "200", false: "refused, " + schwabSays(err)}[err == nil])
 	if slices.ContainsFunc(r.history[a.n], func(t Transaction) bool { return t.ActivityID == schwabtest.UnknownActivityID }) {
 		add("an unknown activityId: not asked, since a history row has it")
 	} else {
-		_, err = r.read(ctx, a.endpoint("/transactions/"+idLabel), path+"/"+strconv.FormatInt(schwabtest.UnknownActivityID, 10), nil, "transaction")
+		_, err = r.ask(ctx, a.endpoint("/transactions/"+idLabel), path+"/"+strconv.FormatInt(schwabtest.UnknownActivityID, 10), nil, "transaction")
 		add("an unknown activityId: %s", map[bool]string{true: "200", false: "refused, " + schwabSays(err)}[err == nil])
 	}
 	for _, tok := range []struct{ name, header string }{{"a garbage token", "Bearer not-a-token"}, {"no token", ""}} {

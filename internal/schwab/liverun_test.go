@@ -92,11 +92,12 @@ type liveRun struct {
 
 	// What the probes share, set as they run: the history rows, the rows
 	// that the probes have read, by their account's place in the list; and,
-	// under mu, how many reads of the account API Schwab refused as
-	// unauthorized and the findings that read has written, each once.
-	history  map[int][]Transaction
-	refused  int
-	reported map[string]bool
+	// under mu, how many reads of the account API that a working login
+	// passes went, and how many of them Schwab refused as unauthorized, and
+	// the findings that read has written, each once.
+	history          map[int][]Transaction
+	counted, refused int
+	reported         map[string]bool
 }
 
 // A liveAccount is an account of the run, as the account numbers list it.
@@ -530,20 +531,31 @@ func firstActivityID(rep *reply) string {
 // is reported without records or findings. Once the run has stopped, or
 // past its deadline, it sends nothing and returns ctx's error.
 func (r *liveRun) get(ctx context.Context, endpoint, path string, query url.Values, kind string) (*reply, error) {
-	return r.fetch(ctx, r.client, endpoint, path, query, kind, false)
+	return r.fetch(ctx, r.client, endpoint, path, query, kind, false, false)
 }
 
-// read is get for a probe that reads an endpoint many times, as the history
-// walk does: it checks every answer as get does, but writes one to the
-// report only when it fails or holds a finding that the report does not
-// have yet for its endpoint, and counts a finding that fails once, however
-// many answers hold it.
+// read is get for a probe that reads an endpoint many times, as Q12 does:
+// it checks every answer as get does, but writes one to the report only
+// when it fails or holds a finding that the report does not have yet for
+// its endpoint, and counts a finding that fails once, however many answers
+// hold it.
 func (r *liveRun) read(ctx context.Context, endpoint, path string, query url.Values, kind string) (*reply, error) {
-	return r.fetch(ctx, r.client, endpoint, path, query, kind, true)
+	return r.fetch(ctx, r.client, endpoint, path, query, kind, true, false)
 }
 
-// fetch is get through c, a Client of r's Auth, or read when quiet is set.
-func (r *liveRun) fetch(ctx context.Context, c *Client, endpoint, path string, query url.Values, kind string, quiet bool) (*reply, error) {
+// ask is read for a request whose answer is what a probe asks about, such
+// as a window older than an account's history, a window longer than Schwab
+// serves, or an id that no row has. Schwab may refuse such a request with
+// a 401 or a 403 for reasons of its own, so, unlike get's and read's, its
+// refusal is not counted among the reads of the account API that a working
+// login passes, which Q6 reports.
+func (r *liveRun) ask(ctx context.Context, endpoint, path string, query url.Values, kind string) (*reply, error) {
+	return r.fetch(ctx, r.client, endpoint, path, query, kind, true, true)
+}
+
+// fetch is get through c, a Client of r's Auth, or read when quiet is set;
+// asked marks a request whose refusal is not counted, as ask's is.
+func (r *liveRun) fetch(ctx context.Context, c *Client, endpoint, path string, query url.Values, kind string, quiet, asked bool) (*reply, error) {
 	if r.passed() {
 		r.stop(errRunDeadline)
 	}
@@ -552,14 +564,18 @@ func (r *liveRun) fetch(ctx context.Context, c *Client, endpoint, path string, q
 	}
 	sec := &reportSection{title: endpoint}
 	rep, err := c.get(ctx, path, query)
+	se, isErr := errors.AsType[*Error](err)
+	if counts := !asked && strings.HasPrefix(path, "/trader/v1/"); counts && (err == nil || isErr) {
+		r.mu.Lock()
+		r.counted++
+		if isErr && (se.Status == http.StatusUnauthorized || se.Status == http.StatusForbidden) {
+			r.refused++
+		}
+		r.mu.Unlock()
+	}
 	if err != nil {
 		r.stopIfRefused(err)
-		if se, ok := errors.AsType[*Error](err); ok {
-			if (se.Status == http.StatusUnauthorized || se.Status == http.StatusForbidden) && strings.HasPrefix(path, "/trader/v1/") {
-				r.mu.Lock()
-				r.refused++
-				r.mu.Unlock()
-			}
+		if isErr {
 			sec.addf("failed with %d, %s; %s", se.Status, contentType(se.Header), correlationNames(se.Header))
 		}
 		sec.add("failed: " + failureText(err))

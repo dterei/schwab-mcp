@@ -281,7 +281,7 @@ func (r *liveRun) walk(ctx context.Context, a liveAccount, sent *bool) walkResul
 		}
 		*sent = true
 		res.sent++
-		rep, err := r.read(ctx, endpoint, path, txValues(w, ""), "transactions")
+		rep, err := r.ask(ctx, endpoint, path, txValues(w, ""), "transactions")
 		if err != nil {
 			return nil, err
 		}
@@ -1049,7 +1049,13 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 	}
 	id := strconv.FormatInt(pick.OrderID, 10)
 	path := acct.path() + "/orders"
-	rep, err := r.get(ctx, acct.endpoint("/orders/"+idLabel), path+"/"+id, nil, "")
+	// Each read asks what Schwab serves of old orders, which it may refuse
+	// for their age, so none counts against the login, as ask's do not;
+	// each is reported, as get's are.
+	get := func(endpoint, path string, query url.Values) (*reply, error) {
+		return r.fetch(ctx, r.client, endpoint, path, query, "", false, true)
+	}
+	rep, err := get(acct.endpoint("/orders/"+idLabel), path+"/"+id, nil)
 	if err != nil {
 		return inconclusive("the order of an execution " + days(now.Sub(pick.Time)) + " old could not be got by its id: " + schwabSays(err))
 	}
@@ -1067,7 +1073,7 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 	ev := lines(fmt.Sprintf("the order of an execution %s old, got by its id, was entered %s ago", days(now.Sub(pick.Time)), days(now.Sub(order.entered))))
 	// list asks for the orders entered in w, and says what came back.
 	list := func(endpoint, path string, w window) (orders []orderSeen, read bool, said string) {
-		rep, err := r.get(ctx, endpoint, path, ordersValues(w), "")
+		rep, err := get(endpoint, path, ordersValues(w))
 		if err != nil {
 			return nil, false, "refused, " + schwabSays(err)
 		}
@@ -1114,9 +1120,11 @@ var scopeWord = regexp.MustCompile(`^[A-Za-z0-9_.:/ -]{1,40}$`)
 
 // probeScope is Q6, whether a login with scope=readonly gives a token that
 // cannot trade: it reports the scope that Schwab said it granted, and
-// whether any read of the run's account API was refused as unauthorized.
-// Whether such a token cannot trade stays open, since only an order could
-// show it. It sends nothing.
+// whether any read of the run's account API that a working login passes
+// was refused as unauthorized, as get and read count them, not the reads
+// whose answer a probe asks about, which ask sends. Whether such a token
+// cannot trade stays open, since only an order could show it. It sends
+// nothing.
 func probeScope(_ context.Context, r *liveRun) verdict {
 	st, err := r.auth.Status()
 	scope := "no scope"
@@ -1129,15 +1137,19 @@ func probeScope(_ context.Context, r *liveRun) verdict {
 		scope = "a scope of " + plural(len(st.Scope), "character")
 	}
 	r.mu.Lock()
-	refused := r.refused
+	counted, refused := r.counted, r.refused
 	r.mu.Unlock()
 	worked := "no read of the account API was refused as unauthorized"
 	if refused > 0 {
 		worked = plural(refused, "read") + " of the account API refused as unauthorized"
 	}
 	return verdict{
-		answer:   "the login's scope is " + scope + "; " + worked,
-		evidence: lines("whether a token of scope readonly cannot trade stays open: only an order could show it, and the live run sends none"),
+		answer: "the login's scope is " + scope + "; " + worked,
+		evidence: lines(
+			"reads counted: "+strconv.Itoa(counted)+", those of the account API that a working login passes: the account numbers, "+
+				"the preferences, the checks, and Q4's and Q12's windows; not those whose answer a probe asks about, Q1's walk, "+
+				"Q5's old orders and the extras', which Schwab may refuse for reasons of its own",
+			"whether a token of scope readonly cannot trade stays open: only an order could show it, and the live run sends none"),
 	}
 }
 

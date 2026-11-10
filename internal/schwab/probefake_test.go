@@ -860,15 +860,56 @@ func testSymbolFilterOnTheFake(t *testing.T) {
 	})
 }
 
-// Q6 counts the reads of the account API refused as unauthorized, here
-// one check's.
+// Q6 counts a read of the checks that Schwab refuses as unauthorized, but
+// not the reads whose answers the probes ask about, which Schwab may refuse
+// for reasons of its own: here with a 403, the windows of Q1's walk before
+// 2020, Q5's every account's orders from 61 days back, and the extras'
+// unknown hash and unknown activityId.
 func testScopeOnTheFake(t *testing.T) {
-	fl := newProbeLive(t, probeNow, "Q6")
-	fl.f.Queue(schwabtest.AccountRoute, schwabtest.NotAuthorized)
-	if err := fl.runClean(t); err == nil || !strings.Contains(err.Error(), "the check of accounts/{account 1} failed with an error") {
-		t.Errorf("the run's error: %v", err)
-	}
-	wantVerdicts(t, fl.report(t), map[string]string{"Q6": `the login's scope is "api"; 1 read of the account API refused as unauthorized`})
+	t.Run("a check refused", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q6")
+		fl.f.Queue(schwabtest.AccountRoute, schwabtest.NotAuthorized)
+		if err := fl.runClean(t); err == nil || !strings.Contains(err.Error(), "the check of accounts/{account 1} failed with an error") {
+			t.Errorf("the run's error: %v", err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q6": `the login's scope is "api"; 1 read of the account API refused as unauthorized`})
+		wantEvidence(t, report, "Q6", "reads counted: 14, those of the account API that a working login passes: the account numbers, "+
+			"the preferences, the checks, and Q4's and Q12's windows; not those whose answer a probe asks about, Q1's walk, "+
+			"Q5's old orders and the extras', which Schwab may refuse for reasons of its own")
+	})
+	t.Run("the probes' questions refused", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q1", "Q5", "extras", "Q6")
+		refused := 0
+		var mu sync.Mutex
+		fl.f.OnAPI(func(r *http.Request) {
+			route := schwabtest.Route(r.Pattern)
+			q := r.URL.Query()
+			if route == schwabtest.AccountRoute && r.PathValue("hash") == schwabtest.UnknownHash ||
+				route == schwabtest.TransactionRoute && r.PathValue("id") == strconv.FormatInt(schwabtest.UnknownActivityID, 10) ||
+				route == schwabtest.TransactionsRoute && q.Get("startDate") < "2020" ||
+				r.URL.Path == "/trader/v1/orders" {
+				mu.Lock()
+				refused++
+				mu.Unlock()
+				fl.f.Script(schwabtest.Answer(http.StatusForbidden, `{"message":"a guess: not for this login"}`, "Content-Type", "application/json"))
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q6": `the login's scope is "api"; no read of the account API was refused as unauthorized`})
+		wantEvidence(t, report, "extras", "an unknown hash: refused, HTTP 403, a guess: not for this login")
+		wantEvidence(t, report, "Q5", "every account's orders from 61 days back: refused, HTTP 403, a guess: not for this login")
+		mu.Lock()
+		defer mu.Unlock()
+		if refused < 4 {
+			t.Errorf("%d requests refused, want the walk's, Q5's and the extras'", refused)
+		}
+	})
 }
 
 // Q11 counts a description off Schwab's wording as other text, and never
