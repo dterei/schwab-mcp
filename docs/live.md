@@ -118,7 +118,7 @@ why; the question stays open until a run settles it.
 | Q8 | default | Whether daily price bars are adjusted for dividends | Keeps SPY's and VTI's daily closes in the state; after an ex-date between two runs, compares them. Needs the Market Data product |
 | Q10 | default | Whether account hashes stay the same across logins and apps | Keeps keyed digests of each account's hash; a run after your weekly login compares them |
 | Q11 | default | How kinds of event show up in transactions | Counts the shapes of the history's rows |
-| Q12 | default | Whether rows change after they post, and how long after | Keeps keyed digests of the last 60 days' rows; a later run names the keys that changed, the rows gone and the rows that came late |
+| Q12 | default | Whether rows change after they post, and how long after | Keeps keyed digests of the last 60 days' rows; a later run names the keys that changed, the rows gone and the rows that came late. A row counts as gone or late only when both its time and its tradeDate lie in the windows that would show it, since which of the two a window goes by is not known, and only against an answer that the cap cannot have cut |
 | Q13 | `watch=fills` | How soon a fill's trade shows up | Polls the orders entered in the last day and their trades every minute for half an hour. Place a trade by hand, then start it. For a fill from 18:00 to 04:00 in New York, which may be dated the next trading day, it asks for trades dated up to that day too, a window that ends after the poll |
 | Q14 | `-live.rate` | How far under 120 a minute Schwab refuses requests, and whether a burst draws a refusal | Sends the account numbers at 20, 40, 60, 80 and 100 a minute, then a burst of 5, one try each, and stops at the first 429, 403 or 5xx. It starts only when nothing has used the key for two minutes, and stops if another process uses it |
 | Q15 | default | Whether a refresh ends older access tokens, or changes the refresh token | Refreshes once, with a control before, and tries the old and new tokens after |
@@ -187,8 +187,9 @@ move both away to start afresh.
 
 It holds Q8's daily closes of SPY and VTI, which are public; Q10's hashes
 under each account number, with the login's time and the app key's digest;
-Q12's rows of the last 60 days, with a digest of each key path and the time
-each was first seen; and Q15's refresh tokens, with the login's time.
+Q12's rows of the last 60 days, with a digest of each key path, their time
+and tradeDate, and the time each was first seen; and Q15's refresh tokens,
+with the login's time.
 
 ## W-8 lines
 

@@ -356,21 +356,34 @@ type rowsState struct {
 	Accounts map[string]accountRows `json:"accounts"`
 }
 
-// An accountRows is one account's window as the last run asked for it, and
-// its rows, by the digest of each one's activityId.
+// An accountRows is one account's window as the last run asked for it,
+// whether its answer was complete, under pageCap rows, and its rows, by the
+// digest of each one's activityId.
 type accountRows struct {
-	Start time.Time          `json:"start"`
-	End   time.Time          `json:"end"`
-	Rows  map[string]rowSeen `json:"rows"`
+	Start    time.Time          `json:"start"`
+	End      time.Time          `json:"end"`
+	Complete bool               `json:"complete"`
+	Rows     map[string]rowSeen `json:"rows"`
 }
 
 // A rowSeen is one row as the state keeps it: when it was first seen, its
-// time, and a digest of each key path's values, with each instrument cut to
-// its assetType and instrumentId, as milestone 2 will compare rows.
+// time and its tradeDate, and a digest of each key path's values, with each
+// instrument cut to its assetType and instrumentId, as milestone 2 will
+// compare rows.
 type rowSeen struct {
 	FirstSeen time.Time         `json:"firstSeen"`
 	Time      time.Time         `json:"time"`
+	TradeDate time.Time         `json:"tradeDate,omitzero"`
 	Keys      map[string]string `json:"keys"`
+}
+
+// takesRow reports whether w takes in a row at t, dated tradeDate, whichever
+// of the two a window goes by, which is not known: both lie in w, or t alone
+// for a row without a tradeDate. Most rows are dated the midnight in New
+// York before their time, and an evening fill may be dated the next
+// midnight, so a window's edge can lie between the two.
+func (w window) takesRow(t, tradeDate time.Time) bool {
+	return w.inside(t) && (tradeDate.IsZero() || w.inside(tradeDate))
 }
 
 // keyValues returns the values of raw, a row, by key path: each scalar's
@@ -439,16 +452,20 @@ type changesSeen struct {
 	gone, late       int
 	lateBy           []time.Duration // how long after its time each late row was first seen
 	complete, failed bool
+	lastCut          bool // whether the last run's answer may have been cut at the cap
 }
 
 // probeChanges is Q12, whether rows change after they post, and how long
 // after. For each account it asks for the last 60 days, every type and no
-// symbol, and compares the rows with the state, pruned first to the last 60
-// days by row time: a row whose key paths' digests differ changed, and the
-// keys are named; a row is gone only when its time lies inside both runs'
-// windows and this run's answer is complete, under pageCap rows in all and
-// of each type; and a row is late when it is new to the state though its
-// time lies inside the last run's window.
+// symbol, and compares the rows with the state, pruned first to the rows
+// whose time or tradeDate lies in the last 60 days: a row whose key paths'
+// digests differ changed, and the keys are named; a row is gone only when
+// both its time and its tradeDate lie inside both runs' windows and this
+// run's answer is complete, under pageCap rows in all and of each type; and
+// a row is late when it is new to the state though both lie inside the last
+// run's window and that run's answer was complete. Both times count, since
+// whether a window takes a row by its time or by its tradeDate is not
+// known.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
@@ -527,13 +544,16 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 	}
 	r.addHistory(a.n, rows)
 	cs.complete = !cutShort(rows, r.pageCap)
+	cs.lastCut = cs.compared && !prev.Complete
 	kept := map[string]rowSeen{}
 	for id, e := range prev.Rows {
-		if !e.Time.Before(w.start) { // pruned by row time, before anything is compared
+		// Pruned before anything is compared, once neither of its times
+		// can lie in this window or a later run's.
+		if !maxTime(e.Time, e.TradeDate).Before(w.start) {
 			kept[id] = e
 		}
 	}
-	next := accountRows{Start: w.start, End: w.end, Rows: map[string]rowSeen{}}
+	next := accountRows{Start: w.start, End: w.end, Complete: cs.complete, Rows: map[string]rowSeen{}}
 	seen := map[string]bool{}
 	last := window{prev.Start, prev.End}
 	for _, row := range rows {
@@ -546,9 +566,9 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 		e, ok := kept[id]
 		switch {
 		case !ok:
-			e = rowSeen{FirstSeen: now, Time: row.Time}
+			e = rowSeen{FirstSeen: now}
 			cs.fresh++
-			if cs.compared && last.inside(row.Time) {
+			if cs.compared && !cs.lastCut && last.takesRow(row.Time, row.TradeDate) {
 				cs.late++
 				cs.lateBy = append(cs.lateBy, now.Sub(row.Time))
 			}
@@ -574,13 +594,13 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 				}
 			}
 		}
-		e.Time, e.Keys = row.Time, digests
+		e.Time, e.TradeDate, e.Keys = row.Time, row.TradeDate, digests
 		next.Rows[id] = e
 	}
 	for id, e := range kept {
 		switch {
 		case seen[id]:
-		case cs.complete && last.inside(e.Time) && w.inside(e.Time):
+		case cs.complete && last.takesRow(e.Time, e.TradeDate) && w.takesRow(e.Time, e.TradeDate):
 			cs.gone++
 		default:
 			next.Rows[id] = e // not in this answer, but not shown gone
@@ -618,6 +638,9 @@ func (cs changesSeen) line(a liveAccount) string {
 		parts = append(parts, plural(cs.gone, "row")+" gone")
 	case !cs.complete:
 		parts = append(parts, "the answer may have been cut at the cap, so no row can be shown gone")
+	}
+	if cs.lastCut {
+		parts = append(parts, "the last run's answer may have been cut at the cap, so no row can be shown late")
 	}
 	return a.label() + ": " + strings.Join(parts, "; ")
 }
@@ -941,6 +964,30 @@ func TestKeyValues(t *testing.T) {
 	if !maps.Equal(base, r.rowDigests(json.RawMessage(strings.Replace(row, `"symbol":"X"`, `"symbol":"Y"`, 1)))) ||
 		maps.Equal(base, r.rowDigests(json.RawMessage(strings.Replace(row, `"EQUITY"`, `"OPTION"`, 1)))) {
 		t.Error("a row's digests follow its instrument's symbol, or not its assetType")
+	}
+}
+
+// Q12 takes a window to hold a row only when both its time and its
+// tradeDate lie in it, bounds included, whichever of the two windows go by;
+// a row without a tradeDate, by its time alone.
+func TestWindowTakesRow(t *testing.T) {
+	day := func(d, h int) time.Time { return time.Date(2026, 7, d, h, 0, 0, 0, time.UTC) }
+	w := window{day(15, 10), day(20, 10)}
+	for _, tc := range []struct {
+		time, tradeDate time.Time
+		want            bool
+	}{
+		{day(16, 14), day(16, 4), true},
+		{day(15, 14), day(15, 4), false}, // dated before the start
+		{day(20, 9), day(21, 4), false},  // dated after the end
+		{day(15, 9), day(16, 4), false},  // before the start
+		{day(15, 10), day(20, 10), true}, // on the bounds
+		{day(15, 14), time.Time{}, true},
+		{day(14, 14), time.Time{}, false},
+	} {
+		if got := w.takesRow(tc.time, tc.tradeDate); got != tc.want {
+			t.Errorf("takesRow(%v, %v) = %v", tc.time, tc.tradeDate, got)
+		}
 	}
 }
 
