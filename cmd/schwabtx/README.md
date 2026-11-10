@@ -170,7 +170,9 @@ macOS, `snapshot.ps1` with each PowerShell on Windows.
   [the API notes](../../docs/schwab-api.md#transactions)). It only affects
   `-lookback` and `-window`. Probe Q1 of
   [the live mode](../../docs/live.md#the-probes) walks your accounts'
-  history back to find out.
+  history back and reports the date of each account's oldest row and what
+  an older window gets; whether Schwab holds older activity that it does
+  not serve stays yours to judge.
 
 ## Troubleshooting
 
