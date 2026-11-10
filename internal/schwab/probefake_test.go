@@ -1257,10 +1257,11 @@ func testChangesOnTheFake(t *testing.T) {
 
 // Q15 under the fake's settings: a refresh that ends the older access
 // tokens or not, and changes the refresh token or not, each verdict after
-// waiting on the run's clock until the token is a minute old; and another
-// process's refresh between the probe's reading of the token file and its
-// own refresh, or a refresh that gives back the same access token, which
-// no verdict may come from.
+// waiting on the run's clock until the token is a minute old; a refresh
+// that ends them only some seconds later; and another process's refresh
+// between the probe's reading of the token file and its own refresh, or a
+// refresh that gives back the same access token, which no verdict may come
+// from.
 func testRefreshOnTheFake(t *testing.T) {
 	for _, tc := range []struct {
 		revoke, rotate bool
@@ -1288,7 +1289,7 @@ func testRefreshOnTheFake(t *testing.T) {
 			wantVerdicts(t, report, map[string]string{"Q15": tc.want})
 			kept := map[bool]string{true: "a new one", false: "the one before it"}[tc.rotate]
 			wantEvidence(t, report, "Q15",
-				fmt.Sprintf("after the refresh, the token before it answered %d, and %d again 30s later; the new token answered 200", tc.old, tc.old),
+				fmt.Sprintf("after the refresh, the token before it answered %d, and %d when tried again 30s later; the new token answered 200", tc.old, tc.old),
 				"the refresh token after the refresh is "+kept, "no earlier run under this login, to compare its refresh token with")
 			if _, refresh := fl.f.Grants(); refresh != 1 {
 				t.Errorf("%d refreshes", refresh)
@@ -1314,6 +1315,34 @@ func testRefreshOnTheFake(t *testing.T) {
 			wantEvidence(t, later.report(t), "Q15", "since the last run under this login, the refresh token "+since)
 		})
 	}
+	t.Run("a refresh that ends older tokens within 30s", func(t *testing.T) {
+		t.Parallel()
+		// The token before the refresh still works at once, and is refused
+		// from 20 seconds after the new one was first used.
+		fl := newProbeLive(t, probeNow, "Q15")
+		older, newer := "Bearer "+schwabtest.AccessToken(1), "Bearer "+schwabtest.AccessToken(2)
+		var mu sync.Mutex
+		var firstNew time.Time
+		fl.f.OnAPI(func(r *http.Request) {
+			if schwabtest.Route(r.Pattern) != schwabtest.AccountNumbersRoute {
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			switch auth := r.Header.Get("Authorization"); {
+			case auth == newer && firstNew.IsZero():
+				firstNew = fl.clock.Now()
+			case auth == older && !firstNew.IsZero() && !fl.clock.Now().Before(firstNew.Add(20*time.Second)):
+				fl.f.Queue(schwabtest.AccountNumbersRoute, schwabtest.NotAuthorized)
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q15": "a refresh ends older access tokens within 30s, and keeps the refresh token"})
+		wantEvidence(t, report, "Q15", "after the refresh, the token before it answered 200, and 401 when tried again 30s later; the new token answered 200")
+	})
 	t.Run("a token with under five minutes left", func(t *testing.T) {
 		t.Parallel()
 		fl := newProbeLive(t, probeNow, "Q15")

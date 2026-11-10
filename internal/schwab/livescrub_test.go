@@ -695,15 +695,17 @@ func fixtureHash(n int) string {
 // A value of six characters or more is found anywhere, inside a word too;
 // a shorter one only as a whole token, so that a nickname such as "Ed" or
 // "IRA" leaves the words it is inside alone. A value of one character is
-// not hidden at all. An identifier is found escaped for a path too.
+// not hidden at all. An identifier is found escaped for a path or a query
+// too.
 func TestScrubberShortValuesAreWholeTokens(t *testing.T) {
 	s := newLiveScrubber()
-	for _, v := range []string{"Ed", "IRA", "Trading", "x"} {
+	for _, v := range []string{"Ed", "IRA", "Trading", "x", "Margin"} {
 		s.addName(v)
 	}
 	s.addIdent("position id", "12345")
 	s.addIdent("order id", "1234567")
 	s.addIdent("hash", "zq9 hash/+1")
+	s.addIdent("position id", "654321")
 	for _, tc := range []struct{ in, want string }{
 		{"Ed's IRA", "{nickname 1}'s {nickname 2}"},
 		{"Edward received an IRAs file", "Edward received an IRAs file"},
@@ -713,13 +715,15 @@ func TestScrubberShortValuesAreWholeTokens(t *testing.T) {
 		{"a x b", "a x b"},
 		{"position 12345, not 123456 or a12345", "position {position id 1}, not 123456 or a12345"},
 		{"order 1234567 and x1234567y", "order {order id 1} and x{order id 1}y"},
+		{"MarginX and a654321b, of six", "{nickname 4}X and a{position id 2}b, of six"},
 		{"/accounts/zq9%20hash%2F+1/x and zq9 HASH/+1", "/accounts/{hash 1}/x and {hash 1}"},
+		{"hash=zq9+hash%2F%2B1&x=1", "hash={hash 1}&x=1"},
 	} {
 		if got := s.scrub(tc.in); got != tc.want {
 			t.Errorf("scrub(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
-	if s.holds("Edward") || s.holds("a12345") || !s.holds("Ed!") || !s.holds("x1234567y") {
+	if s.holds("Edward") || s.holds("a12345") || !s.holds("Ed!") || !s.holds("x1234567y") || !s.holds("MarginX") {
 		t.Error("the self-check takes short values otherwise than scrub does")
 	}
 }

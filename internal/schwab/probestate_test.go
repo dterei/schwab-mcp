@@ -761,7 +761,7 @@ func probeRefresh(ctx context.Context, r *liveRun) (v verdict) {
 	}
 	kept := t2.RefreshToken == r1
 	ev := lines(
-		fmt.Sprintf("after the refresh, the token before it answered %d, and %d again %v later; the new token answered %d",
+		fmt.Sprintf("after the refresh, the token before it answered %d, and %d when tried again %v later; the new token answered %d",
 			statuses["old"], statuses["old again"], refreshAgain, statuses["new"]),
 		"the refresh token after the refresh is "+map[bool]string{true: "the one before it", false: "a new one"}[kept],
 	)

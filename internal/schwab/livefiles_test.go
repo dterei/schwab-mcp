@@ -260,20 +260,24 @@ func TestPrivateFiles(t *testing.T) {
 			t.Errorf("%s: %v, %v; want mode %v", path, info.Mode(), err, want)
 		}
 	}
-	if err := os.Chmod(file, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var warned []string
-	warn := func(msg string) { warned = append(warned, msg) }
-	if err := makePrivate(file, warn); err != nil {
-		t.Fatal(err)
-	}
-	if err := makePrivate(file, warn); err != nil {
-		t.Fatal(err)
-	}
-	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o600 || len(warned) != 1 ||
-		warned[0] != file+" could be read by others; it is now readable only by you" {
-		t.Errorf("made private: %v, %v; warned %q", info.Mode(), err, warned)
+	// A file that its group alone can read is not private either, nor one
+	// that only others can.
+	for _, mode := range []os.FileMode{0o640, 0o604} {
+		if err := os.Chmod(file, mode); err != nil {
+			t.Fatal(err)
+		}
+		var warned []string
+		warn := func(msg string) { warned = append(warned, msg) }
+		if err := makePrivate(file, warn); err != nil {
+			t.Fatal(err)
+		}
+		if err := makePrivate(file, warn); err != nil {
+			t.Fatal(err)
+		}
+		if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o600 || len(warned) != 1 ||
+			warned[0] != file+" could be read by others; it is now readable only by you" {
+			t.Errorf("mode %v made private: %v, %v; warned %q", mode, info.Mode(), err, warned)
+		}
 	}
 }
 

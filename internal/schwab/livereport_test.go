@@ -459,7 +459,7 @@ func TestStateDigests(t *testing.T) {
 			t.Errorf("%s: %v, %v; want mode %v", path, info.Mode(), err, want)
 		}
 	}
-	if err := os.Chmod(file, 0o644); err != nil {
+	if err := os.Chmod(file, 0o640); err != nil { // readable by its group
 		t.Fatal(err)
 	}
 	var warned []string
