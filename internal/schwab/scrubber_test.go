@@ -1186,7 +1186,8 @@ func (s *scrubber) reviewText(o *scrubOutput) string {
 		"1. Read this file whole, and the files themselves.\n" +
 		"2. Decide on each row of W-8 withholding below: keep it, or leave its file out.\n" +
 		"3. Copy recorded/" + s.date + "/ to internal/schwab/schwabtest/testdata/recorded/" + s.date + "/,\n" +
-		"   and add the entries of entries.json to the list in index.json there.\n" +
+		"   and add the entries of entries.json to the list in\n" +
+		"   internal/schwab/schwabtest/testdata/index.json, the one index of every fixture.\n" +
 		"4. Run go test ./... and commit nothing that fails.\n")
 	section := func(title string, lines []string) {
 		if len(lines) == 0 {

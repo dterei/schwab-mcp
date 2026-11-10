@@ -306,7 +306,9 @@ To commit a recording:
 3. Copy `recorded/<date>/` into
    `internal/schwab/schwabtest/testdata/recorded/<date>/`, beside the
    hand-made files and never over them, and add the entries of
-   `entries.json` to the list in that folder's `index.json`.
+   `entries.json` to the list in
+   `internal/schwab/schwabtest/testdata/index.json`, the one index of
+   every fixture.
 4. Run `go test ./...`. The value hygiene tests, the census and
    `checkAnswer` read every indexed file, so a failure names what is wrong.
    A file that fails cannot be committed as it is: leave it out, or extend

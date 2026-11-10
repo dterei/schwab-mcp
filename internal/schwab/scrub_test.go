@@ -39,7 +39,7 @@ var (
 // GITHUB_ACTIONS is set, so that no CI run fails for want of the flag, nor
 // makes fixtures. The owner reads review.txt, copies recorded/<date>/ into
 // schwabtest/testdata/recorded/<date>/ and adds entries.json's entries to
-// index.json there; see docs/live.md.
+// schwabtest/testdata/index.json; see docs/live.md.
 func TestScrub(t *testing.T) {
 	if *scrubRaw == "" {
 		t.Skip("-scrub makes candidate fixtures of a live recording")

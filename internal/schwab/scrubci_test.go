@@ -531,7 +531,8 @@ func recordAnswers(t *testing.T, answers []testAnswer) string {
 // know, and a folder that holds no recording or a broken one; and it writes
 // a recording that it takes to a folder of its own, readable only by the
 // user: the candidate fixtures alone under recorded/<date>/, and
-// entries.json, review.txt and shapes/ beside them.
+// entries.json, review.txt and shapes/ beside them, review.txt naming the
+// index that the entries go in.
 func TestScrubFolders(t *testing.T) {
 	module := plantModule(t)
 	home := filepath.Join(t.TempDir(), "zq9user")
@@ -650,5 +651,15 @@ func TestScrubFolders(t *testing.T) {
 	}
 	if again, err := run(raw, out, "refuse"); err == nil || !strings.Contains(err.Error(), "-scrub.out names a folder that the scrubber makes") {
 		t.Errorf("a second run into the same folder: %q, %v", again, err)
+	}
+	// review.txt names the one index of every fixture by its path from the
+	// module's root, where it is; the folder that the owner copies the
+	// files to holds none.
+	const index = "internal/schwab/schwabtest/testdata/index.json"
+	if review, err := os.ReadFile(filepath.Join(out, "review.txt")); err != nil || !strings.Contains(string(review), " "+index+",") {
+		t.Errorf("review.txt does not name %s: %v\n%s", index, err, review)
+	}
+	if _, err := os.Stat(filepath.Join("..", "..", filepath.FromSlash(index))); err != nil {
+		t.Errorf("review.txt names an index that is not there: %v", err)
 	}
 }
