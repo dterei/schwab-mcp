@@ -1268,6 +1268,9 @@ func TestScrubberGatesRefuse(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Each case scrubs a recording of its own; what they share, the
+			// planted recordings and the folders, they only read.
+			t.Parallel()
 			answers := tc.answers
 			if answers == nil {
 				answers = planted
