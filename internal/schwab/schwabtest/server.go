@@ -96,6 +96,7 @@ type Server struct {
 	paths     map[string]http.HandlerFunc // OverridePath's table
 	pathMux   *http.ServeMux              // the table's patterns, rebuilt on each change
 	replays   map[string]*replayed        // LoadRecording's answers, by replayKey
+	days      map[string]bool             // the days LoadRecording loaded
 
 	// The world (world.go, rows.go).
 	accounts   []*account
@@ -140,6 +141,7 @@ func newServer(t testing.TB) *Server {
 		overrides: map[Route]http.HandlerFunc{},
 		paths:     map[string]http.HandlerFunc{},
 		replays:   map[string]*replayed{},
+		days:      map[string]bool{},
 	}
 }
 

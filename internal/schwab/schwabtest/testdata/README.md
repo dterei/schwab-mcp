@@ -2,9 +2,12 @@
 
 These files are answers in the shape Schwab sends them. They are embedded in
 package schwabtest, which serves them byte for byte: `Fixture` reads one,
-`LoadFixtures` gives the fake the hand-made accounts, and the canned answers
-send the bodies under `errors/`. `.gitattributes` keeps their bytes, line
-endings included, in every checkout.
+the canned answers send the bodies under `errors/`, and `LoadRecording`
+sends a recording's files. `LoadFixtures` gives the fake the hand-made
+accounts, and serves each element of a list byte for byte, but joins the
+elements with commas alone, without the spacing between them in the file.
+`.gitattributes` keeps their bytes, line endings included, in every
+checkout.
 
 ## What each file is
 

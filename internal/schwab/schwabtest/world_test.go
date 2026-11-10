@@ -411,8 +411,8 @@ func TestLoadFixtures(t *testing.T) {
 // A recording answers the requests it recorded, method, path and query
 // exactly as they were sent, escapes and all, with only its recorded
 // headers, ahead of the world and after the handlers, each request's
-// answers in turn and the last again, and a later day's after an earlier
-// day's.
+// answers in turn and the last again, and a day's after those of the days
+// loaded before it, whatever their dates. A day loads once.
 func TestLoadRecording(t *testing.T) {
 	r := &recorder{TB: t}
 	s, get := loggedIn(t, r)
@@ -490,6 +490,21 @@ func TestLoadRecording(t *testing.T) {
 	}
 	if got, want := answers(getBoth, 5), []string{" \n", `{"ok":"recorded"}`, `[]`, `{"day":2}`, `{"day":2}`}; !slices.Equal(got, want) {
 		t.Errorf("two days loaded before a request: %q, want %q", got, want)
+	}
+	backwards, getBackwards := loggedIn(t, r)
+	for _, date := range []string{"2026-11-09", "2026-11-08"} {
+		if err := backwards.loadRecording(fsys, index, date); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := answers(getBackwards, 5), []string{`[]`, `{"day":2}`, " \n", `{"ok":"recorded"}`, `{"ok":"recorded"}`}; !slices.Equal(got, want) {
+		t.Errorf("the later day loaded first: %q, want %q", got, want)
+	}
+	if err := both.loadRecording(fsys, index, "2026-11-08"); err == nil || !strings.Contains(err.Error(), "loaded already") {
+		t.Errorf("a day loaded again: %v, want it refused", err)
+	}
+	if got, want := answers(getBoth, 1), []string{`{"day":2}`}; !slices.Equal(got, want) {
+		t.Errorf("after a day was loaded again: %q, want %q", got, want)
 	}
 
 	for _, tc := range []struct {

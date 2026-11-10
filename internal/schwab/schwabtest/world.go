@@ -588,9 +588,10 @@ func (s *Server) replayFor(r *http.Request) http.HandlerFunc {
 // method, the path and the query exactly, with the recorded status and the
 // headers its entry keeps, ahead of the world. A request recorded more
 // than once gets its answers in the index's order, and the last after
-// that. Several days can be loaded: a later day's answers to a request
-// follow an earlier day's. Other requests go to the world as usual, which
-// LoadFixtures may fill, or not.
+// that. Several days can be loaded, each once: a day's answers to a
+// request follow those of the days loaded before it, in the order they
+// were loaded, whatever their dates. Other requests go to the world as
+// usual, which LoadFixtures may fill, or not.
 func (s *Server) LoadRecording(date string) {
 	s.t.Helper()
 	sub, err := fs.Sub(files, "testdata")
@@ -631,6 +632,10 @@ func (s *Server) loadRecording(fsys fs.FS, index []Entry, date string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.days[date] {
+		return errors.New("that day is loaded already")
+	}
+	s.days[date] = true
 	for _, k := range keys {
 		if s.replays[k] == nil {
 			s.replays[k] = &replayed{}
