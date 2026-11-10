@@ -164,6 +164,36 @@ func TestRehash(t *testing.T) {
 	wantReported(t, r, "empty or another account's", func() { s.Rehash("NEW", "") })
 }
 
+// SetDetails changes an account's Details and nothing else: the account
+// keeps its place in both lists, its hash and its rows. ReplaceRow keeps
+// the row's handle: a RowRef taken before it still names the row.
+func TestSetDetailsAndReplaceRowKeepTheRest(t *testing.T) {
+	r := &recorder{TB: t}
+	s, get := loggedIn(t, r)
+	s.AddAccount(Account{Number: "11111111", Details: details1})
+	s.AddAccount(Account{Number: "22222222", Hash: "H2", Details: details2, NumberJSON: numbers2})
+	hash := HashFor("11111111")
+	ref := s.AddRow(hash, Row{JSON: testRows["r1"]})
+	listed := func() *httptest.ResponseRecorder {
+		return get("/trader/v1/accounts/" + hash + "/transactions?" + window(january, month))
+	}
+
+	changed := `{"securitiesAccount":{"type":"CASH","accountNumber":"11111111"}}`
+	s.SetDetails(hash, changed)
+	wantAnswer(t, get("/trader/v1/accounts/accountNumbers"), "["+numbers1+","+numbers2+"]")
+	wantAnswer(t, get("/trader/v1/accounts"), "["+changed+","+details2+"]")
+	wantAnswer(t, get("/trader/v1/accounts/"+hash), changed)
+	wantAnswer(t, listed(), rowList("r1"))
+
+	s.ReplaceRow(hash, 1, testRows["r2"])
+	wantAnswer(t, listed(), rowList("r2"))
+	ref.Replace(Row{JSON: testRows["r4"]})
+	if errs := r.took(); len(errs) > 0 {
+		t.Errorf("after ReplaceRow, the row's handle: %q", errs)
+	}
+	wantAnswer(t, listed(), rowList("r4"))
+}
+
 // Rows are added, replaced and removed through their handles, or by id,
 // each keeping its place, a replaced row taking the time and type of its
 // new bytes, and every bad call is refused with nothing changed.
