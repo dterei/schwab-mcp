@@ -1079,8 +1079,11 @@ func testShapesOnTheFake(t *testing.T) {
 // youngest execution past 67 days, which is the one asked about, though an
 // older order that comes back sets the bound; a list that holds an order of
 // nearly a year, the one bound that shows a year; the list of the last year
-// refused, which the two days around the entry settle alone; and lists that
-// disagree.
+// refused, which the two days around the entry settle alone; lists that
+// give back an order younger than the one they leave out, which bound how
+// long they keep orders from both sides: a working order of 100 days, or
+// another order of the two days around the entry; and lists that disagree,
+// giving back an order entered an hour before the one they leave out.
 func testOrdersDepthOnTheFake(t *testing.T) {
 	const unserved172 = "under 172 days: two days around the entry of an order entered 172 days ago leave it out, though its id finds it"
 	t.Run("a list kept for 60 days", func(t *testing.T) {
@@ -1250,12 +1253,48 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 1 order, the order among them",
 			"the account's orders of the last year: 200, 2 orders, some entered more than 67 days ago")
 	})
+	t.Run("a list kept for 120 days that gives back a working order", func(t *testing.T) {
+		t.Parallel()
+		// An order of {account 2} entered 100 days ago, never filled, comes
+		// back, while the META sale's, entered 172 days ago, does not: the
+		// lists agree, and bound how long they keep orders from both sides.
+		fl := newProbeLive(t, probeNow, "Q1", "Q5")
+		working := fakeOrder{account: secondAccount, id: 1004517700106, entered: probeNow.Add(-100 * oneDay)}
+		fl.more = append(fl.more, strconv.FormatInt(working.id, 10))
+		serveOrders(fl, []fakeOrder{metaSaleOrder, working}, keptFor(120*oneDay))
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q5": "from 100 to 172 days: an order entered 100 days ago came back, " +
+			"and two days around the entry of one entered 172 days ago leave it out, though its id finds it"})
+		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 0 orders, without the order",
+			"the account's orders of the last year: 200, 1 order, some entered more than 67 days ago")
+	})
+	t.Run("a list that gives back another order of the two days around the entry", func(t *testing.T) {
+		t.Parallel()
+		// An order entered 12 hours after the META sale's lies in the two
+		// days around its entry, and a list kept for 6 hours less than the
+		// META sale's order's age gives it back alone.
+		fl := newProbeLive(t, probeNow, "Q1", "Q5")
+		next := fakeOrder{account: secondAccount, id: 1004517700107, entered: metaSaleOrder.entered.Add(12 * time.Hour)}
+		fl.more = append(fl.more, strconv.FormatInt(next.id, 10))
+		serveOrders(fl, []fakeOrder{metaSaleOrder, next}, keptFor(probeNow.Sub(metaSaleOrder.entered)-6*time.Hour))
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q5": "from 171 to 172 days: an order entered 171 days ago came back, " +
+			"and two days around the entry of one entered 172 days ago leave it out, though its id finds it"})
+		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 1 order, without the order",
+			"the account's orders of the last year: 200, 1 order, some entered more than 67 days ago")
+	})
 	t.Run("lists that disagree", func(t *testing.T) {
 		t.Parallel()
-		// The lists leave out the META sale's order, though another as old
-		// comes back.
+		// The lists leave out the META sale's order, though one entered an
+		// hour before it comes back.
 		fl := newProbeLive(t, probeNow, "Q1", "Q5")
-		other := order(1004517700104, 100*oneDay)
+		other := fakeOrder{account: secondAccount, id: 1004517700104, entered: metaSaleOrder.entered.Add(-time.Hour)}
 		fl.more = append(fl.more, strconv.FormatInt(other.id, 10))
 		serveOrders(fl, []fakeOrder{metaSaleOrder, other}, func(entered, now time.Time) bool {
 			return !entered.Equal(metaSaleOrder.entered) && keptFor(MaxTransactionWindow)(entered, now)
@@ -1264,8 +1303,9 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q5": "inconclusive: the lists disagree: an old order came back, while two days around the order's entry left it out"})
-		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 0 orders, without the order",
+		wantVerdicts(t, report, map[string]string{"Q5": "inconclusive: the lists disagree: an order entered 172 days ago came back, " +
+			"while two days around the entry of one entered 172 days ago left it out"})
+		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 1 order, without the order",
 			"the account's orders of the last year: 200, 1 order, some entered more than 67 days ago")
 	})
 }

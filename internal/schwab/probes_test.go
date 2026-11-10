@@ -1035,9 +1035,10 @@ func ordersValues(w window) url.Values {
 // year. It answers with the bound that the lists show: longer than 60
 // days, when an order entered over orderOld ago comes back, and a year
 // when one entered orderYear ago or more does; under the age of the order
-// that its id finds, when the two days around its entry leave it out; and
-// "inconclusive" when the get by id fails, or the answers say neither or
-// both.
+// that its id finds, when the two days around its entry leave it out; from
+// the one to the other when both show; and "inconclusive" when the get by
+// id fails, when the answers say neither, or when an order at least as old
+// as the one left out came back.
 func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 	now := r.now()
 	days := func(d time.Duration) string { return plural(int(d/oneDay), "day") }
@@ -1124,11 +1125,21 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 		"the account's orders of the last 60 days: "+sixtySaid,
 		"every account's orders from 61 days back: "+allSaid,
 	)...)
+	// The lists disagree only when an order at least as old as the one
+	// left out came back; a younger one bounds the list from below.
+	age := now.Sub(order.entered)
 	old, no := kept > orderOld, aroundRead && !listed
-	entered := days(now.Sub(order.entered))
+	entered := days(age)
 	switch {
+	case no && kept >= age:
+		return inconclusive("the lists disagree: an order entered "+days(kept)+" ago came back, while two days around the entry of one entered "+
+			entered+" ago left it out", ev...)
 	case old && no:
-		return inconclusive("the lists disagree: an old order came back, while two days around the order's entry left it out", ev...)
+		return verdict{
+			answer: fmt.Sprintf("from %d to %s: an order entered %s ago came back, and two days around the entry of one entered %s ago leave it out, "+
+				"though its id finds it", kept/oneDay, entered, days(kept), entered),
+			evidence: ev,
+		}
 	case kept >= orderYear:
 		return verdict{answer: "a year: an order entered " + days(kept) + " ago came back", evidence: ev}
 	case old:
