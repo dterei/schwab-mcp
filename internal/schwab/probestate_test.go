@@ -857,9 +857,10 @@ func (r *liveRun) sendWith(ctx context.Context, tok string) (int, error) {
 // one, and the file then holding a new access token, A2, else another
 // process refreshed in between. Then one GET with A1, one with A2, and A1
 // again 30 seconds later. A1 answering 200 both times means older tokens
-// survive a refresh for 30 seconds at least, which is all that shows, and
-// 401 that a refresh ends them; the file's refresh token then equal to R1
-// means it was kept. It never sends R1 itself: after a rotation that could
+// survive a refresh for 30 seconds at least, which is all that shows, 401
+// both times that a refresh ends them, and 200 then 401 that it ends them
+// within 30 seconds; any other pair, as 401 then 200, says nothing. The
+// file's refresh token then equal to R1 means it was kept. It never sends R1 itself: after a rotation that could
 // end the refresh token that the file holds. However it ends, it keeps the
 // digest of the file's refresh token, to compare with the next run's under
 // the same login.
@@ -931,12 +932,12 @@ func probeRefresh(ctx context.Context, r *liveRun) (v verdict) {
 		return inconclusive("the new token answered "+strconv.Itoa(statuses["new"]), ev...)
 	case statuses["old"] == http.StatusOK && statuses["old again"] == http.StatusOK:
 		survive = "a refresh leaves older access tokens working for " + refreshAgain.String() + " at least"
-	case statuses["old"] == http.StatusUnauthorized:
+	case statuses["old"] == http.StatusUnauthorized && statuses["old again"] == http.StatusUnauthorized:
 		survive = "a refresh ends older access tokens"
 	case statuses["old"] == http.StatusOK && statuses["old again"] == http.StatusUnauthorized:
 		survive = "a refresh ends older access tokens within " + refreshAgain.String()
 	default:
-		return inconclusive("the token before the refresh answered "+strconv.Itoa(statuses["old"])+", then "+strconv.Itoa(statuses["old again"]), ev...)
+		return inconclusive(fmt.Sprintf("the token before the refresh answered %d, then %d %v later", statuses["old"], statuses["old again"], refreshAgain), ev...)
 	}
 	keeps := "and keeps the refresh token"
 	if !kept {
