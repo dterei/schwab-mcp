@@ -190,10 +190,10 @@ and HTTP code into `internal/schwab` with what the history store needs.
       request for several types, are settings, whose defaults are labeled
       guesses. A lint rule keeps it out of the programs
 - [ ] Scrubbed recordings of real responses as fixtures, beside the
-      hand-made ones. The tools for them are built: a live run's
-      `-live.record`, and the scrubber that turns its recording into
-      fixtures (see [the live mode](live.md#recording)). This waits for a
-      first recording of a real account
+      hand-made ones. A live run's `-live.record` keeps each answer raw
+      (see [the live mode](live.md#recording)); the scrubber that turns a
+      recording into fixtures is not built yet. This waits for it, and then
+      for a first recording of a real account
 - [x] Fuzz tests for the parsers (Schwab timestamps, pasted redirect
       addresses, transaction JSON) and every other record. `make fuzz` runs
       each target in turn, and CI runs their seeds. A table test also changes
