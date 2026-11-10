@@ -24,6 +24,12 @@ const idTrace identifier = "a correlation ID"
 // and refuses any file that would hold it.
 const idPathAccount identifier = "an account that no answer names"
 
+// idPathID is a run of six digits or more that a request's path holds after
+// its account where no id goes, as an id of a route that the scrubber does
+// not know would be. It has no fake, so a file that would hold it is
+// refused, unless the same digits are an identifier that has one.
+const idPathID identifier = "an ID where no id goes"
+
 // An identValue is an identifier that a recording holds, and the fake that
 // the scrubber puts in its place.
 type identValue struct {

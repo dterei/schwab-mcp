@@ -293,6 +293,47 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 			},
 		},
 		{
+			name: "an orders/{id} path whose id no body holds", amounts: keep, accounts: 3,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				order := b.p.draw(13, plantDigits, plantDigits)
+				return []testAnswer{jsonAnswer("/trader/v1/accounts/"+b.hashes[0]+"/orders/"+order, "", 404, `{"message":"Order not found"}`)}, []string{order}
+			},
+			// Its fake is no row's, which the value hygiene tests refuse.
+			leftOut: map[string]string{"002": "the request's path: an order ID that is no row's"},
+			check: func(t *testing.T, _ corpusBase, o *scrubOutput) {
+				if ids := o.ids.of(idOrder); len(ids) != 1 || ids[0].fake == "" {
+					t.Errorf("%d order IDs, want the path's, with its fake", len(ids))
+				}
+			},
+		},
+		{
+			name: "an orders/{id} path whose id a row holds", amounts: keep, accounts: 3,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				id, order := b.id(), b.p.draw(13, plantDigits, plantDigits)
+				return []testAnswer{
+					b.transactions(cashRow(b.numbers[0], id, "orderId", order)),
+					jsonAnswer("/trader/v1/accounts/"+b.hashes[0]+"/orders/"+order, "", 404, `{"message":"Order not found"}`),
+				}, []string{id, order}
+			},
+			written: map[string]string{"003": `{"message":"MESSAGE 1"}`},
+			check: func(t *testing.T, _ corpusBase, o *scrubOutput) {
+				ids := o.ids.of(idOrder)
+				path := fileNamed(t, o, "003").entry.Request.Path
+				if len(ids) != 1 || !regexp.MustCompile(`"orderId":`+ids[0].fake+`[,}]`).Match(fileNamed(t, o, "002").body) ||
+					path != "/trader/v1/accounts/"+schwabtest.FixtureAccounts[0].Hash+"/orders/"+ids[0].fake {
+					t.Errorf("the order's path %s, want its row's order ID's fake", path)
+				}
+			},
+		},
+		{
+			name: "an id in a path where no id goes", amounts: keep, accounts: 3,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				id := b.p.draw(12, plantDigits, plantDigits)
+				return []testAnswer{jsonAnswer("/trader/v1/accounts/"+b.hashes[0]+"/positions/"+id, "", 404, `{"message":"Not Found"}`)}, []string{id}
+			},
+			leftOut: map[string]string{"002": "the request's path holds " + string(idPathID) + ", which has no fake"},
+		},
+		{
 			name: "a 401 body with errors[].id", amounts: keep, accounts: 3,
 			answers: func(b corpusBase) ([]testAnswer, []string) {
 				id := strings.ToLower(b.p.draw(8, plantHex, plantHex)) + "-4a5b-4c6d-8e7f-" + strings.ToLower(b.p.draw(12, plantHex, plantHex))

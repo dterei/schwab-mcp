@@ -450,8 +450,10 @@ func (s *scrubber) gateRelations(o *scrubOutput) string {
 			case s.ids.get(idAccountNumber, account) != nil:
 				pair(idAccountNumber, account, unescapedPart(after[4]))
 			}
-			if len(before) > 6 && before[5] == "transactions" && s.ids.get(idActivity, unescapedPart(before[6])) != nil {
-				pair(idActivity, unescapedPart(before[6]), unescapedPart(after[6]))
+			if len(before) > 6 {
+				if kind := pathIDKind(before[5:], 1); kind != "" && s.ids.get(kind, unescapedPart(before[6])) != nil {
+					pair(kind, unescapedPart(before[6]), unescapedPart(after[6]))
+				}
 			}
 		}
 		if why := s.identities(a, f.body); why != "" {

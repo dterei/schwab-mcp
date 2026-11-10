@@ -224,8 +224,8 @@ func (p *planter) plant(answers []testAnswer) []testAnswer {
 				ids[r.id] = append(ids[r.id], orig)
 			}
 		}, nil)
-		if m := transactionByID.FindStringSubmatch(a.path); m != nil {
-			ids[idActivity] = append(ids[idActivity], m[1])
+		if m := byIDPath.FindStringSubmatch(a.path); m != nil && m[1] == "transactions" {
+			ids[idActivity] = append(ids[idActivity], m[2])
 		}
 	}
 	for _, id := range []identifier{idActivity, idOrder, idPosition} {

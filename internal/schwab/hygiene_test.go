@@ -81,8 +81,11 @@ var (
 	// maxAge finds the seconds of a header's max-age, such as
 	// Strict-Transport-Security's max-age=31536000, a year.
 	maxAge = regexp.MustCompile(`(?i)max-age=([0-9]+)`)
-	// transactionByID finds the id in the path of a transaction by its id.
-	transactionByID = regexp.MustCompile(`^/trader/v1/accounts/[^/]+/transactions/([^/]+)$`)
+	// byIDPath finds, in the path of a transaction or an order asked for by
+	// its id, which of the two it is, and the id.
+	byIDPath = regexp.MustCompile(`^/trader/v1/accounts/[^/]+/(transactions|orders)/([^/]+)$`)
+	// longDigits finds a run of six digits or more, as an id is written.
+	longDigits = regexp.MustCompile(`[0-9]{6,}`)
 	// akamaiReferences find an Akamai Reference: after "Reference #", as
 	// errors.go reads it, in the address of Akamai's page of errors, and
 	// alone, by its form, a number, eight hex digits, ten digits and more hex
@@ -102,6 +105,7 @@ type valueChecker struct {
 	hashes   map[string]bool // the hashes of the fake account numbers
 	nickname map[string]bool // FixtureAccounts' nicknames
 	rows     map[string]bool // the activity IDs of the rows that the files hold, in decimal
+	orders   map[string]bool // the order IDs of the rows that the files hold, in decimal
 	problems []string
 }
 
@@ -135,13 +139,17 @@ type valueChecker struct {
 //     file, request path and query, unescaped too, and header values: every
 //     run of exactly eight digits is a fake account number, but within a
 //     run of 64 hex digits, a UUID, an OCC option's strike, a CUSIP, a
-//     header's max-age, or the id of a path to a transaction by its id;
+//     header's max-age, or the id in the path of a transaction or an order
+//     asked for by its id;
 //     every run of 64 or more upper-case hex digits is a fake's hash or
 //     UnknownHash; every UUID has the counter's form or is StreamerCorrelID;
 //     and every Akamai Reference is AkamaiReference;
 //   - a request's path names a fake's hash, UnknownHash or a fake account
-//     number where an account goes, and a row's activity ID or
-//     UnknownActivityID where a transaction's id goes.
+//     number where an account goes, a row's activity ID or
+//     UnknownActivityID where a transaction's id goes, and a row's order ID
+//     where an order's id goes; and after its account it holds no other run
+//     of six digits or more but within a hash, since an id that no row holds
+//     cannot be told from a real one.
 //
 // A null holds no value, so it may stand anywhere; the census and the
 // records' problems report one where the records take none. Each problem
@@ -151,6 +159,7 @@ func checkValues(t testing.TB, files []indexedFile) []string {
 	c := &valueChecker{
 		pages:   errorPages(t),
 		numbers: map[string]bool{}, hashes: map[string]bool{}, nickname: map[string]bool{}, rows: map[string]bool{},
+		orders: map[string]bool{},
 	}
 	for _, a := range schwabtest.FixtureAccounts {
 		c.numbers[a.Number] = true
@@ -170,8 +179,11 @@ func checkValues(t testing.TB, files []indexedFile) []string {
 		roots[i] = parseNode(f.body)
 		if kind, ok := policyKindOf(c.pages, f.entry, f.body); ok && policyTables[kind] == transactionTable {
 			eachScalar(roots[i], nil, nil, func(path []string, raw []byte, _ *node) {
-				if keysMatch(path, []string{"activityId"}) {
+				switch {
+				case keysMatch(path, []string{"activityId"}):
 					c.rows[idDigits(raw)] = true
+				case keysMatch(path, []string{"orderId"}):
+					c.orders[idDigits(raw)] = true
 				}
 			})
 		}
@@ -441,15 +453,15 @@ func (c *valueChecker) checkPage(file string, body []byte) {
 
 // checkEntry checks e, a file's index entry: its file's name, its request's
 // path and query, as written and unescaped, and its headers' values by the
-// format scans, and its path by the rules for the accounts and the
-// transactions that a path names.
+// format scans, and its path by the rules for the accounts, the
+// transactions and the orders that a path names.
 func (c *valueChecker) checkEntry(e schwabtest.Entry) {
 	c.scanText(e.File, "its name", e.File, nil)
 	paths := written(e.Request.Path, url.PathUnescape)
 	for _, path := range paths {
 		var skip [][]int
-		if m := transactionByID.FindStringSubmatchIndex(path); m != nil {
-			skip = [][]int{m[2:4]}
+		if m := byIDPath.FindStringSubmatchIndex(path); m != nil {
+			skip = [][]int{m[4:6]}
 		}
 		c.scanText(e.File, "the request's path", path, skip)
 	}
@@ -465,19 +477,66 @@ func (c *valueChecker) checkEntry(e schwabtest.Entry) {
 			c.scanText(e.File, "the header "+name, v, skip)
 		}
 	}
-	path := paths[len(paths)-1]
-	rest, ok := strings.CutPrefix(path, "/trader/v1/accounts/")
+	rest, ok := strings.CutPrefix(paths[len(paths)-1], "/trader/v1/accounts/")
 	if !ok {
 		return
 	}
-	segments := strings.Split(rest, "/")
-	if account := segments[0]; account != "accountNumbers" && !c.hashes[account] && account != schwabtest.UnknownHash && !c.numbers[account] {
+	parts := strings.Split(rest, "/")
+	if account := parts[0]; account != "accountNumbers" && !c.hashes[account] && account != schwabtest.UnknownHash && !c.numbers[account] {
 		c.complain(e.File, "the request's path", "an account that is neither a fake's hash, UnknownHash nor a fake account number")
 	}
-	if m := transactionByID.FindStringSubmatch(path); m != nil && !c.rows[m[1]] &&
-		m[1] != strconv.FormatInt(schwabtest.UnknownActivityID, 10) {
-		c.complain(e.File, "the request's path", "an activity ID that is no row's and not UnknownActivityID")
+	after := parts[1:]
+	for i, part := range after {
+		switch pathIDKind(after, i) {
+		case idActivity:
+			if !c.rows[part] && part != strconv.FormatInt(schwabtest.UnknownActivityID, 10) {
+				c.complain(e.File, "the request's path", "an activity ID that is no row's and not UnknownActivityID")
+			}
+		case idOrder:
+			if !c.orders[part] {
+				c.complain(e.File, "the request's path", "an order ID that is no row's")
+			}
+		default:
+			if len(idRuns(part)) > 0 {
+				c.complain(e.File, "the request's path", "six digits or more where no id goes")
+			}
+		}
 	}
+}
+
+// pathIDKind returns what after[i] identifies, where after is the parts of
+// a path under /trader/v1/accounts/ after its account: an activity ID
+// after transactions/, and an order ID after orders/, as a transaction or
+// an order is asked for by its id; or "" where no id goes.
+func pathIDKind(after []string, i int) identifier {
+	if i == 1 {
+		switch after[0] {
+		case "transactions":
+			return idActivity
+		case "orders":
+			return idOrder
+		}
+	}
+	return ""
+}
+
+// idRuns returns the runs of six digits or more in part, a part of a path,
+// but those within a run of 64 hex digits, as a hash's digits are: an id
+// that the path holds, wherever it is.
+func idRuns(part string) []string {
+	var hashes [][]int
+	for _, m := range hexRun.FindAllStringIndex(part, -1) {
+		if m[1]-m[0] == 64 {
+			hashes = append(hashes, m)
+		}
+	}
+	var runs []string
+	for _, m := range longDigits.FindAllStringIndex(part, -1) {
+		if !slices.ContainsFunc(hashes, func(h []int) bool { return h[0] <= m[0] && m[1] <= h[1] }) {
+			runs = append(runs, part[m[0]:m[1]])
+		}
+	}
+	return runs
 }
 
 // written returns s, and s unescaped by unescape again and again until it
@@ -697,7 +756,8 @@ func TestValueHygieneCatches(t *testing.T) {
 	quote := func(s string) string { return string(jsonText(s)) }
 	asked := "http&#58;&#47;&#47;api&#46;schwabapi&#46;com&#47;v1&#47;oauth&#47;token"
 	reference := strings.ReplaceAll(schwabtest.AkamaiReference, ".", "&#46;")
-	byID := "/trader/v1/accounts/" + schwabtest.FixtureAccounts[0].Hash + "/transactions/"
+	account := "/trader/v1/accounts/" + schwabtest.FixtureAccounts[0].Hash
+	byID, byOrder := account+"/transactions/", account+"/orders/"
 	header := func(name, value string) edit {
 		return editEntry(func(e *schwabtest.Entry) { e.Response.Headers[name] = []string{value} })
 	}
@@ -899,6 +959,38 @@ func TestValueHygieneCatches(t *testing.T) {
 		{
 			"a path to UnknownActivityID", "transaction.json",
 			editEntry(func(e *schwabtest.Entry) { e.Request.Path = byID + "99999999999" }), "",
+		},
+		{
+			"a path to a transaction by a row's order ID", "transaction.json",
+			editEntry(func(e *schwabtest.Entry) { e.Request.Path = byID + "1004517638295" }),
+			"the request's path: an activity ID that is no row's",
+		},
+		{
+			"a path to an order of a row", "errors/invalid_account_400.json",
+			editEntry(func(e *schwabtest.Entry) { e.Request.Path = byOrder + "1004517638295" }), "",
+		},
+		{
+			"a path to an order of no row", "errors/invalid_account_400.json",
+			editEntry(func(e *schwabtest.Entry) { e.Request.Path = byOrder + "1004517638290" }),
+			"the request's path: an order ID that is no row's",
+		},
+		{
+			"a path to an order by a row's activity ID", "errors/invalid_account_400.json",
+			editEntry(func(e *schwabtest.Entry) { e.Request.Path = byOrder + "73508261946" }), "an order ID that is no row's",
+		},
+		{
+			"an id where no id goes", "errors/invalid_account_400.json",
+			editEntry(func(e *schwabtest.Entry) { e.Request.Path = account + "/positions/123456" }),
+			"the request's path: six digits or more where no id goes",
+		},
+		{
+			"an id within a part where no id goes", "errors/invalid_account_400.json",
+			editEntry(func(e *schwabtest.Entry) { e.Request.Path = account + "/orders/1004517638295/fill1234567" }),
+			"the request's path: six digits or more where no id goes",
+		},
+		{
+			"a hash after the account, its digits not an id", "errors/invalid_account_400.json",
+			editEntry(func(e *schwabtest.Entry) { e.Request.Path = account + "/x/" + schwabtest.FixtureAccounts[0].Hash }), "",
 		},
 		{
 			"a path to an account of no fake", "transactions.json",

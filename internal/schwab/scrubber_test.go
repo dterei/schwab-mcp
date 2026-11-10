@@ -383,27 +383,38 @@ func (s *scrubber) collectPage(a *scrubAnswer) {
 	}
 }
 
-// collectPath adds the identifiers of a's path: an account that no answer
-// names, which has no fake, and the id of a transaction asked for by its
-// id, which may appear in no answer, as with an id that Schwab does not
-// know.
+// collectPath adds the identifiers of a's path, which may appear in no
+// answer: an account that no answer names, which has no fake; the id of a
+// transaction or an order asked for by its id, as with an id that Schwab
+// does not know, which takes a fake as the same id in a body would; and
+// any other run of six digits or more after the account, an ID where no id
+// goes, which has none. UnknownActivityID, which the Extras probe asks for,
+// is no transaction's, and stays.
 func (s *scrubber) collectPath(a *scrubAnswer) {
 	rest, ok := strings.CutPrefix(a.raw.meta.Request.Path, "/trader/v1/accounts/")
 	if !ok {
 		return
 	}
 	parts := strings.Split(rest, "/")
-	account := unescapedPart(parts[0])
-	switch {
+	for i, p := range parts {
+		parts[i] = unescapedPart(p)
+	}
+	switch account := parts[0]; {
 	case account == "" || account == "accountNumbers" || account == schwabtest.UnknownHash:
 	case s.ids.get(idHash, account) != nil, s.ids.get(idAccountNumber, account) != nil:
 	default:
 		s.ids.add(idPathAccount, account)
 	}
-	if len(parts) >= 3 && parts[1] == "transactions" {
-		id := unescapedPart(parts[2])
-		if isDigits(id) && id != strconv.FormatInt(schwabtest.UnknownActivityID, 10) {
-			s.ids.add(idActivity, id)
+	after := parts[1:]
+	for i, part := range after {
+		switch kind := pathIDKind(after, i); {
+		case kind == idActivity && part == strconv.FormatInt(schwabtest.UnknownActivityID, 10):
+		case kind != "" && isDigits(part):
+			s.ids.add(kind, part)
+		default:
+			for _, run := range idRuns(part) {
+				s.ids.add(idPathID, run)
+			}
 		}
 	}
 }

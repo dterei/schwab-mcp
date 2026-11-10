@@ -279,7 +279,9 @@ What it does:
   fails on a record's problem or a key that no field takes, and the test
   that no account number is part of another value. So is a file that
   would still hold an identifier the scrubber could not replace, such as
-  one written with escapes in a value it keeps.
+  one written with escapes in a value it keeps, or a number in its path
+  where no id goes; and so is one whose path asks for a transaction or an
+  order by an id that no row of the fixtures would hold.
 
 What it writes, in the out folder:
 
