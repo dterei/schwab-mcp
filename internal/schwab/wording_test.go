@@ -4,50 +4,59 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
 
-// schwabWording is Schwab's own wording: the descriptions of transactions
-// and the messages of errors that Schwab has been seen to send, each as
-// Schwab writes it, with SYM for the symbol after a "~". Text on it names
-// no one, so a report may print it and a recording may keep it; any other
-// text, which may name a bank, a payer or another account, is never
-// printed. The probe of row shapes (Q11) and the recording's scrubber share
-// it. A text is on it as onWording says.
-var schwabWording = []string{
-	// The descriptions of transactions.
-	"Dividend Reinvest",
-	"Sell Trade",
-	"Ordinary Dividend~SYM",
-	"W-8 Withholding~SYM",
-	"Free Balance Interest Adjustment",
-	"Wire Incoming",
-	"ACH Credit Received",
-	"Funds Received",
-	// A sweep and the transfers between an account's own types, as they
-	// are recorded (docs/schwab-api.md); other sweeps' wording is not.
-	"BANK SWEEP TO BROKERAGE",
-	"TRF FDS TO TYPE #",
-	"TRF FDS FRM TYPE #",
-
-	// The messages of errors: the account API's, the Market Data API's, the
-	// gateway's faults and the token endpoint's refusals.
-	"Invalid account number",
-	"Client not authorized",
-	"Unauthorized",
-	"Body buffer overflow",
-	"The Service is temporarily unavailable",
-	"Gateway Timeout",
-	"Invalid ApiKey",
-	"refresh token invalid",
-	"'<value>' is not a valid value for startDate",
-	`400 Bad Request: {"error_description":"Refresh token is invalid, expired or revoked","error":"invalid_grant"}`,
-	`400 Bad Request: "{\"error_description\":\"Exception while authenticating refresh token [tokenDigest=abc], ` +
-		`Exception=Failed refresh token authentication [tokenDigest=abc]]\",\"error\":\"refresh_token_authentication_error\"}"`,
-}
+// Schwab's own wording: the descriptions of transactions and the messages
+// of errors that Schwab has been seen to send, each as Schwab writes it,
+// with SYM for the symbol after a "~". Text on it names no one, so a report
+// may print it and a recording may keep it; any other text, which may name
+// a bank, a payer or another account, is never printed. The probe of row
+// shapes (Q11) takes the whole of it. The recording's scrubber and the
+// value hygiene tests take it by its parts, as the scrub policy's free text
+// does: a transaction's description may be one of the descriptions, and an
+// error's message one of the messages. A text is on it as onWording says.
+var (
+	// schwabDescriptions are the descriptions of transactions.
+	schwabDescriptions = []string{
+		"Dividend Reinvest",
+		"Sell Trade",
+		"Ordinary Dividend~SYM",
+		"W-8 Withholding~SYM",
+		"Free Balance Interest Adjustment",
+		"Wire Incoming",
+		"ACH Credit Received",
+		"Funds Received",
+		// A sweep and the transfers between an account's own types, as they
+		// are recorded (docs/schwab-api.md); other sweeps' wording is not.
+		"BANK SWEEP TO BROKERAGE",
+		"TRF FDS TO TYPE #",
+		"TRF FDS FRM TYPE #",
+	}
+	// schwabMessages are the messages of errors: the account API's, the
+	// Market Data API's, the gateway's faults and the token endpoint's
+	// refusals.
+	schwabMessages = []string{
+		"Invalid account number",
+		"Client not authorized",
+		"Unauthorized",
+		"Body buffer overflow",
+		"The Service is temporarily unavailable",
+		"Gateway Timeout",
+		"Invalid ApiKey",
+		"refresh token invalid",
+		"'<value>' is not a valid value for startDate",
+		`400 Bad Request: {"error_description":"Refresh token is invalid, expired or revoked","error":"invalid_grant"}`,
+		`400 Bad Request: "{\"error_description\":\"Exception while authenticating refresh token [tokenDigest=abc], ` +
+			`Exception=Failed refresh token authentication [tokenDigest=abc]]\",\"error\":\"refresh_token_authentication_error\"}"`,
+	}
+	// schwabWording is the whole of Schwab's wording.
+	schwabWording = slices.Concat(schwabDescriptions, schwabMessages)
+)
 
 // wordingValue is what <value> in an entry of schwabWording takes, once
 // masked: a date, or a date and a time, as a query sends them, and nothing
@@ -93,9 +102,16 @@ func maskWording(text string) string {
 // Withholding~SYM" and "TRF FDS TO TYPE 12" is "TRF FDS TO TYPE #". The
 // case counts, as Schwab's wording keeps to one.
 func onWording(text string) (string, bool) {
+	return onWordingOf(schwabWording, text)
+}
+
+// onWordingOf returns the entry of part, a part of schwabWording such as
+// schwabDescriptions, that text is, and whether there is one, as onWording
+// matches text with the whole.
+func onWordingOf(part []string, text string) (string, bool) {
 	masked := maskWording(text)
 	for _, e := range wordingEntries {
-		if e.re.MatchString(masked) {
+		if slices.Contains(part, e.entry) && e.re.MatchString(masked) {
 			return e.entry, true
 		}
 	}
@@ -170,9 +186,46 @@ func TestSchwabWording(t *testing.T) {
 		"'29470135' is not a valid value for startDate", "'abc' is not a valid value for startDate",
 		"'2024-04-04 or 29470135' is not a valid value for startDate", "'2024-04-04' is not a valid value for endDate",
 		"Invalid account number 29470135", "Exception while authenticating refresh token [tokenDigest=abc]",
+		"Dividend Reinvest~BND", "Ordinary Dividend~BND~",
 	} {
 		if entry, ok := onWording(text); ok {
 			t.Errorf("onWording(%q) = %q, on the list", text, entry)
+		}
+	}
+}
+
+// The wording has two parts, as the scrub policy's free text takes it: a
+// transaction's description may be one of the descriptions alone, and an
+// error's message one of the messages alone, while onWording takes either.
+func TestSchwabWordingParts(t *testing.T) {
+	if len(schwabWording) != len(schwabDescriptions)+len(schwabMessages) {
+		t.Errorf("%d entries of wording, from %d descriptions and %d messages", len(schwabWording), len(schwabDescriptions), len(schwabMessages))
+	}
+	for _, d := range schwabDescriptions {
+		if slices.Contains(schwabMessages, d) {
+			t.Errorf("%q is a description and a message", d)
+		}
+	}
+	for _, tc := range []struct {
+		text                 string
+		description, message bool
+	}{
+		{"Dividend Reinvest", true, false},
+		{"Ordinary Dividend~BRK.B", true, false},
+		{"W-8 Withholding~00507V109", true, false},
+		{"TRF FDS TO TYPE 12", true, false},
+		{"Invalid account number", false, true},
+		{"'2024-04-04T15:54:14.000Z' is not a valid value for startDate", false, true},
+		{"Unauthorized", false, true},
+		{"Invalid account number~BND", false, false},
+		{"Wire Incoming from ACME BANK", false, false},
+	} {
+		_, description := onWordingOf(schwabDescriptions, tc.text)
+		_, message := onWordingOf(schwabMessages, tc.text)
+		_, either := onWording(tc.text)
+		if description != tc.description || message != tc.message || either != (tc.description || tc.message) {
+			t.Errorf("%q: a description %v, a message %v, either %v; want %v, %v and %v",
+				tc.text, description, message, either, tc.description, tc.message, tc.description || tc.message)
 		}
 	}
 }
