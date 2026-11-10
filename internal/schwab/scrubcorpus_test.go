@@ -373,6 +373,26 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 			leftOut: map[string]string{"002": "the request's path holds " + string(idPathID) + ", which has no fake"},
 		},
 		{
+			// The Extras probe asks for both, which no answer holds.
+			name: "UnknownHash and UnknownActivityID in paths", amounts: keep, accounts: 3,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				return []testAnswer{
+					jsonAnswer("/trader/v1/accounts/"+schwabtest.UnknownHash, "", 400, `{"message":"Invalid account number"}`),
+					jsonAnswer("/trader/v1/accounts/"+b.hashes[0]+"/transactions/99999999999", "", 404, ""),
+				}, nil
+			},
+			check: func(t *testing.T, _ corpusBase, o *scrubOutput) {
+				for name, want := range map[string]string{
+					"002": "/trader/v1/accounts/" + schwabtest.UnknownHash,
+					"003": "/trader/v1/accounts/" + schwabtest.FixtureAccounts[0].Hash + "/transactions/99999999999",
+				} {
+					if path := fileNamed(t, o, name).entry.Request.Path; path != want {
+						t.Errorf("answer %s's path %s, want %s", name, path, want)
+					}
+				}
+			},
+		},
+		{
 			name: "a 401 body with errors[].id", amounts: keep, accounts: 3,
 			answers: func(b corpusBase) ([]testAnswer, []string) {
 				id := strings.ToLower(b.p.draw(8, plantHex, plantHex)) + "-4a5b-4c6d-8e7f-" + strings.ToLower(b.p.draw(12, plantHex, plantHex))
@@ -412,6 +432,37 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 				return []testAnswer{jsonAnswer("/trader/v1/userPreference", "", 200, preferences(preference(b.numbers[0], "Brokerage", "..."+b.numbers[0][5:])))}, nil
 			},
 			written: map[string]string{"002": `"type":"BROKERAGE","nickName":"Account 1"`},
+		},
+		{
+			// Its fake would be each account's, so it has none.
+			name: "a masked number beside two accounts", amounts: keep, accounts: 1,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				twin, display := b.p.draw(5, plantDigits, plantDigits)+b.numbers[0][5:], "..."+b.numbers[0][5:]
+				return []testAnswer{
+					jsonAnswer("/trader/v1/userPreference", "", 200, preferences(preference(b.numbers[0], "Kip", display), preference(twin, "Kip", display))),
+					b.transactions(cashRow(b.numbers[0], b.id(), "transferItems", cashLeg("1.25", "FUND "+display))),
+				}, []string{twin}
+			},
+			written: map[string]string{"002": `"displayAcctId":"...` + fake(0)[5:] + `","autoPositionEffect":false,"accountColor":"Green"},{"accountNumber":"` + fake(1)},
+			leftOut: map[string]string{"003": "transferItems.instrument.description: holds " + string(idDisplay) + ", which has no fake"},
+			check: func(t *testing.T, _ corpusBase, o *scrubOutput) {
+				if body := fileNamed(t, o, "002").body; !bytes.Contains(body, []byte(`"displayAcctId":"...`+fake(1)[5:]+`"`)) {
+					t.Errorf("the second account's masked number is not of its fake: %s", body)
+				}
+			},
+		},
+		{
+			name: "nulls at keys that are mapped and scaled", amounts: keep, accounts: 3,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				id := b.id()
+				account := `{"securitiesAccount":{"type":"CASH","accountNumber":"` + b.numbers[0] + `","roundTrips":0,"isDayTrader":false,` +
+					`"isClosingOnlyRestricted":false,"pfcbFlag":false,"initialBalances":{"cashBalance":null},"currentBalances":{},"projectedBalances":{}}}`
+				return []testAnswer{
+					b.transactions(cashRow(b.numbers[0], id, "orderId", "null")),
+					jsonAnswer("/trader/v1/accounts/"+b.hashes[0], "", 200, account),
+				}, []string{id}
+			},
+			written: map[string]string{"002": `"orderId":null`, "003": `"initialBalances":{"cashBalance":null}`},
 		},
 		{
 			name: "an exponent literal at a key that is scaled", amounts: scale, accounts: 3,
@@ -553,10 +604,13 @@ func TestScrubberRefusesRecordings(t *testing.T) {
 // it or that is not a string, free text that is not a string, a key that
 // is an identifier, which review.txt shows as {…}, a page whose text is not
 // read as html.UnescapeString reads it or that quotes an address of
-// another's, and an answer that checkAnswer finds a key in another case in.
-// review.txt says what was mapped at keys in another case, the
-// placeholders, the same for the same text, and the rows of W-8
-// withholding.
+// another's, an answer that checkAnswer finds a key in another case in, and
+// one that the value hygiene tests would fail on, such as for eight digits
+// in a kept value, and then any that they would fail on once it is left
+// out, such as the path to its row. review.txt says what was mapped at keys
+// in another case, the placeholders, the same for the same text as sent,
+// so that copies that differ in their escapes differ, and the rows of W-8
+// withholding, in any case.
 func TestScrubberLeavesOut(t *testing.T) {
 	b := newCorpusBase(t, 17, 3)
 	id := b.id
@@ -569,6 +623,7 @@ func TestScrubberLeavesOut(t *testing.T) {
 	}
 	cut := b.transactions(cashRow(b.numbers[0], id()))
 	cut.cut = true
+	row := id()
 	answers := []testAnswer{
 		b.accountNumbers(), // 001
 		cut,                // 002
@@ -585,7 +640,9 @@ func TestScrubberLeavesOut(t *testing.T) {
 			cashRow(b.numbers[0], id(), "description", `"Wire from ACME BANK"`),
 			cashRow(b.numbers[0], id(), "description", `"Gift from a friend"`),
 			cashRow(b.numbers[0], id(), "description", `"W-8 Withholding~BND"`),
-			cashRow(b.numbers[0], id(), "description", `"Ordinary Dividend~BND"`)),
+			cashRow(b.numbers[0], id(), "description", `"Ordinary Dividend~BND"`),
+			cashRow(b.numbers[0], id(), "description", `"Gift from a fri\u0065nd"`),
+			cashRow(b.numbers[0], id(), "description", `"W-8 WITHHOLDING~XYZ"`)),
 		b.transactions(cashRow(b.numbers[0], id(), b.numbers[1], "1")),                                                    // 012, its key an account number
 		jsonAnswer("/trader/v1/userPreference", "", 200, pref("1..."+b.numbers[0][5:])),                                   // 013
 		jsonAnswer("/trader/v1/accounts/accountNumbers", "", 200, `[{"accountNumber":"`+b.numbers[0]+`","hashValue":7}]`), // 014
@@ -595,6 +652,8 @@ func TestScrubberLeavesOut(t *testing.T) {
 		{path: "/trader/v1/accounts/" + b.hashes[0], status: 403, header: http.Header{"Content-Type": {"text/html; charset=utf-8"}}, // 017
 			body: strings.Replace(akamai, asked, "https&#58;&#47;&#47;example&#46;com&#47;", 1)},
 		jsonAnswer("/trader/v1/userPreference", "", 200, strings.ReplaceAll(pref("...223456789"), b.numbers[0], "223456789")), // 018
+		b.transactions(cashRow(b.numbers[0], row, "transferItems", cashLeg("1.25", "FUND 98765410"))),                         // 019
+		jsonAnswer("/trader/v1/accounts/"+b.hashes[0]+"/transactions/"+row, "", 404, ""),                                      // 020: 019's row
 	}
 	out, err := scrubAnswers(t, answers, scrubConfig{amounts: amountsPolicy{mode: "keep"}})
 	if err != nil {
@@ -617,6 +676,8 @@ func TestScrubberLeavesOut(t *testing.T) {
 		"016": "the address quoted: text written in a way html.UnescapeString reads otherwise",
 		"017": "the address quoted: not an address of Schwab's API",
 		"018": "accounts.displayAcctId: a masked account number that ends with more digits than its fake has",
+		"019": "the value hygiene tests would fail on it: transferItems.instrument.description: eight digits that are no fake account number",
+		"020": "the value hygiene tests would fail on it: the request's path: an activity ID that is no row's and not UnknownActivityID",
 	} {
 		if why := leftOut(out, name); why != want {
 			t.Errorf("answer %s is left out for %q, want %q", name, why, want)
@@ -627,12 +688,15 @@ func TestScrubberLeavesOut(t *testing.T) {
 	}
 	for _, line := range []string{
 		"010: accounts.NickName\n",
-		"011.json: description: DESCRIPTION 1\n011.json: description: DESCRIPTION 1\n011.json: description: DESCRIPTION 2\n",
-		"011.json: the row of activity ID ",
+		"011.json: description: DESCRIPTION 1\n011.json: description: DESCRIPTION 1\n011.json: description: DESCRIPTION 2\n" +
+			"011.json: description: DESCRIPTION 3\n011.json: description: DESCRIPTION 4\n",
 	} {
 		if !strings.Contains(out.review, line) {
 			t.Errorf("review.txt holds no %q:\n%s", line, out.review)
 		}
+	}
+	if n := strings.Count(out.review, "011.json: the row of activity ID "); n != 2 {
+		t.Errorf("review.txt names %d rows of W-8 withholding, want 2:\n%s", n, out.review)
 	}
 	body := string(fileNamed(t, out, "011").body)
 	if strings.Count(body, `"DESCRIPTION 1"`) != 2 || !strings.Contains(body, `"W-8 Withholding~BND"`) || !strings.Contains(body, `"Ordinary Dividend~BND"`) {
@@ -643,12 +707,13 @@ func TestScrubberLeavesOut(t *testing.T) {
 	}
 }
 
-// The amounts policies: refuse writes only answers that hold no money, and
-// the shapes of the rest, which hold no value; keep keeps every number as
-// it was; and scale:20 multiplies every amount by 20 exactly, its decimals
-// kept and a zero kept byte for byte, leaves prices and the rest as they
-// were, and a residual of the fixtures', 0.000637 on the sale of 0.4513
-// shares, is 20 times what it was.
+// The amounts policies: refuse writes only answers that hold no money, an
+// amount of zero being money still, and the shapes of the rest, which hold
+// no value; keep keeps every number as it was; and scale:20 multiplies
+// every amount by 20 exactly, its decimals kept and a zero kept byte for
+// byte, leaves prices and the rest as they were, and a residual of the
+// fixtures', 0.000637 on the sale of 0.4513 shares, is 20 times what it
+// was.
 func TestScrubberAmounts(t *testing.T) {
 	planted, p := plantF(t, 5)
 	byName := map[string]testAnswer{}
@@ -736,6 +801,16 @@ func TestScrubberAmounts(t *testing.T) {
 				t.Error("no residual of 0.01274, 20 times the sale's 0.000637")
 			}
 		}
+	}
+
+	b := newCorpusBase(t, 31, 1)
+	zero := b.transactions(cashRow(b.numbers[0], b.id(), "netAmount", "0.0", "transferItems", cashLeg("0.0", "USD currency")))
+	out, err := scrubAnswers(t, []testAnswer{b.accountNumbers(), zero}, scrubConfig{amounts: amountsPolicy{mode: "refuse"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if why := leftOut(out, "002"); !strings.HasPrefix(why, "it holds money") {
+		t.Errorf("refuse left an answer of amounts of zero out for %q, want for its money", why)
 	}
 }
 
