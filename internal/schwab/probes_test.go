@@ -20,14 +20,21 @@ import (
 )
 
 // liveProbes are the probes that TestLive runs, in an order in which each
-// finds what it needs: the history walk first, since the probes after it
-// read its rows, and the scope last, to see every read of the run.
+// finds what it needs. The hashes come first, from the account numbers the
+// run has read; the history walk next, since the probes after it read its
+// rows; the refresh late, so that the access token it starts from is
+// likely over a minute old; and the scope last, to see every read of the
+// run.
 var liveProbes = []liveProbe{
+	{name: "Q10", mode: modeDefault, run: probeHashes},
 	{name: "Q1", mode: modeDefault, run: probeDepth},
 	{name: "Q2", mode: modeDefault, run: probeEveningFills},
 	{name: "Q4", mode: modeDefault, run: probeSymbolFilter},
 	{name: "Q5", mode: modeDefault, run: probeOrdersDepth},
 	{name: "Q11", mode: modeDefault, run: probeShapes},
+	{name: "Q12", mode: modeDefault, run: probeChanges},
+	{name: "Q8", mode: modeDefault, run: probeAdjustment},
+	{name: "Q15", mode: modeDefault, run: probeRefresh},
 	{name: "Q6", mode: modeDefault, run: probeScope},
 }
 
