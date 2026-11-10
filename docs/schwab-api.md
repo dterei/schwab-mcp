@@ -165,7 +165,9 @@ that followed live failures.
 **Limits.**
 
 - At most **3000 transactions per response**, with **no paging**. A window
-  with more comes back with the newest 3000 and the oldest day cut part way.
+  with more came back with the newest 3000 and the oldest day cut part way
+  (schwab-cli, August 2026, most likely asking for TRADE alone); how the cap
+  meets a request for several types, as this project sends, is not known.
 - At most **one year per request**.
 - A window that comes back with 3000 rows may have been cut short, so split
   it and ask again.
