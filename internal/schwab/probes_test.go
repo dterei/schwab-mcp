@@ -33,6 +33,7 @@ var liveProbes = []liveProbe{
 	{name: "Q5", mode: modeDefault, run: probeOrdersDepth},
 	{name: "Q11", mode: modeDefault, run: probeShapes},
 	{name: "Q12", mode: modeDefault, run: probeChanges},
+	{name: "extras", mode: modeDefault, run: probeExtras},
 	{name: "Q8", mode: modeDefault, run: probeAdjustment},
 	{name: "Q15", mode: modeDefault, run: probeRefresh},
 	{name: "Q6", mode: modeDefault, run: probeScope},
