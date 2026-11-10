@@ -147,9 +147,13 @@ that followed live failures.
 
 - `startDate`, `endDate` and `types` are required by the spec; `symbol` is
   optional. Live, the two dates must come together, and omitting `types`
-  returns every type
+  returned every type in August 2026
   ([piekstra/schwab-cli](https://github.com/piekstra/schwab-cli/blob/main/docs/api.md)),
-  but this project always sends it.
+  though in December 2025 a client fixed failures that it put down to a
+  missing required parameter, and it now insists on `types`
+  ([SchwabPy](https://github.com/jaycollett/schwabpy)). The live mode's
+  extras ask for a window without types ([probes](live.md#the-probes)).
+  This project always sends it.
 - Dates are instants in UTC, formatted `yyyy-MM-dd'T'HH:mm:ss.SSSZ`.
 - The spec types `types` as a single value, but a comma-separated list
   works: schwab-py and this project's CLI send all 15 types that way.
@@ -200,6 +204,9 @@ one-year limit is per request, not a retention period.
   counts hours, so a window from local midnight a year ago up to now would
   be a few hours too long
   ([Akiko0210/PersonalAssistant#25](https://github.com/Akiko0210/PersonalAssistant/pull/25)).
+  z-Wind's live test of May 2024, to judge by its code, got rows for a
+  window of 366 days, from 2023-05-01 to 2024-05-01
+  ([z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/commit/2c760ad)).
 - The live mode's extras ask Schwab for a window whose start equals its
   end, one of 365 days and a second, and one of 366 days
   ([probes](live.md#the-probes)).
