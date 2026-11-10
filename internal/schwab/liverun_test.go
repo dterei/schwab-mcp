@@ -565,7 +565,7 @@ func (r *liveRun) fetch(ctx context.Context, c *Client, endpoint, path string, q
 	sec := &reportSection{title: endpoint}
 	rep, err := c.get(ctx, path, query)
 	se, isErr := errors.AsType[*Error](err)
-	if counts := !asked && strings.HasPrefix(path, "/trader/v1/"); counts && (err == nil || isErr) {
+	if !asked && strings.HasPrefix(path, "/trader/v1/") && (err == nil || isErr) {
 		r.mu.Lock()
 		r.counted++
 		if isErr && (se.Status == http.StatusUnauthorized || se.Status == http.StatusForbidden) {

@@ -233,9 +233,10 @@ func nyMidnight(t time.Time, days int) time.Time {
 	return time.Date(ny.Year(), ny.Month(), ny.Day()+days, 0, 0, 0, 0, ny.Location())
 }
 
-// datedAhead is how many weekdays after an evening or overnight fill's day
-// its row may be dated by: the next trading day, which is the next weekday
-// but after a holiday, and up to three of them in a row.
+// datedAhead is how many weekdays after its day an evening or overnight
+// fill's row may be dated: the next trading day is the next weekday, or a
+// later one after a holiday, and four weekdays take in up to three
+// holidays in a row.
 const datedAhead = 4
 
 // lastDated returns the latest time by which a window takes in the row of
