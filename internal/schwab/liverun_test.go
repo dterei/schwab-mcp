@@ -745,7 +745,10 @@ func (r *liveRun) showLine(line string) {
 }
 
 // end writes the report's last sections, saves the state and finishes the
-// report, and returns why the run failed, if it did.
+// report, and returns why the run failed, if it did. The report's own
+// problems, a line or a section left out, are among the reasons that its
+// last section gives: the sections written so far are checked again first,
+// with all that the run saw, so that one left out now is among them too.
 func (r *liveRun) end(ctx context.Context) error {
 	r.write(r.keysSeen())
 	stopped := context.Cause(ctx)
@@ -770,25 +773,28 @@ func (r *liveRun) end(ctx context.Context) error {
 	}
 	r.mu.Lock()
 	why = append(why, r.failures...)
+	r.report.recheck()
+	why = append(why, r.report.problems...)
+	seen, w8 := len(r.report.problems), r.report.w8
 	r.mu.Unlock()
 	sec := &reportSection{title: "before sharing"}
-	if r.report.w8 == 0 {
+	if w8 == 0 {
 		sec.add("W-8: no line reveals W-8 withholding rows")
 	} else {
 		sec.addf("W-8: %s, marked %s, reveal W-8 withholding rows, which show nonresident tax status; decide on each before sharing the report",
-			plural(r.report.w8, "line"), strings.TrimSpace(w8Mark))
+			plural(w8, "line"), strings.TrimSpace(w8Mark))
 	}
 	if len(why) == 0 {
 		sec.add("the run passed")
 	} else {
-		sec.add("the run failed: " + strings.Join(why, "; "))
+		sec.add("the run failed: " + strings.Join(slices.Compact(slices.Clone(why)), "; "))
 	}
 	r.write(sec)
 	r.mu.Lock()
 	if err := r.report.finish(); err != nil {
 		why = append(why, "the report could not be written: "+err.Error())
 	}
-	why = append(why, r.report.problems...)
+	why = append(why, r.report.problems[seen:]...)
 	r.mu.Unlock()
 	if len(why) == 0 {
 		return nil

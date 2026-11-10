@@ -29,9 +29,9 @@ const w8Mark = "[W-8] "
 // A liveReport is a live run's report.txt, written section by section as
 // the run goes, so that a run that stops keeps what it has. Each line is
 // scrubbed and self-checked before it is printed or written, and each
-// section once more before it is written. At the end the whole report is
-// scrubbed and checked again, with all that the run saw by then, and
-// written over the file.
+// section once more before it is written. At the end each section is
+// scrubbed and checked again, with all that the run saw by then, and the
+// whole report written over the file.
 type liveReport struct {
 	file  string
 	scrub *liveScrubber
@@ -92,10 +92,14 @@ func newLiveReport(file string, scrub *liveScrubber, show func(string)) (*liveRe
 	return &liveReport{file: file, scrub: scrub, show: show, clean: scrub.scrub}, nil
 }
 
+// leftOutLine stands in the report for a line that the self-check left
+// out.
+const leftOutLine = "(a line left out: it held something that the run saw)"
+
 // write scrubs and checks s, adds it to the end of the report, and prints
 // its lines, without said's marks. A line, or the whole section, that the
 // self-check finds something in is left out, without a word of it shown,
-// and fails the run.
+// a note standing in its place, and fails the run.
 func (rp *liveReport) write(s *reportSection) error {
 	title := rp.clean(s.title)
 	if rp.scrub.holds(title) {
@@ -109,11 +113,11 @@ func (rp *liveReport) write(s *reportSection) error {
 	w8 := 0
 	for i, l := range s.lines {
 		text := rp.clean(l.text)
-		if rp.scrub.holds(text) {
+		switch {
+		case rp.scrub.holds(text):
 			rp.problems = append(rp.problems, fmt.Sprintf("line %d of %s held something that the run saw, so it was left out", i+1, title))
-			continue
-		}
-		if l.w8 {
+			text = leftOutLine
+		case l.w8:
 			text = w8Mark + text
 			w8++
 		}
@@ -144,19 +148,28 @@ func (rp *liveReport) write(s *reportSection) error {
 	return nil
 }
 
+// recheck scrubs and checks each section written so far again, with all
+// that the run saw by now: one that holds something the scrubber learned
+// only after it was written is left out, a note standing in its place, and
+// its lines marked W-8 are no longer counted.
+func (rp *liveReport) recheck() {
+	for i, section := range rp.written {
+		if rp.scrub.holds(rp.clean(section)) {
+			rp.written[i] = "## (a section left out: it held something that the run saw)\n\n"
+			rp.w8 -= strings.Count(section, "\n"+w8Mark)
+			rp.problems = append(rp.problems, "a section held something that the run saw only later, so it was left out")
+		}
+	}
+}
+
 // finish writes the report again, whole, over the file, each section
-// scrubbed and checked again with all that the run saw: one that holds
-// something the scrubber learned only after it was written is left out.
+// scrubbed and checked again, as recheck does.
 func (rp *liveReport) finish() error {
+	rp.recheck()
 	var b strings.Builder
 	b.WriteString(reportHeading)
 	for _, section := range rp.written {
-		text := rp.clean(section)
-		if rp.scrub.holds(text) {
-			text = "## (a section left out: it held something that the run saw)\n\n"
-			rp.problems = append(rp.problems, "a section held something that the run saw only later, so it was left out")
-		}
-		b.WriteString(unmark(text))
+		b.WriteString(unmark(rp.clean(section)))
 	}
 	return replacePrivate(rp.file, []byte(b.String()))
 }
@@ -365,11 +378,13 @@ func TestLiveReport(t *testing.T) {
 
 // A line, a title or a section that still holds something the run saw,
 // because the scrubber missed it, is left out, without a word of it printed
-// or written, and fails the run, as is a value split over two lines, which
-// only the whole section shows; so is a section that holds something the
-// scrubber learned only after it was written. A nickname in Schwab's words
-// is something the run saw, while in the run's own words it is a word that
-// spells one, which is printed as it is, and said's marks are never printed.
+// or written, a note standing in its place, and fails the run, as is a
+// value split over two lines, which only the whole section shows; so is a
+// section that holds something the scrubber learned only after it was
+// written, whose lines marked W-8 are then no longer counted. A nickname in
+// Schwab's words is something the run saw, while in the run's own words it
+// is a word that spells one, which is printed as it is, and said's marks are
+// never printed.
 func TestLiveReportSelfCheck(t *testing.T) {
 	s := newLiveScrubber()
 	s.addAccount(1, "29470135", "HASH1234")
@@ -391,7 +406,8 @@ func TestLiveReportSelfCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.addIdent("order id", "1004517638295")
-	rp.written = append(rp.written, "## late\norder 1004517638295\n\n")
+	rp.written = append(rp.written, "## late\n"+w8Mark+"order 1004517638295\n\n")
+	rp.w8++
 	if err := rp.finish(); err != nil {
 		t.Fatal(err)
 	}
@@ -401,9 +417,11 @@ func TestLiveReportSelfCheck(t *testing.T) {
 			t.Errorf("the report or the lines printed hold %q:\n%s", v, got)
 		}
 	}
-	if !strings.Contains(got, "## a section\nfine, as the Zq Fund words go\n\n") || !strings.Contains(got, "## ok\nline, as Schwab says\n") ||
-		!strings.Contains(got, "## split\n(left out: it held something that the run saw)\n") || len(rp.problems) != 5 {
-		t.Errorf("the report:\n%s\nproblems %q", got, rp.problems)
+	if !strings.Contains(got, "## a section\nfine, as the Zq Fund words go\n"+leftOutLine+"\n"+leftOutLine+"\n\n") ||
+		!strings.Contains(got, "## a section\nfine, as the Zq Fund words go\n"+leftOutLine+"\n"+leftOutLine+"\n## ok\n") ||
+		!strings.Contains(got, "## ok\nline, as Schwab says\n") || !strings.Contains(got, "## split\n(left out: it held something that the run saw)\n") ||
+		!strings.Contains(got, "## (a section left out: it held something that the run saw)\n") || len(rp.problems) != 5 || rp.w8 != 0 {
+		t.Errorf("the report:\n%s\nproblems %q, %d W-8 lines", got, rp.problems, rp.w8)
 	}
 }
 

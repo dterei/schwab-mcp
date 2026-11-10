@@ -201,7 +201,9 @@ printed or written, and a line that still holds something is left out,
 unshown, and fails the run.
 
 A finding that fails, a probe that panics, a part of the run that stops
-before its end, or a line left out fails the test; the report says which.
+before its end, or a line or a section left out fails the test, and the
+report's last section says which; a note stands in the report for what
+was left out.
 
 ## The state
 

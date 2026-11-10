@@ -1018,6 +1018,51 @@ func TestLiveRecoversAPanic(t *testing.T) {
 	}
 }
 
+// What the self-check leaves out leaves a note in its place, and the
+// report's last section says the run failed, and why, as the run's error
+// does: a line that the scrubber missed, and a section that the run's end
+// finds holds something that the scrubber learned only after it was
+// written, and missed then.
+func TestLiveReportsWhatItLeftOut(t *testing.T) {
+	for _, tc := range []struct {
+		name, problem, section string
+		probes                 []liveProbe
+	}{
+		{
+			"a line", "line 2 of probe Z1 held something that the run saw, so it was left out", "## probe Z1\nverdict: fine\n" + leftOutLine + "\n\n",
+			[]liveProbe{{name: "Z1", mode: modeDefault, run: func(_ context.Context, r *liveRun) verdict {
+				r.report.clean = func(s string) string { return s } // a scrubber that misses
+				return verdict{answer: "fine", evidence: lines("account " + firstAccount.Number)}
+			}}},
+		},
+		{
+			"a section", "a section held something that the run saw only later, so it was left out",
+			"## (a section left out: it held something that the run saw)\n\n## probe Z2\n",
+			[]liveProbe{{name: "Z1", mode: modeDefault, run: func(context.Context, *liveRun) verdict {
+				return verdict{answer: "fine", evidence: lines("a value: zq-learned-later-77")}
+			}}, {name: "Z2", mode: modeDefault, run: func(_ context.Context, r *liveRun) verdict {
+				r.scrub.addIdent("order id", "zq-learned-later-77")
+				r.report.clean = func(s string) string { return s } // a scrubber that misses from now on
+				return verdict{answer: "ok"}
+			}}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fl := newFakeLive(t)
+			fl.r.probes, fl.more = tc.probes, []string{"zq-learned-later-77"}
+			if err := fl.run(t); fmt.Sprint(err) != "the live run failed: "+tc.problem {
+				t.Errorf("the run's error: %v", err)
+			}
+			report := fl.report(t)
+			if !strings.Contains(report, tc.section) || !strings.HasSuffix(report, "## before sharing\nW-8: no line reveals W-8 withholding rows\n"+
+				"the run failed: "+tc.problem+"\n\n") {
+				t.Errorf("the report:\n%s", report)
+			}
+			fl.noSecrets(t, "the report", report)
+		})
+	}
+}
+
 // A probe's quiet reads are each checked, and each written to the report
 // only when it fails or holds a finding that the report lacks for its
 // endpoint; a finding that fails counts once, however many answers hold
