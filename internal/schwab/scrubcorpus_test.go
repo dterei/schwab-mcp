@@ -274,6 +274,23 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 			},
 		},
 		{
+			// A dot after it ends a sentence, as errors.go reads it, and is
+			// kept after the fake.
+			name: "an Akamai Reference that a dot ends", amounts: keep, accounts: 3,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				a := testAnswer{
+					path: "/trader/v1/accounts/" + b.hashes[1], status: 403, header: http.Header{"Content-Type": {"text/html; charset=utf-8"}},
+					body: strings.ReplaceAll(akamai, reference, "47&#46;3c5d7e9f&#46;1792539999&#46;4a5b6c&#46;"),
+				}
+				return []testAnswer{a}, []string{"47.3c5d7e9f.1792539999.4a5b6c"}
+			},
+			check: func(t *testing.T, _ corpusBase, o *scrubOutput) {
+				if n := strings.Count(string(fileNamed(t, o, "002").body), reference+"&#46;"); n != 2 {
+					t.Errorf("the page holds AkamaiReference and its dot, written &#46;, %d times, want 2", n)
+				}
+			},
+		},
+		{
 			name: "a transactions/{id} path with no body", amounts: keep, accounts: 3,
 			answers: func(b corpusBase) ([]testAnswer, []string) {
 				id := b.id()

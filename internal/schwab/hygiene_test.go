@@ -379,7 +379,9 @@ func (c *valueChecker) fakeProblem(id identifier, raw []byte, in *node) string {
 			return "an ID that is not a UUID of the fake's counter"
 		}
 	case idReference:
-		if s != schwabtest.AkamaiReference {
+		// A dot after it ends a sentence, as errors.go and the format scan
+		// read it.
+		if strings.TrimRight(s, ".") != schwabtest.AkamaiReference {
 			return "an Akamai Reference that is not AkamaiReference"
 		}
 	}
@@ -836,6 +838,7 @@ func TestValueHygieneCatches(t *testing.T) {
 			"another Reference", "errors/akamai_403.html", replaceText("Reference&#32;&#35;"+reference, "Reference&#32;&#35;18&#46;0a1b2c3d&#46;1792539138&#46;32dec4a"),
 			"the Reference: an Akamai Reference that is not AkamaiReference",
 		},
+		{"a Reference that a dot ends", "errors/akamai_403.html", replaceText(reference+"\n", reference+"&#46;\n"), ""},
 
 		// A null holds no value.
 		{"a null where an object goes", "accounts.json", setAt(`null`, "aggregatedBalance"), ""},
