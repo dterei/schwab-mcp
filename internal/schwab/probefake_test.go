@@ -1027,11 +1027,18 @@ func testScopeOnTheFake(t *testing.T) {
 	})
 }
 
+// noRowCompared is Q12's verdict on a run that compared no row with the
+// last run's.
+const noRowCompared = "inconclusive: no row to compare: none of the last run's was seen again or shown gone, and none of this run's was shown late"
+
 // Accounts that Schwab answers every window of with [], as it does an
 // account whose history it does not serve, show Q1 nothing of where a
 // history ends, whether the older windows answer [] too or are refused,
 // and Q12, run again, no row to compare: both are inconclusive, with the
-// walks as evidence.
+// walks as evidence. So is Q12 when the only row new to the state since
+// the last run, which kept none, is one from the hour before that run, too
+// near it to be shown late, or one after it, dated that day's midnight in
+// New York, inside its window, which it could not have held.
 func testNoRowsOnTheFake(t *testing.T) {
 	t.Run("every window empty", func(t *testing.T) {
 		t.Parallel()
@@ -1051,9 +1058,43 @@ func testNoRowsOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report = later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "inconclusive: no row to compare, of the last run's or of this run's within the last run's window"})
+		wantVerdicts(t, report, map[string]string{"Q12": noRowCompared})
 		wantEvidence(t, report, "Q12", "{account 1}: 0 rows as they were; 0 rows new to the state")
 	})
+	first := time.Date(2027, 1, 4, 15, 0, 0, 0, time.UTC) // no row of the fixtures in the 60 days before
+	for _, tc := range []struct {
+		name            string
+		time, tradeDate time.Time
+		line            string
+	}{
+		{
+			"a row from the hour before the last run alone", first.Add(-30 * time.Minute), first.Add(-30 * time.Minute),
+			"{account 1}: 0 rows as they were; 1 row new to the state; 1 row from the hour before the last run, too near it to be shown late",
+		},
+		{
+			"a row after the last run alone", first.Add(2 * time.Hour), time.Date(2027, 1, 4, 5, 0, 0, 0, time.UTC),
+			"{account 1}: 0 rows as they were; 1 row new to the state",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fl := newProbeLive(t, first, "Q12")
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			fl.more = append(fl.more, "84000000777")
+			fl.f.AddRows(firstAccount.Hash, fixtureRow(t, 73508261943, "activityId", "84000000777",
+				"time", strconv.Quote(schwabTime(tc.time)), "tradeDate", strconv.Quote(schwabTime(tc.tradeDate))))
+			later := fl.again(t, first.AddDate(0, 0, 3), false)
+			later.more = fl.more
+			if err := later.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			report := later.report(t)
+			wantVerdicts(t, report, map[string]string{"Q12": noRowCompared})
+			wantEvidence(t, report, "Q12", tc.line)
+		})
+	}
 	t.Run("older windows refused", func(t *testing.T) {
 		t.Parallel()
 		fl := newProbeLive(t, probeNow, "Q1")
@@ -1560,9 +1601,12 @@ func testHashesOnTheFake(t *testing.T) {
 
 // Q12 shows no row gone from an answer that may have been cut at the cap,
 // nor late against a last run's answer that may have been: the row that the
-// cap left out of that answer is new to the state, though it was there. And
-// the state keeps a row that a cut answer left out, so that a complete
-// answer after it shows the row changed, or gone.
+// cap left out of that answer is new to the state, though it was there.
+// Neither says that no row went or came late: a row missing from a cut
+// answer, as one gone would be, and a row new to the state that a cut last
+// answer may have left out, leave it undecided. And the state keeps a row
+// that a cut answer left out, so that a complete answer after it shows the
+// row changed, or gone.
 func testChangesCutOnTheFake(t *testing.T) {
 	t.Run("this run's answer", func(t *testing.T) {
 		t.Parallel()
@@ -1577,9 +1621,9 @@ func testChangesCutOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "no row changed, went or came late since the last run"})
+		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or came late since the last run; undecided: whether 1 row went"})
 		wantEvidence(t, report, "Q12",
-			"{account 2}: 1 row as they were; 0 rows new to the state; the answer may have been cut at the cap, so no row can be shown gone")
+			"{account 2}: 1 row as they were; 0 rows new to the state; the answer may have been cut at the cap, so 1 row missing from it cannot be shown gone")
 	})
 	t.Run("the last run's answer", func(t *testing.T) {
 		t.Parallel()
@@ -1596,9 +1640,9 @@ func testChangesCutOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "no row changed, went or came late since the last run"})
+		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or went since the last run; undecided: whether 1 row came late"})
 		wantEvidence(t, report, "Q12", "{account 1}: 0 rows as they were; 0 rows new to the state",
-			"{account 2}: 1 row as they were; 1 row new to the state; the last run's answer may have been cut at the cap, so no row can be shown late")
+			"{account 2}: 1 row as they were; 1 row new to the state; the last run's answer may have been cut at the cap, so 1 row new to the state cannot be shown late")
 	})
 	// Three runs a day apart, the second's answer cut at the cap, which
 	// leaves out the XYZ dividend; the third, complete again, finds it
@@ -1635,7 +1679,7 @@ func testChangesCutOnTheFake(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantEvidence(t, cut.report(t), "Q12",
-				"{account 2}: 1 row as they were; 0 rows new to the state; the answer may have been cut at the cap, so no row can be shown gone")
+				"{account 2}: 1 row as they were; 0 rows new to the state; the answer may have been cut at the cap, so 1 row missing from it cannot be shown gone")
 			fl.f.SetTransactionRules(schwabtest.TransactionRules{})
 			tc.change(t, fl)
 			last := cut.again(t, probeNow.AddDate(0, 0, 2), false)
@@ -1646,21 +1690,26 @@ func testChangesCutOnTheFake(t *testing.T) {
 			report := last.report(t)
 			wantVerdicts(t, report, map[string]string{"Q12": tc.want})
 			wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 0 rows new to the state; "+tc.found+
-				"; the last run's answer may have been cut at the cap, so no row can be shown late")
+				"; the last run's answer may have been cut at the cap, though no row new to the state could have come late")
 		})
 	}
 }
 
 // Q12 under windows by tradeDate, where a window's edge can lie between a
 // row's tradeDate and its time, shows no row gone or late that a window
-// left out by its tradeDate: a fill at 13:55 that the last run's window,
-// which ends at 10:00 that day, held by its tradeDate, midnight in New
-// York, and that is gone 12 days later; the XYZ dividend at 14:40, dated
-// midnight, which a window from 10:00 that day leaves out, though it is
-// still there; an evening fill at 20:30, dated the next midnight, which the
-// last run's window, which ends at 22:00, left out, and which a run 12 days
-// later finds; and such a fill, which the last run held, before the start
-// of a window that holds it by its tradeDate, which the state keeps.
+// left out by its tradeDate, and leaves it undecided whether such a row
+// went or came late: a fill at 13:55 that the last run's window, which
+// ends at 10:00 that day, held by its tradeDate, midnight in New York, and
+// that is gone 12 days later; the XYZ dividend at 14:40, dated midnight,
+// which a window from 10:00 that day leaves out, though it is still there;
+// an evening fill at 20:30, dated the next midnight, which the last run's
+// window, which ends at 22:00, left out, and which a run 12 days later
+// finds, and such a fill at 21:30, too near that run to be shown late,
+// which leaves nothing undecided; such a fill, which the last run held,
+// before the start of a window that holds it by its tradeDate, which the
+// state keeps, and which leaves nothing undecided either; and such a fill
+// before the start of the last run's window, dated inside it, which a run
+// an hour later finds new.
 func testChangesByTradeDateOnTheFake(t *testing.T) {
 	byTradeDate := schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate}
 	t.Run("a row past the window's end, held by its tradeDate", func(t *testing.T) {
@@ -1682,8 +1731,9 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "no row changed, went or came late since the last run"})
-		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 0 rows new to the state")
+		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or came late since the last run; undecided: whether 1 row went"})
+		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 0 rows new to the state; "+
+			"1 row missing from the answer, with its time or tradeDate outside a run's window, so not shown gone")
 	})
 	t.Run("a row inside the window's start, left out by its tradeDate", func(t *testing.T) {
 		t.Parallel()
@@ -1700,30 +1750,44 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "no row changed, went or came late since the last run"})
-		wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 0 rows new to the state")
+		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or came late since the last run; undecided: whether 1 row went"})
+		wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 0 rows new to the state; "+
+			"1 row missing from the answer, with its time or tradeDate outside a run's window, so not shown gone")
 	})
-	t.Run("an evening fill past the last window's end, dated the next midnight", func(t *testing.T) {
-		t.Parallel()
-		first := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC) // 22:00 in New York
-		fl := newProbeLive(t, first, "Q12")
-		fl.f.SetTransactionRules(byTradeDate)
-		fl.more = append(fl.more, "84000000105")
-		fl.f.AddRows(secondAccount.Hash, fixtureRow(t, metaSale, "activityId", "84000000105",
-			"time", `"2026-08-21T00:30:00+0000"`, "tradeDate", `"2026-08-21T04:00:00+0000"`))
-		if err := fl.runClean(t); err != nil {
-			t.Fatal(err)
-		}
-		wantEvidence(t, fl.report(t), "Q12", "{account 2}: 2 rows, kept for the next run; no earlier run to compare with")
-		later := fl.again(t, first.AddDate(0, 0, 12), true)
-		later.more = fl.more
-		if err := later.runClean(t); err != nil {
-			t.Fatal(err)
-		}
-		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "no row changed, went or came late since the last run"})
-		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 1 row new to the state")
-	})
+	for _, tc := range []struct {
+		name, time, want, line string
+	}{
+		{
+			"an evening fill past the last window's end, dated the next midnight", `"2026-08-21T00:30:00+0000"`,
+			"no row changed or went since the last run; undecided: whether 1 row came late",
+			"1 row new to the state, with its time or tradeDate outside the last run's window, so not shown late",
+		},
+		{
+			"an evening fill half an hour before the last run, dated the next midnight", `"2026-08-21T01:30:00+0000"`,
+			"no row changed, went or came late since the last run", "1 row from the hour before the last run, too near it to be shown late",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			first := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC) // 22:00 in New York
+			fl := newProbeLive(t, first, "Q12")
+			fl.f.SetTransactionRules(byTradeDate)
+			fl.more = append(fl.more, "84000000105")
+			fl.f.AddRows(secondAccount.Hash, fixtureRow(t, metaSale, "activityId", "84000000105", "time", tc.time, "tradeDate", `"2026-08-21T04:00:00+0000"`))
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			wantEvidence(t, fl.report(t), "Q12", "{account 2}: 2 rows, kept for the next run; no earlier run to compare with")
+			later := fl.again(t, first.AddDate(0, 0, 12), true)
+			later.more = fl.more
+			if err := later.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			report := later.report(t)
+			wantVerdicts(t, report, map[string]string{"Q12": tc.want})
+			wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 1 row new to the state; "+tc.line)
+		})
+	}
 	t.Run("an evening fill before the window's start, dated inside it", func(t *testing.T) {
 		t.Parallel()
 		fl := newProbeLive(t, probeNow, "Q12")
@@ -1745,6 +1809,30 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 		report := later.report(t)
 		wantVerdicts(t, report, map[string]string{"Q12": "no row changed, went or came late since the last run"})
 		wantEvidence(t, report, "Q12", "{account 2}: 3 rows as they were; 0 rows new to the state")
+	})
+	t.Run("an evening fill before the last window's start, dated inside it, new since", func(t *testing.T) {
+		t.Parallel()
+		// The last run's window starts at 2026-07-03T02:00Z, between the
+		// fill's time and its tradeDate, and the fill comes after that run:
+		// a window by its time would not have held it.
+		first := time.Date(2026, 9, 1, 2, 0, 0, 0, time.UTC)
+		fl := newProbeLive(t, first, "Q12")
+		fl.f.SetTransactionRules(byTradeDate)
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		fl.more = append(fl.more, "84000000110")
+		fl.f.AddRows(secondAccount.Hash, fixtureRow(t, metaSale, "activityId", "84000000110",
+			"time", `"2026-07-03T00:30:00+0000"`, "tradeDate", `"2026-07-03T04:00:00+0000"`))
+		later := fl.again(t, first.Add(time.Hour), false)
+		later.more = fl.more
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or went since the last run; undecided: whether 1 row came late"})
+		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 1 row new to the state; "+
+			"1 row new to the state, with its time or tradeDate outside the last run's window, so not shown late")
 	})
 }
 
