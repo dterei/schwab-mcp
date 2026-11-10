@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -338,10 +339,11 @@ func fixtureRow(t *testing.T, id int64, changes ...string) string {
 // questions: the default run with every default probe, each opt-in mode,
 // and each probe again under the fake's settings for what Schwab does that
 // is not known, each a subtest. It checks every verdict; that no report,
-// line printed or error holds an identifier of the fixtures, a path of the
-// run's or the planted user name; that nothing is written under the
-// owner's cache; and, on a guard apart from the run's, that a POST is
-// refused. One fake clock serves every wait, so the runs take seconds.
+// line printed or error holds an identifier, a symbol, a security's
+// description or an amount of the fixtures, a path of the run's or the
+// planted user name; that nothing is written under the owner's cache; and,
+// on a guard apart from the run's, that a POST is refused. One fake clock
+// serves every wait, so the runs take seconds.
 func TestLiveOnTheFake(t *testing.T) {
 	before := liveCacheListing()
 	t.Cleanup(func() {
@@ -614,7 +616,9 @@ func testDepthOnTheFake(t *testing.T) {
 // which no verdict may come from. No window around BND's or XYZ's rows
 // holds a row of another symbol, so the widening makes each verdict:
 // BND's window back to 2024-03-14 takes in the VBR sale, and XYZ's, back
-// to 2026-03-12, the META sale.
+// to 2026-03-12, the META sale. A refusal of symbol= that quotes the
+// symbol shows a label in its place, and a symbol that the scrubber does
+// not hide, a benchmark's, is never sent.
 func testSymbolFilterOnTheFake(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -679,6 +683,49 @@ func testSymbolFilterOnTheFake(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a refusal that quotes the symbol", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q1", "Q4")
+		fl.f.OnAPI(func(r *http.Request) {
+			if sym := r.URL.Query().Get("symbol"); sym != "" {
+				fl.f.Script(schwabtest.Answer(http.StatusBadRequest, `{"message":"'`+sym+`' is not a valid value for symbol"}`, "Content-Type", "application/json"))
+			}
+		})
+		if err := fl.runClean(t); err != nil { // BND and XYZ are among the fixtures' values
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		quoted := regexp.MustCompile(`^inconclusive: a request with symbol= failed: HTTP 400, '\{symbol \d+\}' is not a valid value for symbol$`)
+		if v := verdictOf(report, "Q4"); !quoted.MatchString(v) {
+			t.Errorf("Q4's verdict: %s", v)
+		}
+		if !regexp.MustCompile(`\nfailed: HTTP 400 from Schwab: '\{symbol \d+\}' is not a valid value for symbol\n`).MatchString(report) {
+			t.Errorf("the report:\n%s", report)
+		}
+	})
+	t.Run("a benchmark's symbol", func(t *testing.T) {
+		t.Parallel()
+		// {account 3} with a trade of VTI, a dividend of it and a wire,
+		// which would make a plan, but for the scrubber, which does not hide
+		// a symbol that the report names.
+		fl := newProbeLive(t, probeNow, "Q1", "Q4")
+		at := func(day int) string { return strconv.Quote(schwabTime(time.Date(2025, 5, day, 15, 0, 0, 0, time.UTC))) }
+		number := strconv.Quote(thirdAccount.Number)
+		fl.f.AddRows(thirdAccount.Hash,
+			strings.ReplaceAll(fixtureRow(t, 73508261946, "activityId", "84000000901", "accountNumber", number, "time", at(1), "tradeDate", at(1)), `"BND"`, `"VTI"`),
+			fixtureRow(t, 73508261950, "activityId", "84000000902", "accountNumber", number, "time", at(2), "tradeDate", at(2), "description", `"Ordinary Dividend~VTI"`),
+			fixtureRow(t, 73508261951, "activityId", "84000000903", "accountNumber", number, "time", at(3), "tradeDate", at(3)))
+		fl.more = append(fl.more, "84000000901", "84000000902", "84000000903")
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q4": "the filter drops dividends; it drops W-8 journals"})
+		wantEvidence(t, report, "Q4", "{account 3}: no symbol of the history rows that the report's scrubber hides has both a TRADE and a dividend or a W-8 journal")
+		if slices.ContainsFunc(fl.f.Requests(), func(r schwabtest.Request) bool { return strings.Contains(r.Query, "symbol=VTI") }) {
+			t.Error("a request with symbol=VTI was sent")
+		}
+	})
 }
 
 // Q6 counts the reads of the account API refused as unauthorized, here
@@ -1215,12 +1262,15 @@ func testBalancesOnTheFake(t *testing.T) {
 	fl := newOptInLive(t, at(13), modeBalances)
 	accounts := elements(t, readTestdata(t, "accounts.json"))
 	// The details of each account in each span of the watch: before the
-	// close, from it, from the move, and from 20:00.
+	// close, from it, from the move, and from 20:00, its balances in cents,
+	// which no output may hold.
 	var spans [3][4]string
 	for i, a := range accounts {
-		base := 1000 * float64(i+1)
-		for j, b := range [4][2]float64{{base, base + 1}, {base, base + 2}, {base + 2, base + 2}, {base + 2, base + 3}} {
-			spans[i][j] = withBalances(t, a, b[0], b[1])
+		base := 100000*(i+1) + 37 // $1000.37, $2000.37 and $3000.37
+		for j, b := range [4][2]int{{base, base + 100}, {base, base + 200}, {base + 200, base + 200}, {base + 200, base + 300}} {
+			initial, current := float64(b[0])/100, float64(b[1])/100
+			spans[i][j] = withBalances(t, a, initial, current)
+			fl.more = append(fl.more, strconv.FormatFloat(initial, 'f', -1, 64), strconv.FormatFloat(current, 'f', -1, 64))
 		}
 	}
 	fl.f.OnAPI(func(r *http.Request) {

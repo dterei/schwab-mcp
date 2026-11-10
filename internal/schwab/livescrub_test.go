@@ -46,11 +46,12 @@ const longValue = 6
 // answers, and learns more as answers arrive.
 //
 // It matches as a strings.Replacer cannot:
-//   - an identifier or a nickname of 6 characters or more anywhere, and a
-//     shorter one only as a whole token, so that a short value, such as a
-//     nickname "Ed", does not match ordinary words;
+//   - an identifier, a nickname or a symbol of 6 characters or more
+//     anywhere, and a shorter one only as a whole token, so that a short
+//     value, such as a nickname "Ed", does not match ordinary words;
 //   - identifiers, which are digits and letters, in any case, and
-//     nicknames as they are;
+//     nicknames and symbols as they are, since a symbol in capitals, such
+//     as "ALL", is a word in lower case;
 //   - paths anywhere, and in any case where the file system takes a path
 //     in any case, as on macOS and Windows;
 //   - the user name, the home folder's last element, only as a path
@@ -62,8 +63,8 @@ type liveScrubber struct {
 	// foldPaths says whether paths and the user name match in any case.
 	foldPaths bool
 	// idents and names hold the identifiers, lower-cased in ASCII, and the
-	// nicknames, as they are, by their length in bytes, with their labels;
-	// lens are the lengths they hold, longest first.
+	// nicknames and symbols, as they are, by their length in bytes, with
+	// their labels; lens are the lengths they hold, longest first.
 	idents, names map[int]map[string]string
 	lens          []int
 	paths         []scrubPath
@@ -384,19 +385,33 @@ func (s *liveScrubber) addAccountLocked(n int, number, hash string) {
 func (s *liveScrubber) addName(value string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.addNameLocked(value)
+	s.addNameLocked("nickname", value)
 }
 
-// addNameLocked is addName, which needs s.mu.
-func (s *liveScrubber) addNameLocked(value string) {
+// addNameLocked gives value, a name of kind, such as "nickname" or
+// "symbol", which is matched as it is, the next label of its kind, unless
+// it has one. It needs s.mu.
+func (s *liveScrubber) addNameLocked(kind, value string) {
 	if short(value) {
 		return
 	}
 	if _, ok := s.names[len(value)][value]; ok {
 		return
 	}
-	s.counts["nickname"]++
-	s.put(s.names, value, fmt.Sprintf("{nickname %d}", s.counts["nickname"]))
+	s.counts[kind]++
+	s.put(s.names, value, fmt.Sprintf("{%s %d}", kind, s.counts[kind]))
+}
+
+// hides reports whether s hides value wherever it is a whole token: an
+// identifier or a name that s has learned. A probe sends a value of the
+// owner's, such as a symbol, only when s hides it, since Schwab's refusal
+// may quote it.
+func (s *liveScrubber) hides(value string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ident := s.idents[len(value)][asciiLower(value)]
+	_, name := s.names[len(value)][value]
+	return ident || name
 }
 
 // addPath labels each spelling of path, a local file or folder.
@@ -460,22 +475,31 @@ func pathSpellings(path string) []string {
 }
 
 // identKeys are the keys of Schwab's answers whose values the scrubber
-// learns, with the kind of each.
-var identKeys = []struct{ key, kind string }{
-	{"accountNumber", "account"},
-	{"hashValue", "hash"},
-	{"nickName", "nickname"},
-	{"displayAcctId", "display id"},
-	{"schwabClientCustomerId", "streamer customer id"},
-	{"schwabClientCorrelId", "streamer correl id"},
-	{"activityId", "activity id"},
-	{"orderId", "order id"},
-	{"positionId", "position id"},
+// learns, with the kind of each, and whether it is a name, matched as it
+// is, rather than an identifier, matched in any case.
+var identKeys = []struct {
+	key, kind string
+	name      bool
+}{
+	{"accountNumber", "account", false},
+	{"hashValue", "hash", false},
+	{"nickName", "nickname", true},
+	{"displayAcctId", "display id", false},
+	{"schwabClientCustomerId", "streamer customer id", false},
+	{"schwabClientCorrelId", "streamer correl id", false},
+	{"activityId", "activity id", false},
+	{"orderId", "order id", false},
+	{"positionId", "position id", false},
+	{"symbol", "symbol", true},
+	{"underlyingSymbol", "symbol", true},
+	{"rootSymbol", "symbol", true},
+	{"uniformSymbol", "symbol", true},
 }
 
 // learnAnswer learns the identifiers in body, an answer of Schwab's: the
 // value of every key of identKeys, in any case and at any depth, a string
-// or a number as written.
+// or a number as written. A symbol of liveBenchmarks is not learned: it is
+// the probes' own, which the report names.
 func (s *liveScrubber) learnAnswer(body []byte) {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
@@ -489,8 +513,8 @@ func (s *liveScrubber) learnAnswer(body []byte) {
 }
 
 // learnJSON is learnAnswer for v, JSON decoded as any, which needs s.mu.
-// The keys of an object are taken in order, so that the labels are the
-// same each run.
+// The keys of an object are taken in order, and its values in the order of
+// identKeys, so that the labels are the same each run.
 func (s *liveScrubber) learnJSON(v any) {
 	switch v := v.(type) {
 	case []any:
@@ -498,7 +522,7 @@ func (s *liveScrubber) learnJSON(v any) {
 			s.learnJSON(x)
 		}
 	case map[string]any:
-		values := map[string]string{}
+		values := make([]string, len(identKeys))
 		for _, k := range slices.Sorted(maps.Keys(v)) {
 			var text string
 			switch x := v[k].(type) {
@@ -510,17 +534,17 @@ func (s *liveScrubber) learnJSON(v any) {
 				s.learnJSON(x)
 				continue
 			}
-			for _, ik := range identKeys {
-				if strings.EqualFold(k, ik.key) && values[ik.kind] == "" {
-					values[ik.kind] = text
+			for i, ik := range identKeys {
+				if strings.EqualFold(k, ik.key) && values[i] == "" {
+					values[i] = text
 				}
 			}
 		}
-		for _, ik := range identKeys {
-			switch text := values[ik.kind]; {
-			case text == "":
-			case ik.kind == "nickname":
-				s.addNameLocked(text)
+		for i, ik := range identKeys {
+			switch text := values[i]; {
+			case text == "", ik.kind == "symbol" && slices.Contains(liveBenchmarks, text):
+			case ik.name:
+				s.addNameLocked(ik.kind, text)
 			default:
 				s.addIdentLocked(ik.kind, text)
 			}
@@ -588,8 +612,9 @@ func fixtureScrubber(t *testing.T, home string) *liveScrubber {
 // The scrubber labels each account number and hash in the account numbers'
 // order, raw and escaped, and in any case; and every other identifier of
 // the fixtures' answers by its kind, in the order met: nicknames, as they
-// are, the display IDs, the streamer's customer and correlation IDs, and
-// each activity, order and position ID.
+// are, the display IDs, the streamer's customer and correlation IDs, each
+// activity, order and position ID, and each symbol, as it is, but for the
+// benchmarks that the report names.
 func TestScrubberLabelsTheFixtures(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "zqplanted")
 	s := fixtureScrubber(t, home)
@@ -606,6 +631,9 @@ func TestScrubberLabelsTheFixtures(t *testing.T) {
 		{"order 1004517638295 at position 3926184750", "order {order id 1} at position {position id 1}"},
 		{"transactions/73508261946?x=1004517601177", "transactions/{activity id 6}?x={order id 4}"},
 		{"a count of 3 and the year 2026", "a count of 3 and the year 2026"},
+		{"'AAPL', META and BND; XYZ   260619P00045000 on XYZ", "'{symbol 1}', {symbol 6} and {symbol 13}; {symbol 4} on {symbol 5}"},
+		{"/ESH25_P5050:XCME of /ESH25:XCME, and CURRENCY_USD", "{symbol 11} of {symbol 10}, and {symbol 7}"},
+		{"SPY and VTI, aapl and Meta, XYZW and BNDS", "SPY and VTI, aapl and Meta, XYZW and BNDS"},
 	} {
 		if got := s.scrub(tc.in); got != tc.want {
 			t.Errorf("scrub(%q) = %q, want %q", tc.in, got, tc.want)
@@ -614,8 +642,13 @@ func TestScrubberLabelsTheFixtures(t *testing.T) {
 			t.Errorf("%q still holds a value once scrubbed", tc.in)
 		}
 	}
-	if !s.holds("29470135") || !s.holds("Options & Margin") || !s.holds(strings.ToLower(fixtureHash(1))) {
+	if !s.holds("29470135") || !s.holds("Options & Margin") || !s.holds(strings.ToLower(fixtureHash(1))) || !s.holds("'BND'") {
 		t.Error("the self-check does not find the fixtures' values")
+	}
+	for value, want := range map[string]bool{"BND": true, "XYZ   260918C00050000": true, "61803398": true, "SPY": false, "VTI": false, "bnd": false, "BN": false} {
+		if s.hides(value) != want {
+			t.Errorf("hides(%q) = %v", value, !want)
+		}
 	}
 }
 
@@ -802,13 +835,19 @@ func TestScrubberPathsUnderALink(t *testing.T) {
 }
 
 // The scrubber learns the identifiers of any answer, at any depth, by key
-// in any case, as strings or numbers; correlation IDs from an answer's
-// header; and, from each *Error in an error's tree, its correlation ID, the
-// edge's Reference, and the identifiers in its header and body.
+// in any case, as strings or numbers; each symbol of an instrument, as it
+// is, but for a benchmark's; correlation IDs from an answer's header; and,
+// from each *Error in an error's tree, its correlation ID, the edge's
+// Reference, and the identifiers in its header and body.
 func TestScrubberLearns(t *testing.T) {
 	s := newLiveScrubber()
 	s.learnAnswer([]byte(`[{"ActivityID": 51234567890, "x": {"orderId": "71234567890"}, "positionId": 9.5, ` +
-		`"accountNumber": 81234567, "hashValue": "HASH9", "flag": true, "list": [{"NICKNAME": "Zq Fund"}]}]`))
+		`"accountNumber": 81234567, "hashValue": "HASH9", "flag": true, "list": [{"NICKNAME": "Zq Fund"}], ` +
+		`"legs": [{"instrument": {"symbol": "ZQ   260918C00050000", "underlyingSymbol": "ALL", "rootSymbol": "ZQR", "uniformSymbol": "ZQU"}}, ` +
+		`{"instrument": {"symbol": "SPY"}}]}]`))
+	if got, want := s.scrub("ZQ   260918C00050000 of ALL, all, ZQR, ZQU and SPY"), "{symbol 1} of {symbol 2}, all, {symbol 3}, {symbol 4} and SPY"; got != want {
+		t.Errorf("the symbols scrubbed: %q, want %q", got, want)
+	}
 	s.learnHeader(http.Header{
 		"Schwab-Client-Correlid": {"corr-zq1"}, "X-Request-Id": {"req-zq2"}, "Content-Type": {"application/json"},
 	})

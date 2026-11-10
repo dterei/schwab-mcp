@@ -574,15 +574,17 @@ const filterPad = oneDay
 
 // planFilter returns the plan of Q4 for rows, an account's history rows, or
 // why there is none. A symbol qualifies with a TRADE that names it in a leg
-// and a dividend or W-8 journal that names it after a "~". The one chosen
-// has both a dividend and a W-8 journal if any does, then the TRADE and the
-// row nearest each other, preferring a TRADE that names it as its own
-// symbol, not its underlying's. The rows go in one window if one can hold
-// them, else one window each; and when no window holds a row that names
-// neither the symbol in a leg nor after a "~", the window nearest such a
-// row of the history is widened, within MaxTransactionWindow, to take it
-// in.
-func planFilter(rows []Transaction) (*filterPlan, string) {
+// and a dividend or W-8 journal that names it after a "~", if hidden says
+// that the report's scrubber hides it: Schwab's refusal of symbol= may
+// quote the symbol, and a benchmark's or one of a single character is not
+// hidden. The one chosen has both a dividend and a W-8 journal if any does,
+// then the TRADE and the row nearest each other, preferring a TRADE that
+// names it as its own symbol, not its underlying's. The rows go in one
+// window if one can hold them, else one window each; and when no window
+// holds a row that names neither the symbol in a leg nor after a "~", the
+// window nearest such a row of the history is widened, within
+// MaxTransactionWindow, to take it in.
+func planFilter(rows []Transaction, hidden func(symbol string) bool) (*filterPlan, string) {
 	type candidate struct {
 		symbol     string
 		own        []Transaction // TRADEs naming it as their own symbol
@@ -629,6 +631,7 @@ func planFilter(rows []Transaction) (*filterPlan, string) {
 		return best
 	}
 	var plans []*filterPlan
+	unhidden := false // whether a symbol qualified but for the scrubber
 	for _, c := range by {
 		trades := c.own
 		if len(trades) == 0 {
@@ -636,6 +639,10 @@ func planFilter(rows []Transaction) (*filterPlan, string) {
 		}
 		described := slices.Concat(c.dividends, c.w8s)
 		if len(trades) == 0 || len(described) == 0 {
+			continue
+		}
+		if !hidden(c.symbol) {
+			unhidden = true
 			continue
 		}
 		var best *filterPlan
@@ -649,7 +656,10 @@ func planFilter(rows []Transaction) (*filterPlan, string) {
 		best.dividend, best.w8 = nearest(best.trade, c.dividends), nearest(best.trade, c.w8s)
 		plans = append(plans, best)
 	}
-	if len(plans) == 0 {
+	switch {
+	case len(plans) == 0 && unhidden:
+		return nil, "no symbol of the history rows that the report's scrubber hides has both a TRADE and a dividend or a W-8 journal"
+	case len(plans) == 0:
 		return nil, "no symbol of the history rows has both a TRADE and a dividend or a W-8 journal"
 	}
 	gapOf := func(p *filterPlan) time.Duration {
@@ -844,7 +854,9 @@ func (r *liveRun) runFilter(ctx context.Context, a liveAccount, p *filterPlan) f
 // its history rows, as planFilter says, and sends its windows with
 // symbol= and without, as runFilter says; with no symbol to choose, or
 // either control failing, the account's answer is inconclusive. It never
-// names the symbol, and marks each line that reveals W-8 rows.
+// names the symbol, sends only one that the report's scrubber hides, so
+// that a refusal quoting it shows a label, and marks each line that
+// reveals W-8 rows.
 func probeSymbolFilter(ctx context.Context, r *liveRun) verdict {
 	var v verdict
 	var dividends, w8s []string
@@ -853,7 +865,7 @@ func probeSymbolFilter(ctx context.Context, r *liveRun) verdict {
 		if a.hash == "" || len(r.history[a.n]) == 0 {
 			continue
 		}
-		p, none := planFilter(r.history[a.n])
+		p, none := planFilter(r.history[a.n], r.scrub.hides)
 		if p == nil {
 			v.evidence = append(v.evidence, reportLine{text: a.label() + ": " + none})
 			why = cmp.Or(why, none)
@@ -1380,15 +1392,17 @@ func probeRow(id int64, typ TransactionType, at time.Time, desc, symbol, underly
 
 // Q4's plan chooses a symbol with a TRADE and a row that names it after a
 // "~": one with both a dividend and a W-8 journal before one with only
-// one, a TRADE of its own before its options'; one window for rows within
-// a year of each other, else one each; and it widens the window nearest a
-// row of another symbol to take it in, or has no plan without one near.
+// one, a TRADE of its own before its options', and never one that the
+// scrubber does not hide; one window for rows within a year of each other,
+// else one each; and it widens the window nearest a row of another symbol
+// to take it in, or has no plan without one near.
 func TestPlanFilter(t *testing.T) {
 	day := func(d int) time.Time { return time.Date(2025, 1, 1, 15, 0, 0, 0, time.UTC).AddDate(0, 0, d) }
+	all := func(string) bool { return true }
 	cash := func(id int64, typ TransactionType, d int, desc string) Transaction {
 		return probeRow(id, typ, day(d), desc, "CURRENCY_USD", "")
 	}
-	if p, why := planFilter([]Transaction{probeRow(1, TransactionTrade, day(0), "", "AAA", ""), cash(2, TransactionWireIn, 1, "Wire Incoming")}); p != nil ||
+	if p, why := planFilter([]Transaction{probeRow(1, TransactionTrade, day(0), "", "AAA", ""), cash(2, TransactionWireIn, 1, "Wire Incoming")}, all); p != nil ||
 		why != "no symbol of the history rows has both a TRADE and a dividend or a W-8 journal" {
 		t.Errorf("no symbol: %+v, %q", p, why)
 	}
@@ -1403,14 +1417,25 @@ func TestPlanFilter(t *testing.T) {
 		cash(5, TransactionDividendOrInterest, 160, "Ordinary Dividend~BBB"),
 		cash(6, TransactionJournal, 160, "W-8 Withholding~BBB"),
 	}
-	if p, why := planFilter(rows); p != nil || why != "no row of the history that names another symbol lies near enough to the chosen symbol's rows" {
+	if p, why := planFilter(rows, all); p != nil || why != "no row of the history that names another symbol lies near enough to the chosen symbol's rows" {
 		t.Errorf("no row of another symbol: %+v, %q", p, why)
 	}
 	rows = append(rows, cash(7, TransactionWireIn, 300, "Wire Incoming"))
-	p, why := planFilter(rows)
+	p, why := planFilter(rows, all)
 	if p == nil || p.symbol != "BBB" || p.trade.ActivityID != 4 || p.dividend.ActivityID != 5 || p.w8.ActivityID != 6 || !p.widened ||
 		len(p.windows) != 1 || !p.windows[0].start.Equal(day(99)) || !p.windows[0].end.Equal(day(301)) {
 		t.Fatalf("plan: %+v, %q", p, why)
+	}
+	// A symbol that the scrubber does not hide is passed over: without
+	// BBB, AAA is chosen, with a row of another symbol near it; without
+	// either, none is.
+	near := append(slices.Clone(rows), cash(8, TransactionWireIn, -290, "Wire Incoming"))
+	if p, why := planFilter(near, func(s string) bool { return s != "BBB" }); p == nil || p.symbol != "AAA" || p.trade.ActivityID != 1 {
+		t.Errorf("BBB not hidden: %+v, %q", p, why)
+	}
+	if p, why := planFilter(near, func(string) bool { return false }); p != nil ||
+		why != "no symbol of the history rows that the report's scrubber hides has both a TRADE and a dividend or a W-8 journal" {
+		t.Errorf("no symbol hidden: %+v, %q", p, why)
 	}
 	// Rows more than a year apart go in a window each, and a row of
 	// another symbol already inside one needs no widening.
@@ -1419,7 +1444,7 @@ func TestPlanFilter(t *testing.T) {
 		cash(2, TransactionDividendOrInterest, 400, "Ordinary Dividend~AAA"),
 		cash(3, TransactionWireIn, 400, "Wire Incoming"),
 	}
-	if p, _ := planFilter(far); p == nil || p.widened || len(p.windows) != 2 || p.w8 != nil ||
+	if p, _ := planFilter(far, all); p == nil || p.widened || len(p.windows) != 2 || p.w8 != nil ||
 		!p.windows[1].start.Equal(day(399)) || !p.windows[1].end.Equal(day(401)) {
 		t.Errorf("far apart: %+v", p)
 	}

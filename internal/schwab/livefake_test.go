@@ -1,11 +1,13 @@
 package schwab
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +20,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
@@ -184,13 +187,124 @@ func (fl *fakeLive) secrets(t *testing.T) []string {
 }
 
 // noSecrets fails the test for each secret of fl's in texts, which it
-// names without the text.
+// names without the text: each of fl's secrets anywhere, and each of
+// fixtureValues as a whole token, in any case.
 func (fl *fakeLive) noSecrets(t *testing.T, what string, texts ...string) {
 	t.Helper()
-	all := strings.ToLower(strings.Join(texts, "\n"))
+	all := strings.Join(texts, "\n")
+	lower := strings.ToLower(all)
 	for _, s := range fl.secrets(t) {
-		if strings.Contains(all, strings.ToLower(s)) {
+		if strings.Contains(lower, strings.ToLower(s)) {
 			t.Errorf("%s holds %q, in some case", what, s)
+		}
+	}
+	for _, v := range fixtureValues(t) {
+		if holdsToken(all, v) {
+			t.Errorf("%s holds %q, in some case", what, v)
+		}
+	}
+}
+
+// instrumentKeys are the keys of an instrument whose values no report may
+// hold: its symbols, its CUSIP and its description.
+var instrumentKeys = []string{"symbol", "underlyingSymbol", "rootSymbol", "uniformSymbol", "cusip", "description"}
+
+// fixtureValues returns what the fixtures' accounts and transactions hold
+// that no report may, past their identifiers: the values of instrumentKeys
+// in each instrument, at any depth, but for the benchmarks' symbols, which
+// the report names; and each number with a fraction, a balance, a
+// quantity, a price or an amount, as written but for its sign.
+func fixtureValues(t *testing.T) []string {
+	t.Helper()
+	var values []string
+	add := func(v string) {
+		if v != "" && !slices.Contains(liveBenchmarks, v) && !slices.Contains(values, v) {
+			values = append(values, v)
+		}
+	}
+	var walk func(v any, inInstrument bool)
+	walk = func(v any, inInstrument bool) {
+		switch v := v.(type) {
+		case map[string]any:
+			for _, k := range slices.Sorted(maps.Keys(v)) {
+				if s, ok := v[k].(string); ok && inInstrument && slices.Contains(instrumentKeys, k) {
+					add(s)
+					continue
+				}
+				walk(v[k], inInstrument || k == "instrument")
+			}
+		case []any:
+			for _, x := range v {
+				walk(x, inInstrument)
+			}
+		case json.Number:
+			n := strings.TrimPrefix(v.String(), "-")
+			if _, fraction, ok := strings.Cut(n, "."); ok && strings.Trim(fraction, "0") != "" {
+				add(n)
+			}
+		}
+	}
+	for _, name := range []string{"accounts.json", "transactions.json", "transaction.json"} {
+		dec := json.NewDecoder(bytes.NewReader(readTestdata(t, name)))
+		dec.UseNumber()
+		var v any
+		if err := dec.Decode(&v); err != nil {
+			t.Fatal(err)
+		}
+		walk(v, false)
+	}
+	return values
+}
+
+// holdsToken reports whether text holds value, in any case, as a whole
+// token: with no letter, digit, underscore or dot next to it, but for a dot
+// that ends a sentence after it, so that 1.27 is found in "of 1.27." but
+// not in 11.27, 1.275 or go1.27.3.
+func holdsToken(text, value string) bool {
+	text, value = strings.ToLower(text), strings.ToLower(value)
+	part := func(r rune) bool { return r == '.' || wordRune(r) }
+	for i := 0; i < len(text); i++ {
+		j := strings.Index(text[i:], value)
+		if j < 0 {
+			return false
+		}
+		start, end := i+j, i+j+len(value)
+		before, _ := utf8.DecodeLastRuneInString(text[:start])
+		after, n := utf8.DecodeRuneInString(text[end:])
+		next, _ := utf8.DecodeRuneInString(text[end+n:])
+		if (start == 0 || !part(before)) && (end == len(text) || !part(after) || after == '.' && !wordRune(next)) {
+			return true
+		}
+		i = start
+	}
+	return false
+}
+
+// A value is found as a whole token, in any case, with no letter, digit or
+// dot of a number next to it; and fixtureValues holds the fixtures'
+// symbols, CUSIPs, descriptions and amounts with a fraction, but no
+// benchmark, whole number or description of a row.
+func TestHoldsToken(t *testing.T) {
+	for text, want := range map[string]bool{
+		"a total of 1.27.": true, "(1.27)": true, "-1.27, then": true, "1.27": true,
+		"11.27": false, "1.275": false, "go1.27.3": false, "1.27.3": false, "x1.27": false, "1_27": false,
+	} {
+		if got := holdsToken(text, "1.27"); got != want {
+			t.Errorf("holdsToken(%q, 1.27) = %v", text, got)
+		}
+	}
+	if !holdsToken("sold Meta, then", "META") || holdsToken("metadata", "META") || !holdsToken("x metadata, META", "META") {
+		t.Error("holdsToken finds META otherwise")
+	}
+	values := fixtureValues(t)
+	for _, want := range []string{"AAPL", "XYZ", "XYZ   260918C00050000", "/ESH25:XCME", "VANGUARD TOTAL BOND MARKET ETF", "30303M102", "0.53", "16517.68"} {
+		if !slices.Contains(values, want) {
+			t.Errorf("fixtureValues lacks %q", want)
+		}
+	}
+	for _, not := range []string{"SPY", "VTI", "45.00", "1.0", "Ordinary Dividend~BND"} {
+		if slices.Contains(values, not) {
+			t.Errorf("fixtureValues holds %q", not)
 		}
 	}
 }

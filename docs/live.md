@@ -111,7 +111,7 @@ why; the question stays open until a run settles it.
 | Q1 | default | How far back transactions go, and what a window older than that gets | Walks each account's history back in windows of a year, a second apart, to three empty windows past the oldest row or 2000-01-01, and asks for 2000 as a control. A refusal counts only when it says something of the window, and the newest window then still answers. Gives each account's oldest row's New York date; whether older activity exists that Schwab does not serve is yours to judge |
 | Q2 | default | The tradeDate of a fill from 18:00 to 04:00 in New York | Counts the history's evening and overnight executions by what their tradeDate is |
 | Q3 | `watch=balances` | When initial balances move, and whether they then hold the close | Reads the accounts every 10 minutes from 15:45 to 10:00 the next day. Needs holdings with prices: cash never moves |
-| Q4 | default | Whether the symbol filter keeps dividends and W-8 withholdings | Asks for a symbol's rows with `symbol=` and without; a verdict needs the symbol's own trade back and a row of another symbol left out |
+| Q4 | default | Whether the symbol filter keeps dividends and W-8 withholdings | Asks for a symbol's rows with `symbol=` and without; a verdict needs the symbol's own trade back and a row of another symbol left out. It sends only a symbol that the scrubber hides, so that a refusal quoting it shows a label |
 | Q5 | default | Whether an account's orders are served for a year or 60 days | Gets an older execution's order by id, then asks the list around when it was entered |
 | Q6 | default | Whether `scope=readonly` gives a token that cannot trade | Reports the scope Schwab granted, and whether any read was refused as unauthorized. Log in with `&scope=readonly` added to the login link to try it; whether such a token cannot trade stays open, since only an order could show it |
 | Q8 | default | Whether daily price bars are adjusted for dividends | Keeps SPY's and VTI's daily closes in the state; after an ex-date between two runs, compares them. Needs the Market Data product |
@@ -156,10 +156,13 @@ for a kind of row, such as "Ordinary Dividend~SYM", with the symbol masked.
 A scrubber of the run's own replaces what the run has seen with labels:
 each account and its hash by its place in the account numbers, as
 `{account 2}` and `{hash 2}`; nicknames, display IDs, streamer IDs,
-activity, order and position IDs, correlation IDs and the edge's reference
-numbers by their kind; your home folder as `~`, your user name as `{user}`,
-and the run's files and folders by name. Every line is checked for what the
-run has seen before it is printed or written, and a line that still holds
+activity, order and position IDs, correlation IDs, the edge's reference
+numbers, and every symbol in an answer but SPY and VTI, which the run
+names itself, by their kind; your home folder as `~`, your user name as
+`{user}`, and the run's files and folders by name. Q4 sends no symbol that
+the scrubber does not hide: not SPY or VTI, nor one of a single character,
+which is too short to hide. Every line is checked for what the run has
+seen before it is printed or written, and a line that still holds
 something is left out, unshown, and fails the run.
 
 A finding that fails, a probe that panics, a part of the run that stops
