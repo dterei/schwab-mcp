@@ -77,9 +77,11 @@ type liveRun struct {
 	failing  int           // the findings that fail
 	notRun   []string      // the parts of the run that did not run, or stopped part way
 
-	// What the probes share, set as they run, under mu: how many reads of
-	// the account API Schwab refused as unauthorized, and the findings that
-	// read has written, each once.
+	// What the probes share, set as they run: the history rows, the rows
+	// that the probes have read, by their account's place in the list; and,
+	// under mu, how many reads of the account API Schwab refused as
+	// unauthorized and the findings that read has written, each once.
+	history  map[int][]Transaction
 	refused  int
 	reported map[string]bool
 }

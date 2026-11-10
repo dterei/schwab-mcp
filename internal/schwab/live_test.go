@@ -146,9 +146,6 @@ func TestLive(t *testing.T) {
 	}
 }
 
-// liveProbes are the probes that TestLive runs, each in its mode.
-var liveProbes []liveProbe
-
 // refuseCI returns why a live run must not go on where getenv reads the
 // environment: CI or GITHUB_ACTIONS set means a CI job, which must never
 // reach Schwab, and SCHWAB_BASE_URL set means a server other than Schwab's,
