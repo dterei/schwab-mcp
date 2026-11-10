@@ -191,11 +191,18 @@ one-year limit is per request, not a retention period.
 
 - Send exact instants. A date-only end date sent as midnight UTC drops that
   day's trades.
-- A window whose start equals its end returns nothing.
+- What Schwab answers to a window whose start equals its end is not known.
+  The one report that it returns nothing
+  ([GeneBO98/tradetally#274](https://github.com/GeneBO98/tradetally/issues/274))
+  reasoned from code that never sent such a request.
 - Keep each window at most 365 × 24 hours from start to end. The spec says
-  only "1 year", but one client says the cap counts hours, so a window from
-  local midnight a year ago up to now is a few hours too long
+  only "1 year", but one client says, without having tried it, that the cap
+  counts hours, so a window from local midnight a year ago up to now would
+  be a few hours too long
   ([Akiko0210/PersonalAssistant#25](https://github.com/Akiko0210/PersonalAssistant/pull/25)).
+- The live mode's extras ask Schwab for a window whose start equals its
+  end, one of 365 days and a second, and one of 366 days
+  ([probes](live.md#the-probes)).
 
 **Response.**
 
