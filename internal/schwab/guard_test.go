@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -144,6 +145,16 @@ func (g *guard) RoundTrip(req *http.Request) (*http.Response, error) {
 		g.answered(req, sent, resp)
 	}
 	return resp, nil
+}
+
+// CloseIdleConnections closes the idle connections of the transport that
+// g sends through, if it keeps any: the Client drops them after a failure
+// of the network, so that its next try connects afresh, and an
+// http.Client passes that on only to a transport that has this method.
+func (g *guard) CloseIdleConnections() {
+	if c, ok := g.next.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
 }
 
 // closeBody closes the body of a request that is not sent, as a
@@ -730,6 +741,36 @@ func TestGuardStopsForTheRun(t *testing.T) {
 	if !errors.Is(err, deadline) || len(s.sent()) != 0 {
 		t.Errorf("a read after the stop: %v; sent %d", err, len(s.sent()))
 	}
+}
+
+// idleCounter is a transport that counts how often it is told to close its
+// idle connections.
+type idleCounter struct {
+	stubTransport
+	closed atomic.Int32
+}
+
+func (c *idleCounter) CloseIdleConnections() { c.closed.Add(1) }
+
+// The run's client passes a drop of idle connections on, through the
+// guard, to the transport that the guard sends through, as the Client asks
+// after a failure of the network.
+func TestGuardClosesIdleConnections(t *testing.T) {
+	next := &idleCounter{}
+	g, err := newGuard(t.Context(), func(error) {}, DefaultBaseURL, next, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveHTTPClient(g).CloseIdleConnections()
+	if n := next.closed.Load(); n != 1 {
+		t.Errorf("the transport was told %d times", n)
+	}
+	// One that keeps no connections is not told, and nothing breaks.
+	plain, err := newGuard(t.Context(), func(error) {}, DefaultBaseURL, &stubTransport{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveHTTPClient(plain).CloseIdleConnections()
 }
 
 // The origin of a guard is an https address alone, and the run's client
