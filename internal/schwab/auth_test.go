@@ -648,6 +648,73 @@ func TestJustIssuedTokenRefusedIsNotRefreshed(t *testing.T) {
 	}
 }
 
+// A token from a refresh counts as just issued too: the refresh saves when
+// it began as the token's issue time, so Schwab refusing the token moments
+// later is reported, not met with another refresh.
+func TestJustRefreshedTokenRefusedIsNotRefreshed(t *testing.T) {
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	tokenFile := filepath.Join(t.TempDir(), "token.json")
+	a := newTestAuth(t, f, tokenFile, c)
+	if err := a.Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	c.advance(2 * time.Minute)
+	refreshed := c.Now()
+	if tok, err := a.Refresh(t.Context(), schwabtest.AccessToken(1)); err != nil || tok != schwabtest.AccessToken(2) {
+		t.Fatalf("Refresh of a token issued 2 minutes ago: %q, %v; want access-2", tok, err)
+	}
+	if got := readTestToken(t, tokenFile).AccessObtainedAt; !got.Equal(refreshed) {
+		t.Errorf("the refreshed token was saved as issued at %v, want %v, when the refresh began", got, refreshed)
+	}
+	c.advance(10 * time.Second)
+	if _, err := a.Refresh(t.Context(), schwabtest.AccessToken(2)); !errors.Is(err, ErrTokenRefused) {
+		t.Errorf("Refresh of a token refreshed 10 seconds ago: %v, want ErrTokenRefused", err)
+	}
+	if _, refresh := f.Grants(); refresh != 1 {
+		t.Errorf("%d refresh grants, want 1", refresh)
+	}
+}
+
+// A grant without an access token fails, though Schwab answered 200, and
+// saves nothing.
+func TestGrantWithoutAnAccessTokenFails(t *testing.T) {
+	f := newFakeOAuth(t)
+	tokenFile := filepath.Join(t.TempDir(), "token.json")
+	a := newTestAuth(t, f, tokenFile, &clock{now: testNow})
+	f.FailTokens(schwabtest.Failure{
+		Status: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+		Body: `{"expires_in":1800,"token_type":"Bearer","scope":"api","refresh_token":"refresh-1","id_token":"id-1"}`,
+	})
+	if err := a.Login(t.Context(), testCode); err == nil || !strings.Contains(err.Error(), "no access token") {
+		t.Errorf("Login: %v, want the missing access token", err)
+	}
+	if _, err := os.Stat(tokenFile); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the token file after the failed login: %v, want none", err)
+	}
+}
+
+// A refresh keeps the scope that Schwab says it granted, which Status
+// reports, and keeps the login's when Schwab says none.
+func TestRefreshKeepsTheScope(t *testing.T) {
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	a := newTestAuth(t, f, filepath.Join(t.TempDir(), "token.json"), c)
+	if err := a.Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	for i, scope := range []string{"readonly", ""} {
+		f.SetScope(scope)
+		c.advance(2 * freshTokenAge)
+		if _, err := a.Refresh(t.Context(), schwabtest.AccessToken(i+1)); err != nil {
+			t.Fatal(err)
+		}
+		if st, err := a.Status(); err != nil || st.Scope != "readonly" {
+			t.Errorf("Status after a refresh that granted the scope %q: %q, %v; want readonly", scope, st.Scope, err)
+		}
+	}
+}
+
 // A refresh token that Schwab refused is not sent again while the file still
 // holds it, and Status says why.
 func TestRefusedRefreshTokenIsNotSentAgain(t *testing.T) {

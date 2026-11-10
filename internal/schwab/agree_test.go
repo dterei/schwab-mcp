@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
@@ -50,6 +51,29 @@ func TestFakeAgreesWithTheClient(t *testing.T) {
 	}
 	if !slices.Equal(schwabtest.TransactionTypes(), types) {
 		t.Errorf("the fake's transaction types %v, the client's %v", schwabtest.TransactionTypes(), types)
+	}
+}
+
+// An expires_in of 0 or less is taken as 1800 seconds by the client and,
+// as SetExpiresIn says, by the fake: the login's access token is saved as
+// lasting 30 minutes, and the fake takes it 20 minutes on, with no refresh.
+func TestFakeAgreesOnNoExpiresIn(t *testing.T) {
+	for _, seconds := range []int{0, -1} {
+		s := schwabtest.New(t)
+		c := &clock{now: testNow}
+		s.SetNow(c.Now)
+		s.SetExpiresIn(seconds)
+		cl := fakeClient(t, s, c)
+		if got := readTestToken(t, cl.auth.tokenFile).AccessExpiresAt; !got.Equal(testNow.Add(30 * time.Minute)) {
+			t.Errorf("expires_in %d: the token is saved as lapsing at %v, want 30 minutes after the login", seconds, got)
+		}
+		c.advance(20 * time.Minute)
+		if body, err := cl.Get(t.Context(), "/trader/v1/test", nil); err != nil || string(body) != `{"ok":true}` {
+			t.Errorf("expires_in %d: Get 20 minutes after the login: %q, %v", seconds, body, err)
+		}
+		if _, refresh := s.Grants(); refresh != 0 {
+			t.Errorf("expires_in %d: %d refreshes 20 minutes after the login, want none", seconds, refresh)
+		}
 	}
 }
 

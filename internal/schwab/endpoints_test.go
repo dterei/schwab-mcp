@@ -125,6 +125,29 @@ func TestTransactionsRequest(t *testing.T) {
 	}
 }
 
+// An account's hash is escaped in the paths of its transactions, as in its
+// own, so a hash that holds a slash or a space reaches its account.
+func TestTransactionsEscapeTheHash(t *testing.T) {
+	f := newFakeOAuth(t)
+	const hash = "AB/C D"
+	f.AddAccount(schwabtest.Account{Number: "12345678", Hash: hash, Details: `{"securitiesAccount":{"type":"CASH","accountNumber":"12345678"}}`})
+	row := `{"activityId":7,"time":"2026-10-08T11:00:00+0000","type":"JOURNAL","accountNumber":"12345678"}`
+	f.AddRows(hash, row)
+	cl := newTestClient(t, f, &clock{now: testNow}, &fakeTime{now: testNow})
+	txs, err := cl.Transactions(t.Context(), hash, TransactionQuery{Start: testNow.Add(-24 * time.Hour), End: testNow})
+	if err != nil || len(txs) != 1 || string(txs[0].Raw) != row {
+		t.Errorf("Transactions: %d, %v", len(txs), err)
+	}
+	if tx, err := cl.Transaction(t.Context(), hash, 7); err != nil || string(tx.Raw) != row {
+		t.Errorf("Transaction: %s, %v", tx.Raw, err)
+	}
+	for _, u := range requested(t, f) {
+		if p := u.EscapedPath(); !strings.HasPrefix(p, "/trader/v1/accounts/AB%2FC%20D/transactions") {
+			t.Errorf("requested %s", p)
+		}
+	}
+}
+
 // A query Schwab would refuse fails before any request.
 func TestTransactionsWindowRules(t *testing.T) {
 	cl, f := endpointClient(t)
