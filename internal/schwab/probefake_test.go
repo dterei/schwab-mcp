@@ -2876,10 +2876,12 @@ func onAccountNumbers(fl *fakeLive, f func(n int32)) {
 
 // The rate probe on the fake: its steps and its burst without a 429; a 429
 // at 60 a minute; another process's use of the key in the middle of a
-// step, which stops it; and the refusals to start, of a rate file written
-// a minute ago and of a scheduled snapshot that the run would come near,
-// and the stop when the snapshot nears in the middle of the run, as when
-// the computer slept.
+// step, which stops it; answers of a second and a half, which keep the
+// step of 60 a minute from its pace, and stop it, and answers that slow
+// only the burst, which stop it too; and the refusals to start, of a rate
+// file written a minute ago and of a scheduled snapshot that the run would
+// come near, and the stop when the snapshot nears in the middle of the
+// run, as when the computer slept.
 func testRateOnTheFake(t *testing.T) {
 	snapshotIn := func(fl *fakeLive, d time.Duration) string {
 		local := fl.clock.Now().Add(d).In(fl.r.loc)
@@ -2933,6 +2935,20 @@ func testRateOnTheFake(t *testing.T) {
 			})
 			return ""
 		}, "inconclusive: a 503 came, at request 7 of 40, 9s after the first, at 40 a minute; no 429 came up to 20 a minute", ""},
+		{"slow answers", func(_ *testing.T, fl *fakeLive) string {
+			onAccountNumbers(fl, func(int32) { fl.clock.set(fl.clock.Now().Add(1500 * time.Millisecond)) })
+			return ""
+		}, "inconclusive: the answers came too slowly to keep the pace: request 12 of 60 would go 17s after the first, 6s behind its place, " +
+			"at 60 a minute; no 429 came up to 40 a minute", ""},
+		{"slow answers in the burst", func(_ *testing.T, fl *fakeLive) string {
+			onAccountNumbers(fl, func(n int32) {
+				if n > 1+20+40+60+80+100 {
+					fl.clock.set(fl.clock.Now().Add(1500 * time.Millisecond))
+				}
+			})
+			return ""
+		}, "inconclusive: the answers came too slowly to keep the pace: request 4 of 5 would go 5s after the first, " +
+			"at the burst of 5 after 2m0s of quiet; no 429 came up to 100 a minute", ""},
 		{"the rate file written a minute ago", func(t *testing.T, fl *fakeLive) string {
 			if err := otherProcess(fl, -time.Minute)(); err != nil {
 				t.Fatal(err)

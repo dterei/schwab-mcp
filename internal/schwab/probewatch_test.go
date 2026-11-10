@@ -472,13 +472,18 @@ func minutesSpan(lo, hi int) string {
 // above DefaultRatePerMinute, which leaves Schwab's 120 room.
 var rateSteps = []int{20, 40, 60, 80, 100}
 
-// The bounds of Q14: how long each step lasts; how long the rate file must
-// be quiet before it starts, and the quiet before its burst; the burst, the
-// Client's own; and how far it keeps from the scheduled snapshot.
+// The bounds of Q14: how long each step lasts, and how far behind its pace
+// a step's request may go, since answers that come more slowly than the
+// pace hold each request up; how long the rate file must be quiet before
+// it starts, and the quiet before its burst; the burst, the Client's own,
+// and how long after its first request its last may go; and how far it
+// keeps from the scheduled snapshot.
 const (
 	rateStep    = time.Minute
+	rateBehind  = 5 * time.Second
 	rateQuiet   = 2 * time.Minute
 	rateBurst   = DefaultBurst
+	burstWithin = 3 * time.Second
 	snapshotGap = 30 * time.Minute
 )
 
@@ -607,8 +612,11 @@ type rateEnd struct {
 // rateSend sends the ith of n requests of a step of Q14 through c, once
 // its turn comes and nothing stands in its way, and returns what ended
 // Q14, if it did. began is when the step's first request went, which the
-// first sets.
-func (r *liveRun) rateSend(ctx context.Context, c *Client, i, n int, began *time.Time) *rateEnd {
+// first sets. A step's pace is a request every every, and a later request
+// that would go more than behind after its place in that pace ends Q14:
+// its answers came too slowly for the step to keep its pace, so a verdict
+// could claim a rate that was not sent.
+func (r *liveRun) rateSend(ctx context.Context, c *Client, i, n int, every, behind time.Duration, began *time.Time) *rateEnd {
 	if err := r.rateTurn(ctx, c); err != nil {
 		return &rateEnd{why: "the run stopped"}
 	}
@@ -617,6 +625,12 @@ func (r *liveRun) rateSend(ctx context.Context, c *Client, i, n int, began *time
 	}
 	if i == 1 {
 		*began = r.now()
+	} else if after := r.now().Sub(*began); after-time.Duration(i-1)*every > behind {
+		why := fmt.Sprintf("the answers came too slowly to keep the pace: request %d of %d would go %v after the first", i, n, after.Round(time.Second))
+		if every > 0 {
+			why += fmt.Sprintf(", %v behind its place", (after - time.Duration(i-1)*every).Round(time.Second))
+		}
+		return &rateEnd{why: why}
 	}
 	_, err := r.fetch(ctx, c, "accounts/accountNumbers", "/trader/v1/accounts/accountNumbers", nil, "accountNumbers", true, false)
 	if err == nil {
@@ -640,9 +654,11 @@ func (r *liveRun) rateSend(ctx context.Context, c *Client, i, n int, began *time
 // after two quiet minutes, a burst of 5, all through the shared rate limit
 // with one try each. It stops at the first 429, 403 or 5xx, and before any
 // request if another process has written the rate file since this one last
-// did, or if the scheduled snapshot nears. Its answer is the first step
-// with a 429, or that none came up to 100 a minute, and what the burst
-// drew.
+// did, if the scheduled snapshot nears, or if the answers come so slowly
+// that a request would go more than rateBehind after its place in its
+// step's pace, or the burst's more than burstWithin after its first. Its
+// answer is the first step with a 429, or that none came up to 100 a
+// minute, and what the burst drew.
 func probeRate(ctx context.Context, r *liveRun) verdict {
 	var v verdict
 	upTo := 0 // the fastest step that drew no 429
@@ -658,7 +674,7 @@ func probeRate(ctx context.Context, r *liveRun) verdict {
 		step := strconv.Itoa(rate) + " a minute"
 		var began time.Time
 		for i := 1; i <= rate; i++ {
-			switch end := r.rateSend(ctx, c, i, rate, &began); {
+			switch end := r.rateSend(ctx, c, i, rate, rateStep/time.Duration(rate), rateBehind, &began); {
 			case end == nil:
 			case end.limited:
 				v.answer = "the first 429 came at " + step + ", at " + end.at
@@ -677,7 +693,7 @@ func probeRate(ctx context.Context, r *liveRun) verdict {
 	c := r.rateClient(DefaultRatePerMinute, rateBurst)
 	var began time.Time
 	for i := 1; i <= rateBurst; i++ {
-		switch end := r.rateSend(ctx, c, i, rateBurst, &began); {
+		switch end := r.rateSend(ctx, c, i, rateBurst, 0, burstWithin, &began); {
 		case end == nil:
 		case end.limited:
 			v.answer = fmt.Sprintf("no 429 came up to %d a minute, but %s drew one, at %s", upTo, step, end.at)
