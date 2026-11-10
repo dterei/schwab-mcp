@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"html"
 	"maps"
 	"slices"
 	"strconv"
@@ -38,7 +39,7 @@ type identValue struct {
 	// fake is what the scrubber writes in its place; "" for one that it has
 	// no fake for, so that a file that would hold it is refused.
 	fake string
-	fold bool // matched in any ASCII case, as hexadecimal digits are; a nickname is matched as it is
+	fold bool // matched in any ASCII case, as identSet.folds says
 }
 
 // An identSet is the identifiers of a recording, as pass one collects them,
@@ -47,7 +48,7 @@ type identValue struct {
 // more wherever it is, a shorter one only as a whole token, as the live
 // report's scrubber does, so that a short nickname, such as "Ed", does not
 // match ordinary words, and a value of one character not at all, since it
-// tells nothing.
+// tells nothing; in any case or as it is, as folds says.
 type identSet struct {
 	values []*identValue
 	byKey  map[identKey]*identValue
@@ -61,6 +62,9 @@ type identSet struct {
 	// values' substrings of that length, all lower-cased.
 	words map[string]bool
 	subs  map[int]map[string]bool
+	// schwab is Schwab's own words, as schwabWords gives them, lower-cased:
+	// a nickname that they hold is matched only as it is.
+	schwab string
 }
 
 // An identKey is how an identSet holds a value: its kind, and its text,
@@ -92,7 +96,7 @@ func (s *identSet) add(id identifier, orig string) *identValue {
 	if v := s.byKey[k]; v != nil {
 		return v
 	}
-	v := &identValue{id: id, orig: orig, fold: id != idNickname}
+	v := &identValue{id: id, orig: orig, fold: s.folds(id, orig)}
 	s.byKey[k] = v
 	s.values = append(s.values, v)
 	s.words, s.subs = nil, nil
@@ -101,7 +105,7 @@ func (s *identSet) add(id identifier, orig string) *identValue {
 	}
 	m, text := s.exact, orig
 	if v.fold {
-		m, text = s.folded, k.orig
+		m, text = s.folded, asciiLower(orig)
 	}
 	if m[len(text)] == nil {
 		m[len(text)] = map[string]*identValue{}
@@ -120,6 +124,42 @@ func (s *identSet) add(id identifier, orig string) *identValue {
 // not hold it.
 func (s *identSet) get(id identifier, orig string) *identValue {
 	return s.byKey[s.key(id, orig)]
+}
+
+// folds reports whether the identifier id with the text orig is matched in
+// any ASCII case. Every identifier but a nickname is, as hexadecimal digits
+// are written in either case. A nickname of 6 characters or more is too,
+// so that a kept value that holds Rainy Day Fund as RAINY DAY FUND is
+// found, but not one that Schwab's own words hold, such as Brokerage, an
+// account's type, which in another case is far likelier Schwab's word than
+// the nickname. A shorter nickname, such as Ed, is matched only as it is.
+func (s *identSet) folds(id identifier, orig string) bool {
+	if id != idNickname {
+		return true
+	}
+	return utf8.RuneCountInString(orig) >= longValue && !strings.Contains(s.schwab, asciiLower(orig))
+}
+
+// schwabWords returns Schwab's own words as the scrub policy knows them,
+// lower-cased, one to a line: the keys of its tables' rules, its enums'
+// values, its wording, and the text of its error pages, pages being
+// errorPages'.
+func schwabWords(t testing.TB, pages []*errorPage) string {
+	t.Helper()
+	var words []string
+	for _, tab := range policyTables {
+		for _, r := range rulesOf(tab, nil, map[*table]bool{}) {
+			words = append(words, r.keys...)
+			if r.gram != nil {
+				words = append(words, r.gram.values...)
+			}
+		}
+	}
+	words = append(words, schwabWording...)
+	for _, p := range pages {
+		words = append(words, html.UnescapeString(string(readTestdata(t, p.file))))
+	}
+	return asciiLower(strings.Join(words, "\n"))
 }
 
 // of returns the identifiers of the set of kind id, in the order they were
@@ -414,12 +454,17 @@ func counterID(n int) string {
 	return fmt.Sprintf("00000000-0000-4000-8000-%012d", n)
 }
 
-// fakeSpelled returns v's fake as the text found, at, spells v: lower-cased
-// where a value matched in any case is in lower case there, as a path may
-// spell a hash.
+// fakeSpelled returns v's fake as the text found, at, spells v: in lower or
+// in upper case where a value matched in any case is written all in that
+// case there, as a path may spell a hash in lower case, and a security's
+// name a nickname in upper case.
 func fakeSpelled(v *identValue, at string) string {
-	if v.fold && at == asciiLower(at) && at != strings.ToUpper(at) {
+	switch upper := strings.ToUpper(at); {
+	case !v.fold:
+	case at == asciiLower(at) && at != upper:
 		return asciiLower(v.fake)
+	case at == upper && at != asciiLower(at):
+		return strings.ToUpper(v.fake)
 	}
 	return v.fake
 }
@@ -432,11 +477,13 @@ func isWholeNumber(lit []byte) bool {
 }
 
 // The set finds each identifier in a text: one of 6 characters or more
-// anywhere, in any case but for a nickname; a shorter one only as a whole
-// token, and in a number only as the whole number; one of one character
-// not at all; and the longest at each place.
+// anywhere and in any case, but a nickname that Schwab's own words hold,
+// which only as it is; a shorter one only as a whole token, a nickname in
+// its own case alone, and in a number only as the whole number; one of one
+// character not at all; and the longest at each place.
 func TestIdentSetFind(t *testing.T) {
 	s := newIdentSet()
+	s.schwab = "type\nbrokerage\nbank sweep to brokerage"
 	s.add(idAccountNumber, "29470135")
 	s.add(idHash, "ABCDEF0123456789")
 	s.add(idNickname, "Joint")
@@ -444,6 +491,7 @@ func TestIdentSetFind(t *testing.T) {
 	s.add(idPosition, "766")
 	s.add(idNickname, "A")
 	s.add(idActivity, "2947013")
+	s.add(idNickname, "Brokerage")
 	found := func(text string, number bool) []string {
 		var out []string
 		for _, m := range s.find(text, number) {
@@ -462,7 +510,9 @@ func TestIdentSetFind(t *testing.T) {
 		{"Joint account", false, []string{"Joint=" + string(idNickname)}},
 		{"JOINT account, Jointly", false, nil},
 		{"Options & Margin", false, []string{"Options & Margin=" + string(idNickname)}},
-		{"options & margin", false, nil},
+		{"OPTIONS & MARGIN fund", false, []string{"OPTIONS & MARGIN=" + string(idNickname)}},
+		{"Brokerage account", false, []string{"Brokerage=" + string(idNickname)}},
+		{"BANK SWEEP TO BROKERAGE", false, nil},
 		{"Position 766 closed", false, []string{"766=" + string(idPosition)}},
 		{"7660 766a A", false, nil},
 		{"766", true, []string{"766=" + string(idPosition)}},
@@ -481,8 +531,17 @@ func TestIdentSetFind(t *testing.T) {
 	if got := numberForms([]byte("2.9470135E7")); !slices.Equal(got, []string{"2.9470135E7", "29470135"}) {
 		t.Errorf("numberForms = %q", got)
 	}
-	if s.add(idHash, "abcdef0123456789") != s.get(idHash, "ABCDEF0123456789") || s.get(idNickname, "joint") != nil {
+	if s.add(idHash, "abcdef0123456789") != s.get(idHash, "ABCDEF0123456789") || s.get(idNickname, "joint") != nil ||
+		s.get(idNickname, "options & margin") != nil {
 		t.Error("a hash is not one value in any case, or a nickname is")
+	}
+	// Schwab's own words are the policy's keys, its enums' values, its
+	// wording and its error pages' text.
+	words := schwabWords(t, errorPages(t))
+	for _, w := range []string{"cashavailablefortrading", "brokerage", "collective_investment", "bank sweep to brokerage", "access denied"} {
+		if !strings.Contains(words, w) {
+			t.Errorf("Schwab's words lack %q", w)
+		}
 	}
 }
 
@@ -589,9 +648,24 @@ func TestIdentSetFakes(t *testing.T) {
 	if err := c.giveAccountFakes([]*identValue{c.add(idAccountNumber, "12345678"), clash}); err == nil {
 		t.Error("an account's fake that is another account's number was given")
 	}
-	if fakeSpelled(&identValue{fake: "ABC1", fold: true}, "abc9") != "abc1" || fakeSpelled(&identValue{fake: "ABC1", fold: true}, "ABC9") != "ABC1" ||
-		fakeSpelled(&identValue{fake: "Account 1"}, "joint") != "Account 1" {
-		t.Error("a fake is not spelled in the case of the text it replaces")
+	for _, tc := range []struct {
+		fake string
+		fold bool
+		at   string
+		want string
+	}{
+		{"ABC1", true, "abc9", "abc1"},
+		{"ABC1", true, "ABC9", "ABC1"},
+		{"abc1", true, "ABC9", "ABC1"},
+		{"Account 1", true, "RAINY DAY FUND", "ACCOUNT 1"},
+		{"Account 1", true, "rainy day fund", "account 1"},
+		{"Account 1", true, "Rainy day fund", "Account 1"},
+		{"Account 1", true, "1234", "Account 1"},
+		{"Account 1", false, "joint", "Account 1"},
+	} {
+		if got := fakeSpelled(&identValue{fake: tc.fake, fold: tc.fold}, tc.at); got != tc.want {
+			t.Errorf("the fake %q of %q, folded %v, is spelled %q, want %q", tc.fake, tc.at, tc.fold, got, tc.want)
+		}
 	}
 	for lit, want := range map[string]bool{"29470135": true, "0": true, "-5": false, "5.0": false, "5e1": false, `"5"`: false, "": false} {
 		if isWholeNumber([]byte(lit)) != want {

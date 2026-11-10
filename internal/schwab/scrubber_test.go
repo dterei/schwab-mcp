@@ -208,6 +208,7 @@ func newScrubber(t testing.TB, answers []recordedAnswer, cfg scrubConfig) (*scru
 		hashNumber: map[string]string{}, numberHash: map[string]string{}, displays: map[*identValue][]string{},
 		placeholders: map[string]map[string]int{},
 	}
+	s.ids.schwab = schwabWords(t, s.pages)
 	var first time.Time
 	for i := range answers {
 		a := &answers[i]

@@ -56,6 +56,19 @@ func cashLeg(amount, description string) string {
 		`","closingPrice":0.0},"amount":` + amount + `,"cost":0.0}]`
 }
 
+// preferences returns the user's preferences of accounts, each an account
+// as preference gives it, with no streamer and no offers.
+func preferences(accounts ...string) string {
+	return `{"accounts":[` + strings.Join(accounts, ",") + `],"streamerInfo":[],"offers":[]}`
+}
+
+// preference returns an account of the user's preferences: of number, with
+// nickname and display, its masked number.
+func preference(number, nickname, display string) string {
+	return `{"accountNumber":"` + number + `","primaryAccount":true,"type":"BROKERAGE","nickName":"` + nickname + `",` +
+		`"displayAcctId":"` + display + `","autoPositionEffect":false,"accountColor":"Green"}`
+}
+
 // A corpusBase is what the cases of the planted corpus share: accounts,
 // hashes and an id planted by a planter, none a fixture's value.
 type corpusBase struct {
@@ -176,8 +189,7 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 			name: "a nickname inside a value that is kept", amounts: keep, accounts: 1,
 			answers: func(b corpusBase) ([]testAnswer, []string) {
 				id := b.id()
-				pref := `{"accounts":[{"accountNumber":"` + b.numbers[0] + `","primaryAccount":true,"type":"BROKERAGE","nickName":"Kip",` +
-					`"displayAcctId":"...` + b.numbers[0][5:] + `","autoPositionEffect":false,"accountColor":"Green"}],"streamerInfo":[],"offers":[]}`
+				pref := preferences(preference(b.numbers[0], "Kip", "..."+b.numbers[0][5:]))
 				return []testAnswer{
 					jsonAnswer("/trader/v1/userPreference", "", 200, pref),
 					b.transactions(cashRow(b.numbers[0], id, "transferItems", cashLeg("1.25", "TRUST Kip"))),
@@ -363,14 +375,33 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 			name: "a nickname that is a common word", amounts: keep, accounts: 1,
 			answers: func(b corpusBase) ([]testAnswer, []string) {
 				id := b.id()
-				pref := `{"accounts":[{"accountNumber":"` + b.numbers[0] + `","primaryAccount":true,"type":"BROKERAGE","nickName":"Funds",` +
-					`"displayAcctId":"...` + b.numbers[0][5:] + `","autoPositionEffect":false,"accountColor":"Green"}],"streamerInfo":[],"offers":[]}`
+				pref := preferences(preference(b.numbers[0], "Funds", "..."+b.numbers[0][5:]))
 				return []testAnswer{
 					jsonAnswer("/trader/v1/userPreference", "", 200, pref),
 					b.transactions(cashRow(b.numbers[0], id, "description", `"Funds Received"`)),
 				}, []string{"Funds", id}
 			},
 			written: map[string]string{"002": `"nickName":"Account 1"`, "003": `"description":"DESCRIPTION 1"`},
+		},
+		{
+			name: "a nickname in another case inside a value that is kept", amounts: keep, accounts: 1,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				id := b.id()
+				return []testAnswer{
+					jsonAnswer("/trader/v1/userPreference", "", 200, preferences(preference(b.numbers[0], "Rainy Day Fund", "..."+b.numbers[0][5:]))),
+					b.transactions(cashRow(b.numbers[0], id, "transferItems", cashLeg("1.25", "RAINY DAY FUND"))),
+				}, []string{"Rainy Day Fund", id}
+			},
+			written: map[string]string{"003": `"description":"ACCOUNT 1"`},
+		},
+		{
+			// In another case, a word of Schwab's own is far likelier
+			// Schwab's word than the nickname.
+			name: "a nickname that is Schwab's word in another case", amounts: keep, accounts: 1,
+			answers: func(b corpusBase) ([]testAnswer, []string) {
+				return []testAnswer{jsonAnswer("/trader/v1/userPreference", "", 200, preferences(preference(b.numbers[0], "Brokerage", "..."+b.numbers[0][5:])))}, nil
+			},
+			written: map[string]string{"002": `"type":"BROKERAGE","nickName":"Account 1"`},
 		},
 		{
 			name: "an exponent literal at a key that is scaled", amounts: scale, accounts: 3,
