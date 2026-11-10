@@ -137,14 +137,7 @@ func livePlan(mode string, accounts int, now time.Time) (budget int, takes time.
 	case modeRate:
 		return 320, 10 * time.Minute
 	case modeBalances:
-		// From 15:45 today, or tomorrow once today's close at 16:00 has
-		// passed, to 10:00 the day after.
-		ny := now.In(newYork())
-		day := ny
-		if ny.Hour() >= 16 {
-			day = ny.AddDate(0, 0, 1)
-		}
-		end := time.Date(day.Year(), day.Month(), day.Day()+1, 10, 0, 0, 0, ny.Location())
+		_, end := balancesWatch(now)
 		return 170, end.Sub(now)
 	case modeFills:
 		return 10 + 60*accounts, 31 * time.Minute

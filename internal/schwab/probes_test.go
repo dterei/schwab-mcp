@@ -19,12 +19,13 @@ import (
 	"time"
 )
 
-// liveProbes are the probes that TestLive runs, in an order in which each
-// finds what it needs. The hashes come first, from the account numbers the
-// run has read; the history walk next, since the probes after it read its
-// rows; the refresh late, so that the access token it starts from is
-// likely over a minute old; and the scope last, to see every read of the
-// run.
+// liveProbes are the probes that TestLive runs, each in its mode: the
+// default run's, in an order in which each finds what it needs, and the
+// opt-in modes' probes, each of which runs alone. The hashes come first,
+// from the account numbers the run has read; the history walk next, since
+// the probes after it read its rows; the refresh late, so that the access
+// token it starts from is likely over a minute old; and the scope last, to
+// see every read of the run.
 var liveProbes = []liveProbe{
 	{name: "Q10", mode: modeDefault, run: probeHashes},
 	{name: "Q1", mode: modeDefault, run: probeDepth},
@@ -37,6 +38,9 @@ var liveProbes = []liveProbe{
 	{name: "Q8", mode: modeDefault, run: probeAdjustment},
 	{name: "Q15", mode: modeDefault, run: probeRefresh},
 	{name: "Q6", mode: modeDefault, run: probeScope},
+	{name: "Q3", mode: modeBalances, run: probeBalances},
+	{name: "Q13", mode: modeFills, run: probeFills},
+	{name: "Q14", mode: modeRate, run: probeRate, ready: rateReady},
 }
 
 // oneDay is a day of 24 hours, as the API's limits count them.
