@@ -758,6 +758,25 @@ func TestScrubberLeavesOutAMaskedNumberLikeAFake(t *testing.T) {
 	}
 }
 
+// A correlation header that Schwab sent empty is written empty, which the
+// value hygiene tests take, as the tests of the committed fixtures do; one
+// that holds an ID gets a UUID of the counter.
+func TestScrubberCorrelationHeaders(t *testing.T) {
+	b := newCorpusBase(t, 31, 1)
+	empty, set := b.accountNumbers(), b.accountNumbers()
+	empty.header.Set("Schwab-Client-CorrelId", "")
+	set.header.Set("Schwab-Client-CorrelId", b.p.value(idTrace, "t"))
+	out, err := scrubAnswers(t, []testAnswer{empty, set}, scrubConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]*regexp.Regexp{"001": regexp.MustCompile(`^$`), "002": counterUUID} {
+		if v := fileNamed(t, out, name).entry.Response.Headers["Schwab-Client-Correlid"]; len(v) != 1 || !want.MatchString(v[0]) {
+			t.Errorf("answer %s: Schwab-Client-Correlid %q, want one that matches %s", name, v, want)
+		}
+	}
+}
+
 // An answer that the policy does not take is left out, with a reason that
 // names where and holds no value, and the rest of the recording is
 // written: an answer cut short, a key that no rule covers, an account's

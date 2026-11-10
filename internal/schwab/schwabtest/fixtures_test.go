@@ -133,9 +133,10 @@ func checkTestdata(disk, embedded fs.FS, index []Entry) []string {
 			if !isCorrelationHeader(name) {
 				continue
 			}
+			// An empty value, as Schwab may send one, holds nothing.
 			for _, v := range values {
 				canned := v == "corr-"+strconv.Itoa(e.Response.Status) || v == "req-429" && e.Response.Status == 429
-				if !counterID.MatchString(v) && !canned {
+				if v != "" && !counterID.MatchString(v) && !canned {
 					complain("%s has %s %q, which is no fake's", where, name, v)
 				}
 			}
@@ -213,6 +214,8 @@ func TestTestdataHygieneCatches(t *testing.T) {
 		r.File, r.Source, r.Recorded, r.Scrub = "recorded/2026-11-08/001.json", "recorded", "2026-11-08", "abc123 keep"
 		r.Request.Method, r.Request.Path = "GET", "/trader/v1/accounts"
 		r.Response.Status = 200
+		// A correlation ID that Schwab sent empty holds nothing.
+		r.Response.Headers = map[string][]string{"Schwab-Client-Correlid": {""}}
 		return fsys, []Entry{a, b, r}
 	}
 	if fsys, index := good(); len(checkTestdata(fsys, fsys, index)) > 0 {

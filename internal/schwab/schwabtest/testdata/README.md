@@ -55,7 +55,7 @@ schwabtest's tests check that:
   JSON files by their names;
 - an entry's `headers` hold only headers whose values `KeptHeader` keeps,
   but `Content-Length`, whose name goes in `otherHeaders` with the names of
-  all the rest, and every correlation ID is a fake.
+  all the rest, and every correlation ID is a fake, or empty.
 
 ## Recordings
 

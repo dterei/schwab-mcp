@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"maps"
+	"net/http"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -149,7 +150,10 @@ type valueChecker struct {
 //     UnknownActivityID where a transaction's id goes, and a row's order ID
 //     where an order's id goes; and after its account it holds no other run
 //     of six digits or more but within a hash, since an id that no row holds
-//     cannot be told from a real one.
+//     cannot be told from a real one;
+//   - a correlation header's value is a UUID of the fake's counter, a
+//     canned answer's ID or empty, as schwabtest's tests of its testdata
+//     require.
 //
 // A null holds no value, so it may stand anywhere; the census and the
 // records' problems report one where the records take none. Each problem
@@ -439,6 +443,15 @@ func besideNumber(in *node) (string, bool) {
 	return number, found
 }
 
+// fakeCorrelation reports whether v, the value of a correlation header,
+// Schwab-Client-CorrelId or X-Request-Id, of an answer of status, is one
+// that schwabtest's tests of its testdata take: a UUID of the fake's
+// counter, a canned answer's corr-<status>, or req-429 on a 429, or empty.
+func fakeCorrelation(v string, status int) bool {
+	return v == "" || counterUUID.MatchString(v) || v == "corr-"+strconv.Itoa(status) ||
+		v == "req-429" && status == http.StatusTooManyRequests
+}
+
 // checkPage checks body, an HTML page: each slot of the error page that it
 // is, by the slot's rule, and its text, unescaped, by the format scans.
 func (c *valueChecker) checkPage(file string, body []byte) {
@@ -455,8 +468,9 @@ func (c *valueChecker) checkPage(file string, body []byte) {
 
 // checkEntry checks e, a file's index entry: its file's name, its request's
 // path and query, as written and unescaped, and its headers' values by the
-// format scans, and its path by the rules for the accounts, the
-// transactions and the orders that a path names.
+// format scans, a correlation header's by fakeCorrelation, and its path by
+// the rules for the accounts, the transactions and the orders that a path
+// names.
 func (c *valueChecker) checkEntry(e schwabtest.Entry) {
 	c.scanText(e.File, "its name", e.File, nil)
 	paths := written(e.Request.Path, url.PathUnescape)
@@ -471,12 +485,16 @@ func (c *valueChecker) checkEntry(e schwabtest.Entry) {
 		c.scanText(e.File, "the request's query", query, nil)
 	}
 	for _, name := range slices.Sorted(maps.Keys(e.Response.Headers)) {
+		correlation := strings.EqualFold(name, "Schwab-Client-CorrelId") || strings.EqualFold(name, "X-Request-Id")
 		for _, v := range e.Response.Headers[name] {
 			var skip [][]int
 			for _, m := range maxAge.FindAllStringSubmatchIndex(v, -1) {
 				skip = append(skip, m[2:4])
 			}
 			c.scanText(e.File, "the header "+name, v, skip)
+			if correlation && !fakeCorrelation(v, e.Response.Status) {
+				c.complain(e.File, "the header "+name, "a correlation ID that is neither of the fake's counter, a canned answer's nor empty")
+			}
 		}
 	}
 	rest, ok := strings.CutPrefix(paths[len(paths)-1], "/trader/v1/accounts/")
@@ -947,6 +965,16 @@ func TestValueHygieneCatches(t *testing.T) {
 			"a UUID", "accounts.json", header("X-Request-Id", "8f14e45f-ceea-467a-9b5c-1d2a3b4c5d6e"),
 			"the header X-Request-Id: a UUID that is neither of the fake's counter nor StreamerCorrelID",
 		},
+		{
+			"a correlation ID of no fake's form", "accounts.json", header("Schwab-Client-CorrelId", "abc-1"),
+			"the header Schwab-Client-CorrelId: a correlation ID that is neither of the fake's counter",
+		},
+		{
+			"a canned correlation ID of another status", "accounts.json", header("Schwab-Client-CorrelId", "corr-429"),
+			"the header Schwab-Client-CorrelId: a correlation ID that is neither of the fake's counter",
+		},
+		{"an empty correlation ID", "accounts.json", header("Schwab-Client-CorrelId", ""), ""},
+		{"a correlation ID of the counter", "accounts.json", header("X-Request-Id", "00000000-0000-4000-8000-000000000007"), ""},
 		{
 			"eight digits in a file's name", "recorded/2026-11-08/12345678.json",
 			newAnswer("GET", "/trader/v1/accounts", 400, `{"message":"Invalid account number"}`),
