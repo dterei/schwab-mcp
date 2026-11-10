@@ -1363,43 +1363,71 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 // a new login, so that their windows slide, with a row changed, in a value
 // and by a key it lost, a row gone and a row that came late between them,
 // and a row that the second run's window no longer takes in, which is not
-// shown gone.
+// shown gone; and two runs three days apart, between which come the rows
+// of two fills before the first run that its answer left out: one two
+// minutes before it, whose row may have posted in the ordinary course,
+// which is not shown late, and one five hours before it, whose row came
+// late, from five hours to four days after its time.
 func testChangesOnTheFake(t *testing.T) {
-	first := time.Date(2026, 8, 20, 15, 0, 0, 0, time.UTC)
-	fl := newProbeLive(t, first, "Q12")
-	at := func(month time.Month, day int) string {
-		return strconv.Quote(schwabTime(time.Date(2026, month, day, 15, 0, 0, 0, time.UTC)))
-	}
-	slid := fixtureRow(t, xyzDividend, "activityId", "84000000101", "time", at(6, 25), "tradeDate", at(6, 25))
-	fl.more = append(fl.more, "84000000101", "84000000102", "84000000103")
-	fl.f.AddRows(secondAccount.Hash, slid)
-	if err := fl.runClean(t); err != nil {
-		t.Fatal(err)
-	}
-	wantEvidence(t, fl.report(t), "Q12", "{account 2}: 3 rows, kept for the next run; no earlier run to compare with")
-	fl.f.ReplaceRow(secondAccount.Hash, optionClose, fixtureRow(t, optionClose, "netAmount", "311.32", "positionId", ""))
-	fl.f.RemoveRow(secondAccount.Hash, xyzDividend)
-	fl.f.AddRows(secondAccount.Hash, fixtureRow(t, xyzDividend, "activityId", "84000000102", "time", at(8, 10), "tradeDate", at(8, 10)),
-		fixtureRow(t, xyzDividend, "activityId", "84000000103", "time", at(8, 25), "tradeDate", at(8, 25)))
-	later := fl.again(t, probeNow, true)
-	later.more = fl.more
-	if err := later.runClean(t); err != nil {
-		t.Fatal(err)
-	}
-	report := later.report(t)
-	wantVerdicts(t, report, map[string]string{"Q12": "rows changed after they posted, and went, and came late"})
-	// The state keeps the rows of the second run's window alone: the row
-	// that slid out of it is pruned, and the row gone is dropped.
-	var st rowsState
-	if _, err := later.r.state.get("Q12", &st); err != nil {
-		t.Fatal(err)
-	}
-	if rows := st.Accounts[later.r.state.digest("account number", secondAccount.Number)].Rows; len(rows) != 3 {
-		t.Errorf("the state keeps %d rows of {account 2}, want 3", len(rows))
-	}
-	wantEvidence(t, report, "Q12", "{account 1}: 0 rows as they were; 0 rows new to the state",
-		"{account 2}: 0 rows as they were; 2 rows new to the state; 1 row changed, 27 days old, in netAmount (1), positionId (1); "+
-			"1 row came late, first seen 22 days after its time; 1 row gone")
+	t.Run("rows changed, gone and late", func(t *testing.T) {
+		t.Parallel()
+		first := time.Date(2026, 8, 20, 15, 0, 0, 0, time.UTC)
+		fl := newProbeLive(t, first, "Q12")
+		at := func(month time.Month, day int) string {
+			return strconv.Quote(schwabTime(time.Date(2026, month, day, 15, 0, 0, 0, time.UTC)))
+		}
+		slid := fixtureRow(t, xyzDividend, "activityId", "84000000101", "time", at(6, 25), "tradeDate", at(6, 25))
+		fl.more = append(fl.more, "84000000101", "84000000102", "84000000103")
+		fl.f.AddRows(secondAccount.Hash, slid)
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		wantEvidence(t, fl.report(t), "Q12", "{account 2}: 3 rows, kept for the next run; no earlier run to compare with")
+		fl.f.ReplaceRow(secondAccount.Hash, optionClose, fixtureRow(t, optionClose, "netAmount", "311.32", "positionId", ""))
+		fl.f.RemoveRow(secondAccount.Hash, xyzDividend)
+		fl.f.AddRows(secondAccount.Hash, fixtureRow(t, xyzDividend, "activityId", "84000000102", "time", at(8, 10), "tradeDate", at(8, 10)),
+			fixtureRow(t, xyzDividend, "activityId", "84000000103", "time", at(8, 25), "tradeDate", at(8, 25)))
+		later := fl.again(t, probeNow, true)
+		later.more = fl.more
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "rows changed after they posted, and went, and came late"})
+		// The state keeps the rows of the second run's window alone: the row
+		// that slid out of it is pruned, and the row gone is dropped.
+		var st rowsState
+		if _, err := later.r.state.get("Q12", &st); err != nil {
+			t.Fatal(err)
+		}
+		if rows := st.Accounts[later.r.state.digest("account number", secondAccount.Number)].Rows; len(rows) != 3 {
+			t.Errorf("the state keeps %d rows of {account 2}, want 3", len(rows))
+		}
+		wantEvidence(t, report, "Q12", "{account 1}: 0 rows as they were; 0 rows new to the state",
+			"{account 2}: 0 rows as they were; 2 rows new to the state; 1 row changed, 27 days old, in netAmount (1), positionId (1); "+
+				"1 row came late, posted from 10 to 23 days after its time; 1 row gone")
+	})
+	t.Run("rows from the hours before the last run", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q12")
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		midnight := strconv.Quote(schwabTime(time.Date(2026, 9, 1, 4, 0, 0, 0, time.UTC))) // the fills' day's, in New York
+		fl.more = append(fl.more, "84000000107", "84000000108")
+		fl.f.AddRows(secondAccount.Hash,
+			fixtureRow(t, metaSale, "activityId", "84000000107", "time", strconv.Quote(schwabTime(probeNow.Add(-2*time.Minute))), "tradeDate", midnight),
+			fixtureRow(t, metaSale, "activityId", "84000000108", "time", strconv.Quote(schwabTime(probeNow.Add(-5*time.Hour))), "tradeDate", midnight))
+		later := fl.again(t, probeNow.AddDate(0, 0, 3), false)
+		later.more = fl.more
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "rows came late"})
+		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 2 rows new to the state; "+
+			"1 row came late, posted from 5 hours to 4 days after its time; 1 row from the hour before the last run, too near it to be shown late")
+	})
 }
 
 // Q15 under the fake's settings: a refresh that ends the older access

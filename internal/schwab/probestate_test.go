@@ -385,6 +385,14 @@ func probeHashes(_ context.Context, r *liveRun) verdict {
 // row.
 const changeWindow = 60 * oneDay
 
+// postingLatency is how long after its time a row may take to post in the
+// ordinary course, as a fill's row is expected to within minutes, which
+// Q13 measures. A row that the last run's answer left out, from no longer
+// than this before that run, may have posted after it in the ordinary
+// course, so Q12 does not call it late; the report says "the hour before
+// the last run".
+const postingLatency = time.Hour
+
 // A rowsState is Q12's state: for each account, by its number's digest,
 // the last run's window and the rows of the last 60 days.
 type rowsState struct {
@@ -485,7 +493,9 @@ type changesSeen struct {
 	changedRows      int
 	ages             []time.Duration // how old each changed row was
 	gone, late       int
-	lateBy           []time.Duration // how long after its time each late row was first seen
+	near             int             // rows new to the state from within postingLatency before the last run
+	lateLeast        []time.Duration // for each late row, how long after its time the last run read without it
+	lateMost         []time.Duration // and how long after it this run read it: it posted in between
 	complete, failed bool
 	lastCut          bool // whether the last run's answer may have been cut at the cap
 }
@@ -498,8 +508,10 @@ type changesSeen struct {
 // both its time and its tradeDate lie inside both runs' windows and this
 // run's answer is complete, under pageCap rows in all and of each type; and
 // a row is late when it is new to the state though both lie inside the last
-// run's window and that run's answer was complete. Both times count, since
-// whether a window takes a row by its time or by its tradeDate is not
+// run's window, that run's answer was complete, and its time was more than
+// postingLatency before that run. A late row posted from the last run to
+// this one, which bound how long after its time it came. Both times count,
+// since whether a window takes a row by its time or by its tradeDate is not
 // known.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
@@ -604,8 +616,16 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 			e = rowSeen{FirstSeen: now}
 			cs.fresh++
 			if cs.compared && !cs.lastCut && last.takesRow(row.Time, row.TradeDate) {
-				cs.late++
-				cs.lateBy = append(cs.lateBy, now.Sub(row.Time))
+				// The last run's answer left it out, though it fell in that
+				// window: it posted after that run, at least this long after
+				// its time.
+				if least := prev.End.Sub(row.Time); least <= postingLatency {
+					cs.near++
+				} else {
+					cs.late++
+					cs.lateLeast = append(cs.lateLeast, least)
+					cs.lateMost = append(cs.lateMost, now.Sub(row.Time))
+				}
 			}
 		default:
 			var diff []string
@@ -666,7 +686,12 @@ func (cs changesSeen) line(a liveAccount) string {
 		parts = append(parts, fmt.Sprintf("%s changed, %s old, in %s", plural(cs.changedRows, "row"), days(cs.ages), strings.Join(keys, ", ")))
 	}
 	if cs.late > 0 {
-		parts = append(parts, fmt.Sprintf("%s came late, first seen %s after its time", plural(cs.late, "row"), days(cs.lateBy)))
+		its := map[bool]string{true: "its time", false: "their times"}[cs.late == 1]
+		parts = append(parts, fmt.Sprintf("%s came late, posted %s after %s", plural(cs.late, "row"),
+			spanOf(slices.Min(cs.lateLeast), slices.Max(cs.lateMost)), its))
+	}
+	if cs.near > 0 {
+		parts = append(parts, plural(cs.near, "row")+" from the hour before the last run, too near it to be shown late")
 	}
 	switch {
 	case cs.gone > 0:
@@ -678,6 +703,40 @@ func (cs changesSeen) line(a liveAccount) string {
 		parts = append(parts, "the last run's answer may have been cut at the cap, so no row can be shown late")
 	}
 	return a.label() + ": " + strings.Join(parts, "; ")
+}
+
+// roughly returns d as the report gives a bound of a span, in whole
+// minutes under an hour, in whole hours under two days, and in whole days
+// past that: rounded up when up is set, as an upper bound is, and down
+// otherwise, so that the span holds what it bounds.
+func roughly(d time.Duration, up bool) (int, string) {
+	size, unit := oneDay, "day"
+	switch {
+	case d < time.Hour:
+		size, unit = time.Minute, "minute"
+	case d < 2*oneDay:
+		size, unit = time.Hour, "hour"
+	}
+	n := int(d / size)
+	if up && d%size != 0 {
+		n++
+	}
+	return n, unit
+}
+
+// spanOf returns the span from lo to hi as the report gives it, lo rounded
+// down and hi up: "from 5 hours to 4 days", "from 10 to 22 days", or "3
+// days" when the two are one.
+func spanOf(lo, hi time.Duration) string {
+	nlo, ulo := roughly(lo, false)
+	nhi, uhi := roughly(hi, true)
+	switch {
+	case ulo == uhi && nlo == nhi:
+		return plural(nhi, uhi)
+	case ulo == uhi:
+		return fmt.Sprintf("from %d to %s", nlo, plural(nhi, uhi))
+	}
+	return fmt.Sprintf("from %s to %s", plural(nlo, ulo), plural(nhi, uhi))
 }
 
 // A refreshSeen is Q15's state: the refresh token's digest as each run left
@@ -974,6 +1033,29 @@ func TestReadMarketData(t *testing.T) {
 	if err != nil || len(sc.Closes) != keptCloses || sc.AsOf != nyDate(last) || sc.Closes[nyDate(last)] != float64(100+keptCloses+9) ||
 		sc.Closes[nyDate(start)] != 0 {
 		t.Errorf("readCloses: %d closes as of %s, %v", len(sc.Closes), sc.AsOf, err)
+	}
+}
+
+// A span of how long after its time a row posted is given in minutes,
+// hours or days, as long as it is, its start rounded down and its end up,
+// so that it holds the time it bounds.
+func TestSpanOf(t *testing.T) {
+	for _, tc := range []struct {
+		lo, hi time.Duration
+		want   string
+	}{
+		{2 * time.Minute, 3 * oneDay, "from 2 minutes to 3 days"},
+		{10 * oneDay, 22 * oneDay, "from 10 to 22 days"},
+		{5 * time.Hour, 3*oneDay + 5*time.Hour, "from 5 hours to 4 days"},
+		{90 * time.Minute, 47 * time.Hour, "from 1 to 47 hours"},
+		{47*time.Hour + 59*time.Minute, 2 * oneDay, "from 47 hours to 2 days"},
+		{59*time.Minute + 59*time.Second, time.Hour, "from 59 minutes to 1 hour"},
+		{90 * time.Second, 119 * time.Second, "from 1 to 2 minutes"},
+		{3 * oneDay, 3 * oneDay, "3 days"},
+	} {
+		if got := spanOf(tc.lo, tc.hi); got != tc.want {
+			t.Errorf("spanOf(%v, %v) = %q, want %q", tc.lo, tc.hi, got, tc.want)
+		}
 	}
 }
 
