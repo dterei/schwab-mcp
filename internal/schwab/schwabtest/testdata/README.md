@@ -60,26 +60,49 @@ A recording of Schwab's real answers may join these files, but only once it
 is scrubbed:
 
 - Every identifier is replaced by a fake, consistently across the
-  recording: account numbers by `FixtureAccounts`' and then the spares', in
-  order, hashes by their `HashFor`, activity, order and position IDs by
-  fakes of the same length, nicknames by `Account N`, the streamer's and the
-  correlation IDs by the fakes above.
+  recording, by its place and never by its value: account numbers by
+  `FixtureAccounts`' and then the spares', in the order of the account
+  numbers' answer, hashes by their `HashFor`, masked numbers by their
+  fakes' digits in the same form, activity, order and position IDs by fakes
+  of the same length in the same order, nicknames by `Account N`, the
+  streamer's and the correlation IDs, errors' IDs and Akamai's Reference by
+  the fakes above. They are replaced wherever they are: in a body as a
+  string or a number, inside other text, in a path, a query or a header's
+  value.
 - Every value at every key path is classified: mapped to a fake, kept when
   it matches its grammar (an enum, a symbol, a time), or replaced by a
   placeholder (`DESCRIPTION N`, `MESSAGE N`) unless it is wording known to
-  be Schwab's. A value nothing classifies refuses the file.
+  be Schwab's. A value nothing classifies refuses the file, as does an
+  answer of a kind the policy does not cover, such as orders or market
+  data.
 - Amounts are refused unless the owner chooses to keep them or to scale
   them; scaling hides little, so that choice is the owner's alone.
 - The scrubbed bytes are spliced, never re-encoded, so that key order,
   repeated keys, number literals and escapes stay as Schwab sent them.
 
-A scrubbed recording goes under `recorded/<date>/`, the day it was recorded,
-beside the hand-made files and never over them: the hand-made set stays as
-it is for `LoadFixtures` and the tests that pin its values, and
-`LoadRecording` replays a day's recording. Each of its files ends in the
-extension `ExtensionFor` gives it and gets its own entry in `index.json`,
-with source `recorded`, its date in `recorded` and the scrubber's version
-and amounts policy in `scrub`.
+The scrubber is `TestScrub` in package schwab, which reads the raw folder
+that the live mode's `-live.record` keeps and writes, to a folder outside
+this module, the candidate files under `recorded/<date>/`, their entries in
+`entries.json`, and `review.txt`, which says what was mapped, replaced and
+left out, and which rows of W-8 withholding to decide on, without a value
+of the recording. It checks its output against the recording before it
+writes any of it, and leaves out a file that the tests CI runs over the
+files here would fail on. docs/live.md says how to run it.
+
+To add a recording, the owner:
+
+1. reads `review.txt` and the candidate files;
+2. copies `recorded/<date>/` here, the day it was recorded, beside the
+   hand-made files and never over them;
+3. adds the entries of `entries.json` to `index.json`, each with source
+   `recorded`, its date in `recorded` and the scrubber's version and
+   amounts policy in `scrub`;
+4. runs `go test ./...`, whose census, value hygiene and record checks read
+   every indexed file, and commits only what passes.
+
+The hand-made set stays as it is for `LoadFixtures` and the tests that pin
+its values, and `LoadRecording` replays a day's recording. Each file of a
+recording ends in the extension `ExtensionFor` gives it.
 
 Nothing raw or partly scrubbed may be committed here, not even for a moment:
 a file once pushed stays in the history and in every module download.

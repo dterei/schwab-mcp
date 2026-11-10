@@ -218,9 +218,103 @@ written over:
   the commit.
 
 A recording holds everything: account numbers, balances, positions, every
-row. Never share it or commit it. Scrubbing a recording into fixtures that
-can be committed is a step of its own, not yet built; until it is, a
-recording stays on your computer.
+row. Never share it or commit it. What may be committed is what the
+scrubber makes of it, once you have read it (below).
+
+## Scrubbing a recording into fixtures
+
+`TestScrub` in `internal/schwab` makes candidate fixtures of a recording.
+Like the live mode, it runs only when asked, and never in CI:
+
+```
+go test ./internal/schwab -run '^TestScrub$' -scrub=<out>/raw -scrub.out=<new folder> -v
+```
+
+| Flag | What it does |
+| --- | --- |
+| `-scrub=DIR` | The recording's `raw/` folder; without it `TestScrub` is skipped |
+| `-scrub.out=DIR` | Where the scrubber writes, a folder it makes: one that exists already is refused, as is one inside this module or inside any git work tree, decided as for the live mode's folders |
+| `-scrub.amounts=refuse` | The default: no answer that holds money is written, only its shape |
+| `-scrub.amounts=keep` | Every amount is kept as Schwab sent it |
+| `-scrub.amounts=scale:K` | Every amount is multiplied by K, a whole number of 2 or more |
+
+`TestScrub` fails where `CI` or `GITHUB_ACTIONS` is set. Choose `keep` or
+`scale:K` only for amounts you would publish: scaling hides nothing, since
+whole quantities give K away by their greatest common divisor, and prices,
+which are kept, are public on their dates.
+
+What it does:
+
+- Every identifier gets a fake by its place in the recording, never one
+  made from its value, and the same fake wherever it is: as a string or a
+  number, inside other text, in a path, a query or a header's value. The
+  accounts take `FixtureAccounts`' numbers in the order of the account
+  numbers' answer, then the spares; a hash is `HashFor` of its account's
+  fake; a masked number keeps its form and ends with its fake's digits;
+  activity, order and position IDs become numbers of as many digits, in the
+  same order; nicknames become `Account 1`, `Account 2` and so on; the
+  streamer's IDs, correlation IDs, errors' IDs and Akamai's Reference
+  become the fixtures' fakes. A recording of more than 23 accounts, or of
+  an account whose hash changed during it, is refused.
+- Every other value is kept only where the scrub policy says what it may
+  be: an enum of its list, a time, a symbol, a security's name and so on.
+  Free text is kept when it is Schwab's own wording, such as "Dividend
+  Reinvest", and else becomes `DESCRIPTION N` or `MESSAGE N`, the same text
+  the same N. A value at a path that no rule covers, an answer of a kind
+  the policy has no table for, such as orders and market data, an answer
+  cut short, or a page other than Schwab's known error pages, leaves its
+  file out.
+- Each new value is put in place of the old in Schwab's bytes, which are
+  never encoded again, so key order, keys sent twice, white space, number
+  literals and escapes stay as Schwab sent them.
+- Before anything is written, its gates check the output against the
+  recording: the same problems when decoded, the same keys, only the
+  values that the policy changes changed, each account's hash and masked
+  number agreeing with its number, ids equal where they were equal, every
+  sum of the records off by K times what it was, and no identifier of the
+  recording, local path or user name anywhere, written or decoded. Any
+  failure writes nothing.
+- A file that a test CI runs over every committed fixture would fail on
+  is left out, with why: the value hygiene tests, `checkAnswer`, which
+  fails on a record's problem or a key that no field takes, and the test
+  that no account number is part of another value. So is a file that
+  would still hold an identifier the scrubber could not replace, such as
+  one written with escapes in a value it keeps.
+
+What it writes, in the out folder:
+
+- `recorded/<date>/`, the recording's day in UTC: the candidate fixtures,
+  named by their numbers in the recording, and nothing else;
+- `entries.json`: their entries for `index.json`, each with source
+  `recorded`, its date, the scrubber's commit and the amounts policy;
+- `review.txt`: what it wrote and mapped, what it left out and why, the
+  placeholders, the values mapped at keys in another case, and the rows
+  of W-8 withholding, all without a value of the recording;
+- `shapes/`: under `refuse`, the shape of each answer left out for its
+  money, its key paths with their kinds and counts and no values, to model
+  a hand-made fixture on.
+
+To commit a recording:
+
+1. Read `review.txt` whole, and then the candidate files. The scrubber
+   replaces what it knows to be an identifier and any text it does not
+   know as Schwab's, but you know your own values best.
+2. Decide on each row of W-8 withholding, which shows that an account is a
+   nonresident's: keep its file, or leave it out.
+3. Copy `recorded/<date>/` into
+   `internal/schwab/schwabtest/testdata/recorded/<date>/`, beside the
+   hand-made files and never over them, and add the entries of
+   `entries.json` to the list in that folder's `index.json`.
+4. Run `go test ./...`. The value hygiene tests, the census and
+   `checkAnswer` read every indexed file, so a failure names what is wrong.
+   A file that fails cannot be committed as it is: leave it out, or extend
+   the scrub policy or the records first, and scrub again. A file left out
+   for a record's problem or an unknown key is evidence for the records,
+   as the live report's findings are.
+5. Commit the files and `index.json` together. Never commit the raw folder,
+   the out folder's other files, or a file that is only partly scrubbed,
+   not even for a moment: a file once pushed stays in the history and in
+   every module download.
 
 ## Sharing a report
 
@@ -236,8 +330,8 @@ to [the API notes](schwab-api.md). Before you share one:
 
 ## The commit
 
-The report and each recording carry the commit they ran on, from git in the
-module's root: `git rev-parse HEAD`, marked modified when
+The report, each recording and each scrubbed fixture's entry carry the
+commit they ran on, from git in the module's root: `git rev-parse HEAD`, marked modified when
 `git status --porcelain` prints anything, or "unknown" when git is missing
 or fails. A test binary's build information cannot give it: with
 `-buildvcs=true`, Go 1.26, this module's minimum, stamps nothing in a linked
