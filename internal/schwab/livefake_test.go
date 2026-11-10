@@ -42,66 +42,99 @@ type fakeLive struct {
 	r     *liveRun
 	f     *fakeOAuth
 	clock *fakeTime
-	dir   string // the temporary folder that holds the run's files
+	dir   string   // the temporary folder that holds the run's files
+	more  []string // what no output may hold either, which a test planted
 	mu    sync.Mutex
 	shown []string // the lines printed, as -v prints them
 }
 
 // newFakeLive returns a run in the default mode, logged in to a fake over
-// HTTPS that holds the fixtures' world. Its clock serves the run's waits,
-// the Auth's and the Client's, and the fake's; its home folder, cache
-// folder, token and rate files, out folder and state are under one
-// temporary folder, the home folder's last element a planted user name.
+// HTTPS that holds the fixtures' world, at liveNow, without probes. Its
+// clock serves the run's waits, the Auth's and the Client's, and the
+// fake's; its home folder, cache folder, token and rate files, out folder
+// and state are under one temporary folder, the home folder's last element
+// a planted user name.
 func newFakeLive(t *testing.T) *fakeLive {
+	t.Helper()
+	return newFakeLiveAt(t, liveNow)
+}
+
+// newFakeLiveAt is newFakeLive at the time at: the login, the run's start
+// and the clock's, which moves only as the run waits.
+func newFakeLiveAt(t *testing.T, at time.Time) *fakeLive {
 	t.Helper()
 	f := schwabtest.NewTLS(t)
 	f.LoadFixtures()
-	clock := &fakeTime{now: liveNow}
+	clock := &fakeTime{now: at}
 	f.SetNow(clock.Now)
-	dir := t.TempDir()
-	home := filepath.Join(dir, "home", plantedUser)
-	cache := filepath.Join(dir, "cache")
-	tokenFile := filepath.Join(home, "config", "schwabtx", "token.json")
-	cfg := Config{AppKey: testKey, AppSecret: testSecret, BaseURL: f.URL(), TokenFile: tokenFile, HTTPClient: f.Client(), Now: clock.Now}
-	login, err := NewAuth(cfg)
+	fl := &fakeLive{f: f, clock: clock, dir: t.TempDir()}
+	fl.login(t) // as schwabtx login would
+	fl.r = fl.newRun(t, "run")
+	return fl
+}
+
+// tokenFile returns the token file of fl's runs, in the planted home
+// folder.
+func (fl *fakeLive) tokenFile() string {
+	return filepath.Join(fl.dir, "home", plantedUser, "config", "schwabtx", "token.json")
+}
+
+// authConfig returns the Config of fl's logins, on fl's fake and clock.
+func (fl *fakeLive) authConfig() Config {
+	return Config{AppKey: testKey, AppSecret: testSecret, BaseURL: fl.f.URL(), TokenFile: fl.tokenFile(), HTTPClient: fl.f.Client(), Now: fl.clock.Now}
+}
+
+// login logs in to fl's fake with the authorization code, saving the login
+// in fl's token file, as schwabtx login does.
+func (fl *fakeLive) login(t *testing.T) {
+	t.Helper()
+	a, err := NewAuth(fl.authConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := login.Login(t.Context(), testCode); err != nil { // as schwabtx login would
+	if err := a.Login(t.Context(), testCode); err != nil {
 		t.Fatal(err)
 	}
-	a, err := NewAuth(cfg)
+}
+
+// newRun returns a run in the default mode of fl's login, with an Auth and
+// a Client of its own on fl's clock, its report in the out folder name.
+// The runs of one fakeLive share their fake, home and cache folders, token
+// and rate files, and state.
+func (fl *fakeLive) newRun(t *testing.T, name string) *liveRun {
+	t.Helper()
+	a, err := NewAuth(fl.authConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
 	same := func(d time.Duration) time.Duration { return d }
-	a.sleep, a.jitter = clock.Sleep, same
+	a.sleep, a.jitter = fl.clock.Sleep, same
+	home, cache := filepath.Join(fl.dir, "home", plantedUser), filepath.Join(fl.dir, "cache")
 	c := NewClient(a, ClientConfig{RateFile: filepath.Join(cache, "schwabtx", "rate-test")})
-	c.now, c.sleep, c.jitter = clock.Now, clock.Sleep, same
+	c.now, c.sleep, c.jitter = fl.clock.Now, fl.clock.Sleep, same
 	module, err := moduleRoot(".")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// A snapshot 12 hours off the clock's time of day, in a fixed zone,
 	// which the rate probe never meets, whatever the machine's zone.
+	at := fl.clock.Now()
 	loc := time.FixedZone("UTC-5", -5*60*60)
-	at := liveNow.In(loc)
-	snapshot := (time.Duration(at.Hour())*time.Hour + time.Duration(at.Minute())*time.Minute + 12*time.Hour) % (24 * time.Hour)
+	local := at.In(loc)
+	snapshot := (time.Duration(local.Hour())*time.Hour + time.Duration(local.Minute())*time.Minute + 12*time.Hour) % (24 * time.Hour)
 	live := filepath.Join(cache, "schwabtx", "live")
-	fl := &fakeLive{f: f, clock: clock, dir: dir}
-	fl.r = &liveRun{
-		now: clock.Now, sleep: clock.Sleep, auth: a, client: c, origin: f.URL(),
-		out: filepath.Join(live, "run"), stateFile: filepath.Join(live, "state.json"), keyFile: filepath.Join(live, "state.key"),
+	return &liveRun{
+		now: fl.clock.Now, sleep: fl.clock.Sleep, auth: a, client: c, origin: fl.f.URL(),
+		out: filepath.Join(live, name), stateFile: filepath.Join(live, "state.json"), keyFile: filepath.Join(live, "state.key"),
 		tokenFile: a.tokenFile, rateFile: c.limit.path, home: home, cacheDir: cache, module: module,
 		snapshot: snapshot, loc: loc, pageCap: MaxTransactions, mode: modeDefault,
-		deadline: liveNow.Add(9 * time.Minute), commit: liveCommit,
+		deadline: at.Add(9 * time.Minute), commit: liveCommit,
 		show: func(line string) {
 			fl.mu.Lock()
 			defer fl.mu.Unlock()
 			fl.shown = append(fl.shown, line)
 		},
 	}
-	return fl
 }
 
 // run runs the harness.
@@ -125,11 +158,11 @@ func (fl *fakeLive) lines() []string {
 
 // secrets returns what no report, line printed or error of a run on the
 // fake may hold: every identifier of the fixtures, the fake's correlation
-// IDs, the run's temporary folder, in which all its paths lie, and the
-// planted user name.
+// IDs, the run's temporary folder, in which all its paths lie, the planted
+// user name, and what the test planted besides.
 func (fl *fakeLive) secrets(t *testing.T) []string {
 	t.Helper()
-	secrets := []string{plantedUser, fl.dir, "00000000-0000-4000-8000-", schwabtest.StreamerCustomerID, schwabtest.StreamerCorrelID, schwabtest.AkamaiReference}
+	secrets := append([]string{plantedUser, fl.dir, "00000000-0000-4000-8000-", schwabtest.StreamerCustomerID, schwabtest.StreamerCorrelID, schwabtest.AkamaiReference}, fl.more...)
 	if resolved, err := filepath.EvalSymlinks(fl.dir); err == nil {
 		secrets = append(secrets, resolved)
 	}
@@ -194,16 +227,17 @@ func wantLines(t *testing.T, text string, lines ...string) {
 	}
 }
 
-// A run on the fake reads the account numbers and the user's preferences
-// first, then checks every account endpoint once: the accounts both ways,
-// each account both ways, its last year of transactions and the first of
-// them by id. Every request is a read, and every answer is in the report,
-// with its status, Content-Type, correlation headers, records and findings,
-// as are the keys seen and the guard's accounting. The report holds no
-// identifier of the fixtures, no path of the run's and not the user name,
-// and nor do the lines printed, each of which is in the report. The state
-// and its key are made, and nothing is written to the owner's cache.
-func TestLiveOnTheFake(t *testing.T) {
+// A run on the fake without probes reads the account numbers and the
+// user's preferences first, then checks every account endpoint once: the
+// accounts both ways, each account both ways, its last year of
+// transactions and the first of them by id. Every request is a read, and
+// every answer is in the report, with its status, Content-Type,
+// correlation headers, records and findings, as are the keys seen and the
+// guard's accounting. The report holds no identifier of the fixtures, no
+// path of the run's and not the user name, and nor do the lines printed,
+// each of which is in the report. The state and its key are made, and
+// nothing is written to the owner's cache.
+func TestLiveChecksOnTheFake(t *testing.T) {
 	before := liveCacheListing()
 	fl := newFakeLive(t)
 	if err := fl.run(t); err != nil {
@@ -266,11 +300,12 @@ func TestLiveOnTheFake(t *testing.T) {
 	}
 }
 
-// A guard of the fake's origin, apart from the run, refuses an order and a
-// login, and sends neither to the fake: the run's own guard refuses them as
-// this one does, and a refusal of its would stop the run.
-func TestLiveGuardOnTheFake(t *testing.T) {
-	fl := newFakeLive(t)
+// guardRefusesPosts checks that a guard of fl's origin, apart from fl's
+// run, refuses an order and a login, and sends neither to the fake: the
+// run's own guard refuses them as this one does, and a refusal of its
+// would stop the run.
+func guardRefusesPosts(t *testing.T, fl *fakeLive) {
+	t.Helper()
 	ctx, cancel := context.WithCancelCause(t.Context())
 	defer cancel(nil)
 	g, err := newGuard(ctx, cancel, fl.f.URL(), fl.f.Client().Transport, 10)
