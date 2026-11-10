@@ -60,11 +60,12 @@ const longValue = 6
 //     nicknames and symbols as they are, since a symbol in capitals, such
 //     as "ALL", is a word in lower case;
 //   - nicknames and symbols only in Schwab's own words, which said marks,
-//     such as an error's message, which can quote them. The rest of a
-//     text is the run's own words, or Schwab's names, its keys, headers
-//     and wording, which hold none of the owner's but can spell one, as
-//     "no read of the account API was refused" spells the symbol API: a
-//     label there, in words the reader knows, would show what it hides;
+//     such as an error's message or code, which can quote them. The rest
+//     of a text is the run's own words, or Schwab's names, its keys,
+//     headers, wording and known codes, which hold none of the owner's but
+//     can spell one, as "no read of the account API was refused" spells
+//     the symbol API: a label there, in words the reader knows, would show
+//     what it hides;
 //   - paths anywhere, and in any case where the file system takes a path
 //     in any case, as on macOS and Windows;
 //   - the user name, the home folder's last element, only as the folder of
@@ -768,18 +769,47 @@ func failureText(err error) string {
 	return addressText.ReplaceAllString(text, "{address}")
 }
 
-// errorText returns e's text, as Error gives it, with Schwab's words in it
-// as errorSays marks them: its status and the run's own words stay as
-// they are, so that "HTTP 400 from Schwab" never shows a label in place of
-// a nickname spelled Schwab. Its correlation ID and its Reference are
-// identifiers, which the scrubber hides anywhere.
+// errorText returns e's text, as Error gives it, built from its parts with
+// Schwab's words in it marked: what it says, as errorSays marks it, and its
+// code and the code nested in its description, as errorCode marks them.
+// Its status, its tries and the run's own words stay as they are, so that
+// "HTTP 400 from Schwab" never shows a label in place of a nickname spelled
+// Schwab. Its correlation ID and its Reference are identifiers, which the
+// scrubber hides anywhere.
 func errorText(e *Error) string {
-	text := unmark(e.Error())
-	if says := unmark(e.says()); says != "" {
-		// Error puts what Schwab says first, after its status and tries.
-		text = strings.Replace(text, ": "+says, ": "+errorSays(e), 1)
+	var b strings.Builder
+	fmt.Fprintf(&b, "HTTP %d from Schwab", e.Status)
+	if e.Tries > 1 {
+		fmt.Fprintf(&b, " after %d tries", e.Tries)
 	}
-	return text
+	switch says := errorSays(e); {
+	case says != "" && e.Code != "":
+		fmt.Fprintf(&b, ": %s (%s)", says, errorCode(e.Code))
+	case says != "":
+		b.WriteString(": " + says)
+	case e.Detail != "":
+		fmt.Fprintf(&b, ": %s (%s)", errorCode(e.Code), errorCode(e.Detail))
+	case e.Code != "":
+		b.WriteString(": " + errorCode(e.Code))
+	}
+	if e.CorrelID != "" {
+		fmt.Fprintf(&b, " (correlation ID %s)", e.CorrelID)
+	}
+	if e.Reference != "" {
+		fmt.Fprintf(&b, " (reference #%s)", e.Reference)
+	}
+	return b.String()
+}
+
+// errorCode returns code, an error's code, for the report: as it is when
+// it is one of the codes that Schwab is known to send, its gateway's or
+// its token endpoint's, which name no one, and else marked by said, as
+// Schwab's own words, which can quote a nickname or a symbol.
+func errorCode(code string) string {
+	if code == "" || slices.Contains(faultCodes.values, code) || slices.Contains(oauthErrors.values, code) {
+		return code
+	}
+	return said(code)
 }
 
 // errorSays returns what e says, as says gives it, for the report: a
@@ -1204,9 +1234,10 @@ func TestScrubberLearnsSecrets(t *testing.T) {
 // resolver; a refresh's failure under the url.Error of the Auth's request,
 // beside Schwab's answer, which stays as it is; errors joined; and an
 // address quoted by an error that does not wrap net's. A request's address
-// comes without its query. Schwab's answer keeps its status and its
-// wording as they are, with its other words marked as Schwab's, in which
-// no mark of Schwab's own is kept.
+// comes without its query. Schwab's answer keeps its status, its wording
+// and the codes it is known to send as they are, with its other words,
+// and its other codes, marked as Schwab's, in which no mark of Schwab's
+// own is kept; and its text is Error's but for the marks.
 func TestFailureText(t *testing.T) {
 	local := &net.TCPAddr{IP: net.ParseIP("192.168.1.23"), Port: 51234}
 	global := &net.TCPAddr{IP: net.ParseIP("2001:db8:85a3::8a2e:370:7334"), Port: 51235}
@@ -1250,14 +1281,34 @@ func TestFailureText(t *testing.T) {
 		},
 		{
 			"Schwab's words after its tries", &Error{Status: http.StatusServiceUnavailable, Tries: 3, Message: "zq\u0002down\u0003 now", Code: "zq.fault"},
-			"HTTP 503 from Schwab after 3 tries: " + said("zqdown now") + " (zq.fault)",
+			"HTTP 503 from Schwab after 3 tries: " + said("zqdown now") + " (" + said("zq.fault") + ")",
 		},
 		{"Schwab's page", newError(http.StatusBadGateway, http.Header{}, []byte("upstream zq")), "HTTP 502 from Schwab: " + said("upstream zq")},
 		{"Schwab's code", newError(http.StatusBadRequest, http.Header{}, []byte(`{"error":"invalid_grant"}`)), "HTTP 400 from Schwab: invalid_grant"},
+		{"a code of Schwab's words", newError(http.StatusBadRequest, http.Header{}, []byte(`{"error":"no zq here"}`)), "HTTP 400 from Schwab: " + said("no zq here")},
+		{
+			"a code nested in an OAuth error's description",
+			newError(http.StatusBadRequest, http.Header{}, []byte(`{"error":"unsupported_token_type","error_description":"{\"error\":\"zq.refused\"}"}`)),
+			"HTTP 400 from Schwab: unsupported_token_type (" + said("zq.refused") + ")",
+		},
+		{
+			"a fault's code",
+			newError(http.StatusBadGateway, http.Header{}, []byte(`{"fault":{"faultstring":"Body buffer overflow","detail":{"errorcode":"protocol.http.TooBigBody"}}}`)),
+			"HTTP 502 from Schwab: Body buffer overflow (protocol.http.TooBigBody)",
+		},
+		{
+			"a fault's code of Schwab's words",
+			newError(http.StatusBadRequest, http.Header{}, []byte(`{"fault":{"faultstring":"refused","detail":{"errorcode":"symbol.ZQ.refused"}}}`)),
+			"HTTP 400 from Schwab: " + said("refused") + " (" + said("symbol.ZQ.refused") + ")",
+		},
 	} {
 		got := failureText(tc.err)
 		if got != tc.want {
 			t.Errorf("%s:\n got %s\nwant %s", tc.name, got, tc.want)
+		}
+		// errorText builds Error's text, which it marks, from its parts.
+		if se, ok := errors.AsType[*Error](tc.err); ok && !strings.ContainsAny(se.Error(), "\x02\x03") && unmark(errorText(se)) != se.Error() {
+			t.Errorf("%s: errorText gives %q, where Error gives %q", tc.name, unmark(errorText(se)), se.Error())
 		}
 		for _, addr := range []string{"192.168.1.23", "2001:db8", "fe80:", "203.0.113.7", "51234", "51235", "51236"} {
 			if strings.Contains(got, addr) {

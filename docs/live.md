@@ -185,19 +185,20 @@ symbol that the scrubber does not hide: not SPY or VTI, nor one of a single
 character, which is too short to hide.
 
 Nicknames and symbols are hidden only in Schwab's own words, such as an
-error message that is not its wording, which could quote one. The rest of
-the report is the run's own words and Schwab's names, its keys, headers
-and wording, which hold none of yours but can spell one: "no read of the
-account API was refused" spells a symbol API, and "Ordinary Dividend~SYM"
-a symbol SYM. A label there, in words a reader knows, would show what it
-hides, so such a word is printed as it is. So is a nickname of Schwab,
-which the report names throughout, and your user name anywhere but as the
-folder of a home: the API's paths and the run's own words can spell it, as
-`accounts/{account 2}/orders` spells a user named orders, and nothing but
-a local path brings it into the report. Every line is checked for what the
-run has seen, where the scrubber would hide it, before it is printed or
-written, and a line that still holds something is left out, unshown, and
-fails the run.
+error message that is not its wording, or an error's code that is not one
+of those it is known to send, either of which could quote one. The rest of
+the report is the run's own words and Schwab's names, its keys, headers,
+wording and known codes, which hold none of yours but can spell one: "no
+read of the account API was refused" spells a symbol API, and "Ordinary
+Dividend~SYM" a symbol SYM. A label there, in words a reader knows, would
+show what it hides, so such a word is printed as it is. So is a nickname
+of Schwab, which the report names throughout, and your user name anywhere
+but as the folder of a home: the API's paths and the run's own words can
+spell it, as `accounts/{account 2}/orders` spells a user named orders, and
+nothing but a local path brings it into the report. Every line is checked
+for what the run has seen, where the scrubber would hide it, before it is
+printed or written, and a line that still holds something is left out,
+unshown, and fails the run.
 
 A finding that fails, a probe that panics, a part of the run that stops
 before its end, or a line left out fails the test; the report says which.

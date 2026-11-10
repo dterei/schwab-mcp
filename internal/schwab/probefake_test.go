@@ -818,8 +818,9 @@ func testDepthOnTheFake(t *testing.T) {
 // XYZ's rows holds a row of another symbol, so the widening makes each
 // verdict: BND's window back to 2024-03-14 takes in the VBR sale, and
 // XYZ's, back to 2026-03-12, the META sale. A refusal of symbol= that
-// quotes the symbol shows a label in its place, and a symbol that the
-// scrubber does not hide, a benchmark's, is never sent.
+// quotes the symbol, in its message or in a code, shows a label in its
+// place, and a symbol that the scrubber does not hide, a benchmark's, is
+// never sent.
 func testSymbolFilterOnTheFake(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -909,26 +910,48 @@ func testSymbolFilterOnTheFake(t *testing.T) {
 			t.Errorf("the report says what became of rows that no control held:\n%s", sectionOf(report, "probe Q4"))
 		}
 	})
-	t.Run("a refusal that quotes the symbol", func(t *testing.T) {
-		t.Parallel()
-		fl := newProbeLive(t, probeNow, "Q1", "Q4")
-		fl.f.OnAPI(func(r *http.Request) {
-			if sym := r.URL.Query().Get("symbol"); sym != "" {
-				fl.f.Script(schwabtest.Answer(http.StatusBadRequest, `{"message":"'`+sym+`' is not a valid value for symbol"}`, "Content-Type", "application/json"))
+	// A refusal of symbol= that quotes the symbol, in each place of an
+	// error that holds Schwab's own words: its message, its OAuth code, the
+	// code nested in that code's description, and its fault's code.
+	for _, tc := range []struct {
+		name, body string
+		says       string // what the verdict gives of it, after its status
+		failed     string // what the failure's line gives, after its status
+	}{
+		{
+			"in a message", `{"message":"'%s' is not a valid value for symbol"}`,
+			`, '\{symbol \d+\}' is not a valid value for symbol`, `'\{symbol \d+\}' is not a valid value for symbol`,
+		},
+		{"in an OAuth error's code", `{"error":"no rows of %s here"}`, ``, `no rows of \{symbol \d+\} here`},
+		{
+			"in the code of an OAuth error's description", `{"error":"invalid_request","error_description":"{\"error\":\"no rows of %s\"}"}`,
+			``, `invalid_request \(no rows of \{symbol \d+\}\)`,
+		},
+		{
+			"in a fault's code", `{"fault":{"faultstring":"refused","detail":{"errorcode":"symbol.%s.refused"}}}`,
+			`, refused`, `refused \(symbol\.\{symbol \d+\}\.refused\)`,
+		},
+	} {
+		t.Run("a refusal that quotes the symbol "+tc.name, func(t *testing.T) {
+			t.Parallel()
+			fl := newProbeLive(t, probeNow, "Q1", "Q4")
+			fl.f.OnAPI(func(r *http.Request) {
+				if sym := r.URL.Query().Get("symbol"); sym != "" {
+					fl.f.Script(schwabtest.Answer(http.StatusBadRequest, fmt.Sprintf(tc.body, sym), "Content-Type", "application/json"))
+				}
+			})
+			if err := fl.runClean(t); err != nil { // BND and XYZ are among the fixtures' values
+				t.Fatal(err)
+			}
+			report := fl.report(t)
+			if v := verdictOf(report, "Q4"); !regexp.MustCompile(`^inconclusive: a request with symbol= failed: HTTP 400` + tc.says + `$`).MatchString(v) {
+				t.Errorf("Q4's verdict: %s", v)
+			}
+			if !regexp.MustCompile(`\nfailed: HTTP 400 from Schwab: ` + tc.failed + `\n`).MatchString(report) {
+				t.Errorf("the report:\n%s", report)
 			}
 		})
-		if err := fl.runClean(t); err != nil { // BND and XYZ are among the fixtures' values
-			t.Fatal(err)
-		}
-		report := fl.report(t)
-		quoted := regexp.MustCompile(`^inconclusive: a request with symbol= failed: HTTP 400, '\{symbol \d+\}' is not a valid value for symbol$`)
-		if v := verdictOf(report, "Q4"); !quoted.MatchString(v) {
-			t.Errorf("Q4's verdict: %s", v)
-		}
-		if !regexp.MustCompile(`\nfailed: HTTP 400 from Schwab: '\{symbol \d+\}' is not a valid value for symbol\n`).MatchString(report) {
-			t.Errorf("the report:\n%s", report)
-		}
-	})
+	}
 	t.Run("a benchmark's symbol", func(t *testing.T) {
 		t.Parallel()
 		// {account 3} with a trade of VTI, a dividend of it and a wire,
