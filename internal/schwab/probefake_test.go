@@ -1165,8 +1165,85 @@ func testAdjustmentOnTheFake(t *testing.T) {
 		}
 		report := later.report(t)
 		wantVerdicts(t, report, map[string]string{"Q8": adjustNeedsTwo})
-		wantEvidence(t, report, "Q8", "SPY: the last run came after the last close before its ex-date, 2026-09-18",
-			"VTI: the last run came after the last close before its ex-date, 2026-09-18")
+		wantEvidence(t, report, "Q8", "SPY: no earlier run came before the last close before its ex-date, 2026-09-18",
+			"VTI: no earlier run came before the last close before its ex-date, 2026-09-18")
+	})
+	for _, adjusted := range []bool{false, true} {
+		want := map[bool]string{false: adjustNone, true: adjustDividend}[adjusted]
+		t.Run("daily runs across the ex-date, closes "+want, func(t *testing.T) {
+			t.Parallel()
+			// At 10:00 in New York on Thursday, before the last close before
+			// the ex-date; on the ex-date's morning, which keeps Thursday's
+			// closes for the next run; and on Monday, which compares with
+			// Thursday's.
+			fl := newProbeLive(t, time.Date(2026, 9, 17, 14, 0, 0, 0, time.UTC), "Q8")
+			fakeMarket{exDate: marketExDate, amount: 1.9, adjusted: adjusted}.serve(fl)
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			exDate := fl.again(t, time.Date(2026, 9, 18, 14, 0, 0, 0, time.UTC), false)
+			if err := exDate.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			wantEvidence(t, exDate.report(t), "Q8", "SPY: its ex-date, 2026-09-18, is not over yet")
+			monday := fl.again(t, time.Date(2026, 9, 21, 14, 0, 0, 0, time.UTC), false)
+			if err := monday.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			report := monday.report(t)
+			wantVerdicts(t, report, map[string]string{"Q8": "daily closes are " + want})
+			wantEvidence(t, report, "Q8", "SPY: across the ex-date 2026-09-18, its closes are "+want, "VTI: across the ex-date 2026-09-18, its closes are "+want)
+		})
+	}
+	t.Run("the runs kept", func(t *testing.T) {
+		t.Parallel()
+		// Each run keeps its closes after the runs' before it, the last
+		// keptRuns of them, here a state of keptRuns runs a day apart; a run
+		// that cannot read its closes keeps the runs' before it.
+		fl := newProbeLive(t, probeNow, "Q8")
+		st, err := openState(fl.r.stateFile, fl.r.keyFile, func(string) {})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var earlier []symbolCloses
+		for i := range keptRuns {
+			earlier = append(earlier, symbolCloses{AsOf: "2026-08-03", Closes: map[string]float64{"2026-08-03": 600}, Read: probeNow.AddDate(0, 0, i-keptRuns)})
+		}
+		if err := st.put("Q8", adjustState{Runs: map[string][]symbolCloses{"SPY": earlier, "VTI": earlier}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.save(); err != nil {
+			t.Fatal(err)
+		}
+		runs := func(fl *fakeLive) []symbolCloses {
+			t.Helper()
+			st, err := openState(fl.r.stateFile, fl.r.keyFile, func(string) {})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var as adjustState
+			if _, err := st.get("Q8", &as); err != nil {
+				t.Fatal(err)
+			}
+			return as.Runs["SPY"]
+		}
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		kept := runs(fl)
+		if len(kept) != keptRuns || !kept[0].Read.Equal(earlier[1].Read) || kept[len(kept)-1].Read.Before(probeNow) || len(kept[len(kept)-1].Closes) != keptCloses {
+			t.Errorf("%d runs kept, the first read at %v, the last at %v with %d closes", len(kept), kept[0].Read, kept[len(kept)-1].Read, len(kept[len(kept)-1].Closes))
+		}
+		later := fl.again(t, probeNow.Add(oneDay), false)
+		later.f.OverridePath("GET /marketdata/v1/pricehistory", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusBadRequest, `{"message":"a guess: no history"}`)
+		})
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		if after := runs(later); !slices.EqualFunc(after, kept, func(a, b symbolCloses) bool { return a.Read.Equal(b.Read) }) {
+			t.Errorf("after a run without closes, %d runs kept", len(after))
+		}
 	})
 }
 

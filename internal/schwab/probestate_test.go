@@ -23,18 +23,25 @@ import (
 // the probe's own, not the owner's, so the report may name them.
 var liveBenchmarks = []string{"SPY", "VTI"}
 
-// keptCloses is how many of a symbol's last daily closes the state keeps.
-const keptCloses = 90
+// keptCloses is how many of a symbol's last daily closes the state keeps of
+// each run, and keptRuns of how many runs: three weeks of daily runs, or
+// five months of weekly ones.
+const (
+	keptCloses = 90
+	keptRuns   = 20
+)
 
 // An adjustState is Q8's state: each benchmark's daily closes, by New York
-// date, as of the run that read them.
+// date, as each of the last keptRuns runs that read them read them, in the
+// order of the runs, so that a run between an ex-date's last close and its
+// end, which reads closes adjusted already or not yet, does not take the
+// place of the run before that close that a later run compares with.
 type adjustState struct {
-	Symbols map[string]symbolCloses `json:"symbols"`
+	Runs map[string][]symbolCloses `json:"runs"`
 }
 
 // A symbolCloses is one symbol's daily closes as one run read them: by New
-// York date, the date of the last, and when the run read them. A run that
-// cannot read them keeps the last run's, with when that run read them.
+// York date, the date of the last, and when the run read them.
 type symbolCloses struct {
 	AsOf   string             `json:"asOf"`
 	Closes map[string]float64 `json:"closes"`
@@ -125,22 +132,24 @@ func sessionClose(day string) time.Time {
 }
 
 // compareCloses decides, for one symbol, whether Schwab adjusted its
-// closes for the dividend that q gives, between prev, the closes the last
-// run read, and cur, this run's. The adjustment may come at any time from
-// the close of the last session before the ex-date, whose price sets its
-// factor, to the end of the ex-date. So the last run must have read its
-// closes before that close, and this run after the ex-date, each by when
-// it read them, as a run in between could read closes adjusted already,
-// or not yet. The last session before the ex-date is the last day before
-// it among this run's closes. Only the closes before the ex-date that both
-// runs hold count, and of the last run's only those of days that had ended
-// when it read them: a close read during its day is a price of that day.
-// Unchanged means split-adjusted only, and all scaled by 1 - D/P, D the
-// dividend and P the close before the ex-date, dividend-adjusted. It
-// returns the answer, or "" with why there is none.
-func compareCloses(prev, cur symbolCloses, q dividendQuote) (answer, why string) {
+// closes for the dividend that q gives, between the closes of runs, the
+// earlier runs', and cur, this run's. The adjustment may come at any time
+// from the close of the last session before the ex-date, whose price sets
+// its factor, to the end of the ex-date. So the earlier run must have read
+// its closes before that close, and this run after the ex-date, each by
+// when it read them, as a run in between could read closes adjusted
+// already, or not yet: of the earlier runs, the latest that read its
+// closes before that close counts. The last session before the ex-date is
+// the last day before it among this run's closes. Only the closes before
+// the ex-date that both runs hold count, and of the earlier run's only
+// those of days that had ended when it read them: a close read during its
+// day is a price of that day. Unchanged means split-adjusted only, and all
+// scaled by 1 - D/P, D the dividend and P the close before the ex-date,
+// dividend-adjusted. It returns the answer, or "" with why there is none.
+func compareCloses(runs []symbolCloses, cur symbolCloses, q dividendQuote) (answer, why string) {
+	runs = slices.DeleteFunc(slices.Clone(runs), func(sc symbolCloses) bool { return len(sc.Closes) == 0 || sc.Read.IsZero() })
 	switch {
-	case len(prev.Closes) == 0 || prev.Read.IsZero():
+	case len(runs) == 0:
 		return "", "no earlier run kept its closes"
 	case q.exDate == "":
 		return "", "the quote gave no ex-date"
@@ -155,8 +164,14 @@ func compareCloses(prev, cur symbolCloses, q dividendQuote) (answer, why string)
 			lastSession = d
 		}
 	}
-	if lastSession != "" && !prev.Read.Before(sessionClose(lastSession)) {
-		return "", "the last run came after the last close before its ex-date, " + q.exDate
+	var prev symbolCloses
+	for _, sc := range runs {
+		if (lastSession == "" || sc.Read.Before(sessionClose(lastSession))) && sc.Read.After(prev.Read) {
+			prev = sc
+		}
+	}
+	if prev.Read.IsZero() {
+		return "", "no earlier run came before the last close before its ex-date, " + q.exDate
 	}
 	var dates []string
 	for d := range prev.Closes {
@@ -191,12 +206,13 @@ func compareCloses(prev, cur symbolCloses, q dividendQuote) (answer, why string)
 // probeAdjustment is Q8, whether daily price bars are adjusted for
 // dividends or only for splits. Each run reads the benchmarks' quotes, for
 // their last ex-date, and a year of their daily closes, and keeps the
-// closes, public data, in the state with when it read them. After an
-// ex-date between two runs, the last run's before the close of the session
-// before it and this run's after it, closes before it unchanged mean
-// split-adjusted only, and all scaled by the dividend's factor
-// dividend-adjusted. A 401 "Client not authorized" means the app has no
-// Market Data product, which it reports as such.
+// closes, public data, in the state with when it read them, beside those
+// of the runs before it, up to keptRuns. After an ex-date between two
+// runs, an earlier run's before the close of the session before it and
+// this run's after it, closes before it unchanged mean split-adjusted
+// only, and all scaled by the dividend's factor dividend-adjusted. A 401
+// "Client not authorized" means the app has no Market Data product, which
+// it reports as such.
 func probeAdjustment(ctx context.Context, r *liveRun) verdict {
 	q := url.Values{"symbols": {strings.Join(liveBenchmarks, ",")}, "fields": {"quote,fundamental"}}
 	rep, err := r.get(ctx, "marketdata/quotes", "/marketdata/v1/quotes", q, "")
@@ -214,30 +230,26 @@ func probeAdjustment(ctx context.Context, r *liveRun) verdict {
 	if _, err := r.state.get("Q8", &prev); err != nil {
 		return inconclusive("the state's closes could not be read")
 	}
-	next := adjustState{Symbols: map[string]symbolCloses{}}
+	next := adjustState{Runs: map[string][]symbolCloses{}}
 	var v verdict
 	answers := map[string]bool{}
 	for _, sym := range liveBenchmarks {
+		next.Runs[sym] = prev.Runs[sym]
 		ph := url.Values{"symbol": {sym}, "periodType": {"year"}, "period": {"1"}, "frequencyType": {"daily"}, "frequency": {"1"}}
 		rep, err := r.get(ctx, "marketdata/pricehistory", "/marketdata/v1/pricehistory", ph, "")
 		if err != nil {
 			v.evidence = append(v.evidence, reportLine{text: sym + ": the price history failed: " + schwabSays(err)})
-			if old, ok := prev.Symbols[sym]; ok {
-				next.Symbols[sym] = old
-			}
 			continue
 		}
 		cur, err := readCloses(rep.body)
 		if err != nil || len(cur.Closes) == 0 {
 			v.evidence = append(v.evidence, reportLine{text: sym + ": the price history held no closes"})
-			if old, ok := prev.Symbols[sym]; ok {
-				next.Symbols[sym] = old
-			}
 			continue
 		}
 		cur.Read = r.now()
-		next.Symbols[sym] = cur
-		answer, why := compareCloses(prev.Symbols[sym], cur, quotes[sym])
+		runs := append(slices.Clone(prev.Runs[sym]), cur)
+		next.Runs[sym] = runs[max(0, len(runs)-keptRuns):]
+		answer, why := compareCloses(prev.Runs[sym], cur, quotes[sym])
 		if answer == "" {
 			v.evidence = append(v.evidence, reportLine{text: sym + ": " + why})
 			continue
@@ -911,13 +923,13 @@ func (r *liveRun) refreshAcrossRuns() []reportLine {
 }
 
 // Q8 decides only across an ex-date that lies between two runs, by when
-// each read its closes: the last run before the close of the session
-// before the ex-date, the last day before it among this run's closes, and
-// this run after the ex-date, its closes reaching it. It compares the
-// closes before the ex-date that both runs hold, of days that had ended
-// when the last run read them: unchanged is split-adjusted only, all
-// scaled alike by the dividend's factor dividend-adjusted, and changed
-// otherwise neither.
+// each read its closes: an earlier run before the close of the session
+// before the ex-date, the last day before it among this run's closes, the
+// latest such of the runs kept, and this run after the ex-date, its closes
+// reaching it. It compares the closes before the ex-date that both runs
+// hold, of days that had ended when the earlier run read them: unchanged
+// is split-adjusted only, all scaled alike by the dividend's factor
+// dividend-adjusted, and changed otherwise neither.
 func TestCompareCloses(t *testing.T) {
 	at := func(day string, hour, minute int) time.Time {
 		d, err := time.ParseInLocation(time.DateOnly, day, newYork())
@@ -974,39 +986,59 @@ func TestCompareCloses(t *testing.T) {
 	for d := range prev.Closes {
 		delete(noneInCommon.Closes, d)
 	}
+	// A run on the ex-date's morning, which read closes adjusted already.
+	adjusted := withRead(scaled(factor), at("2026-09-18", 8, 0))
+	adjusted.AsOf = "2026-09-17"
+	for d := range adjusted.Closes {
+		if d > adjusted.AsOf {
+			delete(adjusted.Closes, d)
+		}
+	}
+	// An older run, with a close that this run's do not scale by the
+	// dividend's factor.
+	odd := symbolCloses{AsOf: "2026-09-08", Read: at("2026-09-09", 9, 0), Closes: map[string]float64{"2026-09-08": 590}}
 	const (
 		notByFactor = "the closes before the ex-date changed, though not by the dividend's factor"
-		lastTooLate = "the last run came after the last close before its ex-date, 2026-09-18"
+		lastTooLate = "no earlier run came before the last close before its ex-date, 2026-09-18"
 	)
+	one := func(sc symbolCloses) []symbolCloses { return []symbolCloses{sc} }
 	for _, tc := range []struct {
 		name        string
-		prev, cur   symbolCloses
+		runs        []symbolCloses
+		cur         symbolCloses
 		q           dividendQuote
 		answer, why string
 	}{
-		{"unchanged", prev, scaled(1), q, adjustNone, ""},
-		{"scaled by the dividend's factor", prev, scaled(factor), q, adjustDividend, ""},
-		{"scaled otherwise", prev, scaled(0.9), q, "", notByFactor},
-		{"scaled unevenly, by the dividend's factor halfway", prev, uneven, q, "", notByFactor},
-		{"no earlier run", symbolCloses{}, scaled(1), q, "", "no earlier run kept its closes"},
-		{"an earlier run's closes without when it read them", withRead(prev, time.Time{}), scaled(1), q, "", "no earlier run kept its closes"},
-		{"no ex-date", prev, scaled(1), dividendQuote{}, "", "the quote gave no ex-date"},
-		{"the last run on the ex-date's morning", withRead(prev, at("2026-09-18", 8, 0)), scaled(1), q, "", lastTooLate},
-		{"the last run on the evening before the ex-date", withRead(prev, at("2026-09-17", 20, 0)), scaled(1), q, "", lastTooLate},
-		{"the last run at the close before the ex-date", withRead(prev, at("2026-09-17", 16, 0)), scaled(1), q, "", lastTooLate},
-		{"the last run a minute before the close before the ex-date", withRead(prev, at("2026-09-17", 15, 59)), scaled(1), q, adjustNone, ""},
-		{"the last run during a session, whose close it read early", during, scaled(1), q, adjustNone, ""},
-		{"this run on the ex-date, after its close", prev, withRead(scaled(1), at("2026-09-18", 17, 0)), q, "", "its ex-date, 2026-09-18, is not over yet"},
-		{"an ex-date after this run", prev, scaled(1), dividendQuote{exDate: "2026-09-29", amount: 2}, "", "its ex-date, 2026-09-29, is not over yet"},
-		{"this run's closes ending before the ex-date", prev, stale, q, "", "this run's closes end before its ex-date, 2026-09-18"},
+		{"unchanged", one(prev), scaled(1), q, adjustNone, ""},
+		{"scaled by the dividend's factor", one(prev), scaled(factor), q, adjustDividend, ""},
+		{"scaled otherwise", one(prev), scaled(0.9), q, "", notByFactor},
+		{"scaled unevenly, by the dividend's factor halfway", one(prev), uneven, q, "", notByFactor},
+		{"no earlier run", nil, scaled(1), q, "", "no earlier run kept its closes"},
+		{"an earlier run's closes without when it read them", one(withRead(prev, time.Time{})), scaled(1), q, "", "no earlier run kept its closes"},
+		{"no ex-date", one(prev), scaled(1), dividendQuote{}, "", "the quote gave no ex-date"},
+		{"the last run on the ex-date's morning", one(withRead(prev, at("2026-09-18", 8, 0))), scaled(1), q, "", lastTooLate},
+		{"the last run on the evening before the ex-date", one(withRead(prev, at("2026-09-17", 20, 0))), scaled(1), q, "", lastTooLate},
+		{"the last run at the close before the ex-date", one(withRead(prev, at("2026-09-17", 16, 0))), scaled(1), q, "", lastTooLate},
+		{"the last run a minute before the close before the ex-date", one(withRead(prev, at("2026-09-17", 15, 59))), scaled(1), q, adjustNone, ""},
+		{"the last run during a session, whose close it read early", one(during), scaled(1), q, adjustNone, ""},
+		// A run on the ex-date's morning keeps the run before it, which
+		// counts, whether the closes it read were adjusted or not.
+		{"a run before the close, then one on the ex-date's morning", []symbolCloses{prev, adjusted}, scaled(factor), q, adjustDividend, ""},
+		{"a run on the ex-date's morning, then one before the close, kept out of order", []symbolCloses{adjusted, prev}, scaled(1), q, adjustNone, ""},
+		{"the latest run before the close", []symbolCloses{withRead(prev, at("2026-09-09", 9, 0)), during, adjusted}, scaled(1), q, adjustNone, ""},
+		{"the latest run before the close, kept before an older one", []symbolCloses{during, odd}, scaled(factor), q, adjustDividend, ""},
+		{"no run before the close", []symbolCloses{withRead(prev, at("2026-09-17", 20, 0)), adjusted}, scaled(1), q, "", lastTooLate},
+		{"this run on the ex-date, after its close", one(prev), withRead(scaled(1), at("2026-09-18", 17, 0)), q, "", "its ex-date, 2026-09-18, is not over yet"},
+		{"an ex-date after this run", one(prev), scaled(1), dividendQuote{exDate: "2026-09-29", amount: 2}, "", "its ex-date, 2026-09-29, is not over yet"},
+		{"this run's closes ending before the ex-date", one(prev), stale, q, "", "this run's closes end before its ex-date, 2026-09-18"},
 		{
-			"an ex-date before the last run", prev, scaled(1),
+			"an ex-date before the last run", one(prev), scaled(1),
 			dividendQuote{exDate: "2026-09-10", amount: 2},
-			"", "the last run came after the last close before its ex-date, 2026-09-10",
+			"", "no earlier run came before the last close before its ex-date, 2026-09-10",
 		},
-		{"no close in common", prev, noneInCommon, q, "", "the two runs have no close before the ex-date in common"},
+		{"no close in common", one(prev), noneInCommon, q, "", "the two runs have no close before the ex-date in common"},
 	} {
-		if answer, why := compareCloses(tc.prev, tc.cur, tc.q); answer != tc.answer || why != tc.why {
+		if answer, why := compareCloses(tc.runs, tc.cur, tc.q); answer != tc.answer || why != tc.why {
 			t.Errorf("%s: %q, %q; want %q, %q", tc.name, answer, why, tc.answer, tc.why)
 		}
 	}
