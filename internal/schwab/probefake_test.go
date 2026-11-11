@@ -1977,8 +1977,11 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 // two fills before the first run that its answer left out: one two minutes
 // before it, whose row may have posted in the ordinary course, which is not
 // shown late, and one five hours before it, whose row came late, from five
-// hours to four days after its time; and a row whose time changes, which
-// keeps its new time, by which it is shown gone three weeks later. And two
+// hours to four days after its time; a row that posts while the second
+// run's read of its window waits out a 429, which the span bounds by when
+// the answer came, not by when the probe began; and a row whose time
+// changes, which keeps its new time, by which it is shown gone three weeks
+// later. And two
 // runs a day apart, where the window of an account, or of two, fails in the
 // second, which leaves all that their rows did undecided, though a row of
 // one went, while the verdict speaks of the other account's rows alone, or
@@ -2074,6 +2077,42 @@ func testChangesOnTheFake(t *testing.T) {
 		wantVerdicts(t, report, map[string]string{"Q12": "rows came late"})
 		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 2 rows new to the state; "+
 			"1 row came late, posted from 5 hours to 4 days after its time; 1 row from the hour before the last run, too near it to be shown late")
+	})
+	t.Run("a row that posts while its window's read waits", func(t *testing.T) {
+		t.Parallel()
+		// A row from 2 hours before the first run posts as Q12's read of
+		// {account 2}, nearly 22 hours after that run, is sent again
+		// after a 429 that asks it to wait 30 seconds: over 24 hours
+		// after the row's time, past when the probe began.
+		fl := newProbeLive(t, probeNow, "Q12")
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		at := strconv.Quote(schwabTime(probeNow.Add(-2 * time.Hour)))
+		row := fixtureRow(t, xyzDividend, "activityId", "84000000113", "time", at, "tradeDate", at)
+		fl.more = append(fl.more, "84000000113")
+		var arrivals atomic.Int32
+		fl.f.OnAPI(func(r *http.Request) {
+			if schwabtest.Route(r.Pattern) != schwabtest.TransactionsRoute || r.PathValue("hash") != secondAccount.Hash {
+				return
+			}
+			// The checks' read of {account 2}'s rows, Q12's, and Q12's again.
+			switch arrivals.Add(1) {
+			case 2:
+				fl.f.Script(schwabtest.Answer(http.StatusTooManyRequests, `{"message":"a guess: slow down"}`,
+					"Content-Type", "application/json", "Retry-After", "30"))
+			case 3:
+				fl.f.AddRows(secondAccount.Hash, row)
+			}
+		})
+		later := fl.again(t, probeNow.Add(22*time.Hour-20*time.Second), false)
+		later.more = fl.more
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "rows came late"})
+		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 1 row new to the state; 1 row came late, posted from 2 to 25 hours after its time")
 	})
 	failed := "the window of the last 60 days failed"
 	for _, tc := range []struct {

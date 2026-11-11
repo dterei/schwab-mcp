@@ -507,7 +507,7 @@ type changesSeen struct {
 	gone, late       int
 	near             int             // rows new to the state from within postingLatency before the last run
 	lateLeast        []time.Duration // for each late row, how long after its time the last run read without it
-	lateMost         []time.Duration // and how long after it this run read it: it posted in between
+	lateMost         []time.Duration // and how long after it this run's answer came with it: it posted in between
 	complete, failed bool
 	lastCut          bool // whether the last run's answer may have been cut at the cap
 	// missing is the rows of the state missing from this answer that it
@@ -528,20 +528,21 @@ type changesSeen struct {
 // run's answer is complete, under pageCap rows in all and of each type; and
 // a row is late when it is new to the state though both lie inside the last
 // run's window, that run's answer was complete, and its time was more than
-// postingLatency before that run. A late row posted from the last run to
-// this one, which bound how long after its time it came. Both times count,
-// since whether a window takes a row by its time or by its tradeDate is not
-// known. What the answers cannot show, the verdict says is undecided,
-// rather than that no row did it: whether rows went, of a row of the state
-// missing from the answer but not shown gone, and of rows that the last
-// run's answer left out if it may have been cut at the cap, which never
-// came into the state; whether rows came late, of a row new to the state
-// from before the last run, but not shown late nor from the hour before
-// that run, and of rows that this run's answer left out if it may have been
-// cut; and anything of the rows of an account whose window failed, beside
-// which it speaks of the other accounts' alone. With no row compared, none
-// of the state's seen again or shown gone and none of this run's shown
-// late, as for accounts without activity, it says nothing.
+// postingLatency before that run. A late row posted after the last run's
+// window ended and before this run's answer came with it, which bound how
+// long after its time it came. Both times count, since whether a window
+// takes a row by its time or by its tradeDate is not known. What the
+// answers cannot show, the verdict says is undecided, rather than that no
+// row did it: whether rows went, of a row of the state missing from the
+// answer but not shown gone, and of rows that the last run's answer left
+// out if it may have been cut at the cap, which never came into the state;
+// whether rows came late, of a row new to the state from before the last
+// run, but not shown late nor from the hour before that run, and of rows
+// that this run's answer left out if it may have been cut; and anything of
+// the rows of an account whose window failed, beside which it speaks of the
+// other accounts' alone. With no row compared, none of the state's seen
+// again or shown gone and none of this run's shown late, as for accounts
+// without activity, it says nothing.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
@@ -671,6 +672,10 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 		cs.failed = true
 		return cs, prev
 	}
+	// The answer came by now, which may be well after the probe began, past
+	// the reads before it and any waits of the rate limit or tries again: a
+	// row that it holds had posted by then.
+	answered := r.now()
 	rows, err := decodeList[Transaction](rep.body)
 	if err != nil {
 		cs.failed = true
@@ -714,7 +719,7 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 			case !cs.lastCut && last.takesRow(row.Time, row.TradeDate):
 				cs.late++
 				cs.lateLeast = append(cs.lateLeast, least)
-				cs.lateMost = append(cs.lateMost, now.Sub(row.Time))
+				cs.lateMost = append(cs.lateMost, answered.Sub(row.Time))
 			default:
 				cs.unsure++
 			}
