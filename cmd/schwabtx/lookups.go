@@ -645,8 +645,16 @@ func positionsTable(as []namedAccount, show bool) ([]column, [][]string, []strin
 			if symbol == "" {
 				symbol = "?"
 			}
+			description := textCell(h.description, 40)
+			if p.Instrument.AssetType == schwab.AssetOption {
+				// An option's description ends with its expiration, strike
+				// and type, which say more than the start of its
+				// underlying's name: the option's symbol starts with the
+				// underlying's own.
+				description = tailCell(h.description, 40)
+			}
 			rows = append(rows, []string{
-				number, symbol, h.quantity, h.price, h.value.String(), h.cost.String(), h.gain.String(), textCell(h.description, 40),
+				number, symbol, h.quantity, h.price, h.value.String(), h.cost.String(), h.gain.String(), description,
 			})
 			value, cost, gain = value.plus(h.value), cost.plus(h.cost), gain.plus(h.gain)
 		}

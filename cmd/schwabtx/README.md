@@ -175,6 +175,8 @@ TOTAL                                  5465.51  5465.99     -0.48
   are left out too: positions do not carry them.
 - A security that is no longer listed can come back under its CUSIP as its
   symbol, like the first row above.
+- A long DESCRIPTION is cut short, an option's at its start, so that its
+  expiration, strike and type show.
 
 `accounts` and `balances` make two requests. The first is for the accounts
 and their balances, and the second is for your preferences, which hold the

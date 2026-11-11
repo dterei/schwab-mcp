@@ -774,6 +774,21 @@ func TestCells(t *testing.T) {
 	if got := textCell(strings.Repeat("Ab", 20), 30); got != strings.Repeat("Ab", 13)+"A..." {
 		t.Errorf("a long nickname: %q", got)
 	}
+	// Text whose end says the most keeps its end, from a word's start when
+	// it can.
+	for _, tc := range []struct{ in, want string }{
+		{"NVIDIA CORP 02/28/2025 $115 Put", "NVIDIA CORP 02/28/2025 $115 Put"},
+		{"XYZ\x1b[2J 06/19/2026 45.00 P", "XYZ?[2J 06/19/2026 45.00 P"},
+		{strings.Repeat("a", 36) + " Put", strings.Repeat("a", 36) + " Put"},
+		{"MARVELL TECHNOLOGY INC 03/21/2025 $155 Call", "...TECHNOLOGY INC 03/21/2025 $155 Call"},
+		{"ISHARES 20+ YEAR TREASURY BOND ETF 01/16/2026 $90 Call", "...TREASURY BOND ETF 01/16/2026 $90 Call"},
+		{"MARVELL TECHNOLOGY INC\t03/21/2025  $155\x1b[2J Call", "...INC 03/21/2025 $155?[2J Call"},
+		{strings.Repeat("ab", 25), "...b" + strings.Repeat("ab", 18)},
+	} {
+		if got := tailCell(tc.in, 40); got != tc.want {
+			t.Errorf("tailCell(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
 	if got, want := accountCell("12345678", false), "...5678"; got != want {
 		t.Errorf("accountCell = %q, want %q", got, want)
 	}
@@ -1604,6 +1619,21 @@ TOTAL                               -     -         -
 			[]string{holdingAccount(pos("AAPL", 4, "APPLE\u001b[2J\u2028INC "+strings.Repeat("x", 40)))},
 			`ACCOUNT  SYMBOL  QTY  AVG COST  VALUE  COST  OPEN P/L  DESCRIPTION
 ...2222  AAPL      1      1.00   4.00  4.00      0.00  APPLE?[2J INC xxxxxxxxxxxxxxxxxxxxxxx...
+`,
+		},
+		{
+			// Schwab's description of an option ends with its expiration,
+			// strike and type, which a long one keeps, cut at its start.
+			// jwplatta/schwab_rb's real account of 2025 holds this call,
+			// short.
+			"an option's long description",
+			[]string{holdingAccount(pos("AAPL", 4, "APPLE INC "+strings.Repeat("x", 40)) + "," +
+				`{"longQuantity":0,"shortQuantity":1,"averagePrice":2.0533,"marketValue":-272.5,"shortOpenProfitLoss":-67.17,` +
+				`"instrument":{"assetType":"OPTION","symbol":"MRVL  250321C00155000","description":"MARVELL TECHNOLOGY INC 03/21/2025 $155 Call"}}`)},
+			`ACCOUNT  SYMBOL                 QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
+...2222  AAPL                     1      1.00     4.00     4.00      0.00  APPLE INC xxxxxxxxxxxxxxxxxxxxxxxxxxx...
+...2222  MRVL  250321C00155000   -1    2.0533  -272.50  -205.33    -67.17  ...TECHNOLOGY INC 03/21/2025 $155 Call
+TOTAL                                          -268.50  -201.33    -67.17
 `,
 		},
 		{

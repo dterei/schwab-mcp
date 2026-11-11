@@ -230,6 +230,22 @@ func plainCell(s string) string {
 // to limit runes, as truncate does, and made plain, as plainCell does.
 func textCell(s string, limit int) string { return plainCell(truncate(s, limit)) }
 
+// tailCell returns s for a table as textCell does, but cut at its start,
+// for text whose end says the most: ... and the whole words at the end of
+// its last limit-3 runes, or those runes when the cut leaves a single
+// word.
+func tailCell(s string, limit int) string {
+	r := []rune(strings.Join(strings.Fields(s), " "))
+	if len(r) <= limit {
+		return plainCell(string(r))
+	}
+	tail := r[len(r)-(limit-3):]
+	if r[len(r)-len(tail)-1] != ' ' { // the cut fell within a word: start at the next
+		tail = tail[slices.Index(tail, ' ')+1:]
+	}
+	return plainCell("..." + string(tail))
+}
+
 // formatQuantity returns x rounded to 6 decimals, as scaled rounds it,
 // without the zeros that end it: 12, 2.1788, -2; or - when it is too large
 // to be one.
