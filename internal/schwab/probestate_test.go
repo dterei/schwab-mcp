@@ -393,8 +393,8 @@ func probeHashes(_ context.Context, r *liveRun) verdict {
 	return v
 }
 
-// changeWindow is the span of Q12's window, and how long the state keeps a
-// row.
+// changeWindow is how far back Q12's window reaches, and how long the state
+// keeps a row.
 const changeWindow = 60 * oneDay
 
 // postingLatency is how long after its time a row may take to post in the
@@ -406,17 +406,18 @@ const changeWindow = 60 * oneDay
 const postingLatency = time.Hour
 
 // A rowsState is Q12's state: for each account, by its number's digest,
-// the last run's window and the rows of the last 60 days.
+// the last run's window and time, and the rows of the last 60 days.
 type rowsState struct {
 	Accounts map[string]accountRows `json:"accounts"`
 }
 
-// An accountRows is one account's window as the last run asked for it,
-// whether its answer was complete, under pageCap rows, and its rows, by the
-// digest of each one's activityId.
+// An accountRows is one account's window as the last run asked for it, when
+// that run's probe began, whether its answer was complete, under pageCap
+// rows, and its rows, by the digest of each one's activityId.
 type accountRows struct {
 	Start    time.Time          `json:"start"`
 	End      time.Time          `json:"end"`
+	At       time.Time          `json:"at,omitzero"`
 	Complete bool               `json:"complete"`
 	Rows     map[string]rowSeen `json:"rows"`
 }
@@ -521,31 +522,35 @@ type changesSeen struct {
 }
 
 // probeChanges is Q12, whether rows change after they post, and how long
-// after. For each account it asks for the last 60 days, every type and no
-// symbol, and compares the rows with the state, pruned first to the rows
-// whose time or tradeDate lies in the last 60 days: a row whose key paths'
-// digests differ changed, and the keys are named; a row is gone only when
-// both its time and its tradeDate lie inside both runs' windows and this
-// run's answer is complete, under pageCap rows in all and of each type; and
-// a row is late when it is new to the state though both lie inside the last
-// run's window, that run's answer was complete, and its time was more than
-// postingLatency before that run. A late row posted after the last run's
-// window ended and before this run's answer came with it, which bound how
-// long after its time it came. Both times count, since whether a window
-// takes a row by its time or by its tradeDate is not known. What the
-// answers cannot show, the verdict says is undecided, rather than that no
-// row did it: whether rows changed or went, of a row of the state missing
-// from the answer, which it can neither compare nor show gone, and of rows
-// that the last run's answer left out if it may have been cut at the cap,
-// which never came into the state; whether rows came late, of a row new to
-// the state from before the last run, but not shown late nor from the hour
-// before that run, and of rows that this run's answer left out if it may
-// have been cut; and anything of the rows of an account not compared,
-// whose window failed or that no earlier run read, beside which it speaks
-// of the accounts compared alone. With no row compared, none of the state's
-// seen again or shown gone and none of this run's shown late, as for
-// accounts without activity, it says nothing, nor when the answers leave
-// all three undecided.
+// after. For each account it asks for every type and no symbol, from 60
+// days before the probe began to the latest tradeDate that a row up to
+// then can bear, as lastDated gives it: an evening or overnight fill may be
+// dated the next trading day, and a window that ended at the run would
+// leave out such a fill, though it was there, which a later run could then
+// neither compare nor show gone. It compares the rows with the state,
+// pruned first to the rows whose time or tradeDate lies in the window: a
+// row whose key paths' digests differ changed, and the keys are named; a
+// row is gone only when both its time and its tradeDate lie inside both
+// runs' windows and this run's answer is complete, under pageCap rows in
+// all and of each type; and a row is late when it is new to the state
+// though both lie inside the last run's window, that run's answer was
+// complete, and its time was more than postingLatency before that run. A
+// late row posted after the last run and before this run's answer came
+// with it, which bound how long after its time it came. Both times count,
+// since whether a window takes a row by its time or by its tradeDate is
+// not known. What the answers cannot show, the verdict says is undecided,
+// rather than that no row did it: whether rows changed or went, of a row
+// of the state missing from the answer, which it can neither compare nor
+// show gone, and of rows that the last run's answer left out if it may
+// have been cut at the cap, which never came into the state; whether rows
+// came late, of a row new to the state from before the last run, but not
+// shown late nor from the hour before that run, and of rows that this
+// run's answer left out if it may have been cut; and anything of the rows
+// of an account not compared, whose window failed or that no earlier run
+// read, beside which it speaks of the accounts compared alone. With no row
+// compared, none of the state's seen again or shown gone and none of this
+// run's shown late, as for accounts without activity, it says nothing, nor
+// when the answers leave all three undecided.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
@@ -682,12 +687,16 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 	return v
 }
 
-// changesOf reads a's window of the last 60 days and compares it with
-// prev, what the last run kept, returning what it found and what the state
-// keeps next.
+// changesOf reads a's window, from 60 days before now to the latest
+// tradeDate that a row up to now can bear, and compares it with prev, what
+// the last run kept, returning what it found and what the state keeps
+// next.
 func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows, now time.Time) (changesSeen, accountRows) {
 	cs := changesSeen{changed: map[string]int{}, compared: prev.Rows != nil}
-	w := window{now.Add(-changeWindow), now}
+	// The latest tradeDate that a row up to now can bear is that of a fill
+	// in the overnight session that began now's day in New York, which may
+	// be dated the fourth weekday after it.
+	w := window{now.Add(-changeWindow), lastDated(nyMidnight(now, 0))}
 	rep, err := r.read(ctx, a.endpoint("/transactions"), a.path()+"/transactions", txValues(w, ""), "transactions")
 	if err != nil {
 		cs.failed = true
@@ -713,9 +722,15 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 			kept[id] = e
 		}
 	}
-	next := accountRows{Start: w.start, End: w.end, Complete: cs.complete, Rows: map[string]rowSeen{}}
+	next := accountRows{Start: w.start, End: w.end, At: now, Complete: cs.complete, Rows: map[string]rowSeen{}}
 	seen := map[string]bool{}
 	last := window{prev.Start, prev.End}
+	// When the last run's probe began: a state kept before At was kept holds
+	// it as its window's end, where windows then ended.
+	lastRun := prev.At
+	if lastRun.IsZero() {
+		lastRun = prev.End
+	}
 	for _, row := range rows {
 		if row.ActivityID == 0 {
 			continue
@@ -728,13 +743,13 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 		case !ok:
 			e = rowSeen{FirstSeen: now}
 			cs.fresh++
-			if !cs.compared || row.Time.After(prev.End) {
+			if !cs.compared || row.Time.After(lastRun) {
 				break // a first run's row, or one after the last run, which it could not have held
 			}
 			// The last run's answer left it out: when that window held both
 			// its times, and the answer was complete, it posted after that
 			// run, at least this long after its time; else it may have.
-			switch least := prev.End.Sub(row.Time); {
+			switch least := lastRun.Sub(row.Time); {
 			case least <= postingLatency:
 				cs.near++
 			case !cs.lastCut && last.takesRow(row.Time, row.TradeDate):
