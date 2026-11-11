@@ -56,23 +56,33 @@ func printTable(w io.Writer, txs []schwab.Transaction, showAccounts bool) error 
 	return tw.Flush()
 }
 
-// printJSON writes Schwab's own JSON for each transaction, as a list,
-// re-indented but otherwise as received. That includes full account
-// numbers. It indents by hand, as json.Encoder lays a list out, since an
-// encoder on Go 1.27 escapes U+2028 and U+2029 and json.Indent does not.
+// printJSON writes Schwab's own JSON for each transaction, as printRaw
+// does. That includes full account numbers.
 func printJSON(w io.Writer, txs []schwab.Transaction) error {
+	raws := make([]json.RawMessage, len(txs))
+	for i, tx := range txs {
+		raws[i] = tx.Raw
+	}
+	return printRaw(w, raws)
+}
+
+// printRaw writes raws, Schwab's own JSON of some records, as a list,
+// re-indented but otherwise as received. It indents by hand, as
+// json.Encoder lays a list out, since an encoder on Go 1.27 escapes U+2028
+// and U+2029 and json.Indent does not.
+func printRaw(w io.Writer, raws []json.RawMessage) error {
 	var out bytes.Buffer
 	out.WriteByte('[')
-	for i, tx := range txs {
+	for i, raw := range raws {
 		if i > 0 {
 			out.WriteByte(',')
 		}
 		out.WriteString("\n  ")
-		if err := json.Indent(&out, tx.Raw, "  ", "  "); err != nil {
+		if err := json.Indent(&out, raw, "  ", "  "); err != nil {
 			return err
 		}
 	}
-	if len(txs) > 0 {
+	if len(raws) > 0 {
 		out.WriteByte('\n')
 	}
 	out.WriteString("]\n")
