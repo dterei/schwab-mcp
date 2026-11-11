@@ -1473,11 +1473,12 @@ func TestLiveKeepsTheAPIsWordsForAUser(t *testing.T) {
 // words, never as a label that would show what it hides: holdings of
 // Symbotic, SYM, the mask of Schwab's wording; of FactSet, FDS, with a
 // transfer that Schwab describes as TRF FDS TO TYPE 2; and of Agora, API;
-// and an account nicknamed Schwab, or Dividend. Schwab's wording in Q11,
-// the probes' sentences, Schwab's errors and the names of its headers are
-// printed as written, and no line holds a label of a nickname or a
-// symbol: the scrubber hides those only in Schwab's own words, which here
-// quote none.
+// an account nicknamed Schwab, or Dividend; and one nicknamed page, an or
+// HTML, as the words before what an HTML page is about, beside such a page
+// of Schwab's. Schwab's wording in Q11, the probes' sentences, Schwab's
+// errors and the names of its headers are printed as written, and no line
+// holds a label of a nickname or a symbol: the scrubber hides those only in
+// Schwab's own words, which here quote none.
 func TestLiveKeepsItsOwnWords(t *testing.T) {
 	for _, nick := range []string{"Schwab", "Dividend"} {
 		t.Run("a nickname "+nick, func(t *testing.T) {
@@ -1513,6 +1514,31 @@ func TestLiveKeepsItsOwnWords(t *testing.T) {
 			for _, text := range append(fl.lines(), report) {
 				if strings.Contains(text, "{nickname") || strings.Contains(text, "{symbol") {
 					t.Errorf("a label of a nickname or a symbol in %q", text)
+				}
+			}
+		})
+	}
+	for _, nick := range []string{"page", "an", "HTML"} {
+		t.Run("a nickname "+nick+", beside an HTML page", func(t *testing.T) {
+			t.Parallel()
+			// Spring's Whitelabel page answers the accounts' check: the
+			// words before what it is about are the report's own.
+			fl := newFakeLive(t)
+			fl.f.SetUserPreference(strings.Replace(string(readTestdata(t, "user_preference.json")), `"`+firstAccount.Nickname+`"`, `"`+nick+`"`, 1))
+			w := schwabtest.Whitelabel
+			fl.f.Queue(schwabtest.AccountsRoute, w, w, w, w)
+			err := fl.runClean(t)
+			if want := "the live run failed: the check of accounts failed with an error"; fmt.Sprint(err) != want {
+				t.Errorf("the run's error: %v, want %q", err, want)
+			}
+			if !fl.r.scrub.hides(nick) {
+				t.Fatal("the scrubber did not learn the planted nickname")
+			}
+			report := fl.report(t)
+			wantLines(t, report, "failed: HTTP 500 from Schwab after 4 tries: an HTML page, Whitelabel Error Page")
+			for _, text := range append(fl.lines(), report) {
+				if strings.Contains(text, "{nickname") {
+					t.Errorf("a label of a nickname in %q", text)
 				}
 			}
 		})

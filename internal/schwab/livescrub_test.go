@@ -859,10 +859,20 @@ func errorCode(code string) string {
 	return said(code)
 }
 
+// errorSource matches an entry of an Error's errors as errorList gives one
+// of the Market Data API's: its detail, then, in errorList's own words, the
+// parameter, header or attributes at fault.
+var errorSource = regexp.MustCompile(`^(.+) \((parameter|header|at) (.+)\)$`)
+
 // errorSays returns what e says, as says gives it, for the report: a
 // message of Schwab's wording as it is, since it names no one, and any
 // other text, its message, its errors or what its page says, marked by said,
-// as Schwab's own words that can quote a nickname or a symbol.
+// as Schwab's own words that can quote a nickname or a symbol. The words
+// that says and errorList put around Schwab's stay outside the marks, as
+// the run's own do, so that a nickname or a symbol spelled as one of them
+// never shows as a label in words a reader knows: "an HTML page" before
+// what a page is about, and "(parameter", "(header" or "(at" before the
+// source at fault after an entry's detail, with its ")".
 func errorSays(e *Error) string {
 	says := e.says()
 	var parts []string
@@ -878,12 +888,32 @@ func errorSays(e *Error) string {
 	case says == "":
 		return ""
 	case strings.Join(parts, "; ") != says:
-		return said(says) // a page's, or the start of a body
+		// A page's, after says' words for one, or the start of a body.
+		if strings.HasPrefix(strings.TrimSpace(e.Body), "<") {
+			if about, ok := strings.CutPrefix(says, "an HTML page, "); ok {
+				return "an HTML page, " + said(about)
+			}
+			if says == "an HTML page" {
+				return says
+			}
+		}
+		return said(says)
+	}
+	// marked returns s, Schwab's words, marked, unless it is Schwab's
+	// wording.
+	marked := func(s string) string {
+		if _, ok := onWordingOf(schwabMessages, s); ok {
+			return s
+		}
+		return said(s)
 	}
 	for i, p := range parts {
-		if _, ok := onWordingOf(schwabMessages, p); !ok {
-			parts[i] = said(p)
+		m := errorSource.FindStringSubmatch(p)
+		if m == nil || i == 0 && e.Message != "" { // an entry without a source, or the message
+			parts[i] = marked(p)
+			continue
 		}
+		parts[i] = marked(m[1]) + " (" + m[2] + " " + said(m[3]) + ")"
 	}
 	return strings.Join(parts, "; ")
 }
@@ -1289,8 +1319,10 @@ func TestScrubberLearnsSecrets(t *testing.T) {
 // in words of its own. A request's address comes without its query.
 // Schwab's answer keeps its status, its wording and the codes it is known
 // to send as they are, with its other words, and its other codes, marked as
-// Schwab's, in which no mark of Schwab's own is kept; and its text is
-// Error's but for the marks.
+// Schwab's, in which no mark of Schwab's own is kept, but for the words
+// that the client puts around them: "an HTML page" before what a page is
+// about, or the parameter, header or attributes at fault named after an
+// error's detail. Its text is Error's but for the marks.
 func TestFailureText(t *testing.T) {
 	local := &net.TCPAddr{IP: net.ParseIP("192.168.1.23"), Port: 51234}
 	global := &net.TCPAddr{IP: net.ParseIP("2001:db8:85a3::8a2e:370:7334"), Port: 51235}
@@ -1384,6 +1416,20 @@ func TestFailureText(t *testing.T) {
 			"HTTP 503 from Schwab after 3 tries: " + said("zqdown now") + " (" + said("zq.fault") + ")",
 		},
 		{"Schwab's page", newError(http.StatusBadGateway, http.Header{}, []byte("upstream zq")), "HTTP 502 from Schwab: " + said("upstream zq")},
+		{
+			"Schwab's HTML page", newError(http.StatusInternalServerError, http.Header{}, []byte("<html><head><title>page zq</title></head></html>")),
+			"HTTP 500 from Schwab: an HTML page, " + said("page zq"),
+		},
+		{"Schwab's HTML page about nothing", newError(http.StatusInternalServerError, http.Header{}, []byte("<html></html>")), "HTTP 500 from Schwab: an HTML page"},
+		{"Schwab's body, not a page", newError(http.StatusBadGateway, http.Header{}, []byte("an HTML page, zq")), "HTTP 502 from Schwab: " + said("an HTML page, zq")},
+		{
+			"Schwab's words beside errorList's", newError(http.StatusBadRequest, http.Header{}, []byte(`{"message":"no page (at zq)","errors":[`+
+				`{"detail":"no zq here","source":{"parameter":"zq"}},{"title":"Client not authorized","source":{"header":"Authorization"}},`+
+				`{"detail":"none (at all)","source":{"pointer":["/data/zq","/data/at"]}}]}`)),
+			"HTTP 400 from Schwab: " + said("no page (at zq)") + "; " + said("no zq here") + " (parameter " + said("zq") + "); " +
+				"Client not authorized (header " + said("Authorization") + "); " +
+				said("none (at all)") + " (at " + said("/data/zq, /data/at") + ")",
+		},
 		{"Schwab's code", newError(http.StatusBadRequest, http.Header{}, []byte(`{"error":"invalid_grant"}`)), "HTTP 400 from Schwab: invalid_grant"},
 		{"a code of Schwab's words", newError(http.StatusBadRequest, http.Header{}, []byte(`{"error":"no zq here"}`)), "HTTP 400 from Schwab: " + said("no zq here")},
 		{
