@@ -588,7 +588,9 @@ type changesSeen struct {
 // since whether Schwab's end takes in a row dated at it is not known. Nor
 // can an answer show gone a fill dated after the last run that Schwab left
 // out of that run's answer, serving its window only up to the request: "no
-// row went" cannot speak of one.
+// row went" cannot speak of one, nor "no row changed" or "no row came late"
+// of one that it left out of this run's answer too, dated after this run as
+// well, as a Friday evening's fill dated Monday is at a run on the Saturday.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
