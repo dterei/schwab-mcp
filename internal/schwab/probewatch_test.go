@@ -710,10 +710,11 @@ func probeRate(ctx context.Context, r *liveRun) verdict {
 // An account's initial balances move at the first sample whose initial
 // total differs from the first's to the cent, after the sample before it
 // was sent and before its own answer came, the one rounded down to the
-// minute and the other up; and they then equal the close, or not, by the
-// current total sampled from 16:00 to 16:15 and at 20:00 on the watch's
-// first day, by a sample sent and answered in those spans. Samples without
-// an initial total are passed over, and without them all nothing is said.
+// minute and the other up, the first sample's sending when the move is at
+// the second; and they then equal the close, or not, by the current total
+// sampled from 16:00 to 16:15 and at 20:00 on the watch's first day, by a
+// sample sent and answered in those spans. Samples without an initial
+// total are passed over, and without them all nothing is said.
 func TestMoveOf(t *testing.T) {
 	ny := newYork()
 	start := time.Date(2026, 9, 1, 15, 45, 0, 0, ny)
@@ -752,6 +753,19 @@ func TestMoveOf(t *testing.T) {
 	if m := moveOf(early, start); m.close != "not known, with no current total sampled from 16:00 to 16:15" || m.evening != "not known, with no current total sampled at 20:00" {
 		t.Errorf("moveOf without the close: %+v", m)
 	}
+	// Nor with one sent before 16:15 and answered after it, which may have
+	// read the balances after the span.
+	late := []balanceSample{sample(15, 45, f(100), f(101)), sample(16, 14, f(100), f(101)), sample(16, 25, f(101), f(101))}
+	late[1].sent = late[1].sent.Add(50 * time.Second) // 16:14:50, answered at 16:15:10
+	late[1].answered = late[1].sent.Add(20 * time.Second)
+	if m := moveOf(late, start); m.close != "not known, with no current total sampled from 16:00 to 16:15" {
+		t.Errorf("moveOf with a sample answered after the close's span: %+v", m)
+	}
+	// A move at the second sample came after the first was sent.
+	second := []balanceSample{sample(15, 45, f(100), f(101)), sample(15, 55, f(101), f(101))}
+	if m := moveOf(second, start); !m.moved || !m.before.Equal(second[0].sent) || !m.at.Equal(second[1].answered) {
+		t.Errorf("moveOf with a move at the second sample: %+v", m)
+	}
 	if m := moveOf([]balanceSample{sample(15, 45, nil, f(1))}, start); m.why != "no sample held an initial total" {
 		t.Errorf("moveOf without an initial total: %+v", m)
 	}
@@ -772,10 +786,12 @@ func TestMoveOf(t *testing.T) {
 // that read was sent, or after the fill, and by when the answer of the
 // first read that held it came; a row there at the first read that could
 // show it is bounded only from above, and one that never came only from
-// below, by when the last read was sent. A read that failed says nothing,
-// nor does one after the fill whose window ends before the row's tradeDate
-// can, and a read answered before the fill does not hold its row, though
-// it may hold the row of an earlier execution of the order.
+// below, by when the last read was sent. A read in flight at the fill,
+// sent before it and answered after it, may hold its row, or go without
+// it. A read that failed says nothing, nor does one after the fill whose
+// window ends before the row's tradeDate can, and a read answered before
+// the fill does not hold its row, though it may hold the row of an earlier
+// execution of the order.
 func TestFillLatency(t *testing.T) {
 	base := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC) // 11:00 in New York
 	const id = "1004517700001"
@@ -826,6 +842,9 @@ func TestFillLatency(t *testing.T) {
 		{"came", reads(4, 3), base.Add(30 * time.Second), rowCame, 90 * time.Second, 155 * time.Second},
 		{"came, the read that held it slow", slow, base.Add(30 * time.Second), rowCame, 90 * time.Second, 200 * time.Second},
 		{"came after the fill and a read", reads(4, 2), base.Add(90 * time.Second), rowCame, 0, 35 * time.Second},
+		{"there at a read sent before the fill and answered after it", reads(4, 0), base.Add(2 * time.Second), rowThere, 0, 3 * time.Second},
+		{"came at a read sent before the fill and answered after it", reads(4, 1), base.Add(time.Minute + 2*time.Second), rowCame, 0, 3 * time.Second},
+		{"came after a read sent before the fill and answered after it", reads(4, 1), base.Add(2 * time.Second), rowCame, 0, 63 * time.Second},
 		{"came after a read that failed", reads(4, 3, 2), base.Add(30 * time.Second), rowCame, 30 * time.Second, 155 * time.Second},
 		{"an earlier execution's row before the fill", reads(4, 0), base.Add(90 * time.Second), rowCame, 0, 35 * time.Second},
 		{"came after reads that could not show it", late, evening, rowCame, 0, 2*time.Minute + 45*time.Second},

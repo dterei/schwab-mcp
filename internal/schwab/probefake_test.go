@@ -2687,8 +2687,10 @@ func watchFillsWith(t *testing.T, start time.Time, rules schwabtest.TransactionR
 // minutes; a Friday evening's fill whose row, dated Monday, windows by
 // tradeDate take in only past the poll, and the evening's before
 // Thanksgiving, dated the Friday after it; a row that comes while a slow
-// read of another account's holds a poll up, which the bounds take from
-// when each read went and was answered, not from the poll's start; an
+// read of another account's holds a poll up, and one that comes after the
+// read that it held up, which the bounds take from when each read went and
+// was answered, not from the poll's start; a fill in windows that leave out
+// a row at their end, which a window must end after the fill to hold; an
 // evening fill whose reads of orders fail, so that the reads of rows after
 // it end at their polls and cannot show its row; an order filled three
 // hours before the watch, whose row is there from the start, and one filled
@@ -2770,6 +2772,27 @@ func testFillsOnTheFake(t *testing.T) {
 		report := fl.report(t)
 		wantVerdicts(t, report, map[string]string{"Q13": "a fill's trade appears from 2 to 4 minutes after the fill"})
 		wantEvidence(t, report, "Q13", "rows that came during the watch: 1, from 2 to 4 minutes after the fills")
+	})
+	t.Run("a read without the row that a slow read holds up", func(t *testing.T) {
+		t.Parallel()
+		// The fill at 11:04:30, and {account 1}'s read of rows at the poll
+		// of 11:08 taking 50 seconds, so that {account 2}'s goes at 11:08:50,
+		// 4m20s after the fill, before the row comes at 11:08:55: from 4 to
+		// 5 minutes, not from 3, as the poll's start would make it.
+		slow := func(fl *fakeLive, r *http.Request, rows int32) {
+			if rows == 25 && schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute {
+				fl.clock.set(fl.clock.Now().Add(50 * time.Second))
+			}
+		}
+		fl := watchFillsWith(t, probeNow, schwabtest.TransactionRules{}, slow, watchedFill{filled: soon.Add(-30 * time.Second), after: 265 * time.Second})
+		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "a fill's trade appears from 4 to 5 minutes after the fill"})
+	})
+	t.Run("a fill, in windows that leave out a row at their end", func(t *testing.T) {
+		t.Parallel()
+		// The row's time is the fill's, so a window must end after the
+		// fill, at its read, to hold it.
+		fl := watchFills(t, probeNow, schwabtest.TransactionRules{ExclusiveEnd: true}, watchedFill{filled: soon, after: 150 * time.Second})
+		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "a fill's trade appears from 2 to 3 minutes after the fill"})
 	})
 	t.Run("an evening fill whose reads of orders fail, in windows by tradeDate", func(t *testing.T) {
 		t.Parallel()
