@@ -421,14 +421,18 @@ type rowsState struct {
 // the window as ending at the run, narrower than it is, which leaves the
 // rows that only the rest of it held undecided, rather than shown late or
 // gone. It keeps the window's end as "until", which a state kept by such a
-// version lacks.
+// version lacks, and says with "keepsGone" that it keeps the rows that a
+// run showed gone, as the versions before that field did not: they dropped
+// such a row, which a run after them would take for one new to the state
+// if it came back.
 type accountRows struct {
-	Start    time.Time          `json:"start"`
-	End      time.Time          `json:"until,omitzero"`
-	At       time.Time          `json:"end"`
-	Complete bool               `json:"complete"`
-	Ahead    bool               `json:"ahead"`
-	Rows     map[string]rowSeen `json:"rows"`
+	Start     time.Time          `json:"start"`
+	End       time.Time          `json:"until,omitzero"`
+	At        time.Time          `json:"end"`
+	Complete  bool               `json:"complete"`
+	Ahead     bool               `json:"ahead"`
+	KeepsGone bool               `json:"keepsGone"`
+	Rows      map[string]rowSeen `json:"rows"`
 }
 
 // A rowSeen is one row as the state keeps it: when it was first seen, and
@@ -585,14 +589,16 @@ type changesSeen struct {
 // without activity, it says nothing, nor when the answers leave all three
 // undecided. Nor does it compare a state kept by a version of the probe
 // whose window ended at its run, which could leave out such an evening
-// fill: the account starts afresh, as if no earlier run had read it. The
-// window ends a second past the latest tradeDate that lastDated gives,
-// since whether Schwab's end takes in a row dated at it is not known. Nor
-// can an answer show gone a fill dated after the last run that Schwab left
-// out of that run's answer, serving its window only up to the request: "no
-// row went" cannot speak of one, nor "no row changed" or "no row came late"
-// of one that it left out of this run's answer too, dated after this run as
-// well, as a Friday evening's fill dated Monday is at a run on the Saturday.
+// fill, or by one that dropped a row once it showed it gone, which it would
+// take for a row new to the state if it came back: the account starts
+// afresh, as if no earlier run had read it. The window ends a second past
+// the latest tradeDate that lastDated gives, since whether Schwab's end
+// takes in a row dated at it is not known. Nor can an answer show gone a
+// fill dated after the last run that Schwab left out of that run's answer,
+// serving its window only up to the request: "no row went" cannot speak of
+// one, nor "no row changed" or "no row came late" of one that it left out
+// of this run's answer too, dated after this run as well, as a Friday
+// evening's fill dated Monday is at a run on the Saturday.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
@@ -623,9 +629,11 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 		}
 		key := r.state.digest("account number", a.number)
 		prev := st.Accounts[key]
-		if prev.End.IsZero() {
+		if prev.End.IsZero() || !prev.KeepsGone {
 			// Kept by a version of the probe whose window ended at its run,
-			// which kept no other end: the account starts afresh.
+			// which kept no other end, or by one that dropped the rows that
+			// it showed gone, which would be new to the state if they came
+			// back: the account starts afresh.
 			prev = accountRows{}
 		}
 		cs, next := r.changesOf(ctx, a, prev, now, slices.ContainsFunc(aheadAt, prev.At.Equal))
@@ -792,7 +800,7 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 			kept[id] = e
 		}
 	}
-	next := accountRows{Start: w.start, End: w.end, At: now, Complete: cs.complete, Rows: map[string]rowSeen{}}
+	next := accountRows{Start: w.start, End: w.end, At: now, Complete: cs.complete, KeepsGone: true, Rows: map[string]rowSeen{}}
 	seen := map[string]bool{}
 	last := window{prev.Start, prev.End}
 	lastRun := prev.At // when the last run's probe began

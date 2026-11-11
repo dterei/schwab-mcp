@@ -2624,7 +2624,9 @@ func keptRows(t *testing.T, fl *fakeLive) (rows, gone int) {
 // compare with; and where an account's window fails in both runs, or in the
 // first alone, before a row of it comes late, which leaves what its rows
 // did undecided as well, since no earlier run read them. The first run says
-// nothing either way.
+// nothing either way. And a run after one of a version that dropped the
+// rows that it showed gone starts afresh, rather than show such a row that
+// came back late.
 func testChangesOnTheFake(t *testing.T) {
 	t.Run("rows changed, gone and late", func(t *testing.T) {
 		t.Parallel()
@@ -2755,6 +2757,51 @@ func testChangesOnTheFake(t *testing.T) {
 		if rows, gone := keptRows(t, back); rows != 2 || gone != 0 {
 			t.Errorf("the state keeps %d rows of {account 2}, %d of them marked gone; want 2, neither marked gone", rows, gone)
 		}
+	})
+	t.Run("a row gone and back, after a version that dropped the rows it showed gone", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q12")
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		fl.f.RemoveRow(secondAccount.Hash, xyzDividend)
+		gone := fl.again(t, probeNow.AddDate(0, 0, 1), false)
+		if err := gone.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		// The state as such a version kept it: without the XYZ dividend,
+		// which the run showed gone, and without keepsGone.
+		st, err := openState(gone.r.stateFile, gone.r.keyFile, func(string) {})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rs rowsState
+		if _, err := st.get("Q12", &rs); err != nil {
+			t.Fatal(err)
+		}
+		for k, a := range rs.Accounts {
+			for id, e := range a.Rows {
+				if !e.Gone.IsZero() {
+					delete(a.Rows, id)
+				}
+			}
+			a.KeepsGone = false
+			rs.Accounts[k] = a
+		}
+		if err := st.put("Q12", rs); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.save(); err != nil {
+			t.Fatal(err)
+		}
+		fl.f.AddRows(secondAccount.Hash, fixtureRow(t, xyzDividend))
+		back := gone.again(t, probeNow.AddDate(0, 0, 2), false)
+		if err := back.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := back.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "inconclusive: no earlier run to compare with; this run's rows are kept for the next"})
+		wantEvidence(t, report, "Q12", "{account 2}: 2 rows, kept for the next run; no earlier run to compare with")
 	})
 	t.Run("a row that came late alone", func(t *testing.T) {
 		t.Parallel()
