@@ -1648,13 +1648,21 @@ func testHashesOnTheFake(t *testing.T) {
 // Q12 shows no row gone from an answer that may have been cut at the cap,
 // nor late against a last run's answer that may have been: the row that the
 // cap left out of that answer is new to the state, though it was there.
-// Neither says that no row went or came late: a row missing from a cut
-// answer, as one gone would be, and a row new to the state that a cut last
-// answer may have left out, leave it undecided, beside a row that it shows
-// changed, while a cut answer that holds every row of the state shows that
-// none went. And the state keeps a row that a cut answer left out, so that
-// a complete answer after it shows the row changed, or gone.
+// Neither says that no row went or came late. A cut answer leaves it
+// undecided whether a row missing from it went, beside a row that it shows
+// changed, and whether rows that it left out came late, as a row dated
+// weeks back that the cap leaves out did, while one that holds every row of
+// the state shows that none went. A cut last answer leaves it undecided
+// whether a row new to the state came late, and whether rows that it left
+// out went, as one that it left out did since. And the state keeps a row
+// that a cut answer left out, so that a complete answer after it shows the
+// row changed, or gone.
 func testChangesCutOnTheFake(t *testing.T) {
+	const (
+		cutMissing  = "the answer may have been cut at the cap, so 1 row missing from it cannot be shown gone, nor rows that it left out shown late"
+		lastCutNone = "the last run's answer may have been cut at the cap, so rows that it left out cannot be shown gone, " +
+			"though no row new to the state could have come late"
+	)
 	t.Run("this run's answer", func(t *testing.T) {
 		t.Parallel()
 		fl := newProbeLive(t, probeNow, "Q12")
@@ -1668,9 +1676,9 @@ func testChangesCutOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or came late since the last run; undecided: whether 1 row went"})
-		wantEvidence(t, report, "Q12",
-			"{account 2}: 1 row as they were; 0 rows new to the state; the answer may have been cut at the cap, so 1 row missing from it cannot be shown gone")
+		wantVerdicts(t, report, map[string]string{"Q12": "no row changed since the last run; " +
+			"undecided: whether 1 row went, and whether rows that a cut answer left out came late"})
+		wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 0 rows new to the state; "+cutMissing)
 	})
 	t.Run("this run's answer, with a row changed", func(t *testing.T) {
 		t.Parallel()
@@ -1687,28 +1695,45 @@ func testChangesCutOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "rows changed after they posted; undecided: whether 1 row went"})
-		wantEvidence(t, report, "Q12", "{account 2}: 0 rows as they were; 0 rows new to the state; 1 row changed, 28 days old, in netAmount (1); "+
-			"the answer may have been cut at the cap, so 1 row missing from it cannot be shown gone")
+		wantVerdicts(t, report, map[string]string{"Q12": "rows changed after they posted; " +
+			"undecided: whether 1 row went, and whether rows that a cut answer left out came late"})
+		wantEvidence(t, report, "Q12", "{account 2}: 0 rows as they were; 0 rows new to the state; 1 row changed, 28 days old, in netAmount (1); "+cutMissing)
 	})
-	t.Run("this run's answer, holding every row of the state", func(t *testing.T) {
-		t.Parallel()
-		// {account 2}'s 2 rows reach a cap of 2, though none is missing:
-		// no row went.
-		fl := newProbeLive(t, probeNow, "Q12")
-		if err := fl.runClean(t); err != nil {
-			t.Fatal(err)
-		}
-		later := fl.again(t, probeNow.AddDate(0, 0, 1), false)
-		later.r.pageCap = 2
-		if err := later.runClean(t); err != nil {
-			t.Fatal(err)
-		}
-		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "no row changed, went or came late since the last run"})
-		wantEvidence(t, report, "Q12",
-			"{account 2}: 2 rows as they were; 0 rows new to the state; the answer may have been cut at the cap, though no row of the state is missing from it")
-	})
+	for _, tc := range []struct {
+		name string
+		late bool // with a row dated 55 days before the first run, which comes after it
+	}{
+		{"this run's answer, holding every row of the state", false},
+		{"this run's answer, holding every row of the state, and cut short of a row that came late", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// {account 2}'s 2 rows reach a cap of 2, though none is
+			// missing: no row went. A row that came late, older than
+			// both, is the one that a cap that keeps the newest leaves
+			// out.
+			fl := newProbeLive(t, probeNow, "Q12")
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			if tc.late {
+				at := strconv.Quote(schwabTime(probeNow.Add(-55 * oneDay)))
+				fl.more = append(fl.more, "84000000111")
+				fl.f.AddRows(secondAccount.Hash, fixtureRow(t, xyzDividend, "activityId", "84000000111", "time", at, "tradeDate", at))
+				fl.f.SetTransactionRules(schwabtest.TransactionRules{Cap: 2})
+			}
+			later := fl.again(t, probeNow.AddDate(0, 0, 1), false)
+			later.more = fl.more
+			later.r.pageCap = 2
+			if err := later.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			report := later.report(t)
+			wantVerdicts(t, report, map[string]string{"Q12": "no row changed or went since the last run; undecided: whether rows that a cut answer left out came late"})
+			wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 0 rows new to the state; "+
+				"the answer may have been cut at the cap, so rows that it left out cannot be shown late, though no row of the state is missing from it")
+		})
+	}
 	t.Run("the last run's answer", func(t *testing.T) {
 		t.Parallel()
 		fl := newProbeLive(t, probeNow, "Q12")
@@ -1724,9 +1749,34 @@ func testChangesCutOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or went since the last run; undecided: whether 1 row came late"})
+		wantVerdicts(t, report, map[string]string{"Q12": "no row changed since the last run; " +
+			"undecided: whether rows that the last run's cut answer left out went, and whether 1 row came late"})
 		wantEvidence(t, report, "Q12", "{account 1}: 0 rows as they were; 0 rows new to the state",
-			"{account 2}: 1 row as they were; 1 row new to the state; the last run's answer may have been cut at the cap, so 1 row new to the state cannot be shown late")
+			"{account 2}: 1 row as they were; 1 row new to the state; the last run's answer may have been cut at the cap, "+
+				"so 1 row new to the state cannot be shown late, nor rows that it left out shown gone")
+	})
+	t.Run("the last run's answer, cut short of a row that went since", func(t *testing.T) {
+		t.Parallel()
+		// The cap of 1 leaves the XYZ dividend out of the first run's
+		// answer, and so out of the state: gone from the second's, it
+		// is missing from neither.
+		fl := newProbeLive(t, probeNow, "Q12")
+		fl.f.SetTransactionRules(schwabtest.TransactionRules{Cap: 1})
+		fl.r.pageCap = 1
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		fl.f.SetTransactionRules(schwabtest.TransactionRules{})
+		fl.f.RemoveRow(secondAccount.Hash, xyzDividend)
+		later := fl.again(t, probeNow.AddDate(0, 0, 1), false)
+		later.r.pageCap = MaxTransactions
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or came late since the last run; " +
+			"undecided: whether rows that the last run's cut answer left out went"})
+		wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 0 rows new to the state; "+lastCutNone)
 	})
 	// Three runs a day apart, the second's answer cut at the cap, which
 	// leaves out the XYZ dividend; the third, complete again, finds it
@@ -1742,7 +1792,8 @@ func testChangesCutOnTheFake(t *testing.T) {
 			func(t *testing.T, fl *fakeLive) {
 				fl.f.ReplaceRow(secondAccount.Hash, xyzDividend, fixtureRow(t, xyzDividend, "netAmount", "26"))
 			},
-			"rows changed after they posted", "1 row changed, 50 days old, in netAmount (1)",
+			"rows changed after they posted; undecided: whether rows that the last run's cut answer left out went",
+			"1 row changed, 50 days old, in netAmount (1)",
 		},
 		{
 			"a row that a cut answer left out, gone after it",
@@ -1762,8 +1813,7 @@ func testChangesCutOnTheFake(t *testing.T) {
 			if err := cut.runClean(t); err != nil {
 				t.Fatal(err)
 			}
-			wantEvidence(t, cut.report(t), "Q12",
-				"{account 2}: 1 row as they were; 0 rows new to the state; the answer may have been cut at the cap, so 1 row missing from it cannot be shown gone")
+			wantEvidence(t, cut.report(t), "Q12", "{account 2}: 1 row as they were; 0 rows new to the state; "+cutMissing)
 			fl.f.SetTransactionRules(schwabtest.TransactionRules{})
 			tc.change(t, fl)
 			last := cut.again(t, probeNow.AddDate(0, 0, 2), false)
@@ -1773,8 +1823,7 @@ func testChangesCutOnTheFake(t *testing.T) {
 			}
 			report := last.report(t)
 			wantVerdicts(t, report, map[string]string{"Q12": tc.want})
-			wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 0 rows new to the state; "+tc.found+
-				"; the last run's answer may have been cut at the cap, though no row new to the state could have come late")
+			wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 0 rows new to the state; "+tc.found+"; "+lastCutNone)
 		})
 	}
 }
@@ -1929,7 +1978,12 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 // before it, whose row may have posted in the ordinary course, which is not
 // shown late, and one five hours before it, whose row came late, from five
 // hours to four days after its time; and a row whose time changes, which
-// keeps its new time, by which it is shown gone three weeks later.
+// keeps its new time, by which it is shown gone three weeks later. And two
+// runs a day apart, where the window of an account, or of two, fails in the
+// second, which leaves all that their rows did undecided, though a row of
+// one went, while the verdict speaks of the other account's rows alone, or
+// says nothing when the other's window failed in the first run, which left
+// nothing of it to compare with.
 func testChangesOnTheFake(t *testing.T) {
 	t.Run("rows changed, gone and late", func(t *testing.T) {
 		t.Parallel()
@@ -2021,6 +2075,76 @@ func testChangesOnTheFake(t *testing.T) {
 		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 2 rows new to the state; "+
 			"1 row came late, posted from 5 hours to 4 days after its time; 1 row from the hour before the last run, too near it to be shown late")
 	})
+	failed := "the window of the last 60 days failed"
+	for _, tc := range []struct {
+		name          string
+		first, second []schwabtest.FixtureAccount // those whose window fails in each run
+		want          string
+		evidence      []string
+	}{
+		{
+			"an account's window failed", nil,
+			[]schwabtest.FixtureAccount{secondAccount},
+			"no row of the accounts read changed, went or came late since the last run; undecided: {account 2}'s rows, whose window failed",
+			[]string{"{account 2}: " + failed, "{account 3}: 1 row as they were; 0 rows new to the state"},
+		},
+		{
+			"two accounts' windows failed", nil,
+			[]schwabtest.FixtureAccount{firstAccount, secondAccount},
+			"no row of the accounts read changed, went or came late since the last run; " +
+				"undecided: {account 1}'s and {account 2}'s rows, whose windows failed",
+			[]string{"{account 1}: " + failed, "{account 2}: " + failed, "{account 3}: 1 row as they were; 0 rows new to the state"},
+		},
+		{
+			"the windows of the accounts to compare failed",
+			[]schwabtest.FixtureAccount{thirdAccount},
+			[]schwabtest.FixtureAccount{firstAccount, secondAccount},
+			noRowCompared,
+			[]string{"{account 1}: " + failed, "{account 2}: " + failed, "{account 3}: 1 row, kept for the next run; no earlier run to compare with"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// {account 3}'s row of 10 days ago is read in both runs, unless
+			// its window fails, while others fail in the second, where
+			// {account 2}'s would show its XYZ dividend gone.
+			fl := newProbeLive(t, probeNow, "Q12")
+			fail := func(accounts []schwabtest.FixtureAccount) {
+				var mu sync.Mutex
+				arrivals := map[string]int{}
+				fl.f.OnAPI(func(r *http.Request) {
+					if schwabtest.Route(r.Pattern) != schwabtest.TransactionsRoute {
+						return
+					}
+					mu.Lock()
+					defer mu.Unlock()
+					// The checks' read of an account's rows, then Q12's.
+					hash := r.PathValue("hash")
+					if arrivals[hash]++; arrivals[hash] == 2 && slices.ContainsFunc(accounts, func(a schwabtest.FixtureAccount) bool { return a.Hash == hash }) {
+						fl.f.Script(schwabtest.Answer(http.StatusBadRequest, `{"message":"a guess: refused"}`, "Content-Type", "application/json"))
+					}
+				})
+			}
+			at := strconv.Quote(schwabTime(probeNow.Add(-10 * oneDay)))
+			fl.more = append(fl.more, "84000000112")
+			fl.f.AddRows(thirdAccount.Hash, withKeys(baseTransaction, "activityId", "84000000112", "accountNumber", strconv.Quote(thirdAccount.Number),
+				"time", at, "tradeDate", at))
+			fail(tc.first)
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			fl.f.RemoveRow(secondAccount.Hash, xyzDividend)
+			fail(tc.second)
+			later := fl.again(t, probeNow.AddDate(0, 0, 1), false)
+			later.more = fl.more
+			if err := later.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			report := later.report(t)
+			wantVerdicts(t, report, map[string]string{"Q12": tc.want})
+			wantEvidence(t, report, "Q12", tc.evidence...)
+		})
+	}
 }
 
 // Q15 under the fake's settings: a refresh that ends the older access

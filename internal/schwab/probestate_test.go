@@ -531,13 +531,17 @@ type changesSeen struct {
 // postingLatency before that run. A late row posted from the last run to
 // this one, which bound how long after its time it came. Both times count,
 // since whether a window takes a row by its time or by its tradeDate is not
-// known. A row of the state missing from the answer, but not shown gone,
-// and a row new to the state from before the last run, but not shown late
-// nor from the hour before that run, leave it undecided whether rows went
-// or came late, which the verdict says, rather than that none did. With no
-// row compared, none of the state's seen again or shown gone and none of
-// this run's shown late, as for accounts without activity, it says
-// nothing.
+// known. What the answers cannot show, the verdict says is undecided,
+// rather than that no row did it: whether rows went, of a row of the state
+// missing from the answer but not shown gone, and of rows that the last
+// run's answer left out if it may have been cut at the cap, which never
+// came into the state; whether rows came late, of a row new to the state
+// from before the last run, but not shown late nor from the hour before
+// that run, and of rows that this run's answer left out if it may have been
+// cut; and anything of the rows of an account whose window failed, beside
+// which it speaks of the other accounts' alone. With no row compared, none
+// of the state's seen again or shown gone and none of this run's shown
+// late, as for accounts without activity, it says nothing.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
@@ -551,6 +555,8 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var read, compared bool
 	var changed, gone, late bool
 	seen, missing, unsure := 0, 0, 0 // the rows compared with the last run's, and those left undecided
+	cut, lastCut := false, false     // whether an answer compared, this run's or the last's, may have been cut at the cap
+	var unread []string              // the accounts with rows in the state whose window failed
 	for _, a := range r.accounts {
 		if a.hash == "" {
 			continue
@@ -559,6 +565,12 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 		cs, next := r.changesOf(ctx, a, st.Accounts[key], now)
 		if cs.failed {
 			v.evidence = append(v.evidence, reportLine{text: a.label() + ": the window of the last 60 days failed"})
+			if cs.compared {
+				// Its rows went unread, which the state keeps for the next
+				// run to compare with.
+				compared = true
+				unread = append(unread, a.label()+"'s")
+			}
 			continue
 		}
 		st.Accounts[key] = next
@@ -570,6 +582,7 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 		compared = true
 		seen += cs.same + cs.changedRows + cs.gone + cs.late
 		missing, unsure = missing+cs.missing, unsure+cs.unsure
+		cut, lastCut = cut || !cs.complete, lastCut || cs.lastCut
 		changed, gone, late = changed || cs.changedRows > 0, gone || cs.gone > 0, late || cs.late > 0
 		v.evidence = append(v.evidence, reportLine{text: cs.line(a)})
 	}
@@ -586,35 +599,60 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 		v.answer = "inconclusive: no row to compare: none of the last run's was seen again or shown gone, and none of this run's was shown late"
 		return v
 	}
-	// found is what rows did, none what no row did, and open what rows may
-	// have done, which the answers leave undecided.
+	// What the answers leave undecided: rows missing from them, or new to
+	// the state, that they cannot show gone or late, and rows that a cut
+	// answer left out, which neither run's answer counts.
+	var wentOpen, lateOpen []string
+	if missing > 0 {
+		wentOpen = append(wentOpen, "whether "+plural(missing, "row")+" went")
+	}
+	if lastCut {
+		wentOpen = append(wentOpen, "whether rows that the last run's cut answer left out went")
+	}
+	if unsure > 0 {
+		lateOpen = append(lateOpen, "whether "+plural(unsure, "row")+" came late")
+	}
+	if cut {
+		lateOpen = append(lateOpen, "whether rows that a cut answer left out came late")
+	}
+	// found is what rows did, none what no row of the accounts read did, and
+	// open what rows may have done, which the answers leave undecided, or
+	// which the rows of an account whose window failed may have done.
 	var found, none, open []string
 	for _, k := range []struct {
-		did, verb  string
-		yes        bool
-		undecided  int
-		undecideds string
+		did, verb string
+		yes       bool
+		undecided []string
 	}{
-		{"changed after they posted", "changed", changed, 0, ""},
-		{"went", "went", gone, missing, "whether " + plural(missing, "row") + " went"},
-		{"came late", "came late", late, unsure, "whether " + plural(unsure, "row") + " came late"},
+		{"changed after they posted", "changed", changed, nil},
+		{"went", "went", gone, wentOpen},
+		{"came late", "came late", late, lateOpen},
 	} {
 		switch {
 		case k.yes:
 			found = append(found, k.did)
-		case k.undecided > 0:
-			open = append(open, k.undecideds)
+		case len(k.undecided) > 0:
+			open = append(open, k.undecided...)
 		default:
 			none = append(none, k.verb)
 		}
+	}
+	noRow := "no row "
+	if n := len(unread); n > 0 {
+		noRow = "no row of the accounts read "
+		accounts, windows := unread[0], "window"
+		if n > 1 {
+			accounts, windows = strings.Join(unread[:n-1], ", ")+" and "+unread[n-1], "windows"
+		}
+		open = append(open, accounts+" rows, whose "+windows+" failed")
 	}
 	switch {
 	case len(found) > 0:
 		v.answer = "rows " + strings.Join(found, ", and ")
 	case len(none) == 1:
-		v.answer = "no row " + none[0] + " since the last run"
+		v.answer = noRow + none[0] + " since the last run"
 	default:
-		v.answer = "no row " + strings.Join(none[:len(none)-1], ", ") + " or " + none[len(none)-1] + " since the last run"
+		v.answer = noRow + strings.Join(none[:len(none)-1], ", ") + " or " + none[len(none)-1] + " since the last run"
 	}
 	if len(open) > 0 {
 		v.answer += "; undecided: " + strings.Join(open, ", and ")
@@ -752,17 +790,21 @@ func (cs changesSeen) line(a liveAccount) string {
 	}
 	switch {
 	case !cs.complete && cs.missing > 0:
-		parts = append(parts, "the answer may have been cut at the cap, so "+plural(cs.missing, "row")+" missing from it cannot be shown gone")
+		parts = append(parts, "the answer may have been cut at the cap, so "+plural(cs.missing, "row")+
+			" missing from it cannot be shown gone, nor rows that it left out shown late")
 	case !cs.complete:
-		parts = append(parts, "the answer may have been cut at the cap, though no row of the state is missing from it")
+		parts = append(parts, "the answer may have been cut at the cap, so rows that it left out cannot be shown late, "+
+			"though no row of the state is missing from it")
 	case cs.missing > 0:
 		parts = append(parts, plural(cs.missing, "row")+" missing from the answer, with its time or tradeDate outside a run's window, so not shown gone")
 	}
 	switch {
 	case cs.lastCut && cs.unsure > 0:
-		parts = append(parts, "the last run's answer may have been cut at the cap, so "+plural(cs.unsure, "row")+" new to the state cannot be shown late")
+		parts = append(parts, "the last run's answer may have been cut at the cap, so "+plural(cs.unsure, "row")+
+			" new to the state cannot be shown late, nor rows that it left out shown gone")
 	case cs.lastCut:
-		parts = append(parts, "the last run's answer may have been cut at the cap, though no row new to the state could have come late")
+		parts = append(parts, "the last run's answer may have been cut at the cap, so rows that it left out cannot be shown gone, "+
+			"though no row new to the state could have come late")
 	case cs.unsure > 0:
 		parts = append(parts, plural(cs.unsure, "row")+" new to the state, with its time or tradeDate outside the last run's window, so not shown late")
 	}
