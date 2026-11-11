@@ -1809,16 +1809,17 @@ func testHashesOnTheFake(t *testing.T) {
 // cap left out of that answer is new to the state, though it was there.
 // Neither says that no row did what it cannot show. A cut answer leaves it
 // undecided whether a row missing from it changed or went, whichever it did
-// since, and whether it went, beside a row that it shows changed; and
-// whether rows that it left out came late, as a row dated weeks back that
-// the cap leaves out did, while one that holds every row of the state shows
-// that none changed or went. With all three undecided, the verdict is
-// inconclusive. A cut last answer leaves it undecided whether a row new to
-// the state came late, and whether rows that it left out changed or went,
-// as one that it left out went since. And the state keeps a row that a cut
-// answer left out, so that a complete answer after it shows the row
-// changed, or gone, while whether rows that the cut answer left out did the
-// other stays undecided.
+// since, or came back changed after a run between showed it gone, and
+// whether it went, beside a row that it shows changed; and whether rows
+// that it left out came late, as a row dated weeks back that the cap leaves
+// out did, while one that holds every row of the state shows that none
+// changed or went. With all three undecided, the verdict is inconclusive. A
+// cut last answer leaves it undecided whether a row new to the state came
+// late, and whether rows that it left out changed or went, as one that it
+// left out went since. And the state keeps a row that a cut answer left
+// out, so that a complete answer after it shows the row changed, or gone,
+// while whether rows that the cut answer left out did the other stays
+// undecided.
 func testChangesCutOnTheFake(t *testing.T) {
 	const (
 		cutMissing = "the answer may have been cut at the cap, so 1 row missing from it cannot be shown changed or gone, " +
@@ -1826,8 +1827,9 @@ func testChangesCutOnTheFake(t *testing.T) {
 		lastCutNone = "the last run's answer may have been cut at the cap, so rows that it left out cannot be shown changed or gone, " +
 			"though no row new to the state could have come late"
 	)
-	// The XYZ dividend goes, or changes, and the second run's answer, cut at
-	// the cap, leaves it out.
+	// The XYZ dividend goes, or changes, or goes, which a run between shows,
+	// and comes back changed, and the second run's answer, cut at the cap,
+	// leaves it out.
 	for _, tc := range []struct {
 		name   string
 		change func(t *testing.T, fl *fakeLive)
@@ -1835,6 +1837,16 @@ func testChangesCutOnTheFake(t *testing.T) {
 		{"this run's answer", func(_ *testing.T, fl *fakeLive) { fl.f.RemoveRow(secondAccount.Hash, xyzDividend) }},
 		{"this run's answer, cut short of a row that changed", func(t *testing.T, fl *fakeLive) {
 			fl.f.ReplaceRow(secondAccount.Hash, xyzDividend, fixtureRow(t, xyzDividend, "netAmount", "26"))
+			fl.f.SetTransactionRules(schwabtest.TransactionRules{Cap: 1})
+		}},
+		{"this run's answer, cut short of a row that a run between showed gone, back changed", func(t *testing.T, fl *fakeLive) {
+			fl.f.RemoveRow(secondAccount.Hash, xyzDividend)
+			between := fl.again(t, probeNow.Add(12*time.Hour), false)
+			if err := between.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			wantVerdicts(t, between.report(t), map[string]string{"Q12": "rows went"})
+			fl.f.AddRows(secondAccount.Hash, fixtureRow(t, xyzDividend, "netAmount", "26"))
 			fl.f.SetTransactionRules(schwabtest.TransactionRules{Cap: 1})
 		}},
 	} {
@@ -2041,7 +2053,9 @@ func testChangesCutOnTheFake(t *testing.T) {
 // of an earlier version whose window ended at the run, which kept no other
 // end, 12 days later as it was, changed or gone, is not compared: the run
 // starts afresh. Such a version reads the state of this one as of a window
-// that ended at the run.
+// that ended at the run. And the window from 10:00 leaves it undecided as
+// well whether the XYZ dividend changed or went when a run between showed
+// it gone and it came back changed, though the state still marks it gone.
 func testChangesByTradeDateOnTheFake(t *testing.T) {
 	byTradeDate := schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate}
 	for _, tc := range []struct {
@@ -2090,10 +2104,12 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name    string
+		gone    bool // with the XYZ dividend gone first, which a run between shows, then back
 		changed bool // with the XYZ dividend changed between the runs
 	}{
-		{"a row inside the window's start, left out by its tradeDate", false},
-		{"a row inside the window's start, left out by its tradeDate, changed", true},
+		{"a row inside the window's start, left out by its tradeDate", false, false},
+		{"a row inside the window's start, left out by its tradeDate, changed", false, true},
+		{"a row inside the window's start, left out by its tradeDate, shown gone by a run between, back changed", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -2103,12 +2119,22 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantEvidence(t, fl.report(t), "Q12", "{account 2}: 2 rows, kept for the next run; no earlier run to compare with")
+			last := fl
+			if tc.gone {
+				fl.f.RemoveRow(secondAccount.Hash, xyzDividend)
+				last = fl.again(t, probeNow.AddDate(0, 0, 1), false)
+				if err := last.runClean(t); err != nil {
+					t.Fatal(err)
+				}
+				wantVerdicts(t, last.report(t), map[string]string{"Q12": "rows went"})
+				fl.f.AddRows(secondAccount.Hash, fixtureRow(t, xyzDividend))
+			}
 			if tc.changed {
 				fl.f.ReplaceRow(secondAccount.Hash, xyzDividend, fixtureRow(t, xyzDividend, "netAmount", "26"))
 			}
 			// The window starts at 2026-07-15T10:00Z, between the dividend's
 			// tradeDate, 04:00Z, and its time, 14:40Z.
-			later := fl.again(t, time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC), true)
+			later := last.again(t, time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC), true)
 			if err := later.runClean(t); err != nil {
 				t.Fatal(err)
 			}

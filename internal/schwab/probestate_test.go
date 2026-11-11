@@ -525,8 +525,9 @@ type changesSeen struct {
 	complete, failed bool
 	lastCut          bool // whether the last run's answer may have been cut at the cap
 	// missing is the rows of the state missing from this answer, which it
-	// can neither compare nor show gone, since the answer may have been cut
-	// at the cap, or a window's edge lies between the row's time and its
+	// can neither compare nor show gone, or gone still, of a row that an
+	// earlier run showed gone, since the answer may have been cut at the
+	// cap, or a window's edge lies between the row's time and its
 	// tradeDate; unsure the rows new to the state from before the last run,
 	// but for those from the hour before it, that it cannot show late, since
 	// that run's answer may have been cut, or its window's edge lies between
@@ -551,27 +552,28 @@ type changesSeen struct {
 // row is gone only when both its time and its tradeDate lie inside both
 // runs' windows and this run's answer is complete, under pageCap rows in
 // all and of each type, and the state keeps it, marked gone, until it is
-// pruned: an answer without it shows it neither gone again nor missing, and
-// one that holds it again compares it as any row of the state, rather than
-// taking it for a row new to the state; and a row is late when it is new to
-// the state though both lie inside the last run's window, that run's answer
-// was complete, its time was more than postingLatency before that run, and,
-// if it is dated after that run, an answer of that run held a row dated
-// after it came, which shows that its reads would have shown the row, as
-// Schwab served the rest of their windows, or took rows by their time. A
-// late row posted after the last run and before this run's answer came with
-// it, which bound how long after its time it came. Both times count, since
-// whether a window takes a row by its time or by its tradeDate is not
-// known; nor is it known whether Schwab serves the part of a window past
-// its request, where a row dated after the run lies: one that served it
-// only up to the request, taking rows by their tradeDate, would leave out
-// such a fill, as a window that ended at the run would. What the answers
-// cannot show, the verdict says is undecided, rather than that no row did
-// it: whether rows changed or went, of a row of the state missing from the
-// answer, which it can neither compare nor show gone, and of rows that the
-// last run's answer left out if it may have been cut at the cap, which
-// never came into the state; whether rows changed, of a row new to the
-// state from before the last run and dated after it, which that run's
+// pruned: an answer without it that could show it gone still, complete,
+// with both its times in this window, shows it neither gone again nor
+// missing, and one that holds it again compares it as any row of the state,
+// rather than taking it for a row new to the state; and a row is late when
+// it is new to the state though both lie inside the last run's window, that
+// run's answer was complete, its time was more than postingLatency before
+// that run, and, if it is dated after that run, an answer of that run held
+// a row dated after it came, which shows that its reads would have shown
+// the row, as Schwab served the rest of their windows, or took rows by
+// their time. A late row posted after the last run and before this run's
+// answer came with it, which bound how long after its time it came. Both
+// times count, since whether a window takes a row by its time or by its
+// tradeDate is not known; nor is it known whether Schwab serves the part of
+// a window past its request, where a row dated after the run lies: one that
+// served it only up to the request, taking rows by their tradeDate, would
+// leave out such a fill, as a window that ended at the run would. What the
+// answers cannot show, the verdict says is undecided, rather than that no
+// row did it: whether rows changed or went, of a row of the state missing
+// from the answer, which it can neither compare nor show gone, and of rows
+// that the last run's answer left out if it may have been cut at the cap,
+// which never came into the state; whether rows changed, of a row new to
+// the state from before the last run and dated after it, which that run's
 // answer may have left out though it was there, when no answer of that run
 // held a row dated after it came; whether rows came late, of a row new to
 // the state from before the last run, but not shown late nor from the hour
@@ -868,7 +870,7 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 	for id, e := range kept {
 		switch {
 		case seen[id]:
-		case !e.Gone.IsZero():
+		case !e.Gone.IsZero() && cs.complete && w.takesRow(e.Time, e.TradeDate):
 			next.Rows[id] = e // shown gone by an earlier run, and gone still
 		case cs.complete && last.takesRow(e.Time, e.TradeDate) && w.takesRow(e.Time, e.TradeDate):
 			cs.gone++
