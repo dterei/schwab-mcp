@@ -307,10 +307,11 @@ const (
 // fill that held the row gives it, or before lastDated(filled) for a row
 // that none held: whether Schwab serves the part of a window past its
 // request is not known, and ahead says that an answer held a row dated
-// after it came, which shows that it does. A read whose answer came before
-// the fill does not hold its row: a row of the order that it holds is of an
-// execution that the order does not show, which the reads after the fill
-// cannot tell from the fill's.
+// after it came, which shows that a read can show such a row, as Schwab
+// serves a window past the request, or takes rows by their time. A read
+// whose answer came before the fill does not hold its row: a row of the
+// order that it holds is of an execution that the order does not show,
+// which the reads after the fill cannot tell from the fill's.
 func latency(reads []rowsRead, id string, filled time.Time, ahead bool) (how int, least, most time.Duration) {
 	dated := lastDated(filled) // the later of the fill and the row's tradeDate
 	for _, rd := range reads {
@@ -359,11 +360,12 @@ func latency(reads []rowsRead, id string, filled time.Time, ahead bool) (how int
 // below; a read that failed says nothing. Whether Schwab serves the part of
 // a window past its request, where the row of such a fill may lie, is not
 // known: a read says nothing of a row dated after it unless an answer of
-// the watch held a row dated after it came, which shows that it does. Of a
-// fill whose row no read could show, the verdict says no more than that.
-// A verdict from rows that came starts its span at 0 when a row there at
-// the first read that could show it was there within as many minutes of its
-// fill as the least of theirs, or fewer.
+// the watch held a row dated after it came, which shows that a read can
+// show such a row, as Schwab serves a window past the request, or takes
+// rows by their time. Of a fill whose row no read could show, the verdict
+// says no more than that. A verdict from rows that came starts its span at
+// 0 when a row there at the first read that could show it was there within
+// as many minutes of its fill as the least of theirs, or fewer.
 func probeFills(ctx context.Context, r *liveRun) verdict {
 	start := r.now()
 	// Every fill lies after the earliest entry that the orders' span takes
