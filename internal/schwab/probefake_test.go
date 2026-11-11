@@ -1193,7 +1193,7 @@ func testShapesOnTheFake(t *testing.T) {
 // younger than the one they leave out, which bound how long they keep
 // orders from both sides: a working order of 100 days, or another order of
 // the two days around the entry; and lists that disagree, giving back an
-// order entered an hour before the one they leave out.
+// order entered an hour before the one they leave out, or that very order.
 func testOrdersDepthOnTheFake(t *testing.T) {
 	const unserved172 = "under 173 days: two days around the entry of an order entered 172 days ago leave it out, though its id finds it"
 	t.Run("a list kept for 60 days", func(t *testing.T) {
@@ -1433,6 +1433,28 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 		wantVerdicts(t, report, map[string]string{"Q5": "inconclusive: the lists disagree: an order entered 172 days ago came back, " +
 			"while two days around the entry of one entered 172 days ago left it out"})
 		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 1 order, without the order",
+			"the account's orders of the last year: 200, 1 order, some entered more than 67 days ago")
+	})
+	t.Run("lists that disagree on the order itself", func(t *testing.T) {
+		t.Parallel()
+		// The two days around the entry of the META sale's order answer
+		// [], while the list of the last year gives that very order back:
+		// the order that came back is as old as the one left out, the
+		// likeliest way for the lists to disagree.
+		fl := newProbeLive(t, probeNow, "Q1", "Q5")
+		around := metaSaleOrder.entered.Add(-oneDay).Format(schwabTimeFormat)
+		fl.f.OnAPI(func(r *http.Request) {
+			if r.URL.Query().Get("fromEnteredTime") == around {
+				fl.f.Script(schwabtest.Answer(http.StatusOK, `[]`, "Content-Type", "application/json"))
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q5": "inconclusive: the lists disagree: an order entered 172 days ago came back, " +
+			"while two days around the entry of one entered 172 days ago left it out"})
+		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 0 orders, without the order",
 			"the account's orders of the last year: 200, 1 order, some entered more than 67 days ago")
 	})
 }
