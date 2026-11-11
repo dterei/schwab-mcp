@@ -578,7 +578,7 @@ func (r *liveRun) fetch(ctx context.Context, c *Client, endpoint, path string, q
 		if isErr {
 			sec.addf("failed with %d, %s; %s", se.Status, contentType(se.Header), correlationNames(se.Header))
 		}
-		sec.add("failed: " + failureText(err))
+		sec.add("failed: " + failureText(err, r.origin))
 		r.write(sec)
 		return nil, err
 	}

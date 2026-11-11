@@ -599,9 +599,12 @@ func testEchoedSecretsOnTheFake(t *testing.T) {
 // network, whose errors name this machine's address and port: a listener
 // that resets each connection as the run reads the user's preferences, and
 // a refresh, after a 401 two minutes into the login, whose token requests
-// time out twice. The report
-// says what failed, and Schwab's 401, but neither it nor the lines printed
-// hold the address of either end of a connection.
+// time out twice. The report says what failed, and Schwab's 401, but
+// neither it nor the lines printed hold the address of either end of a
+// connection. And a proxy, as HTTPS_PROXY names one, whose host does not
+// resolve, which fails every request at its lookup: the report says that
+// the proxy's host was looked up, but not its name, which holds the
+// planted user name.
 func testNetworkFailuresOnTheFake(t *testing.T) {
 	t.Run("connections reset", func(t *testing.T) {
 		t.Parallel()
@@ -648,6 +651,34 @@ func testNetworkFailuresOnTheFake(t *testing.T) {
 		}
 		wantLines(t, report, "failures of the network: 2")
 		noAddresses(t, fl)
+	})
+	t.Run("a proxy whose host does not resolve", func(t *testing.T) {
+		t.Parallel()
+		// The run's transport follows HTTPS_PROXY, as Go's default does,
+		// here to a proxy off the network that resolves its host, whose
+		// lookup fails as net's does.
+		fl := newFakeLive(t)
+		tr, ok := fl.r.auth.cfg.HTTPClient.Transport.(*http.Transport)
+		if !ok {
+			t.Fatal("the fake's client has no *http.Transport")
+		}
+		tr = tr.Clone()
+		tr.Proxy = http.ProxyURL(&url.URL{Scheme: "http", Host: "proxy." + plantedUser + "-home.invalid:3128"})
+		tr.DialContext = func(_ context.Context, network, addr string) (net.Conn, error) {
+			host, _, _ := net.SplitHostPort(addr)
+			return nil, &net.OpError{Op: "dial", Net: network, Err: &net.DNSError{Err: "no such host", Name: host, Server: "192.0.2.53:53", IsNotFound: true}}
+		}
+		fl.r.auth.cfg.HTTPClient = &http.Client{Transport: tr}
+		err := fl.runClean(t)
+		if err == nil || !strings.Contains(err.Error(), "it stopped before its end: three failures of the network in a row") {
+			t.Errorf("the run's error: %v", err)
+		}
+		report := fl.report(t)
+		if !strings.Contains(report, "## accounts/accountNumbers\nfailed: GET /trader/v1/accounts/accountNumbers after 3 tries: "+
+			"proxyconnect tcp: dial tcp: lookup of the proxy's host: no such host; the try before got: ") {
+			t.Errorf("the report:\n%s", report)
+		}
+		noAddresses(t, fl, "192.0.2.53")
 	})
 }
 

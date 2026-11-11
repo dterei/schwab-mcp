@@ -2,11 +2,18 @@ package schwab
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -19,6 +26,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -716,20 +724,35 @@ func (s *liveScrubber) learnError(err error) {
 var addressText = regexp.MustCompile(`(?:\b\d{1,3}(?:\.\d{1,3}){3}\b|\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(?:%[^\]\s\x02\x03]*)?\])(?::\d+)?`)
 
 // failureText returns the text of err, a read's failure, for the report,
-// with Schwab's words marked, as errorText marks them, and without the
-// addresses that a failure of the network names, or the query that a
-// request's address holds. A connection's error names both its ends, this
-// machine's address and port among them: on the owner's computer, its
-// address on the local network, or a global IPv6 address, which can hold
-// its hardware address. A failed lookup names the resolver's address. The
-// scrubber learns none of them. So each of net's errors in err, under the
-// Client's tries or in a refresh's failure that it wraps, is told by its
-// operation, its network and its cause alone, and any address left, as in
-// an error that quotes one of net's without wrapping it, becomes
-// {address}. A request's address, which url's errors quote whole, is cut
-// to its path: its query can hold a symbol of the owner's, outside
-// Schwab's words, where the scrubber does not look for one.
-func failureText(err error) string {
+// with Schwab's words marked, as errorText marks them, and without what a
+// failure of the network names of this machine and its network, or the
+// query that a request's address holds. A connection's error names both
+// its ends, this machine's address and port among them: on the owner's
+// computer, its address on the local network, or a global IPv6 address,
+// which can hold its hardware address. A failed lookup names the
+// resolver's address, and the host it looked up, which, when it is not
+// origin's, is the proxy's that HTTPS_PROXY names, since the guard sends to
+// origin alone: a name of the machine's network, such as an employer's. A
+// certificate refused, as a captive portal's or an intercepting proxy's is,
+// names the hosts it is valid for and the authority that may have signed
+// it, and a system's verifier, as macOS's, can quote them in words of its
+// own. The scrubber learns none of them. So each of net's errors in err,
+// under the Client's tries or in a refresh's failure that it wraps, is told
+// by its operation, its network and its cause alone; a lookup by the host
+// it looked up only when that is origin's, and else as the proxy's; and a
+// certificate refused by what x509 says was wrong, without what that
+// names, or by nothing more than its refusal when another verifier says
+// what. Any address left, as in an error that quotes one of net's without
+// wrapping it, becomes {address}. A request's address, which url's errors
+// quote whole, is cut to its path: its query can hold a symbol of the
+// owner's, outside Schwab's words, where the scrubber does not look for
+// one.
+func failureText(err error, origin string) string {
+	ours := ""
+	if u, perr := url.Parse(origin); perr == nil {
+		ours = u.Hostname()
+	}
+	isOrigin := func(host string) bool { return strings.EqualFold(host, ours) }
 	text := unmark(err.Error())
 	var walk func(e error)
 	walk = func(e error) {
@@ -747,7 +770,31 @@ func failureText(err error) string {
 				text = strings.ReplaceAll(text, unmark(ne.Error()), told+": "+unmark(ne.Err.Error()))
 			}
 		case *net.DNSError:
-			text = strings.ReplaceAll(text, unmark(ne.Error()), "lookup "+ne.Name+": "+ne.Err)
+			looked := "lookup of the proxy's host"
+			if isOrigin(ne.Name) {
+				looked = "lookup " + ne.Name
+			}
+			text = strings.ReplaceAll(text, unmark(ne.Error()), looked+": "+ne.Err)
+		case *tls.CertificateVerificationError:
+			switch ne.Err.(type) { //nolint:errorlint // Verify's own error, as it returns it
+			case x509.HostnameError, x509.UnknownAuthorityError, x509.CertificateInvalidError, x509.SystemRootsError,
+				x509.ConstraintViolationError, x509.InsecureAlgorithmError, x509.UnhandledCriticalExtension:
+				// x509's words, told below without what they name.
+			default:
+				text = strings.ReplaceAll(text, unmark(ne.Error()), "tls: failed to verify certificate")
+			}
+		case x509.HostnameError:
+			wanted := "the proxy's host"
+			if isOrigin(ne.Host) {
+				wanted = ne.Host
+			}
+			text = strings.ReplaceAll(text, unmark(ne.Error()), "x509: certificate is not valid for "+wanted)
+		case x509.UnknownAuthorityError:
+			text = strings.ReplaceAll(text, unmark(ne.Error()), "x509: certificate signed by unknown authority")
+		case x509.CertificateInvalidError:
+			if ne.Detail != "" {
+				text = strings.ReplaceAll(text, unmark(ne.Error()), unmark(strings.TrimSuffix(ne.Error(), ": "+ne.Detail)))
+			}
 		case *url.Error:
 			if u, perr := url.Parse(ne.URL); perr == nil && u.RawQuery != "" {
 				u.RawQuery = ""
@@ -1233,11 +1280,17 @@ func TestScrubberLearnsSecrets(t *testing.T) {
 // zone, under the Client's tries, the try before's included; a lookup's
 // resolver; a refresh's failure under the url.Error of the Auth's request,
 // beside Schwab's answer, which stays as it is; errors joined; and an
-// address quoted by an error that does not wrap net's. A request's address
-// comes without its query. Schwab's answer keeps its status, its wording
-// and the codes it is known to send as they are, with its other words,
-// and its other codes, marked as Schwab's, in which no mark of Schwab's
-// own is kept; and its text is Error's but for the marks.
+// address quoted by an error that does not wrap net's. Nor does it hold the
+// name of a host but the origin's, which a lookup keeps in whatever case,
+// as a proxy's whose lookup fails, or the names that a certificate refused
+// gives: the hosts that a captive portal's, or a proxy's, is valid for, the
+// candidate authority that an intercepting proxy's may have been signed by,
+// the name that a root may not sign for, or what a system's verifier says
+// in words of its own. A request's address comes without its query.
+// Schwab's answer keeps its status, its wording and the codes it is known
+// to send as they are, with its other words, and its other codes, marked as
+// Schwab's, in which no mark of Schwab's own is kept; and its text is
+// Error's but for the marks.
 func TestFailureText(t *testing.T) {
 	local := &net.TCPAddr{IP: net.ParseIP("192.168.1.23"), Port: 51234}
 	global := &net.TCPAddr{IP: net.ParseIP("2001:db8:85a3::8a2e:370:7334"), Port: 51235}
@@ -1250,6 +1303,25 @@ func TestFailureText(t *testing.T) {
 	refused := newError(http.StatusUnauthorized, http.Header{"Content-Type": {"application/json"}}, []byte(`{"message":"Client not authorized"}`))
 	refresh := fmt.Errorf("refreshing the access token after 2 tries: %w",
 		&url.Error{Op: "Post", URL: "https://api.schwabapi.com/v1/oauth/token", Err: reset("read", global)})
+	proxy := func(err error) error { return &net.OpError{Op: "proxyconnect", Net: "tcp", Err: err} }
+	proxyLookup := &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "proxy.zq-home.example", Server: "192.168.1.1:53", IsNotFound: true}}
+	// A captive portal's certificate, for names of its own, and an
+	// intercepting proxy's, for Schwab's host, both signed by an authority
+	// of the network's; the machine trusts another authority of that name,
+	// whose key signed neither.
+	authority, authorityKey := testCertificate(t, "zq Home CA", nil, nil, nil)
+	trusted, _ := testCertificate(t, "zq Home CA", nil, nil, nil)
+	portal, _ := testCertificate(t, "zq-portal.example", []string{"zq-portal.example", "*.zq-portal.example"}, authority, authorityKey)
+	forged, _ := testCertificate(t, "api.schwabapi.com", []string{"api.schwabapi.com"}, authority, authorityKey)
+	roots := x509.NewCertPool()
+	roots.AddCert(trusted)
+	rejected := func(c *x509.Certificate, host string) error {
+		_, err := c.Verify(x509.VerifyOptions{Roots: roots, DNSName: host})
+		if err == nil {
+			t.Fatalf("the certificate for %v was not refused for %s", c.DNSNames, host)
+		}
+		return &tls.CertificateVerificationError{UnverifiedCertificates: []*x509.Certificate{c}, Err: err}
+	}
 	for _, tc := range []struct {
 		name string
 		err  error
@@ -1260,6 +1332,34 @@ func TestFailureText(t *testing.T) {
 			"GET /x after 2 tries: write tcp: write: connection reset by peer; the try before got: GET /x: read tcp: read: connection reset by peer",
 		},
 		{"a lookup", fmt.Errorf("GET /x: %w", lookup), "GET /x: dial tcp: lookup api.schwabapi.com: no such host"},
+		{
+			"a lookup of the origin in another case", fmt.Errorf("GET /x: %w", &net.DNSError{Err: "server misbehaving", Name: "API.SchwabAPI.com"}),
+			"GET /x: lookup API.SchwabAPI.com: server misbehaving",
+		},
+		{"a proxy's lookup", fmt.Errorf("GET /x: %w", proxy(proxyLookup)), "GET /x: proxyconnect tcp: dial tcp: lookup of the proxy's host: no such host"},
+		{
+			"a certificate for other names", fmt.Errorf("GET /x: %w", rejected(portal, "api.schwabapi.com")),
+			"GET /x: tls: failed to verify certificate: x509: certificate is not valid for api.schwabapi.com",
+		},
+		{
+			"a proxy's certificate for other names", fmt.Errorf("GET /x: %w", proxy(rejected(portal, "proxy.zq-home.example"))),
+			"GET /x: proxyconnect tcp: tls: failed to verify certificate: x509: certificate is not valid for the proxy's host",
+		},
+		{
+			"a certificate of an unknown authority", fmt.Errorf("GET /x: %w", rejected(forged, "api.schwabapi.com")),
+			"GET /x: tls: failed to verify certificate: x509: certificate signed by unknown authority",
+		},
+		{
+			"a certificate that its root may not sign", fmt.Errorf("GET /x: %w", &tls.CertificateVerificationError{Err: x509.CertificateInvalidError{
+				Cert: portal, Reason: x509.CANotAuthorizedForThisName, Detail: `DNS name "zq-portal.example" is not permitted by any constraint`,
+			}}),
+			"GET /x: tls: failed to verify certificate: x509: a root or intermediate certificate is not authorized to sign for this name",
+		},
+		{
+			"a certificate refused in a verifier's own words",
+			fmt.Errorf("GET /x: %w", &tls.CertificateVerificationError{Err: errors.New("x509: \u201czq-portal.example\u201d certificate is not standards compliant")}),
+			"GET /x: tls: failed to verify certificate",
+		},
 		{
 			"a refresh's", fmt.Errorf("%w, after the request got: %w", refresh, refused),
 			`refreshing the access token after 2 tries: Post "https://api.schwabapi.com/v1/oauth/token": read tcp: read: connection reset by peer, ` +
@@ -1302,7 +1402,7 @@ func TestFailureText(t *testing.T) {
 			"HTTP 400 from Schwab: " + said("refused") + " (" + said("symbol.ZQ.refused") + ")",
 		},
 	} {
-		got := failureText(tc.err)
+		got := failureText(tc.err, DefaultBaseURL)
 		if got != tc.want {
 			t.Errorf("%s:\n got %s\nwant %s", tc.name, got, tc.want)
 		}
@@ -1316,6 +1416,35 @@ func TestFailureText(t *testing.T) {
 			}
 		}
 	}
+}
+
+// testCertificate returns a certificate of subject for names, with its
+// key: signed by parent's key, parentKey, or by its own key when parent is
+// nil, as an authority's is.
+func testCertificate(t *testing.T, subject string, names []string, parent *x509.Certificate, parentKey *ecdsa.PrivateKey) (*x509.Certificate, *ecdsa.PrivateKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: subject}, DNSNames: names,
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, BasicConstraintsValid: true,
+	}
+	if parent == nil {
+		tmpl.IsCA, tmpl.KeyUsage = true, x509.KeyUsageCertSign
+		parent, parentKey = tmpl, key
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, &key.PublicKey, parentKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c, key
 }
 
 // osSymlink makes a link at link to target, a folder it makes.

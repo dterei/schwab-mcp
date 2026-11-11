@@ -172,9 +172,14 @@ id, a balance, a quantity, a symbol of yours longer than a character, or a
 description: a transaction's description is printed only when it is
 Schwab's own wording for a kind of row, such as "Ordinary Dividend~SYM",
 with the symbol masked. A failure of the network is told by what failed,
-such as `read tcp: i/o timeout`, without the addresses that its error
-names, your computer's among them, or the query of the request's address;
-an address that an error quotes some other way shows as `{address}`.
+such as `read tcp: i/o timeout`, without what its error names of your
+computer and its network: the addresses, your computer's among them; the
+name of any host but Schwab's, which can only be the proxy's that
+`HTTPS_PROXY` names, and shows as the proxy's host; and the names that a
+refused certificate gives, a captive portal's or an intercepting proxy's,
+and the authority's that may have signed it. Nor does it hold the query of
+the request's address; an address that an error quotes some other way
+shows as `{address}`.
 
 A scrubber of the run's own replaces what the run has seen with labels:
 each account and its hash by its place in the account numbers, as
