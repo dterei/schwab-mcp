@@ -180,9 +180,9 @@ type selector struct{ given, digits, nickname string }
 // "...", as the tables and Schwab mask numbers, and with dashes or spaces of
 // any kind among them, as schwab.com writes a number, name the account
 // whose number ends in them; a whole number names its account too.
-// Anything else names the account with that nickname, ignoring case and the
-// spaces around it, so a nickname of digits alone cannot be given, though
-// its account's number can.
+// Anything else names the account with that nickname, as sameName compares
+// them, so a nickname of digits alone cannot be given, though its account's
+// number can.
 func parseSelector(v string) selector {
 	v = strings.TrimSpace(v)
 	s := selector{given: v}
@@ -238,8 +238,8 @@ func (s selector) shown() string {
 
 // pick returns the accounts of as that s names: all of them when it names
 // none, and else the one whose number ends in its digits, or whose
-// nickname is its own. It never guesses: no account, or several, is an
-// error that lists the accounts.
+// nickname is the same name as its own. It never guesses: no account, or
+// several, is an error that lists the accounts.
 func (s selector) pick(as []namedAccount) ([]namedAccount, error) {
 	if s.given == "" {
 		return as, nil
@@ -248,7 +248,7 @@ func (s selector) pick(as []namedAccount) ([]namedAccount, error) {
 	for _, a := range as {
 		n := a.account.SecuritiesAccount.AccountNumber
 		if s.digits != "" && n != "" && strings.HasSuffix(n, s.digits) ||
-			s.nickname != "" && strings.EqualFold(strings.TrimSpace(a.nickname), s.nickname) {
+			s.nickname != "" && sameName(a.nickname, s.nickname) {
 			got = append(got, a)
 		}
 	}
@@ -280,17 +280,23 @@ func labels(as []namedAccount) string {
 // as -account compares them, so that a nickname picks any one of them.
 func nicknamed(as []namedAccount) bool {
 	for i, a := range as {
-		n := strings.TrimSpace(a.nickname)
-		if n == "" {
+		if strings.TrimSpace(a.nickname) == "" {
 			return false
 		}
 		for _, b := range as[:i] {
-			if strings.EqualFold(strings.TrimSpace(b.nickname), n) {
+			if sameName(a.nickname, b.nickname) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// sameName reports whether two nicknames are the same as -account compares
+// them: as the tables and the errors show a nickname, with no white space
+// at its ends and a run of it within as one space, and whatever their case.
+func sameName(a, b string) bool {
+	return strings.EqualFold(strings.Join(strings.Fields(a), " "), strings.Join(strings.Fields(b), " "))
 }
 
 // nameAccounts gives each of as the nickName of the first account of prefs

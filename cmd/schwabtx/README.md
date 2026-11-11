@@ -92,7 +92,7 @@ They take the same flags:
 ```
 -account X       only the account whose number ends in the digits X (...0135, as
                  the tables print it, and 2947-0135 work too), or whose whole
-                 nickname is X, in any case
+                 nickname is X, as the tables print it, in any case
 -json            Schwab's raw JSON for the accounts instead of a table (includes
                  full account numbers)
 -show-accounts   full account numbers in the table instead of the last 4 digits

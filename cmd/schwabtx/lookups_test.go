@@ -326,6 +326,26 @@ func TestLookupsPickNoneOrSeveral(t *testing.T) {
 			`-account "2222" matches 2 accounts, ...2222 (Brokerage), ...2222; ` +
 				"give more digits of its number, which `schwabtx accounts -show-accounts` prints",
 		},
+		{
+			[]string{"accounts", "-account", "2222"},
+			preferenceBody("11112222", " ", "33332222", "Brokerage"),
+			`-account "2222" matches 2 accounts, ...2222, ...2222 (Brokerage); ` +
+				"give more digits of its number, which `schwabtx accounts -show-accounts` prints",
+		},
+		// Nicknames that differ only in their white space are the same name,
+		// as the tables show them.
+		{
+			[]string{"accounts", "-account", "2222"},
+			preferenceBody("11112222", "Joint Brokerage", "33332222", "joint  brokerage "),
+			`-account "2222" matches 2 accounts, ...2222 (Joint Brokerage), ...2222 (joint brokerage); ` +
+				"give more digits of its number, which `schwabtx accounts -show-accounts` prints",
+		},
+		{
+			[]string{"accounts", "-account", "JOINT BROKERAGE"},
+			preferenceBody("11112222", "Joint Brokerage", "33332222", "joint  brokerage "),
+			`-account "JOINT BROKERAGE" matches 2 accounts, ...2222 (Joint Brokerage), ...2222 (joint brokerage); ` +
+				"give the last digits of its number instead",
+		},
 	} {
 		f2.SetUserPreference(tc.preference)
 		stdout, _, err := runTx(t, tc.args...)
@@ -339,6 +359,37 @@ func TestLookupsPickNoneOrSeveral(t *testing.T) {
 		stdout, _, err := runTx(t, "accounts", "-account", account)
 		if err != nil || !strings.Contains(stdout, "Account 1") || strings.Contains(stdout, "Account 2") {
 			t.Errorf("-account %s: %v, printed\n%s", account, err, stdout)
+		}
+	}
+}
+
+// A nickname picks its account by the name that the tables and the errors
+// show: whatever its case, with no white space at its ends, and with a run
+// of white space within it, such as two spaces, a tab or a no-break space,
+// as one space.
+func TestLookupsPickByTheNameShown(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 0, testNow, time.Hour)
+	f.addAccount("33334444", 2000, 0, testNow, time.Hour)
+	f.SetUserPreference(preferenceBody("11112222", " Roth  IRA ", "33334444", "Joint Brokerage\tAccount"))
+	doLogin(t)
+	stdout, _, err := runTx(t, "accounts")
+	if want := `ACCOUNT  NAME                     TYPE       VALUE
+...2222  Roth IRA                 MARGIN  12345.60
+...4444  Joint Brokerage Account  MARGIN  12345.60
+TOTAL                                     24691.20
+`; err != nil || stdout != want {
+		t.Errorf("%v, printed\n%s\nwant\n%s", err, stdout, want)
+	}
+	for _, tc := range []struct{ account, want string }{
+		{"Roth IRA", "...2222  Roth IRA"},
+		{"roth\tira", "...2222  Roth IRA"},
+		{"Joint Brokerage Account", "...4444  Joint Brokerage Account"},
+		{"JOINT  BROKERAGE ACCOUNT", "...4444  Joint Brokerage Account"},
+	} {
+		stdout, _, err := runTx(t, "accounts", "-account", tc.account)
+		if lines := strings.Split(stdout, "\n"); err != nil || len(lines) != 3 || !strings.HasPrefix(lines[1], tc.want+" ") {
+			t.Errorf("-account %q: %v, printed\n%s", tc.account, err, stdout)
 		}
 	}
 }
