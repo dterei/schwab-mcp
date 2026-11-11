@@ -2304,10 +2304,12 @@ func changesClaimed(verdict string) (did, none []string) {
 // dated the next midnight, before a run at 22:00; or its tradeDate lies
 // before this window's start, and its time after; or it is an evening fill
 // before the last window's start, dated inside it, before a run an hour
-// later. No answer can show that a row came late that posts from the hour
+// later. Or, under windows by time, it is an evening fill at 20:30, dated
+// the next midnight, before this window's start, which falls between the
+// two. No answer can show that a row came late that posts from the hour
 // before the last run, which Q12 does not call late, nor one that posts
 // across this window's start, which this window leaves out by its
-// tradeDate.
+// tradeDate or by its time.
 func testChangesVerdictsOnTheFake(t *testing.T) {
 	var byTime schwabtest.TransactionRules
 	byTradeDate := schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate}
@@ -2338,6 +2340,10 @@ func testChangesVerdictsOnTheFake(t *testing.T) {
 		{
 			"before the last window's start, dated inside it", time.Date(2026, 9, 1, 2, 0, 0, 0, time.UTC), time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC),
 			`"2026-07-03T00:30:00+0000"`, `"2026-07-03T04:00:00+0000"`, byTradeDate, false,
+		},
+		{
+			"before this window's start, dated inside it, by time", probeNow, time.Date(2026, 9, 8, 2, 0, 0, 0, time.UTC),
+			`"2026-07-10T00:30:00+0000"`, `"2026-07-10T04:00:00+0000"`, byTime, true,
 		},
 	} {
 		for _, event := range []string{"as it was", "changed", "went", "came late"} {
