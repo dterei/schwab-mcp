@@ -237,8 +237,9 @@ move both away to start afresh.
 It holds Q8's daily closes of SPY and VTI, which are public, as each of the
 last 20 runs read them, with when; Q10's hashes under each account number,
 with the login's time and the app key's digest; Q12's rows of the last 60
-days, with a digest of each key path, their time and tradeDate, and the
-time each was first seen; and Q15's refresh tokens, with the login's time.
+days, with a digest of each key path, their time and tradeDate, the time
+each was first seen and, for a row a run showed gone, when; and Q15's
+refresh tokens, with the login's time.
 
 ## W-8 lines
 
