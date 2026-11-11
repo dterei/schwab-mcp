@@ -540,11 +540,12 @@ type changesSeen struct {
 // which never came into the state; whether rows came late, of a row new to
 // the state from before the last run, but not shown late nor from the hour
 // before that run, and of rows that this run's answer left out if it may
-// have been cut; and anything of the rows of an account whose window
-// failed, beside which it speaks of the other accounts' alone. With no row
-// compared, none of the state's seen again or shown gone and none of this
-// run's shown late, as for accounts without activity, it says nothing, nor
-// when the answers leave all three undecided.
+// have been cut; and anything of the rows of an account not compared,
+// whose window failed or that no earlier run read, beside which it speaks
+// of the accounts compared alone. With no row compared, none of the state's
+// seen again or shown gone and none of this run's shown late, as for
+// accounts without activity, it says nothing, nor when the answers leave
+// all three undecided.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
@@ -559,7 +560,7 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var changed, gone, late bool
 	seen, missing, unsure := 0, 0, 0 // the rows compared with the last run's, and those left undecided
 	cut, lastCut := false, false     // whether an answer compared, this run's or the last's, may have been cut at the cap
-	var unread []string              // the accounts with rows in the state whose window failed
+	var failed, unread []string      // the accounts not compared: those whose window failed, and those that no earlier run read
 	for _, a := range r.accounts {
 		if a.hash == "" {
 			continue
@@ -572,14 +573,15 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 				// Its rows went unread, which the state keeps for the next
 				// run to compare with.
 				compared = true
-				unread = append(unread, a.label()+"'s")
 			}
+			failed = append(failed, a.label()+"'s")
 			continue
 		}
 		st.Accounts[key] = next
 		read = true
 		if !cs.compared {
 			v.evidence = append(v.evidence, reportLine{text: fmt.Sprintf("%s: %s, kept for the next run; no earlier run to compare with", a.label(), plural(cs.fresh, "row"))})
+			unread = append(unread, a.label()+"'s")
 			continue
 		}
 		compared = true
@@ -632,9 +634,9 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 			open = append(open, "whether "+u.rows+" "+strings.Join(verbs, " or "))
 		}
 	}
-	// found is what rows did, none what no row of the accounts read did, and
-	// open what rows may have done, which the answers leave undecided, or
-	// which the rows of an account whose window failed may have done.
+	// found is what rows did, none what no row of the accounts compared did,
+	// and open what rows may have done, which the answers leave undecided,
+	// or which the rows of an account not compared may have done.
 	var found, none []string
 	for _, k := range []struct{ did, verb string }{{"changed after they posted", "changed"}, {"went", "went"}, {"came late", "came late"}} {
 		switch {
@@ -645,13 +647,23 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 		}
 	}
 	noRow := "no row "
-	if n := len(unread); n > 0 {
-		noRow = "no row of the accounts read "
-		accounts, windows := unread[0], "window"
-		if n > 1 {
-			accounts, windows = strings.Join(unread[:n-1], ", ")+" and "+unread[n-1], "windows"
+	for _, g := range []struct {
+		accounts  []string
+		one, more string // why their rows went uncompared, of one account and of more
+	}{
+		{failed, "whose window failed", "whose windows failed"},
+		{unread, "which no earlier run read", "which no earlier run read"},
+	} {
+		n := len(g.accounts)
+		if n == 0 {
+			continue
 		}
-		open = append(open, accounts+" rows, whose "+windows+" failed")
+		noRow = "no row of the accounts compared "
+		accounts, why := g.accounts[0], g.one
+		if n > 1 {
+			accounts, why = strings.Join(g.accounts[:n-1], ", ")+" and "+g.accounts[n-1], g.more
+		}
+		open = append(open, accounts+" rows, "+why)
 	}
 	switch {
 	case len(found) > 0:

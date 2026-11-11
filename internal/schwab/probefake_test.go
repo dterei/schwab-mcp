@@ -2074,8 +2074,11 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 // weeks later. And two runs a day apart, where the window of an account, or
 // of two, fails in the second, which leaves all that their rows did
 // undecided, though a row of one went, while the verdict speaks of the
-// other account's rows alone, or says nothing when the other's window
-// failed in the first run, which left nothing of it to compare with.
+// accounts compared alone, or says nothing when the other's window failed
+// in the first run, which left nothing of it to compare with; and where an
+// account's window fails in both runs, or in the first alone, before a row
+// of it comes late, which leaves what its rows did undecided as well, since
+// no earlier run read them. The first run says nothing either way.
 func testChangesOnTheFake(t *testing.T) {
 	t.Run("rows changed, gone and late", func(t *testing.T) {
 		t.Parallel()
@@ -2245,22 +2248,35 @@ func testChangesOnTheFake(t *testing.T) {
 		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 1 row new to the state; 1 row came late, posted from 2 to 25 hours after its time")
 	})
 	failed := "the window of the last 60 days failed"
+	// What comes between the runs: {account 2}'s XYZ dividend goes, which a
+	// failed window of {account 2}'s hides, or a row of {account 3} dated 5
+	// days before the first run posts, which came late.
+	gone := func(fl *fakeLive) { fl.f.RemoveRow(secondAccount.Hash, xyzDividend) }
+	cameLate := func(fl *fakeLive) {
+		at := strconv.Quote(schwabTime(probeNow.Add(-5 * oneDay)))
+		fl.more = append(fl.more, "84000000115")
+		fl.f.AddRows(thirdAccount.Hash, withKeys(baseTransaction, "activityId", "84000000115", "accountNumber", strconv.Quote(thirdAccount.Number),
+			"time", at, "tradeDate", at))
+	}
 	for _, tc := range []struct {
 		name          string
 		first, second []schwabtest.FixtureAccount // those whose window fails in each run
+		between       func(fl *fakeLive)
 		want          string
 		evidence      []string
 	}{
 		{
 			"an account's window failed", nil,
 			[]schwabtest.FixtureAccount{secondAccount},
-			"no row of the accounts read changed, went or came late since the last run; undecided: {account 2}'s rows, whose window failed",
+			gone,
+			"no row of the accounts compared changed, went or came late since the last run; undecided: {account 2}'s rows, whose window failed",
 			[]string{"{account 2}: " + failed, "{account 3}: 1 row as they were; 0 rows new to the state"},
 		},
 		{
 			"two accounts' windows failed", nil,
 			[]schwabtest.FixtureAccount{firstAccount, secondAccount},
-			"no row of the accounts read changed, went or came late since the last run; " +
+			gone,
+			"no row of the accounts compared changed, went or came late since the last run; " +
 				"undecided: {account 1}'s and {account 2}'s rows, whose windows failed",
 			[]string{"{account 1}: " + failed, "{account 2}: " + failed, "{account 3}: 1 row as they were; 0 rows new to the state"},
 		},
@@ -2268,15 +2284,30 @@ func testChangesOnTheFake(t *testing.T) {
 			"the windows of the accounts to compare failed",
 			[]schwabtest.FixtureAccount{thirdAccount},
 			[]schwabtest.FixtureAccount{firstAccount, secondAccount},
+			gone,
 			noRowCompared,
 			[]string{"{account 1}: " + failed, "{account 2}: " + failed, "{account 3}: 1 row, kept for the next run; no earlier run to compare with"},
+		},
+		{
+			"an account's window failed in both runs",
+			[]schwabtest.FixtureAccount{thirdAccount},
+			[]schwabtest.FixtureAccount{thirdAccount},
+			func(*fakeLive) {},
+			"no row of the accounts compared changed, went or came late since the last run; undecided: {account 3}'s rows, whose window failed",
+			[]string{"{account 1}: 0 rows as they were; 0 rows new to the state", "{account 2}: 2 rows as they were; 0 rows new to the state", "{account 3}: " + failed},
+		},
+		{
+			"an account's window failed in the last run, before a row came late to it",
+			[]schwabtest.FixtureAccount{thirdAccount},
+			nil, cameLate,
+			"no row of the accounts compared changed, went or came late since the last run; undecided: {account 3}'s rows, which no earlier run read",
+			[]string{"{account 2}: 2 rows as they were; 0 rows new to the state", "{account 3}: 2 rows, kept for the next run; no earlier run to compare with"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// {account 3}'s row of 10 days ago is read in both runs, unless
-			// its window fails, while others fail in the second, where
-			// {account 2}'s would show its XYZ dividend gone.
+			// its window fails.
 			fl := newProbeLive(t, probeNow, "Q12")
 			fail := func(accounts []schwabtest.FixtureAccount) {
 				var mu sync.Mutex
@@ -2302,7 +2333,9 @@ func testChangesOnTheFake(t *testing.T) {
 			if err := fl.runClean(t); err != nil {
 				t.Fatal(err)
 			}
-			fl.f.RemoveRow(secondAccount.Hash, xyzDividend)
+			// No earlier run read any account, whose window failed or not.
+			wantVerdicts(t, fl.report(t), map[string]string{"Q12": "inconclusive: no earlier run to compare with; this run's rows are kept for the next"})
+			tc.between(fl)
 			fail(tc.second)
 			later := fl.again(t, probeNow.AddDate(0, 0, 1), false)
 			later.more = fl.more
