@@ -360,6 +360,9 @@ func latency(reads []rowsRead, id string, filled time.Time, ahead bool) (how int
 // known: a read says nothing of a row dated after it unless an answer of
 // the watch held a row dated after it came, which shows that it does. Of a
 // fill whose row no read could show, the verdict says no more than that.
+// A verdict from rows that came starts its span at 0 when a row there at
+// the first read that could show it was there within as many minutes of its
+// fill as the least of theirs, or fewer.
 func probeFills(ctx context.Context, r *liveRun) verdict {
 	start := r.now()
 	// Every fill lies after the earliest entry that the orders' span takes
@@ -476,7 +479,15 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 	case ctx.Err() != nil && len(least) == 0:
 		v.answer = "inconclusive: the run stopped before a fill's row came"
 	case len(least) > 0:
-		v.answer = fmt.Sprintf("a fill's trade appears %s after the fill", minutesSpan(slices.Min(least), slices.Max(most)))
+		lo := slices.Min(least)
+		if len(upTo) > 0 && slices.Min(upTo) <= lo {
+			// A row there at the first read that could show it came within
+			// lo minutes of its fill or fewer, rounded up, and the rows that
+			// came in lo minutes or more, rounded down: it may have come
+			// sooner than any of them, and nothing bounds it from below.
+			lo = 0
+		}
+		v.answer = fmt.Sprintf("a fill's trade appears %s after the fill", minutesSpan(lo, slices.Max(most)))
 		if len(waited) > 0 {
 			v.answer += fmt.Sprintf(", though %s had none by the watch's end, %d minutes or more after it", plural(len(waited), "other fill"), slices.Min(waited))
 		}
