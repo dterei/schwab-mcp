@@ -8,6 +8,10 @@ updates:
     # are not delayed.
     cooldown:
       default-days: 7
+    # modernc.org/sqlite must build with exactly the libc its own go.mod
+    # requires, so libc moves only when sqlite does (make libc checks it).
+    ignore:
+      - dependency-name: modernc.org/libc
     groups:
       go-modules:
         patterns: ['*']

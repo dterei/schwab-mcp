@@ -8,6 +8,7 @@ linters:
     - depguard
     - durationcheck
     - errorlint
+    - forbidigo
     - gocritic
     - gosec
     - intrange
@@ -33,6 +34,43 @@ linters:
           deny:
             - pkg: github.com/dterei/schwab-mcp/internal/schwab/schwabtest
               desc: the fake Schwab is for tests only
+        # The store, the calendar and the masking work only on what they
+        # are given; reading from Schwab is the client's job. The list names
+        # net itself and each package of the standard library that dials
+        # without importing it here; net/url, which the store needs for its
+        # file: URIs, and net/netip stay allowed.
+        offline:
+          files:
+            - "**/internal/history/**"
+            - "**/internal/nyse/**"
+            - "**/internal/nytime/**"
+            - "**/internal/mask/**"
+          deny:
+            - pkg: net$
+              desc: this package does not reach the network
+            - pkg: net/http
+              desc: this package does not reach the network
+            - pkg: net/rpc
+              desc: this package does not reach the network
+            - pkg: net/smtp
+              desc: this package does not reach the network
+            - pkg: net/textproto
+              desc: this package does not reach the network
+            - pkg: crypto/tls
+              desc: this package does not reach the network
+            - pkg: log/syslog
+              desc: this package does not reach the network
+    forbidigo:
+      # Analyze types, so that a renamed import of os is caught too.
+      analyze-types: true
+      forbid:
+        # A process that has the store open must not open the store's files
+        # by path: on Linux and macOS, closing any descriptor of a file drops
+        # the locks that SQLite holds on it. Only internal/history is held
+        # to this (see the exclusions below); each exception there says why
+        # in a nolint:forbidigo comment.
+        - pattern: ^os\.(Open|OpenFile|ReadFile|Create|WriteFile|OpenInRoot|OpenRoot|DirFS)$
+          msg: the store's files are opened only by SQLite; take contents, not paths
     nolintlint:
       require-specific: true
       require-explanation: true
@@ -48,6 +86,11 @@ linters:
       # Tests use fake credentials and temp-dir paths on purpose.
       - path: _test\.go
         linters: [gosec]
+      # Only the store is kept from opening files by path, and its tests may.
+      - path-except: ^internal/history/
+        linters: [forbidigo]
+      - path: _test\.go
+        linters: [forbidigo]
       # Schwab is a proper noun, so an error message may start with it.
       - linters: [staticcheck]
         text: ST1005

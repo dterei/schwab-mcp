@@ -128,10 +128,11 @@ Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 You need Go 1.26 or newer.
 
 ```sh
-make check   # everything CI runs: go.mod tidiness, lint, tests, govulncheck
+make check   # everything CI runs: go.mod tidiness, libc, lint, tests, govulncheck
 make test    # tests with the race detector
 make fuzz    # fuzz each target in turn (needs Go 1.27)
 make lint    # golangci-lint, with go vet and the format check, and ShellCheck
+make libc    # check that modernc.org/libc is the one modernc.org/sqlite requires
 make fmt     # format the code
 make help    # all targets
 ```
@@ -176,9 +177,11 @@ What runs where:
 - **Linting** ([`.golangci.yml`](.golangci.yml)): golangci-lint v2 with its
   standard linters (go vet, staticcheck, errcheck, ineffassign, unused) plus
   ones for error wrapping, HTTP bodies and contexts, security (gosec) and
-  modern Go idioms, and a rule that keeps the fake Schwab out of the
-  programs. Code is formatted with gofumpt and goimports. ShellCheck checks
-  the shell scripts.
+  modern Go idioms; a rule that keeps the fake Schwab out of the programs,
+  one that keeps the network out of the store, the calendar and the masking
+  (`internal/history`, `internal/nyse`, `internal/nytime`, `internal/mask`),
+  and one that keeps `internal/history` from opening files by path. Code is
+  formatted with gofumpt and goimports. ShellCheck checks the shell scripts.
 - **Tests** run against the fake Schwab, `internal/schwab/schwabtest`, a
   server that each test starts for itself; only the live mode, below,
   reaches Schwab. They include each fuzz target's seeds, and the live mode's
@@ -186,12 +189,15 @@ What runs where:
 - **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), on pull
   requests, pushes to `main` and weekly: tests with the race detector on
   Linux, macOS and Windows with the latest Go, and on Linux with the oldest
-  supported Go; golangci-lint, ShellCheck and a `go mod tidy` check;
-  govulncheck.
+  supported Go; golangci-lint, ShellCheck, a `go mod tidy` check and
+  `make libc`, which checks that `modernc.org/libc` is the version that
+  `modernc.org/sqlite` requires; govulncheck.
 - **Dependabot** ([`.github/dependabot.yml`](.github/dependabot.yml)): weekly
   grouped updates for Go modules and GitHub Actions, each release left to age
-  a week first. Actions are referenced by major version (`@v7`), so their
-  minor and patch releases arrive without Dependabot and without the wait.
+  a week first, but for `modernc.org/libc`, which moves only with
+  `modernc.org/sqlite`. Actions are referenced by major version (`@v7`), so
+  their minor and patch releases arrive without Dependabot and without the
+  wait.
 - **Fuzzing**, by hand: `make fuzz` fuzzes each target in `internal/schwab`
   and `internal/mask` in turn, 30 seconds each unless `FUZZTIME` says
   otherwise, and stops at the first that fails. It needs Go 1.27. A failing

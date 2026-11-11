@@ -16,12 +16,13 @@ RACE ?= -race
 FUZZTIME ?= 30s
 FUZZPKGS := ./internal/schwab ./internal/mask
 
-.PHONY: all check build test fuzz cover lint fmt tidy vuln clean help
+.PHONY: all check build test fuzz cover lint libc fmt tidy vuln clean help
 
 all: check
 
 check: ## Everything CI checks
 	go mod tidy -diff
+	$(MAKE) --no-print-directory libc
 	$(MAKE) --no-print-directory lint
 	go test $(RACE) -shuffle=on ./...
 	$(GOVULNCHECK) ./...
@@ -55,6 +56,19 @@ lint: ## Run the linters, go vet, the format check and ShellCheck
 	$(GOLANGCI_LINT) run
 	@if command -v shellcheck >/dev/null; then shellcheck cmd/schwabtx/schedule/*.sh; \
 	else echo "shellcheck not found; skipping the shell scripts"; fi
+
+# modernc.org/sqlite builds only with the libc its own go.mod requires, so
+# the two move together (.github/dependabot.yml ignores libc). CI's lint job
+# runs this too.
+libc: ## Check that modernc.org/libc is the one modernc.org/sqlite requires
+	@sqlite=$$(go list -m -f '{{.Version}}' modernc.org/sqlite) && \
+	want=$$(go mod graph | awk -v m="modernc.org/sqlite@$$sqlite" \
+		'$$1 == m && $$2 ~ /^modernc\.org\/libc@/ { sub(/.*@/, "", $$2); print $$2 }') && \
+	have=$$(go list -m -f '{{.Version}}' modernc.org/libc) && \
+	if [ "$$have" != "$$want" ]; then \
+		echo "go.mod has modernc.org/libc $$have, but modernc.org/sqlite $$sqlite requires $${want:-no libc}; set libc to that version" >&2; \
+		exit 1; \
+	fi
 
 fmt: ## Format the code (gofumpt and goimports)
 	$(GOLANGCI_LINT) fmt
