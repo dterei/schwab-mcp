@@ -1035,10 +1035,10 @@ func ordersValues(w window) url.Values {
 // year. It answers with the bound that the lists show: longer than 60
 // days, when an order entered over orderOld ago comes back, and a year
 // when one entered orderYear ago or more does; under the age of the order
-// that its id finds, when the two days around its entry leave it out; from
-// the one to the other when both show; and "inconclusive" when the get by
-// id fails, when the answers say neither, or when an order at least as old
-// as the one left out came back.
+// that its id finds, rounded up to whole days, when the two days around its
+// entry leave it out; from the one to the other when both show; and
+// "inconclusive" when the get by id fails, when the answers say neither, or
+// when an order at least as old as the one left out came back.
 func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 	now := r.now()
 	days := func(d time.Duration) string { return plural(int(d/oneDay), "day") }
@@ -1126,7 +1126,10 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 		"every account's orders from 61 days back: "+allSaid,
 	)...)
 	// The lists disagree only when an order at least as old as the one
-	// left out came back; a younger one bounds the list from below.
+	// left out came back; a younger one bounds the list from below. The
+	// order left out bounds it from above, by its age rounded up to whole
+	// days, so that the bound holds it: a list kept for 90 days leaves out
+	// an order entered 90 days and some hours ago.
 	age := now.Sub(order.entered)
 	old, no := kept > orderOld, aroundRead && !listed
 	entered := days(age)
@@ -1136,8 +1139,8 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 			entered+" ago left it out", ev...)
 	case old && no:
 		return verdict{
-			answer: fmt.Sprintf("from %d to %s: an order entered %s ago came back, and two days around the entry of one entered %s ago leave it out, "+
-				"though its id finds it", kept/oneDay, entered, days(kept), entered),
+			answer: fmt.Sprintf("%s: an order entered %s ago came back, and two days around the entry of one entered %s ago leave it out, "+
+				"though its id finds it", spanOf(kept, age), days(kept), entered),
 			evidence: ev,
 		}
 	case kept >= orderYear:
@@ -1146,7 +1149,8 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 		return verdict{answer: "longer than 60 days: an order entered " + days(kept) + " ago came back", evidence: ev}
 	case no:
 		return verdict{
-			answer:   "under " + entered + ": two days around the entry of an order entered " + entered + " ago leave it out, though its id finds it",
+			answer: "under " + plural(roughly(age, true)) + ": two days around the entry of an order entered " + entered +
+				" ago leave it out, though its id finds it",
 			evidence: ev,
 		}
 	}

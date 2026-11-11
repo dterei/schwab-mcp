@@ -1180,20 +1180,22 @@ func testShapesOnTheFake(t *testing.T) {
 // leaves out the order that its id finds, one kept a few days longer, which
 // gives back an order entered 62 days ago, too young to count as old, and
 // one kept for 120 days, which leaves out the order too, the verdict giving
-// the bound that each shows, under the order's age; an order entered weeks
-// before its fill, which a list kept for a year gives back when asked for
-// around its entry, not its fill, one entered over a year ago, which no
-// list need give back, and one that says it was entered after its fill; the
-// youngest execution past 67 days, which is the one asked about, though an
-// older order that comes back sets the bound; a list that holds an order of
-// nearly a year, the one bound that shows a year; the list of the last year
-// refused, which the two days around the entry settle alone; lists that
-// give back an order younger than the one they leave out, which bound how
-// long they keep orders from both sides: a working order of 100 days, or
-// another order of the two days around the entry; and lists that disagree,
-// giving back an order entered an hour before the one they leave out.
+// the bound that each shows, under the order's age rounded up to whole
+// days, which holds it, as a list kept for 90 days shows of an order of 90
+// days and 6 hours; an order entered weeks before its fill, which a list
+// kept for a year gives back when asked for around its entry, not its
+// fill, one entered over a year ago, which no list need give back, and one
+// that says it was entered after its fill; the youngest execution past 67
+// days, which is the one asked about, though an older order that comes back
+// sets the bound; a list that holds an order of nearly a year, the one
+// bound that shows a year; the list of the last year refused, which the
+// two days around the entry settle alone; lists that give back an order
+// younger than the one they leave out, which bound how long they keep
+// orders from both sides: a working order of 100 days, or another order of
+// the two days around the entry; and lists that disagree, giving back an
+// order entered an hour before the one they leave out.
 func testOrdersDepthOnTheFake(t *testing.T) {
-	const unserved172 = "under 172 days: two days around the entry of an order entered 172 days ago leave it out, though its id finds it"
+	const unserved172 = "under 173 days: two days around the entry of an order entered 172 days ago leave it out, though its id finds it"
 	t.Run("a list kept for 60 days", func(t *testing.T) {
 		t.Parallel()
 		fl := newProbeLive(t, probeNow, "Q1", "Q5")
@@ -1326,6 +1328,23 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 		}
 		wantVerdicts(t, fl.report(t), map[string]string{"Q5": unserved172})
 	})
+	t.Run("a list kept for 90 days", func(t *testing.T) {
+		t.Parallel()
+		// It leaves out the order of an execution 90 days and 6 hours old,
+		// entered 5 minutes before it: the bound, rounded up to whole
+		// days, holds the order's age.
+		fl := newProbeLive(t, probeNow, "Q1", "Q5")
+		picked := order(1004517700108, 90*oneDay+6*time.Hour)
+		execution(fl, 84000000713, picked)
+		serveOrders(fl, []fakeOrder{metaSaleOrder, picked}, keptFor(90*oneDay))
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q5": "under 91 days: two days around the entry of an order entered 90 days ago leave it out, though its id finds it"})
+		wantEvidence(t, report, "Q5", "the order of an execution 90 days old, got by its id, was entered 90 days ago",
+			"two days around the order's entry: 200, 0 orders, without the order")
+	})
 	t.Run("the list of the last year refused", func(t *testing.T) {
 		t.Parallel()
 		// The two days around the entry hold the order, which settles it
@@ -1374,7 +1393,7 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q5": "from 100 to 172 days: an order entered 100 days ago came back, " +
+		wantVerdicts(t, report, map[string]string{"Q5": "from 100 to 173 days: an order entered 100 days ago came back, " +
 			"and two days around the entry of one entered 172 days ago leave it out, though its id finds it"})
 		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 0 orders, without the order",
 			"the account's orders of the last year: 200, 1 order, some entered more than 67 days ago")
@@ -1392,7 +1411,7 @@ func testOrdersDepthOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q5": "from 171 to 172 days: an order entered 171 days ago came back, " +
+		wantVerdicts(t, report, map[string]string{"Q5": "from 171 to 173 days: an order entered 171 days ago came back, " +
 			"and two days around the entry of one entered 172 days ago leave it out, though its id finds it"})
 		wantEvidence(t, report, "Q5", "two days around the order's entry: 200, 1 order, without the order",
 			"the account's orders of the last year: 200, 1 order, some entered more than 67 days ago")
