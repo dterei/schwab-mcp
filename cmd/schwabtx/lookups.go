@@ -659,11 +659,20 @@ func positionsTable(as []namedAccount, show bool) ([]column, [][]string, []strin
 
 // positionsSummary returns the line before the positions table: how many
 // positions in how many accounts, and that cash, which is not a position,
-// is left out.
+// is left out. An account whose positions could not be read is counted
+// apart, since how many it holds is not known.
 func positionsSummary(as []namedAccount) string {
-	n := 0
+	n, unread := 0, 0
 	for _, a := range as {
+		if unreadable(a.account.Problems, "securitiesAccount.positions") {
+			unread++
+			continue
+		}
 		n += len(a.account.SecuritiesAccount.Positions)
 	}
-	return plural(n, "position") + " in " + plural(len(as), "account") + ", not counting cash (see schwabtx balances)"
+	s := plural(n, "position") + " in " + plural(len(as)-unread, "account") + ", not counting cash (see schwabtx balances)"
+	if unread > 0 {
+		s += "; the positions of " + plural(unread, "account") + " could not be read"
+	}
+	return s
 }

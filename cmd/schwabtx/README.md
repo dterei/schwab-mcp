@@ -166,7 +166,8 @@ TOTAL                                  5465.51  5465.99     -0.48
   are not the accounts' value: `balances` shows the cash and the value.
 - A figure is `-` as in `balances`, and so is a COST that needs it. An
   account whose positions could not be read has one row, with the symbol
-  `?`.
+  `?`, and the count before the table says how many such accounts it
+  leaves out.
 - Today's profit or loss is left out. For some stocks and ETFs, Schwab's
   figure counts the whole cost basis as the day's loss, and a position sold
   to open that day can show its whole value (see

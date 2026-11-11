@@ -1632,6 +1632,46 @@ TOTAL                               -     -         -
 	}
 }
 
+// The line before the positions table counts the positions, and the
+// accounts whose positions could be read. An account whose positions could
+// not be read, whose row in the table is ?, is counted apart, not as one
+// that holds none.
+func TestPositionsSummary(t *testing.T) {
+	const position = `{"longQuantity":1,"shortQuantity":0,"averagePrice":1,"marketValue":1,"longOpenProfitLoss":0,` +
+		`"instrument":{"assetType":"EQUITY","symbol":"X"}}`
+	two := holdingAccount(position + "," + position)
+	unread := `{"securitiesAccount":{"type":"MARGIN","accountNumber":"33334444","positions":{"longQuantity":1}}}`
+	// Positions sent twice, of which the record keeps one copy, uncertain.
+	twice := strings.Replace(holdingAccount(position), `"positions":[`, `"positions":[`+position+`],"positions":[`, 1)
+	for _, tc := range []struct {
+		accounts []string
+		want     string
+	}{
+		{[]string{two}, "2 positions in 1 account, not counting cash (see schwabtx balances)"},
+		{[]string{two, holdingAccount(position), holdingAccount("")}, "3 positions in 3 accounts, not counting cash (see schwabtx balances)"},
+		{
+			[]string{two, unread},
+			"2 positions in 1 account, not counting cash (see schwabtx balances); the positions of 1 account could not be read",
+		},
+		{
+			[]string{unread, two, `null`},
+			"2 positions in 1 account, not counting cash (see schwabtx balances); the positions of 2 accounts could not be read",
+		},
+		{
+			[]string{two, twice},
+			"2 positions in 1 account, not counting cash (see schwabtx balances); the positions of 1 account could not be read",
+		},
+	} {
+		var as []namedAccount
+		for _, js := range tc.accounts {
+			as = append(as, namedAccount{account: account(t, js)})
+		}
+		if got := positionsSummary(as); got != tc.want {
+			t.Errorf("%d accounts: %q, want %q", len(as), got, tc.want)
+		}
+	}
+}
+
 // A position whose figure could not be read, or whose side's open profit or
 // loss is missing, is named in the warning, and its row has - where the
 // figure is needed, as do the totals.
