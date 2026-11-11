@@ -274,12 +274,12 @@ type fillSeen struct {
 
 // A rowsRead is one of Q13's reads of an account's TRADE rows: when it was
 // sent and when its answer came, which bound when Schwab read the rows; the
-// end of its window; and the orderIds of the rows it got, or nil when it
-// failed.
+// end of its window; and the orderIds of the rows it got, each with the
+// latest tradeDate of its rows, or nil when it failed.
 type rowsRead struct {
 	sent, answered time.Time
 	end            time.Time
-	orders         map[string]bool
+	orders         map[string]time.Time
 }
 
 // How the row of a fill stands at the end of Q13's watch.
@@ -300,19 +300,32 @@ const (
 // counts from when it was sent, and a read with it until its answer came.
 // A read that failed says nothing, nor does one after the fill whose window
 // ended before the row's tradeDate can, lastDated(filled): it could not
-// have shown the row. A read whose answer came before the fill does not
-// hold its row, though it may hold the row of an earlier execution of the
-// same order.
-func latency(reads []rowsRead, id string, filled time.Time) (how int, least, most time.Duration) {
+// have shown the row. Nor, unless ahead, does one sent before the later of
+// the fill and the row's tradeDate, as the first read answered after the
+// fill that held the row gives it, or before lastDated(filled) for a row
+// that none held: whether Schwab serves the part of a window past its
+// request is not known, and ahead says that an answer held a row dated
+// after it came, which shows that it does. A read whose answer came before
+// the fill does not hold its row, though it may hold the row of an earlier
+// execution of the same order.
+func latency(reads []rowsRead, id string, filled time.Time, ahead bool) (how int, least, most time.Duration) {
+	dated := lastDated(filled) // the later of the fill and the row's tradeDate
+	for _, rd := range reads {
+		if d, ok := rd.orders[id]; ok && !rd.answered.Before(filled) {
+			dated = maxTime(filled, d)
+			break
+		}
+	}
 	var before time.Time // when the last read without the row was sent
 	for _, rd := range reads {
+		_, held := rd.orders[id]
 		switch {
 		case rd.orders == nil:
-		case rd.orders[id] && !rd.answered.Before(filled) && before.IsZero():
+		case held && !rd.answered.Before(filled) && before.IsZero():
 			return rowThere, 0, rd.answered.Sub(filled)
-		case rd.orders[id] && !rd.answered.Before(filled):
+		case held && !rd.answered.Before(filled):
 			return rowCame, max(before.Sub(filled), 0), rd.answered.Sub(filled)
-		case rd.sent.Before(filled) || !rd.end.Before(lastDated(filled)):
+		case rd.sent.Before(filled) || !rd.end.Before(lastDated(filled)) && (ahead || !rd.sent.Before(dated)):
 			before = rd.sent
 		}
 	}
@@ -335,7 +348,11 @@ func latency(reads []rowsRead, id string, filled time.Time) (how int, least, mos
 // row, bounded by when the read before was sent and when that read's
 // answer came, as latency says. A row there at the first read that could
 // show it bounds the time only from above, and a row that never came only
-// from below; a read that failed says nothing.
+// from below; a read that failed says nothing. Whether Schwab serves the
+// part of a window past its request, where the row of such a fill may lie,
+// is not known: a read says nothing of a row dated after it unless an
+// answer of the watch held a row dated after it came, which shows that it
+// does.
 func probeFills(ctx context.Context, r *liveRun) verdict {
 	start := r.now()
 	// Every fill lies after the earliest entry that the orders' span takes
@@ -344,6 +361,7 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 	from := nyMidnight(start.Add(-fillsOrdersBack), 0)
 	fills := map[string]*fillSeen{} // by the order's id
 	reads := map[int][]rowsRead{}   // by the account's place
+	ahead := false                  // whether an answer held a row dated after it came
 	polls, failedOrders, failedRows := 0, 0, 0
 	for poll := range fillsPolls {
 		at := start.Add(time.Duration(poll) * fillsEvery)
@@ -385,17 +403,21 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 			if err != nil {
 				panic(err) // a few days is always a window
 			}
+			var latest time.Time // the latest tradeDate of the rows it got
 			if rep, err := r.read(ctx, a.endpoint("/transactions"), a.path()+"/transactions", q, "transactions"); err == nil {
 				if rows, err := decodeList[Transaction](rep.body); err == nil {
-					rd.orders = map[string]bool{}
+					rd.orders = map[string]time.Time{}
 					for _, row := range rows {
+						latest = maxTime(latest, row.TradeDate)
 						if row.OrderID != 0 {
-							rd.orders[strconv.FormatInt(row.OrderID, 10)] = true
+							id := strconv.FormatInt(row.OrderID, 10)
+							rd.orders[id] = maxTime(rd.orders[id], row.TradeDate)
 						}
 					}
 				}
 			}
 			rd.answered = r.now()
+			ahead = ahead || latest.After(rd.answered)
 			if rd.orders == nil {
 				failedRows++
 			}
@@ -414,7 +436,7 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 	var least, most, upTo, waited []int
 	unread := 0
 	for id, f := range fills {
-		switch how, lo, hi := latency(reads[f.account], id, f.filled); how {
+		switch how, lo, hi := latency(reads[f.account], id, f.filled, ahead); how {
 		case rowCame:
 			least, most = append(least, int(lo.Minutes())), append(most, minutes(hi))
 		case rowThere:
@@ -456,7 +478,7 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 		v.answer = fmt.Sprintf("inconclusive: every fill's row was there at the first read that could show it, within %d minutes of its fill; "+
 			"place a trade just before the watch to measure it", slices.Max(upTo))
 	default:
-		v.answer = "inconclusive: no read of the rows went after a fill"
+		v.answer = "inconclusive: no read after a fill could show its row"
 	}
 	return v
 }
@@ -791,9 +813,11 @@ func TestMoveOf(t *testing.T) {
 // below, by when the last read was sent. A read in flight at the fill,
 // sent before it and answered after it, may hold its row, or go without
 // it. A read that failed says nothing, nor does one after the fill whose
-// window ends before the row's tradeDate can, and a read answered before
-// the fill does not hold its row, though it may hold the row of an earlier
-// execution of the order.
+// window ends before the row's tradeDate can, nor, unless an answer held a
+// row dated after it came, one sent before the row's tradeDate, or before
+// the latest it can bear for a row that never came; and a read answered
+// before the fill does not hold its row, though it may hold the row of an
+// earlier execution of the order.
 func TestFillLatency(t *testing.T) {
 	base := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC) // 11:00 in New York
 	const id = "1004517700001"
@@ -807,9 +831,9 @@ func TestFillLatency(t *testing.T) {
 			sent := base.Add(time.Duration(i) * time.Minute)
 			rd := rowsRead{sent: sent, answered: sent.Add(5 * time.Second), end: sent}
 			if !slices.Contains(failed, i) {
-				rd.orders = map[string]bool{"1": true}
+				rd.orders = map[string]time.Time{"1": {}}
 				if from >= 0 && i >= from {
-					rd.orders[id] = true
+					rd.orders[id] = time.Time{}
 				}
 			}
 			rs = append(rs, rd)
@@ -831,33 +855,49 @@ func TestFillLatency(t *testing.T) {
 	}
 	late[3].end = lastDated(evening)
 	never := slices.Clone(late)
-	never[3] = rowsRead{sent: late[3].sent, answered: late[3].answered, end: late[3].end, orders: map[string]bool{}}
+	never[3] = rowsRead{sent: late[3].sent, answered: late[3].answered, end: late[3].end, orders: map[string]time.Time{}}
+	// The same reads, each of a window that reaches the row's last date,
+	// the last holding the row, dated as given.
+	reaching := func(dated time.Time) []rowsRead {
+		rs := slices.Clone(late)
+		for i := range rs {
+			rs[i].end = lastDated(evening)
+		}
+		rs[3].orders = map[string]time.Time{"1": {}, id: dated}
+		return rs
+	}
+	nextMidnight := nyMidnight(evening, 1)
 	for _, tc := range []struct {
 		name        string
 		reads       []rowsRead
 		filled      time.Time
+		ahead       bool // whether an answer held a row dated after it came
 		how         int
 		least, most time.Duration
 	}{
-		{"there at the first read", reads(4, 0), base.Add(-10 * time.Minute), rowThere, 0, 10*time.Minute + 5*time.Second},
-		{"there at the first read that went", reads(4, 1, 0), base.Add(-10 * time.Minute), rowThere, 0, 11*time.Minute + 5*time.Second},
-		{"came", reads(4, 3), base.Add(30 * time.Second), rowCame, 90 * time.Second, 155 * time.Second},
-		{"came, the read that held it slow", slow, base.Add(30 * time.Second), rowCame, 90 * time.Second, 200 * time.Second},
-		{"came after the fill and a read", reads(4, 2), base.Add(90 * time.Second), rowCame, 0, 35 * time.Second},
-		{"there at a read sent before the fill and answered after it", reads(4, 0), base.Add(2 * time.Second), rowThere, 0, 3 * time.Second},
-		{"came at a read sent before the fill and answered after it", reads(4, 1), base.Add(time.Minute + 2*time.Second), rowCame, 0, 3 * time.Second},
-		{"came after a read sent before the fill and answered after it", reads(4, 1), base.Add(2 * time.Second), rowCame, 0, 63 * time.Second},
-		{"came after a read that failed", reads(4, 3, 2), base.Add(30 * time.Second), rowCame, 30 * time.Second, 155 * time.Second},
-		{"an earlier execution's row before the fill", reads(4, 0), base.Add(90 * time.Second), rowCame, 0, 35 * time.Second},
-		{"came after reads that could not show it", late, evening, rowCame, 0, 2*time.Minute + 45*time.Second},
-		{"missing", reads(4, -1), base.Add(-10 * time.Minute), rowMissing, 13 * time.Minute, 0},
-		{"missing, the last read failed", reads(4, -1, 3), base.Add(-10 * time.Minute), rowMissing, 12 * time.Minute, 0},
-		{"missing, after reads that could not show it", never, evening, rowMissing, 2*time.Minute + 40*time.Second, 0},
-		{"no read went", reads(4, 0, 0, 1, 2, 3), base.Add(-10 * time.Minute), rowUnread, 0, 0},
-		{"no read went after the fill", reads(4, -1, 2, 3), base.Add(90 * time.Second), rowUnread, 0, 0},
-		{"no read after the fill could show it", never[:3], evening, rowUnread, 0, 0},
+		{"there at the first read", reads(4, 0), base.Add(-10 * time.Minute), false, rowThere, 0, 10*time.Minute + 5*time.Second},
+		{"there at the first read that went", reads(4, 1, 0), base.Add(-10 * time.Minute), false, rowThere, 0, 11*time.Minute + 5*time.Second},
+		{"came", reads(4, 3), base.Add(30 * time.Second), false, rowCame, 90 * time.Second, 155 * time.Second},
+		{"came, the read that held it slow", slow, base.Add(30 * time.Second), false, rowCame, 90 * time.Second, 200 * time.Second},
+		{"came after the fill and a read", reads(4, 2), base.Add(90 * time.Second), false, rowCame, 0, 35 * time.Second},
+		{"there at a read sent before the fill and answered after it", reads(4, 0), base.Add(2 * time.Second), false, rowThere, 0, 3 * time.Second},
+		{"came at a read sent before the fill and answered after it", reads(4, 1), base.Add(time.Minute + 2*time.Second), false, rowCame, 0, 3 * time.Second},
+		{"came after a read sent before the fill and answered after it", reads(4, 1), base.Add(2 * time.Second), false, rowCame, 0, 63 * time.Second},
+		{"came after a read that failed", reads(4, 3, 2), base.Add(30 * time.Second), false, rowCame, 30 * time.Second, 155 * time.Second},
+		{"an earlier execution's row before the fill", reads(4, 0), base.Add(90 * time.Second), false, rowCame, 0, 35 * time.Second},
+		{"came after reads that could not show it", late, evening, false, rowCame, 0, 2*time.Minute + 45*time.Second},
+		{"came after reads that reach its last date, dated by the fill", reaching(time.Time{}), evening, false, rowCame, 100 * time.Second, 165 * time.Second},
+		{"came after reads that reach its date", reaching(nextMidnight), evening, true, rowCame, 100 * time.Second, 165 * time.Second},
+		{"came after reads that reach its date, not known to serve it", reaching(nextMidnight), evening, false, rowCame, 0, 165 * time.Second},
+		{"missing", reads(4, -1), base.Add(-10 * time.Minute), false, rowMissing, 13 * time.Minute, 0},
+		{"missing, the last read failed", reads(4, -1, 3), base.Add(-10 * time.Minute), false, rowMissing, 12 * time.Minute, 0},
+		{"missing, after reads that could not show it", never, evening, true, rowMissing, 2*time.Minute + 40*time.Second, 0},
+		{"no read went", reads(4, 0, 0, 1, 2, 3), base.Add(-10 * time.Minute), false, rowUnread, 0, 0},
+		{"no read went after the fill", reads(4, -1, 2, 3), base.Add(90 * time.Second), false, rowUnread, 0, 0},
+		{"no read after the fill could show it", never[:3], evening, true, rowUnread, 0, 0},
+		{"no read after the fill known to serve its last date", never, evening, false, rowUnread, 0, 0},
 	} {
-		if how, least, most := latency(tc.reads, id, tc.filled); how != tc.how || least != tc.least || most != tc.most {
+		if how, least, most := latency(tc.reads, id, tc.filled, tc.ahead); how != tc.how || least != tc.least || most != tc.most {
 			t.Errorf("%s: latency = %d, %v, %v; want %d, %v, %v", tc.name, how, least, most, tc.how, tc.least, tc.most)
 		}
 	}

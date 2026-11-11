@@ -175,8 +175,8 @@ func (s *Server) Client() *http.Client { return s.srv.Client() }
 func (s *Server) Addr() string { return s.srv.Listener.Addr().String() }
 
 // SetNow sets the fake's clock, time.Now unless set, by which tokens and
-// codes lapse. The fake calls now under its lock, so now must not call the
-// Server.
+// codes lapse, and up to which TransactionRules.UpToNow serves a window.
+// The fake calls now under its lock, so now must not call the Server.
 func (s *Server) SetNow(now func() time.Time) {
 	s.t.Helper()
 	if now == nil {

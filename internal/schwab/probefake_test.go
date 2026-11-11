@@ -1999,18 +1999,22 @@ func testChangesCutOnTheFake(t *testing.T) {
 // changed. A window ends days after its run, past the midnight that may
 // date an evening fill: such a fill at 20:30, dated the next midnight,
 // before a run at 22:00, is held by that run's window, as a window by time
-// would hold it, and is shown as it was, changed or gone 12 days later, or
-// late when it posted after that run; such a fill at 21:30 is shown changed
-// too, and, when it posted after that run, too near it to be shown late,
-// which leaves nothing undecided. Such a fill, which the last run held,
-// before the start of a window that holds it by its tradeDate, the state
-// keeps, which leaves nothing undecided either; and such a fill before the
-// start of the last run's window, dated inside it, a run an hour later
-// finds new. The fill at 20:30, left out of the state of an earlier version
-// whose window ended at the run, which kept no other end, 12 days later
-// as it was, changed or gone, is not compared: the run starts afresh. Such
-// a version reads the state of this one as of a window that ended at the
-// run.
+// would hold it, and is shown as it was, changed or gone 12 days later.
+// When it posted after that run, it is shown late beside such a fill at
+// 21:30 that the run held, which shows that Schwab serves a window past the
+// request; alone, it is left undecided whether it came late, as it is when
+// it was there all along, under a Schwab that serves a window only up to
+// the request, which left it out of that run's answer. Such a fill at 21:30
+// is shown changed too, and, when it posted after that run, too near it to
+// be shown late, which leaves nothing undecided. Such a fill, which the
+// last run held, before the start of a window that holds it by its
+// tradeDate, the state keeps, which leaves nothing undecided either; and
+// such a fill before the start of the last run's window, dated inside it,
+// a run an hour later finds new. The fill at 20:30, left out of the state
+// of an earlier version whose window ended at the run, which kept no other
+// end, 12 days later as it was, changed or gone, is not compared: the run
+// starts afresh. Such a version reads the state of this one as of a window
+// that ended at the run.
 func testChangesByTradeDateOnTheFake(t *testing.T) {
 	byTradeDate := schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate}
 	for _, tc := range []struct {
@@ -2089,33 +2093,46 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 	}
 	// Evening fills at 20:30 and 21:30 in New York, dated the next midnight.
 	const at2030, at2130 = `"2026-08-21T00:30:00+0000"`, `"2026-08-21T01:30:00+0000"`
+	const unserved = "1 row new to the state, dated after the last run, whose window Schwab may have served only up to the request, so not shown late"
 	for _, tc := range []struct {
 		name, time string
 		after      string // what the fill does after the last run: "changed", "went", or "posted", when it was not there before
+		upTo       bool   // whether Schwab serves a window only up to the request
+		beside     bool   // whether another such fill, at 21:30, is there at both runs
 		want, line string
 	}{
 		{
-			"an evening fill before the last run, dated the next midnight, as it was", at2030, "",
+			"an evening fill before the last run, dated the next midnight, as it was", at2030, "", false, false,
 			"no row changed, went or came late since the last run", "3 rows as they were; 0 rows new to the state",
 		},
 		{
-			"an evening fill before the last run, dated the next midnight, changed", at2030, "changed",
+			"an evening fill before the last run, dated the next midnight, as it was, in windows served only up to the request", at2030, "", true, false,
+			"no row changed or went since the last run; undecided: whether 1 row came late",
+			"2 rows as they were; 1 row new to the state; " + unserved,
+		},
+		{
+			"an evening fill before the last run, dated the next midnight, changed", at2030, "changed", false, false,
 			"rows changed after they posted", "2 rows as they were; 0 rows new to the state; 1 row changed, 12 days old, in netAmount (1)",
 		},
 		{
-			"an evening fill before the last run, dated the next midnight, gone", at2030, "went",
+			"an evening fill before the last run, dated the next midnight, gone", at2030, "went", false, false,
 			"rows went", "2 rows as they were; 0 rows new to the state; 1 row gone",
 		},
 		{
-			"an evening fill before the last run, dated the next midnight, posted after it", at2030, "posted",
-			"rows came late", "2 rows as they were; 1 row new to the state; 1 row came late, posted from 1 hour to 13 days after its time",
+			"an evening fill before the last run, dated the next midnight, posted after it", at2030, "posted", false, false,
+			"no row changed or went since the last run; undecided: whether 1 row came late",
+			"2 rows as they were; 1 row new to the state; " + unserved,
 		},
 		{
-			"an evening fill half an hour before the last run, dated the next midnight, changed", at2130, "changed",
+			"an evening fill before the last run, dated the next midnight, posted after it, beside one that the last run held", at2030, "posted", false, true,
+			"rows came late", "3 rows as they were; 1 row new to the state; 1 row came late, posted from 1 hour to 13 days after its time",
+		},
+		{
+			"an evening fill half an hour before the last run, dated the next midnight, changed", at2130, "changed", false, false,
 			"rows changed after they posted", "2 rows as they were; 0 rows new to the state; 1 row changed, 12 days old, in netAmount (1)",
 		},
 		{
-			"an evening fill half an hour before the last run, dated the next midnight, posted after it", at2130, "posted",
+			"an evening fill half an hour before the last run, dated the next midnight, posted after it", at2130, "posted", false, false,
 			"no row changed, went or came late since the last run",
 			"2 rows as they were; 1 row new to the state; 1 row from the hour before the last run, too near it to be shown late",
 		},
@@ -2124,21 +2141,29 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 			t.Parallel()
 			first := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC) // 22:00 in New York
 			fl := newProbeLive(t, first, "Q12")
-			fl.f.SetTransactionRules(byTradeDate)
+			rules := byTradeDate
+			rules.UpToNow = tc.upTo
+			fl.f.SetTransactionRules(rules)
 			fl.more = append(fl.more, "84000000105")
 			fill := func(changes ...string) string {
 				return fixtureRow(t, metaSale, append([]string{"activityId", "84000000105", "time", tc.time, "tradeDate", `"2026-08-21T04:00:00+0000"`}, changes...)...)
 			}
-			kept := "3 rows"
-			if tc.after == "posted" {
-				kept = "2 rows"
-			} else {
+			kept := 2 // the rows that the first run's answer holds
+			if tc.after != "posted" {
 				fl.f.AddRows(secondAccount.Hash, fill())
+				if !tc.upTo {
+					kept++
+				}
+			}
+			if tc.beside {
+				fl.more = append(fl.more, "84000000117")
+				fl.f.AddRows(secondAccount.Hash, fixtureRow(t, metaSale, "activityId", "84000000117", "time", at2130, "tradeDate", `"2026-08-21T04:00:00+0000"`))
+				kept++
 			}
 			if err := fl.runClean(t); err != nil {
 				t.Fatal(err)
 			}
-			wantEvidence(t, fl.report(t), "Q12", "{account 2}: "+kept+", kept for the next run; no earlier run to compare with")
+			wantEvidence(t, fl.report(t), "Q12", "{account 2}: "+plural(kept, "row")+", kept for the next run; no earlier run to compare with")
 			switch tc.after {
 			case "changed":
 				fl.f.ReplaceRow(secondAccount.Hash, 84000000105, fill("netAmount", "603.37"))
@@ -3535,22 +3560,24 @@ func watchFillsWith(t *testing.T, start time.Time, rules schwabtest.TransactionR
 // tradeDate; a fill 23 seconds past the minute, whose row comes between the
 // polls 1m37s and 2m37s after it, which the verdict rounds out to whole
 // minutes; a Friday evening's fill whose row, dated Monday, windows by
-// tradeDate take in only past the poll, the evening's before Thanksgiving,
-// dated the Friday after it, and a Friday evening's dated the Thursday
-// after, as after three holidays, which windows that leave out a row at
-// their end take in only past that midnight; a row that comes while a slow
-// read of another account's holds a poll up, and one that comes after the
-// read that it held up, which the bounds take from when each read went and
-// was answered, not from the poll's start; a fill in windows that leave out
-// a row at their end, which a window must end after the fill to hold; an
-// evening fill whose reads of orders fail, so that the reads of rows after
-// it end at their polls and cannot show its row; an order filled three
-// hours before the watch, whose row is there from the start, and one filled
-// at 12:30 the day before, whose row, there from the start too and dated
-// that day's midnight, the reads of rows must reach back to, by its time or
-// by its tradeDate; a fill whose row never comes, alone, beside one whose
-// row comes, and beside one whose row is there from the start; a watch
-// whose every read of rows fails; and a watch in which nothing fills.
+// tradeDate take in only past the poll, which no read could show if Schwab
+// served the windows only up to the request, as no answer then shows that
+// it serves the rest; the evening's before Thanksgiving, dated the Friday
+// after it, and a Friday evening's dated the Thursday after, as after three
+// holidays, which windows that leave out a row at their end take in only
+// past that midnight; a row that comes while a slow read of another
+// account's holds a poll up, and one that comes after the read that it held
+// up, which the bounds take from when each read went and was answered, not
+// from the poll's start; a fill in windows that leave out a row at their
+// end, which a window must end after the fill to hold; an evening fill
+// whose reads of orders fail, so that the reads of rows after it end at
+// their polls and cannot show its row; an order filled three hours before
+// the watch, whose row is there from the start, and one filled at 12:30 the
+// day before, whose row, there from the start too and dated that day's
+// midnight, the reads of rows must reach back to, by its time or by its
+// tradeDate; a fill whose row never comes, alone, beside one whose row
+// comes, and beside one whose row is there from the start; a watch whose
+// every read of rows fails; and a watch in which nothing fills.
 func testFillsOnTheFake(t *testing.T) {
 	soon := probeNow.Add(5 * time.Minute) // 11:05 in New York, a Tuesday
 	t.Run("a fill", func(t *testing.T) {
@@ -3600,6 +3627,19 @@ func testFillsOnTheFake(t *testing.T) {
 		fl := watchFills(t, friday, schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate},
 			watchedFill{filled: friday.Add(5 * time.Minute), tradeDate: monday, after: 150 * time.Second})
 		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "a fill's trade appears from 2 to 3 minutes after the fill"})
+	})
+	t.Run("a Friday evening's fill dated Monday, in windows by tradeDate served only up to the request", func(t *testing.T) {
+		t.Parallel()
+		// No read holds the row before Monday, nor does an answer show
+		// that Schwab serves a window past the request: no read could
+		// show it.
+		friday := time.Date(2026, 9, 11, 23, 0, 0, 0, time.UTC) // 19:00 in New York
+		monday := time.Date(2026, 9, 14, 4, 0, 0, 0, time.UTC)
+		fl := watchFills(t, friday, schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate, UpToNow: true},
+			watchedFill{filled: friday.Add(5 * time.Minute), tradeDate: monday, after: 150 * time.Second})
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: no read after a fill could show its row"})
+		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "filled orders whose rows no read after the fill could show: 1")
 	})
 	t.Run("the evening's fill before Thanksgiving, dated the Friday, in windows by tradeDate", func(t *testing.T) {
 		t.Parallel()
@@ -3723,7 +3763,7 @@ func testFillsOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: no read of the rows went after a fill"})
+		wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: no read after a fill could show its row"})
 		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "reads that failed: 0 of the orders, 90 of the rows",
 			"filled orders whose rows no read after the fill could show: 1")
 	})

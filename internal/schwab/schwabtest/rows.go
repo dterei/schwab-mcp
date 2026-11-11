@@ -57,6 +57,12 @@ type TransactionRules struct {
 	// start or end. Whether Schwab's bounds are inclusive is not known;
 	// inclusive is the worst case for rows seen twice.
 	ExclusiveStart, ExclusiveEnd bool
+	// UpToNow serves a window that ends after the fake's clock only up to
+	// the clock, leaving out the rows that it takes by a later time, as a
+	// Schwab that takes a window ending after the request but serves it
+	// only up to the request would. Whether Schwab serves the rest is not
+	// known.
+	UpToNow bool
 	// Order is the order of an answer's rows.
 	Order Order
 	// RequireTypes refuses with 400 a request without types, as Schwab
@@ -372,6 +378,11 @@ func (s *Server) transactions(hash string, q url.Values) answer {
 	}
 	if acct.NoHistory {
 		return s.built(http.StatusOK, []byte("[]"))
+	}
+	if rules.UpToNow {
+		if now := s.now(); end.After(now) {
+			end = now
+		}
 	}
 
 	symbol := q.Get("symbol")

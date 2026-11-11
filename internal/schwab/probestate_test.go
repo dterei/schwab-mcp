@@ -413,17 +413,20 @@ type rowsState struct {
 
 // An accountRows is one account's window as the last run asked for it, when
 // that run's probe began, whether its answer was complete, under pageCap
-// rows, and its rows, by the digest of each one's activityId. The state
-// keeps when the probe began as "end", where the versions of the probe
-// whose window ended then kept its end: they read the window as ending at
-// the run, narrower than it is, which leaves the rows that only the rest
-// of it held undecided, rather than shown late or gone. It keeps the
-// window's end as "until", which a state kept by such a version lacks.
+// rows, whether it held a row dated after it came, which shows that Schwab
+// serves a window past its request, and its rows, by the digest of each
+// one's activityId. The state keeps when the probe began as "end", where
+// the versions of the probe whose window ended then kept its end: they read
+// the window as ending at the run, narrower than it is, which leaves the
+// rows that only the rest of it held undecided, rather than shown late or
+// gone. It keeps the window's end as "until", which a state kept by such a
+// version lacks.
 type accountRows struct {
 	Start    time.Time          `json:"start"`
 	End      time.Time          `json:"until,omitzero"`
 	At       time.Time          `json:"end"`
 	Complete bool               `json:"complete"`
+	Ahead    bool               `json:"ahead"`
 	Rows     map[string]rowSeen `json:"rows"`
 }
 
@@ -522,8 +525,10 @@ type changesSeen struct {
 	// tradeDate; unsure the rows new to the state from before the last run,
 	// but for those from the hour before it, that it cannot show late, since
 	// that run's answer may have been cut, or its window's edge lies between
-	// them.
-	missing, unsure int
+	// them, or they are dated after that run, whose answer held no row dated
+	// after it came, which unserved counts: Schwab may have served its
+	// window only up to the request.
+	missing, unsure, unserved int
 }
 
 // probeChanges is Q12, whether rows change after they post, and how long
@@ -539,11 +544,16 @@ type changesSeen struct {
 // runs' windows and this run's answer is complete, under pageCap rows in
 // all and of each type; and a row is late when it is new to the state
 // though both lie inside the last run's window, that run's answer was
-// complete, and its time was more than postingLatency before that run. A
-// late row posted after the last run and before this run's answer came
-// with it, which bound how long after its time it came. Both times count,
-// since whether a window takes a row by its time or by its tradeDate is
-// not known. What the answers cannot show, the verdict says is undecided,
+// complete, its time was more than postingLatency before that run, and,
+// if it is dated after that run, that run's answer held a row dated after
+// it came. A late row posted after the last run and before this run's
+// answer came with it, which bound how long after its time it came. Both
+// times count, since whether a window takes a row by its time or by its
+// tradeDate is not known; nor is it known whether Schwab serves the part
+// of a window past its request, where a row dated after the run lies,
+// until an answer holds such a row: one that served it only up to the
+// request would leave out such a fill, as a window that ended at the run
+// would. What the answers cannot show, the verdict says is undecided,
 // rather than that no row did it: whether rows changed or went, of a row
 // of the state missing from the answer, which it can neither compare nor
 // show gone, and of rows that the last run's answer left out if it may
@@ -717,7 +727,10 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 	w := window{now.Add(-changeWindow), lastDated(nyMidnight(now, 0)).Add(time.Second)}
 	// Whether Schwab takes a window that ends days ahead is not known
 	// either, so it is asked, as the extras' odd windows are: Schwab may
-	// refuse it for reasons of its own, which Q6 does not count.
+	// refuse it for reasons of its own, which Q6 does not count. Nor is it
+	// known whether Schwab serves the part past the request, where a row
+	// dated after the run lies, as an answer that holds a row dated after
+	// it came shows that it does.
 	rep, err := r.ask(ctx, a.endpoint("/transactions"), a.path()+"/transactions", txValues(w, ""), "transactions")
 	if err != nil {
 		cs.failed = true
@@ -748,6 +761,7 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 	last := window{prev.Start, prev.End}
 	lastRun := prev.At // when the last run's probe began
 	for _, row := range rows {
+		next.Ahead = next.Ahead || row.TradeDate.After(answered)
 		if row.ActivityID == 0 {
 			continue
 		}
@@ -763,17 +777,23 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 				break // a first run's row, or one after the last run, which it could not have held
 			}
 			// The last run's answer left it out: when that window held both
-			// its times, and the answer was complete, it posted after that
-			// run, at least this long after its time; else it may have.
+			// its times, the answer was complete, and the row is dated by
+			// that run, or the answer held a row dated after it came, which
+			// shows that Schwab served the window past the request, it
+			// posted after that run, at least this long after its time;
+			// else it may have.
 			switch least := lastRun.Sub(row.Time); {
 			case least <= postingLatency:
 				cs.near++
-			case !cs.lastCut && last.takesRow(row.Time, row.TradeDate):
+			case cs.lastCut || !last.takesRow(row.Time, row.TradeDate):
+				cs.unsure++
+			case row.TradeDate.After(lastRun) && !prev.Ahead:
+				cs.unsure++
+				cs.unserved++
+			default:
 				cs.late++
 				cs.lateLeast = append(cs.lateLeast, least)
 				cs.lateMost = append(cs.lateMost, answered.Sub(row.Time))
-			default:
-				cs.unsure++
 			}
 		default:
 			var diff []string
@@ -863,8 +883,11 @@ func (cs changesSeen) line(a liveAccount) string {
 	case cs.lastCut:
 		parts = append(parts, "the last run's answer may have been cut at the cap, so rows that it left out cannot be shown changed or gone, "+
 			"though no row new to the state could have come late")
-	case cs.unsure > 0:
-		parts = append(parts, plural(cs.unsure, "row")+" new to the state, with its time or tradeDate outside the last run's window, so not shown late")
+	case cs.unsure > cs.unserved:
+		parts = append(parts, plural(cs.unsure-cs.unserved, "row")+" new to the state, with its time or tradeDate outside the last run's window, so not shown late")
+	}
+	if cs.unserved > 0 {
+		parts = append(parts, plural(cs.unserved, "row")+" new to the state, dated after the last run, whose window Schwab may have served only up to the request, so not shown late")
 	}
 	return a.label() + ": " + strings.Join(parts, "; ")
 }

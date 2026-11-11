@@ -242,7 +242,8 @@ func TestTransactionsSymbol(t *testing.T) {
 }
 
 // A window takes a row by its time, or with FilterOnTradeDate by its
-// tradeDate, when the fake can read one.
+// tradeDate, when the fake can read one; with UpToNow, by either, only
+// up to the fake's clock.
 func TestTransactionsFilterOn(t *testing.T) {
 	s, txs := transactionsWorld(t)
 	day := window("2026-01-04T00:00:00Z", "2026-01-04T23:59:59Z")
@@ -255,6 +256,16 @@ func TestTransactionsFilterOn(t *testing.T) {
 	}
 	if got := txs(window("2026-01-10T10:00:00Z", "2026-01-10T10:00:00Z")).Body.String(); got != rowList("r2", "r1", "r5") {
 		t.Errorf("rows without a tradeDate, by time: %s", got)
+	}
+	// r3, at 2026-01-05, is dated 2026-01-04T05:00Z.
+	s.SetNow(func() time.Time { return time.Date(2026, 1, 4, 12, 0, 0, 0, time.UTC) })
+	s.SetTransactionRules(TransactionRules{UpToNow: true})
+	if got := txs(window(january, month)).Body.String(); got != rowList("r7") {
+		t.Errorf("up to the clock, by time: %s", got)
+	}
+	s.SetTransactionRules(TransactionRules{UpToNow: true, FilterOn: FilterOnTradeDate})
+	if got := txs(window(january, month)).Body.String(); got != rowList("r3", "r7") {
+		t.Errorf("up to the clock, by tradeDate: %s", got)
 	}
 }
 
