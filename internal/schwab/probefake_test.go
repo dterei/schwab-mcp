@@ -2008,11 +2008,12 @@ func testChangesCutOnTheFake(t *testing.T) {
 // would hold it, and is shown as it was, changed or gone 12 days later.
 // When it posted after that run, it is shown late beside such a fill at
 // 21:30 that the run held, which shows that Schwab serves a window past the
-// request; alone, it is left undecided whether it came late, as it is when
-// it was there all along, under a Schwab that serves a window only up to
-// the request, which left it out of that run's answer. Such a fill at 21:30
-// is shown changed too, and, when it posted after that run, too near it to
-// be shown late, which leaves nothing undecided. Such a fill, which the
+// request; alone, it is left undecided whether it came late, or was there
+// all along and changed, as it is when it did change, under a Schwab that
+// serves a window only up to the request, which left it out of that run's
+// answer. Such a fill at 21:30 is shown changed too, and, when it posted
+// after that run, too near it to be shown late, though it may have been
+// there all along and changed. Such a fill, which the
 // last run held, before the start of a window that holds it by its
 // tradeDate, the state keeps, which leaves nothing undecided either, and
 // one that posted after the last run, whose window held both its times,
@@ -2105,7 +2106,7 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 	}
 	// Evening fills at 20:30 and 21:30 in New York, dated the next midnight.
 	const at2030, at2130 = `"2026-08-21T00:30:00+0000"`, `"2026-08-21T01:30:00+0000"`
-	const unserved = "1 row new to the state, dated after the last run, whose window Schwab may have served only up to the request, so not shown late"
+	const unserved = "1 row new to the state, dated after the last run, whose window Schwab may have served only up to the request, so not shown changed or late"
 	for _, tc := range []struct {
 		name, time string
 		after      string // what the fill does after the last run: "changed", "went", or "posted", when it was not there before
@@ -2118,8 +2119,8 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 			"no row changed, went or came late since the last run", "3 rows as they were; 0 rows new to the state",
 		},
 		{
-			"an evening fill before the last run, dated the next midnight, as it was, in windows served only up to the request", at2030, "", true, false,
-			"no row changed or went since the last run; undecided: whether 1 row came late",
+			"an evening fill before the last run, dated the next midnight, changed, in windows served only up to the request", at2030, "changed", true, false,
+			"no row went since the last run; undecided: whether 1 row changed, and whether 1 row came late",
 			"2 rows as they were; 1 row new to the state; " + unserved,
 		},
 		{
@@ -2132,7 +2133,7 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 		},
 		{
 			"an evening fill before the last run, dated the next midnight, posted after it", at2030, "posted", false, false,
-			"no row changed or went since the last run; undecided: whether 1 row came late",
+			"no row went since the last run; undecided: whether 1 row changed, and whether 1 row came late",
 			"2 rows as they were; 1 row new to the state; " + unserved,
 		},
 		{
@@ -2145,8 +2146,9 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 		},
 		{
 			"an evening fill half an hour before the last run, dated the next midnight, posted after it", at2130, "posted", false, false,
-			"no row changed, went or came late since the last run",
-			"2 rows as they were; 1 row new to the state; 1 row from the hour before the last run, too near it to be shown late",
+			"no row went or came late since the last run; undecided: whether 1 row changed",
+			"2 rows as they were; 1 row new to the state; 1 row from the hour before the last run, dated after it, " +
+				"whose window Schwab may have served only up to the request, so not shown changed, and too near it to be shown late",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2335,7 +2337,7 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or went since the last run; undecided: whether 2 rows came late"})
+		wantVerdicts(t, report, map[string]string{"Q12": "no row went since the last run; undecided: whether 1 row changed, and whether 2 rows came late"})
 		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 2 rows new to the state; "+
 			"1 row new to the state, with its time or tradeDate outside the last run's window, so not shown late; "+unserved)
 	})

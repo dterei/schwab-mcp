@@ -514,7 +514,7 @@ type changesSeen struct {
 	changedRows      int
 	ages             []time.Duration // how old each changed row was
 	gone, late       int
-	near             int             // rows new to the state from within postingLatency before the last run
+	near             int             // rows new to the state from within postingLatency before the last run, but those of nearUnserved
 	lateLeast        []time.Duration // for each late row, how long after its time the last run read without it
 	lateMost         []time.Duration // and how long after it this run's answer came with it: it posted in between
 	complete, failed bool
@@ -527,8 +527,11 @@ type changesSeen struct {
 	// that run's answer may have been cut, or its window's edge lies between
 	// them, or they are dated after that run, whose answer held no row dated
 	// after it came, which unserved counts: Schwab may have served its
-	// window only up to the request.
-	missing, unsure, unserved int
+	// window only up to the request, which would have left them out though
+	// they were there, so that whether they changed is undecided too, as it
+	// is of such rows from the hour before that run, which nearUnserved
+	// counts.
+	missing, unsure, unserved, nearUnserved int
 }
 
 // probeChanges is Q12, whether rows change after they post, and how long
@@ -558,6 +561,9 @@ type changesSeen struct {
 // of the state missing from the answer, which it can neither compare nor
 // show gone, and of rows that the last run's answer left out if it may
 // have been cut at the cap, which never came into the state; whether rows
+// changed, of a row new to the state from before the last run and dated
+// after it, which that run's answer, holding no row dated after it came,
+// may have left out though it was there; whether rows
 // came late, of a row new to the state from before the last run, but not
 // shown late nor from the hour before that run, and of rows that this
 // run's answer left out if it may have been cut; and anything of the rows
@@ -570,7 +576,9 @@ type changesSeen struct {
 // leave out such an evening fill: the account starts afresh, as if no
 // earlier run had read it. The window ends a second past the latest
 // tradeDate that lastDated gives, since whether Schwab's end takes in a row
-// dated at it is not known.
+// dated at it is not known. Nor can an answer show gone a fill dated after
+// the last run that Schwab left out of that run's answer, serving its
+// window only up to the request: "no row went" cannot speak of one.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
@@ -583,9 +591,9 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var v verdict
 	var read, compared bool
 	var changed, gone, late bool
-	seen, missing, unsure := 0, 0, 0 // the rows compared with the last run's, and those left undecided
-	cut, lastCut := false, false     // whether an answer compared, this run's or the last's, may have been cut at the cap
-	var failed, unread []string      // the accounts not compared: those whose window failed, and those that no earlier run read
+	seen, missing, unsure, unserved := 0, 0, 0, 0 // the rows compared with the last run's, and those left undecided
+	cut, lastCut := false, false                  // whether an answer compared, this run's or the last's, may have been cut at the cap
+	var failed, unread []string                   // the accounts not compared: those whose window failed, and those that no earlier run read
 	for _, a := range r.accounts {
 		if a.hash == "" {
 			continue
@@ -617,7 +625,7 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 		}
 		compared = true
 		seen += cs.same + cs.changedRows + cs.gone + cs.late
-		missing, unsure = missing+cs.missing, unsure+cs.unsure
+		missing, unsure, unserved = missing+cs.missing, unsure+cs.unsure, unserved+cs.unserved+cs.nearUnserved
 		cut, lastCut = cut || !cs.complete, lastCut || cs.lastCut
 		changed, gone, late = changed || cs.changedRows > 0, gone || cs.gone > 0, late || cs.late > 0
 		v.evidence = append(v.evidence, reportLine{text: cs.line(a)})
@@ -638,9 +646,11 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 	// What the answers leave undecided, of what no row was found to do:
 	// whether rows of the state missing from them, which they can neither
 	// compare nor show gone, and rows that the last run's cut answer left
-	// out, which never came into the state, changed or went; and whether
-	// rows new to the state that they cannot show late, and rows that a cut
-	// answer left out, came late.
+	// out, which never came into the state, changed or went; whether rows
+	// new to the state that the last run's answer, served only up to the
+	// request, may have left out though they were there, changed; and
+	// whether rows new to the state that they cannot show late, and rows
+	// that a cut answer left out, came late.
 	did := map[string]bool{"changed": changed, "went": gone, "came late": late}
 	undecided := map[string]bool{}
 	var open []string
@@ -651,6 +661,7 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 	}{
 		{missing > 0, plural(missing, "row"), []string{"changed", "went"}},
 		{lastCut, "rows that the last run's cut answer left out", []string{"changed", "went"}},
+		{unserved > 0, plural(unserved, "row"), []string{"changed"}},
 		{unsure > 0, plural(unsure, "row"), []string{"came late"}},
 		{cut, "rows that a cut answer left out", []string{"came late"}},
 	} {
@@ -781,13 +792,20 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 			// that run, or the answer held a row dated after it came, which
 			// shows that Schwab served the window past the request, it
 			// posted after that run, at least this long after its time;
-			// else it may have.
+			// else it may have. One dated after that run, whose answer, not
+			// cut, held no row dated after it came, may instead have been
+			// there, left out by a window that Schwab served only up to the
+			// request, and changed since, even one too near that run to be
+			// shown late.
+			hidden := !cs.lastCut && row.TradeDate.After(lastRun) && !prev.Ahead
 			switch least := lastRun.Sub(row.Time); {
+			case least <= postingLatency && hidden:
+				cs.nearUnserved++
 			case least <= postingLatency:
 				cs.near++
 			case cs.lastCut || !last.takesRow(row.Time, row.TradeDate):
 				cs.unsure++
-			case row.TradeDate.After(lastRun) && !prev.Ahead:
+			case hidden:
 				cs.unsure++
 				cs.unserved++
 			default:
@@ -862,6 +880,10 @@ func (cs changesSeen) line(a liveAccount) string {
 	if cs.near > 0 {
 		parts = append(parts, plural(cs.near, "row")+" from the hour before the last run, too near it to be shown late")
 	}
+	if cs.nearUnserved > 0 {
+		parts = append(parts, plural(cs.nearUnserved, "row")+" from the hour before the last run, dated after it, whose window Schwab may have served only up to the request, "+
+			"so not shown changed, and too near it to be shown late")
+	}
 	if cs.gone > 0 {
 		parts = append(parts, plural(cs.gone, "row")+" gone")
 	}
@@ -887,7 +909,7 @@ func (cs changesSeen) line(a liveAccount) string {
 		parts = append(parts, plural(cs.unsure-cs.unserved, "row")+" new to the state, with its time or tradeDate outside the last run's window, so not shown late")
 	}
 	if cs.unserved > 0 {
-		parts = append(parts, plural(cs.unserved, "row")+" new to the state, dated after the last run, whose window Schwab may have served only up to the request, so not shown late")
+		parts = append(parts, plural(cs.unserved, "row")+" new to the state, dated after the last run, whose window Schwab may have served only up to the request, so not shown changed or late")
 	}
 	return a.label() + ": " + strings.Join(parts, "; ")
 }
