@@ -178,14 +178,14 @@ TOTAL                                  5465.51  5465.99     -0.48
 - A long DESCRIPTION is cut short, an option's at its start, so that its
   expiration, strike and type show.
 
-`accounts` and `balances` make two requests. The first is for the accounts
-and their balances, and the second is for your preferences, which hold the
-nicknames; if those cannot be read, the table shows no nicknames and a
-warning says why. `positions` makes one request, for the accounts with
-their positions, and reads your preferences only when `-account` names a
-nickname, or names no account or several, to list them by their names.
-`-account` picks from the answer, so one account costs no more than all of
-them.
+For a table, `accounts` and `balances` make two requests. The first is for
+the accounts and their balances, and the second is for your preferences,
+which hold the nicknames; if those cannot be read, the table shows no
+nicknames and a warning says why. With `-json` they make the first alone,
+and `positions` makes one request, for the accounts with their positions;
+either reads your preferences too only when `-account` names a nickname,
+or names no account or several, to list them by their names. `-account`
+picks from the answer, so one account costs no more than all of them.
 
 `-json` prints each account as Schwab sent it, re-indented. For `positions`
 it includes the account's positions, as a snapshot keeps them. For

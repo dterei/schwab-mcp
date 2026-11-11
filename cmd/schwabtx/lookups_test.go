@@ -1297,6 +1297,25 @@ func TestUsage(t *testing.T) {
 	if err == nil || err.Error() != `unknown command "acounts"` || !strings.Contains(stderr, "schwabtx accounts ") {
 		t.Errorf("a command misspelled: %v, printed %q", err, stderr)
 	}
+
+	// Each command's -h prints its usage, which main takes for no error.
+	for _, args := range [][]string{{"-h"}, {"login", "-h"}, {"accounts", "-h"}, {"positions", "-h"}, {"balances", "-h"}, {"snapshot", "-h"}} {
+		stdout, stderr, err := runTx(t, args...)
+		if want := "Usage of schwabtx"; !errors.Is(err, flag.ErrHelp) || stdout != "" || !strings.HasPrefix(stderr, want) {
+			t.Errorf("%q: %v, printed %q, warned %q; want flag.ErrHelp and %q", args, err, stdout, stderr, want)
+		}
+	}
+	if _, stderr, err := runTx(t, "login", "-h"); !strings.Contains(stderr, "no flags") {
+		t.Errorf("login -h: %v, printed %q", err, stderr)
+	}
+	for _, args := range [][]string{{"login", "now"}, {"login", "-n", "5"}} {
+		if _, _, err := runTx(t, args...); err == nil || errors.Is(err, flag.ErrHelp) {
+			t.Errorf("%q: %v, want an error", args, err)
+		}
+	}
+	if _, _, err := runTx(t, "login", "now"); err == nil || err.Error() != "login takes no arguments" {
+		t.Errorf("login now: %v", err)
+	}
 }
 
 // positionsRequest is the request for the accounts with their positions,

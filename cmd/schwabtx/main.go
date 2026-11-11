@@ -93,7 +93,18 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	switch cmd {
 	case "login":
-		if len(args) > 0 {
+		// login has no flags, but -h says so, as the usage promises.
+		fs := flag.NewFlagSet("schwabtx login", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		fs.Usage = func() {
+			fmt.Fprint(fs.Output(), "Usage of schwabtx login: it takes no flags. It prints a link to log in at\n"+
+				"Schwab and tick the accounts to share, then asks for the address that your\n"+
+				"browser lands on.\n")
+		}
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if fs.NArg() > 0 {
 			return errors.New("login takes no arguments")
 		}
 		cfg, err := loadConfig()
