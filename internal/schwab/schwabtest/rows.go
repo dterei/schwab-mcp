@@ -57,6 +57,10 @@ type TransactionRules struct {
 	// start or end. Whether Schwab's bounds are inclusive is not known;
 	// inclusive is the worst case for rows seen twice.
 	ExclusiveStart, ExclusiveEnd bool
+	// WholeSeconds reads a window's bounds without their fraction of a
+	// second, as a Schwab that keeps them to whole seconds would. Whether
+	// Schwab keeps a bound's milliseconds is not known.
+	WholeSeconds bool
 	// UpToNow serves a window that ends after the fake's clock only up to
 	// the clock, leaving out the rows that it takes by a later time, as a
 	// Schwab that takes a window ending after the request but serves it
@@ -360,6 +364,9 @@ func (s *Server) transactions(hash string, q url.Values) answer {
 	end, refused := s.queryDate(q, "endDate")
 	if refused != nil {
 		return *refused
+	}
+	if rules.WholeSeconds {
+		start, end = start.Truncate(time.Second), end.Truncate(time.Second)
 	}
 	maxWindow := rules.MaxWindow
 	if maxWindow == nil {

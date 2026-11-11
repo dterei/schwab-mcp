@@ -188,12 +188,18 @@ func TestTransactions(t *testing.T) {
 	want(txs(window(january, month, "symbol", "XYZ")), "r2")
 	want(txs(window(january, month, "symbol", "AAPL")), "r1")
 
-	// Both bounds are taken, unless a rule leaves one out.
+	// Both bounds are taken, unless a rule leaves one out, and with
+	// WholeSeconds without their milliseconds.
 	want(txs(window("2025-12-31T23:59:59.999Z", "2026-01-01T00:00:00Z")), "r8", "r7")
 	s.SetTransactionRules(TransactionRules{ExclusiveStart: true})
 	want(txs(window("2025-12-31T23:59:59.999Z", "2026-01-01T00:00:00Z")), "r7")
 	s.SetTransactionRules(TransactionRules{ExclusiveEnd: true})
 	want(txs(window("2025-12-31T23:59:59.999Z", "2026-01-01T00:00:00Z")), "r8")
+	want(txs(window("2025-12-31T23:59:59.999Z", "2026-01-01T00:00:00.999Z")), "r8", "r7")
+	s.SetTransactionRules(TransactionRules{ExclusiveEnd: true, WholeSeconds: true})
+	want(txs(window("2025-12-31T23:59:59.999Z", "2026-01-01T00:00:00.999Z")), "r8")
+	s.SetTransactionRules(TransactionRules{WholeSeconds: true})
+	want(txs(window("2026-01-01T00:00:00.001Z", "2026-01-01T00:00:00.999Z")), "r7")
 
 	s.SetTransactionRules(TransactionRules{Order: NewestFirst})
 	want(txs(window(january, month)), "r10", "r4", "r9", "r6", "r2", "r1", "r5", "r3", "r7")

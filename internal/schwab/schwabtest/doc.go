@@ -128,12 +128,12 @@
 //   - A stale hash gets Invalid account number, as an account number does;
 //     that is inferred, not seen.
 //   - How the cap meets a request for several types, whether a window's
-//     bounds are inclusive, whether it takes rows by time or by tradeDate,
-//     whether it serves the part of a window after the request, and which
-//     rows symbol= keeps are not known. The defaults are guesses, each
-//     settable in TransactionRules, as is the longest window, one calendar
-//     year. By default symbol= keeps the rows with a leg whose
-//     instrument.symbol or underlyingSymbol is the symbol.
+//     bounds are inclusive and keep their milliseconds, whether it takes
+//     rows by time or by tradeDate, whether it serves the part of a window
+//     after the request, and which rows symbol= keeps are not known. The
+//     defaults are guesses, each settable in TransactionRules, as is the
+//     longest window, one calendar year. By default symbol= keeps the rows
+//     with a leg whose instrument.symbol or underlyingSymbol is the symbol.
 //   - Query dates are taken as RFC 3339 instants with Z or an offset and a
 //     fraction of up to 9 digits, or none; only a fraction of 3 digits
 //     with Z was seen taken.
