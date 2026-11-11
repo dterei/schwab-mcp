@@ -113,7 +113,7 @@ See [cmd/schwabtx](cmd/schwabtx/README.md) for flags and troubleshooting.
   directory. Treat it like a password: the login is not read-only, so the file
   lets whoever has it act on your accounts, trading included.
 - `-json`, on any command, prints Schwab's raw data, which includes full
-  account numbers; the tables show the last 4 digits unless you ask for
+  account numbers; the tables show the last 3 digits unless you ask for
   more with `-show-accounts`. `schwabtx snapshot` saves the same kind of
   data, in a file readable only by you.
 - Once the MCP server exists, what its tools return also goes to your AI
@@ -130,7 +130,7 @@ You need Go 1.26 or newer.
 ```sh
 make check   # everything CI runs: go.mod tidiness, lint, tests, govulncheck
 make test    # tests with the race detector
-make fuzz    # fuzz each target in internal/schwab in turn (needs Go 1.27)
+make fuzz    # fuzz each target in turn (needs Go 1.27)
 make lint    # golangci-lint, with go vet and the format check, and ShellCheck
 make fmt     # format the code
 make help    # all targets
@@ -193,9 +193,10 @@ What runs where:
   a week first. Actions are referenced by major version (`@v7`), so their
   minor and patch releases arrive without Dependabot and without the wait.
 - **Fuzzing**, by hand: `make fuzz` fuzzes each target in `internal/schwab`
-  in turn, 30 seconds each unless `FUZZTIME` says otherwise, and stops at
-  the first that fails. It needs Go 1.27. A failing input is saved under
-  `internal/schwab/testdata/fuzz`, to commit with the fix.
+  and `internal/mask` in turn, 30 seconds each unless `FUZZTIME` says
+  otherwise, and stops at the first that fails. It needs Go 1.27. A failing
+  input is saved under the package's `testdata/fuzz`, to commit with the
+  fix.
 - **The live mode** ([docs/live.md](docs/live.md)), by hand and never in CI:
   `go test ./internal/schwab -run '^TestLive$' -live -v` probes Schwab's real
   API with your saved login, checks each answer against the records, and

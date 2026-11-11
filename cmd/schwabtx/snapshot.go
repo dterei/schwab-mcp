@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
@@ -88,7 +89,7 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if !current[""] {
 		for _, number := range missingAccounts(lastLine(path), current) {
 			warn(fmt.Sprintf("Schwab did not return account %s, which the last snapshot has; "+
-				"to keep saving it, run `schwabtx login` and tick it", maskAccount(number)))
+				"to keep saving it, run `schwabtx login` and tick it", mask.Number(number)))
 		}
 	}
 

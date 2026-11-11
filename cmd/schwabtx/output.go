@@ -14,15 +14,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
-
-func maskAccount(number string) string {
-	if len(number) <= 4 {
-		return number
-	}
-	return "..." + number[len(number)-4:]
-}
 
 // printTable prints txs as a table. A transaction whose time is absent, or
 // midnight in New York, as a date without a time reads, shows its trade day,
@@ -39,8 +33,8 @@ func printTable(w io.Writer, txs []schwab.Transaction, showAccounts bool) error 
 			date = string(tx.TradeDay())
 		}
 		acct := tx.AccountNumber
-		if !showAccounts {
-			acct = maskAccount(acct)
+		if !showAccounts && acct != "" {
+			acct = mask.Number(acct)
 		}
 		symbol, qty, price := "", "", ""
 		desc := tx.Description
@@ -200,15 +194,15 @@ func formatScaled(n int64, places, keep int) string {
 	return sign + whole + "." + frac
 }
 
-// accountCell returns an account's number for a table: masked as
-// maskAccount masks it, unless show, or ? when Schwab sent no number that
-// could be read.
+// accountCell returns an account's number for a table: masked as Schwab
+// masks it, "..." and its last three digits, unless show, or ? when Schwab
+// sent no number that could be read.
 func accountCell(number string, show bool) string {
 	switch {
 	case number == "":
 		return "?"
 	case !show:
-		number = maskAccount(number)
+		number = mask.Number(number)
 	}
 	return plainCell(number)
 }

@@ -27,9 +27,9 @@ var (
 // The tables of the fixtures' three accounts.
 const (
 	accountsOfThree = `ACCOUNT  NAME              TYPE      VALUE
-...0135  Individual        CASH    6997.68
-...3398  Options & Margin  MARGIN  5503.84
-...1783  Contributory      MARGIN        -
+...135   Individual        CASH    6997.68
+...398   Options & Margin  MARGIN  5503.84
+...783   Contributory      MARGIN        -
 TOTAL                                    -
 `
 	accountsOfThreeShown = `ACCOUNT   NAME              TYPE      VALUE
@@ -39,9 +39,9 @@ TOTAL                                    -
 TOTAL                                     -
 `
 	balancesOfThree = `ACCOUNT  NAME              TYPE      VALUE     CASH  BUYING POWER
-...0135  Individual        CASH    6997.68  1532.17       1532.17
-...3398  Options & Margin  MARGIN  5503.84  5210.44       8258.84
-...1783  Contributory      MARGIN        -        -       8710.00
+...135   Individual        CASH    6997.68  1532.17       1532.17
+...398   Options & Margin  MARGIN  5503.84  5210.44       8258.84
+...783   Contributory      MARGIN        -        -       8710.00
 TOTAL                                    -        -
 `
 	balancesOfThreeShown = `ACCOUNT   NAME              TYPE      VALUE     CASH  BUYING POWER
@@ -100,10 +100,10 @@ func TestLookupsOfTheFixtures(t *testing.T) {
 		args           []string
 		stdout, stderr string
 	}{
-		{[]string{"accounts"}, accountsOfThree, "warning: Schwab sent no current value for ...1783 (Contributory)\n"},
-		{[]string{"accounts", "-show-accounts"}, accountsOfThreeShown, "warning: Schwab sent no current value for ...1783 (Contributory)\n"},
-		{[]string{"balances"}, balancesOfThree, "warning: Schwab sent no current value or cash for ...1783 (Contributory)\n"},
-		{[]string{"balances", "-show-accounts"}, balancesOfThreeShown, "warning: Schwab sent no current value or cash for ...1783 (Contributory)\n"},
+		{[]string{"accounts"}, accountsOfThree, "warning: Schwab sent no current value for ...783 (Contributory)\n"},
+		{[]string{"accounts", "-show-accounts"}, accountsOfThreeShown, "warning: Schwab sent no current value for ...783 (Contributory)\n"},
+		{[]string{"balances"}, balancesOfThree, "warning: Schwab sent no current value or cash for ...783 (Contributory)\n"},
+		{[]string{"balances", "-show-accounts"}, balancesOfThreeShown, "warning: Schwab sent no current value or cash for ...783 (Contributory)\n"},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			f := setupFixtures(t)
@@ -134,13 +134,13 @@ func TestLookupsTotal(t *testing.T) {
 		command, want string
 	}{
 		{"accounts", `ACCOUNT  NAME              TYPE       VALUE
-...0135  Individual        CASH     6997.68
-...3398  Options & Margin  MARGIN   5503.84
+...135   Individual        CASH     6997.68
+...398   Options & Margin  MARGIN   5503.84
 TOTAL                              12501.52
 `},
 		{"balances", `ACCOUNT  NAME              TYPE       VALUE     CASH  BUYING POWER
-...0135  Individual        CASH     6997.68  1532.17       1532.17
-...3398  Options & Margin  MARGIN   5503.84  5210.44       8258.84
+...135   Individual        CASH     6997.68  1532.17       1532.17
+...398   Options & Margin  MARGIN   5503.84  5210.44       8258.84
 TOTAL                              12501.52  6742.61
 `},
 	} {
@@ -151,13 +151,13 @@ TOTAL                              12501.52  6742.61
 	}
 }
 
-// fixtureDigits returns the first run of 5 digits of a fixture account's
+// fixtureDigits returns the first run of 4 digits of a fixture account's
 // number that s holds, or "": the tables, the warnings and the errors show
-// no more of a number than its last 4 digits unless -show-accounts asks.
+// no more of a number than its last 3 digits unless -show-accounts asks.
 func fixtureDigits(s string) string {
 	for _, a := range schwabtest.FixtureAccounts {
-		for i := 0; i+5 <= len(a.Number); i++ {
-			if run := a.Number[i : i+5]; strings.Contains(s, run) {
+		for i := 0; i+4 <= len(a.Number); i++ {
+			if run := a.Number[i : i+4]; strings.Contains(s, run) {
 				return run
 			}
 		}
@@ -165,7 +165,7 @@ func fixtureDigits(s string) string {
 	return ""
 }
 
-// No output shows more than the last 4 digits of an account's number
+// No output shows more than the last 3 digits of an account's number
 // without -show-accounts: not the tables, nor the warnings, nor an error
 // that echoes -account, though it holds most of a number.
 func TestLookupsMaskAccountNumbers(t *testing.T) {
@@ -193,23 +193,26 @@ func TestLookupsMaskAccountNumbers(t *testing.T) {
 		}
 	}
 
-	// An error shows -account's value with more than 4 digits in a row as
-	// ... and the last 4, as the tables mask a number, whatever separates
+	// An error shows -account's value with more than 3 digits in a row as
+	// ... and the last 3, as the tables mask a number, whatever separates
 	// them and whatever words surround them.
 	for _, tc := range []struct{ account, shown string }{
-		{"03399", "...3399"},
-		{"1803399", "...3399"},
-		{"...61803399", "...3399"},
-		{"6180.3399", "...3399"},
-		{"6180_3399", "...3399"},
-		{"6180−3399", "...3399"},
-		{"#61803399", "#...3399"},
-		{"Account 2947-0136", "Account ...0136"},
-		{"2947 - 0136 Joint", "...0136 Joint"},
-		{"Joint ...29470136", "Joint ...0136"},
-		{"Roth 2019", "Roth 2019"},
-		{"Joint 12-34", "Joint 12-34"},
-		{"401k 2019", "401k 2019"},
+		{"03399", "...399"},
+		{"1803399", "...399"},
+		{"...61803399", "...399"},
+		{"6180.3399", "...399"},
+		{"6180_3399", "...399"},
+		{"6180−3399", "...399"},
+		{"#61803399", "#...399"},
+		{"Account 2947-0136", "Account ...136"},
+		{"2947 - 0136 Joint", "...136 Joint"},
+		{"Joint ...29470136", "Joint ...136"},
+		{"Roth 2019", "Roth ...019"},
+		{"Joint 12-34", "Joint ...234"},
+		{"401k 2019", "401k ...019"},
+		{"Roth 019", "Roth 019"},
+		{"Joint 1-23", "Joint 1-23"},
+		{"401k", "401k"},
 	} {
 		_, _, err := runTx(t, "accounts", "-account", tc.account)
 		if want := fmt.Sprintf("no account matches -account %q: ", tc.shown); err == nil || !strings.HasPrefix(err.Error(), want) {
@@ -218,7 +221,7 @@ func TestLookupsMaskAccountNumbers(t *testing.T) {
 	}
 	f.Override(schwabtest.UserPreferenceRoute, schwabtest.Unavailable)
 	_, _, err := runTx(t, "positions", "-account", "Account 2947-0135")
-	if want := `fetching the user preferences, to find the account named "Account ...0135": `; err == nil || !strings.HasPrefix(err.Error(), want) {
+	if want := `fetching the user preferences, to find the account named "Account ...135": `; err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Errorf("-account %q without the preferences: %v, want %q", "Account 2947-0135", err, want)
 	}
 }
@@ -231,10 +234,10 @@ func TestLookupsMaskAccountNumbers(t *testing.T) {
 func TestLookupsPickAnAccount(t *testing.T) {
 	f := setupFixtures(t)
 	contributory := `ACCOUNT  NAME          TYPE    VALUE
-...1783  Contributory  MARGIN      -
+...783   Contributory  MARGIN      -
 `
 	margin := `ACCOUNT  NAME              TYPE      VALUE     CASH  BUYING POWER
-...3398  Options & Margin  MARGIN  5503.84  5210.44       8258.84
+...398   Options & Margin  MARGIN  5503.84  5210.44       8258.84
 `
 	both := []string{accountsRequest, preferencesRequest}
 	for _, tc := range []struct {
@@ -276,7 +279,7 @@ func TestLookupsPickAnAccount(t *testing.T) {
 // give instead. Nothing is printed. When the preferences were not read,
 // the error reads them, to name the accounts.
 func TestLookupsPickNoneOrSeveral(t *testing.T) {
-	shares := "the login shares ...0135 (Individual), ...3398 (Options & Margin), ...1783 (Contributory); " +
+	shares := "the login shares ...135 (Individual), ...398 (Options & Margin), ...783 (Contributory); " +
 		"to share another, run `schwabtx login` and tick it"
 	f := setupFixtures(t)
 	for _, tc := range []struct {
@@ -284,10 +287,10 @@ func TestLookupsPickNoneOrSeveral(t *testing.T) {
 		err      string
 		requests int
 	}{
-		{[]string{"accounts", "-account", "9999"}, `no account matches -account "9999": ` + shares, 2},
-		{[]string{"accounts", "-account", "61803399"}, `no account matches -account "...3399": ` + shares, 2},
+		{[]string{"accounts", "-account", "9999"}, `no account matches -account "...999": ` + shares, 2},
+		{[]string{"accounts", "-account", "61803399"}, `no account matches -account "...399": ` + shares, 2},
 		{[]string{"balances", "-account", "Roth"}, `no account matches -account "Roth": ` + shares, 2},
-		{[]string{"balances", "-json", "-account", "9999"}, `no account matches -account "9999": ` + shares, 2},
+		{[]string{"balances", "-json", "-account", "9999"}, `no account matches -account "...999": ` + shares, 2},
 		{[]string{"balances", "-json", "-account", "..."}, `no account matches -account "...": ` + shares, 2},
 	} {
 		stdout, _, requests, err := runLookupOn(t, f, tc.args...)
@@ -301,7 +304,7 @@ func TestLookupsPickNoneOrSeveral(t *testing.T) {
 	f2.addAccount("11112222", 1000, 0, testNow, time.Hour)
 	f2.addAccount("33332222", 2000, 0, testNow, time.Hour)
 	doLogin(t)
-	several := `-account "2222" matches 2 accounts, ...2222 (Account 1), ...2222 (Account 2); `
+	several := `-account "...222" matches 2 accounts, ...222 (Account 1), ...222 (Account 2); `
 	for _, tc := range []struct {
 		args       []string
 		preference string // the user preferences, or "" for the fake's own
@@ -312,24 +315,24 @@ func TestLookupsPickNoneOrSeveral(t *testing.T) {
 		{
 			[]string{"accounts", "-account", "2222"},
 			preferenceBody("11112222", "Brokerage", "33332222", "brokerage"),
-			`-account "2222" matches 2 accounts, ...2222 (Brokerage), ...2222 (brokerage); ` +
+			`-account "...222" matches 2 accounts, ...222 (Brokerage), ...222 (brokerage); ` +
 				"give more digits of its number, which `schwabtx accounts -show-accounts` prints",
 		},
 		{
 			[]string{"accounts", "-account", "BROKERAGE"},
 			preferenceBody("11112222", "Brokerage", "33332222", "brokerage"),
-			`-account "BROKERAGE" matches 2 accounts, ...2222 (Brokerage), ...2222 (brokerage); give the last digits of its number instead`,
+			`-account "BROKERAGE" matches 2 accounts, ...222 (Brokerage), ...222 (brokerage); give the last digits of its number instead`,
 		},
 		{
 			[]string{"accounts", "-account", "2222"},
 			preferenceBody("11112222", "Brokerage"),
-			`-account "2222" matches 2 accounts, ...2222 (Brokerage), ...2222; ` +
+			`-account "...222" matches 2 accounts, ...222 (Brokerage), ...222; ` +
 				"give more digits of its number, which `schwabtx accounts -show-accounts` prints",
 		},
 		{
 			[]string{"accounts", "-account", "2222"},
 			preferenceBody("11112222", " ", "33332222", "Brokerage"),
-			`-account "2222" matches 2 accounts, ...2222, ...2222 (Brokerage); ` +
+			`-account "...222" matches 2 accounts, ...222, ...222 (Brokerage); ` +
 				"give more digits of its number, which `schwabtx accounts -show-accounts` prints",
 		},
 		// Nicknames that differ only in their white space are the same name,
@@ -337,13 +340,13 @@ func TestLookupsPickNoneOrSeveral(t *testing.T) {
 		{
 			[]string{"accounts", "-account", "2222"},
 			preferenceBody("11112222", "Joint Brokerage", "33332222", "joint  brokerage "),
-			`-account "2222" matches 2 accounts, ...2222 (Joint Brokerage), ...2222 (joint brokerage); ` +
+			`-account "...222" matches 2 accounts, ...222 (Joint Brokerage), ...222 (joint brokerage); ` +
 				"give more digits of its number, which `schwabtx accounts -show-accounts` prints",
 		},
 		{
 			[]string{"accounts", "-account", "JOINT BROKERAGE"},
 			preferenceBody("11112222", "Joint Brokerage", "33332222", "joint  brokerage "),
-			`-account "JOINT BROKERAGE" matches 2 accounts, ...2222 (Joint Brokerage), ...2222 (joint brokerage); ` +
+			`-account "JOINT BROKERAGE" matches 2 accounts, ...222 (Joint Brokerage), ...222 (joint brokerage); ` +
 				"give the last digits of its number instead",
 		},
 	} {
@@ -375,17 +378,17 @@ func TestLookupsPickByTheNameShown(t *testing.T) {
 	doLogin(t)
 	stdout, _, err := runTx(t, "accounts")
 	if want := `ACCOUNT  NAME                     TYPE       VALUE
-...2222  Roth IRA                 MARGIN  12345.60
-...4444  Joint Brokerage Account  MARGIN  12345.60
+...222   Roth IRA                 MARGIN  12345.60
+...444   Joint Brokerage Account  MARGIN  12345.60
 TOTAL                                     24691.20
 `; err != nil || stdout != want {
 		t.Errorf("%v, printed\n%s\nwant\n%s", err, stdout, want)
 	}
 	for _, tc := range []struct{ account, want string }{
-		{"Roth IRA", "...2222  Roth IRA"},
-		{"roth\tira", "...2222  Roth IRA"},
-		{"Joint Brokerage Account", "...4444  Joint Brokerage Account"},
-		{"JOINT  BROKERAGE ACCOUNT", "...4444  Joint Brokerage Account"},
+		{"Roth IRA", "...222   Roth IRA"},
+		{"roth\tira", "...222   Roth IRA"},
+		{"Joint Brokerage Account", "...444   Joint Brokerage Account"},
+		{"JOINT  BROKERAGE ACCOUNT", "...444   Joint Brokerage Account"},
 	} {
 		stdout, _, err := runTx(t, "accounts", "-account", tc.account)
 		if lines := strings.Split(stdout, "\n"); err != nil || len(lines) != 3 || !strings.HasPrefix(lines[1], tc.want+" ") {
@@ -789,7 +792,7 @@ func TestCells(t *testing.T) {
 			t.Errorf("tailCell(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
-	if got, want := accountCell("12345678", false), "...5678"; got != want {
+	if got, want := accountCell("12345678", false), "...678"; got != want {
 		t.Errorf("accountCell = %q, want %q", got, want)
 	}
 	if got, want := accountCell("12345678", true), "12345678"; got != want {
@@ -836,8 +839,8 @@ func TestLookupsWarnOfUnreadableBalances(t *testing.T) {
 		t.Errorf("warned %q\nwant %q", stderr, want)
 	}
 	if want := `ACCOUNT  NAME       TYPE       VALUE
-...2222  Account 1  MARGIN  12345.60
-...4444  Account 2  MARGIN  12345.60
+...222   Account 1  MARGIN  12345.60
+...444   Account 2  MARGIN  12345.60
 TOTAL                       24691.20
 `; stdout != want {
 		t.Errorf("printed\n%s\nwant\n%s", stdout, want)
@@ -863,20 +866,20 @@ func TestLookupsSayWhyAFigureIsNone(t *testing.T) {
 			"savings beside the cash",
 			`{"liquidationValue":1500,"cashBalance":1000,"buyingPower":2000,"savings":500,` + nothing + `}`,
 			`ACCOUNT  NAME       TYPE      VALUE  CASH  BUYING POWER
-...2222  Account 1  MARGIN  1500.00     -       2000.00
-...4444  Account 2  MARGIN  1500.00     -       2000.00
+...222   Account 1  MARGIN  1500.00     -       2000.00
+...444   Account 2  MARGIN  1500.00     -       2000.00
 TOTAL                       3000.00     -
 `,
-			"warning: Schwab's cash for ...2222 (Account 1) is not its value less its holdings, so CASH shows -\n" +
-				"warning: Schwab's cash for ...4444 (Account 2) is not its value less its holdings, so CASH shows -\n",
+			"warning: Schwab's cash for ...222 (Account 1) is not its value less its holdings, so CASH shows -\n" +
+				"warning: Schwab's cash for ...444 (Account 2) is not its value less its holdings, so CASH shows -\n",
 		},
 		{
 			"long options beside the cash",
 			`{"liquidationValue":1500,"cashBalance":1000,"buyingPower":2000,` +
 				strings.Replace(nothing, `"longOptionMarketValue":0`, `"longOptionMarketValue":500`, 1) + `}`,
 			`ACCOUNT  NAME       TYPE      VALUE     CASH  BUYING POWER
-...2222  Account 1  MARGIN  1500.00  1000.00       2000.00
-...4444  Account 2  MARGIN  1500.00  1000.00       2000.00
+...222   Account 1  MARGIN  1500.00  1000.00       2000.00
+...444   Account 2  MARGIN  1500.00  1000.00       2000.00
 TOTAL                       3000.00  2000.00
 `,
 			"",
@@ -885,45 +888,45 @@ TOTAL                       3000.00  2000.00
 			"no buying power",
 			`{"liquidationValue":1500.01,"cashBalance":1500}`,
 			`ACCOUNT  NAME       TYPE      VALUE     CASH  BUYING POWER
-...2222  Account 1  MARGIN  1500.01  1500.00             -
-...4444  Account 2  MARGIN  1500.01  1500.00             -
+...222   Account 1  MARGIN  1500.01  1500.00             -
+...444   Account 2  MARGIN  1500.01  1500.00             -
 TOTAL                       3000.02  3000.00
 `,
-			"warning: Schwab sent no current buying power for ...2222 (Account 1)\n" +
-				"warning: Schwab sent no current buying power for ...4444 (Account 2)\n",
+			"warning: Schwab sent no current buying power for ...222 (Account 1)\n" +
+				"warning: Schwab sent no current buying power for ...444 (Account 2)\n",
 		},
 		{
 			"no cash beside every market value",
 			`{"liquidationValue":1500,"buyingPower":2000,` + nothing + `}`,
 			`ACCOUNT  NAME       TYPE      VALUE  CASH  BUYING POWER
-...2222  Account 1  MARGIN  1500.00     -       2000.00
-...4444  Account 2  MARGIN  1500.00     -       2000.00
+...222   Account 1  MARGIN  1500.00     -       2000.00
+...444   Account 2  MARGIN  1500.00     -       2000.00
 TOTAL                       3000.00     -
 `,
-			"warning: Schwab sent no current cash for ...2222 (Account 1)\n" +
-				"warning: Schwab sent no current cash for ...4444 (Account 2)\n",
+			"warning: Schwab sent no current cash for ...222 (Account 1)\n" +
+				"warning: Schwab sent no current cash for ...444 (Account 2)\n",
 		},
 		{
 			"no current balances",
 			`{}`,
 			`ACCOUNT  NAME       TYPE       VALUE  CASH  BUYING POWER
-...2222  Account 1  MARGIN  12345.60     -             -
-...4444  Account 2  MARGIN  12345.60     -             -
+...222   Account 1  MARGIN  12345.60     -             -
+...444   Account 2  MARGIN  12345.60     -             -
 TOTAL                       24691.20     -
 `,
-			"warning: Schwab sent no current cash or buying power for ...2222 (Account 1)\n" +
-				"warning: Schwab sent no current cash or buying power for ...4444 (Account 2)\n",
+			"warning: Schwab sent no current cash or buying power for ...222 (Account 1)\n" +
+				"warning: Schwab sent no current cash or buying power for ...444 (Account 2)\n",
 		},
 		{
 			"no balances at all",
 			"",
 			`ACCOUNT  NAME       TYPE    VALUE  CASH  BUYING POWER
-...2222  Account 1  MARGIN      -     -             -
-...4444  Account 2  MARGIN      -     -             -
+...222   Account 1  MARGIN      -     -             -
+...444   Account 2  MARGIN      -     -             -
 TOTAL                           -     -
 `,
-			"warning: Schwab sent no current value, cash or buying power for ...2222 (Account 1)\n" +
-				"warning: Schwab sent no current value, cash or buying power for ...4444 (Account 2)\n",
+			"warning: Schwab sent no current value, cash or buying power for ...222 (Account 1)\n" +
+				"warning: Schwab sent no current value, cash or buying power for ...444 (Account 2)\n",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -977,7 +980,7 @@ func TestLookupsUnreadableAccountNumber(t *testing.T) {
 		t.Errorf("warned %q", stderr)
 	}
 	_, _, err = runTx(t, "accounts", "-account", "2222")
-	if want := `no account matches -account "2222": the login shares ?; to share another, run ` + "`schwabtx login` and tick it"; err == nil || err.Error() != want {
+	if want := `no account matches -account "...222": the login shares ?; to share another, run ` + "`schwabtx login` and tick it"; err == nil || err.Error() != want {
 		t.Errorf("-account 2222: %v, want %q", err, want)
 	}
 }
@@ -989,8 +992,8 @@ func TestLookupsWarnOfUnreadablePreferences(t *testing.T) {
 	f.addAccount("11112222", 1000, 0, testNow, time.Hour)
 	doLogin(t)
 	good := preferenceBody("11112222", "Brokerage")
-	named := "ACCOUNT  NAME       TYPE       VALUE\n...2222  Brokerage  MARGIN  12345.60\n"
-	nameless := "ACCOUNT  NAME  TYPE       VALUE\n...2222        MARGIN  12345.60\n"
+	named := "ACCOUNT  NAME       TYPE       VALUE\n...222   Brokerage  MARGIN  12345.60\n"
+	nameless := "ACCOUNT  NAME  TYPE       VALUE\n...222         MARGIN  12345.60\n"
 	for _, tc := range []struct {
 		name, preference, stderr, stdout string
 	}{
@@ -1042,8 +1045,8 @@ func TestLookupsNameAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `ACCOUNT  NAME   TYPE       VALUE
-...2222  First  MARGIN  12345.60
-...4444         MARGIN  12345.60
+...222   First  MARGIN  12345.60
+...444          MARGIN  12345.60
 TOTAL                   24691.20
 `
 	if stdout != want || stderr != "" {
@@ -1066,7 +1069,7 @@ func TestLookupsPrintNicknamesPlain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "ACCOUNT  NAME                  TYPE       VALUE\n...2222  Joint?[31m Brokerage  MARGIN  12345.60\n"; stdout != want || stderr != "" {
+	if want := "ACCOUNT  NAME                  TYPE       VALUE\n...222   Joint?[31m Brokerage  MARGIN  12345.60\n"; stdout != want || stderr != "" {
 		t.Errorf("printed\n%q\nwarned %q; want\n%q", stdout, stderr, want)
 	}
 	// The fake sends no buying power, which balances warns of.
@@ -1075,17 +1078,17 @@ func TestLookupsPrintNicknamesPlain(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := "ACCOUNT  NAME                  TYPE       VALUE    CASH  BUYING POWER\n" +
-		"...2222  Joint?[31m Brokerage  MARGIN  12345.60  100.00             -\n"; stdout != want {
+		"...222   Joint?[31m Brokerage  MARGIN  12345.60  100.00             -\n"; stdout != want {
 		t.Errorf("printed\n%q\nwant\n%q", stdout, want)
 	}
-	if want := "warning: Schwab sent no current buying power for ...2222 (Joint?[31m Brokerage)\n"; stderr != want {
+	if want := "warning: Schwab sent no current buying power for ...222 (Joint?[31m Brokerage)\n"; stderr != want {
 		t.Errorf("warned %q, want %q", stderr, want)
 	}
 	// An error lists the accounts with their nicknames, which positions
 	// reads for that.
 	for _, command := range []string{"accounts", "positions"} {
 		_, _, err := runTx(t, command, "-account", "9999")
-		if want := `no account matches -account "9999": the login shares ...2222 (Joint?[31m Brokerage); ` +
+		if want := `no account matches -account "...999": the login shares ...222 (Joint?[31m Brokerage); ` +
 			"to share another, run `schwabtx login` and tick it"; err == nil || err.Error() != want {
 			t.Errorf("%s -account 9999: %v, want %q", command, err, want)
 		}
@@ -1132,13 +1135,13 @@ func TestLookupsWithoutPreferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := "warning: the table leaves out the accounts' nicknames: fetching the user preferences: HTTP 503 from Schwab after 4 tries"; !strings.HasPrefix(stderr, want) ||
-		!strings.HasSuffix(stderr, "\nwarning: Schwab sent no current value or cash for ...1783\n") {
+		!strings.HasSuffix(stderr, "\nwarning: Schwab sent no current value or cash for ...783\n") {
 		t.Errorf("warned %q", stderr)
 	}
 	if want := `ACCOUNT  NAME  TYPE      VALUE     CASH  BUYING POWER
-...0135        CASH    6997.68  1532.17       1532.17
-...3398        MARGIN  5503.84  5210.44       8258.84
-...1783        MARGIN        -        -       8710.00
+...135         CASH    6997.68  1532.17       1532.17
+...398         MARGIN  5503.84  5210.44       8258.84
+...783         MARGIN        -        -       8710.00
 TOTAL                        -        -
 `; stdout != want {
 		t.Errorf("printed\n%s\nwant\n%s", stdout, want)
@@ -1149,7 +1152,7 @@ TOTAL                        -        -
 		t.Errorf("-account Individual: %v, want %q", err, want)
 	}
 	_, _, err = runTx(t, "balances", "-json", "-account", "9999")
-	if want := `no account matches -account "9999": the login shares ...0135, ...3398, ...1783; ` +
+	if want := `no account matches -account "...999": the login shares ...135, ...398, ...783; ` +
 		"to share another, run `schwabtx login` and tick it"; err == nil || err.Error() != want {
 		t.Errorf("-json -account 9999: %v, want %q", err, want)
 	}
@@ -1305,6 +1308,13 @@ func TestUsage(t *testing.T) {
 			t.Errorf("%q: %v, printed %q, warned %q; want flag.ErrHelp and %q", args, err, stdout, stderr, want)
 		}
 	}
+	// The tables mask an account's number to its last 3 digits, as
+	// -show-accounts says.
+	for _, args := range [][]string{{"-h"}, {"accounts", "-h"}, {"positions", "-h"}, {"balances", "-h"}} {
+		if _, stderr, _ := runTx(t, args...); !strings.Contains(stderr, "instead of the last 3 digits") {
+			t.Errorf("%q printed %q, which does not say how the tables mask a number", args, stderr)
+		}
+	}
 	if _, stderr, err := runTx(t, "login", "-h"); !strings.Contains(stderr, "no flags") {
 		t.Errorf("login -h: %v, printed %q", err, stderr)
 	}
@@ -1326,12 +1336,12 @@ var positionsRequest = string(schwabtest.AccountsRoute) + "?fields=positions"
 // account's.
 const (
 	positionsOfThree = `ACCOUNT  SYMBOL                     QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
-...0135  00507V109                   10     81.50     0.00   815.00   -815.00
-...0135  AAPL                    2.1788    190.20   495.70   414.41     81.29
-...0135  SWVXX                  1220.89      1.00  1220.89  1220.89      0.00  SCHWAB VALUE ADVANTAGE MONEY FUND
-...0135  VTI                         12  251.3075  3748.92  3015.69    733.23  VANGUARD TOTAL STOCK MARKET ETF
-...3398  META                         1    512.00   603.40   512.00     91.40
-...3398  XYZ   260619P00045000       -2      1.60  -310.00  -320.00     10.00  XYZ 06/19/2026 45.00 P
+...135   00507V109                   10     81.50     0.00   815.00   -815.00
+...135   AAPL                    2.1788    190.20   495.70   414.41     81.29
+...135   SWVXX                  1220.89      1.00  1220.89  1220.89      0.00  SCHWAB VALUE ADVANTAGE MONEY FUND
+...135   VTI                         12  251.3075  3748.92  3015.69    733.23  VANGUARD TOTAL STOCK MARKET ETF
+...398   META                         1    512.00   603.40   512.00     91.40
+...398   XYZ   260619P00045000       -2      1.60  -310.00  -320.00     10.00  XYZ 06/19/2026 45.00 P
 TOTAL                                              5758.91  5657.99    100.92
 `
 	positionsOfThreeShown = `ACCOUNT   SYMBOL                     QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
@@ -1344,10 +1354,10 @@ TOTAL                                              5758.91  5657.99    100.92
 TOTAL                                               5758.91  5657.99    100.92
 `
 	positionsOf0135 = `ACCOUNT  SYMBOL         QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
-...0135  00507V109       10     81.50     0.00   815.00   -815.00
-...0135  AAPL        2.1788    190.20   495.70   414.41     81.29
-...0135  SWVXX      1220.89      1.00  1220.89  1220.89      0.00  SCHWAB VALUE ADVANTAGE MONEY FUND
-...0135  VTI             12  251.3075  3748.92  3015.69    733.23  VANGUARD TOTAL STOCK MARKET ETF
+...135   00507V109       10     81.50     0.00   815.00   -815.00
+...135   AAPL        2.1788    190.20   495.70   414.41     81.29
+...135   SWVXX      1220.89      1.00  1220.89  1220.89      0.00  SCHWAB VALUE ADVANTAGE MONEY FUND
+...135   VTI             12  251.3075  3748.92  3015.69    733.23  VANGUARD TOTAL STOCK MARKET ETF
 TOTAL                                  5465.51  5465.99     -0.48
 `
 )
@@ -1390,8 +1400,8 @@ func TestPositionsOfTheFixtures(t *testing.T) {
 func TestPositionsOfAnAccount(t *testing.T) {
 	f := setupFixtures(t)
 	margin := `ACCOUNT  SYMBOL                 QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
-...3398  META                     1    512.00   603.40   512.00     91.40
-...3398  XYZ   260619P00045000   -2      1.60  -310.00  -320.00     10.00  XYZ 06/19/2026 45.00 P
+...398   META                     1    512.00   603.40   512.00     91.40
+...398   XYZ   260619P00045000   -2      1.60  -310.00  -320.00     10.00  XYZ 06/19/2026 45.00 P
 TOTAL                                           293.40   192.00    101.40
 `
 	for _, account := range []string{"3398", "...3398", "61803398", "options & margin"} {
@@ -1412,8 +1422,8 @@ TOTAL                                           293.40   192.00    101.40
 		t.Errorf("-account Contributory: %v, warned %q, after the requests %q, printed\n%s", err, stderr, requests, stdout)
 	}
 	_, _, requests, err = runLookupOn(t, f, "positions", "-account", "9999")
-	if want := `no account matches -account "9999": the login shares ...0135 (Individual), ...3398 (Options & Margin), ` +
-		"...1783 (Contributory); to share another, run `schwabtx login` and tick it"; err == nil || err.Error() != want ||
+	if want := `no account matches -account "...999": the login shares ...135 (Individual), ...398 (Options & Margin), ` +
+		"...783 (Contributory); to share another, run `schwabtx login` and tick it"; err == nil || err.Error() != want ||
 		!equal(requests, []string{positionsRequest, preferencesRequest}) {
 		t.Errorf("-account 9999: %v, after the requests %q", err, requests)
 	}
@@ -1578,10 +1588,10 @@ func TestPositionsTable(t *testing.T) {
 			manyOfOne = append(manyOfOne, pos("ZZZ", 1, ""))
 		}
 		manyOfOne = append(manyOfOne, pos("XYZ", 1, strconv.Itoa(40-i)))
-		fmt.Fprintf(&manyRows, "...2222  XYZ       1      1.00   1.00   1.00      0.00  %d\n", 40-i)
+		fmt.Fprintf(&manyRows, "...222   XYZ       1      1.00   1.00   1.00      0.00  %d\n", 40-i)
 	}
 	for range 14 {
-		manyRows.WriteString("...2222  ZZZ       1      1.00   1.00   1.00      0.00\n")
+		manyRows.WriteString("...222   ZZZ       1      1.00   1.00   1.00      0.00\n")
 	}
 	manyRows.WriteString("TOTAL                           54.00  54.00      0.00\n")
 	for _, tc := range []struct {
@@ -1595,11 +1605,11 @@ func TestPositionsTable(t *testing.T) {
 				pos("XYZ   260619P00045000", 1, ""), pos("XYZA", 2, ""), pos("XYZ", 3, "first"), pos("AAPL", 4, ""), pos("XYZ", 5, "second"),
 			}, ","))},
 			`ACCOUNT  SYMBOL                 QTY  AVG COST  VALUE   COST  OPEN P/L  DESCRIPTION
-...2222  AAPL                     1      1.00   4.00   4.00      0.00
-...2222  XYZ                      1      1.00   3.00   3.00      0.00  first
-...2222  XYZ                      1      1.00   5.00   5.00      0.00  second
-...2222  XYZ   260619P00045000    1      1.00   1.00   1.00      0.00
-...2222  XYZA                     1      1.00   2.00   2.00      0.00
+...222   AAPL                     1      1.00   4.00   4.00      0.00
+...222   XYZ                      1      1.00   3.00   3.00      0.00  first
+...222   XYZ                      1      1.00   5.00   5.00      0.00  second
+...222   XYZ   260619P00045000    1      1.00   1.00   1.00      0.00
+...222   XYZA                     1      1.00   2.00   2.00      0.00
 TOTAL                                          15.00  15.00      0.00
 `,
 		},
@@ -1610,8 +1620,8 @@ TOTAL                                          15.00  15.00      0.00
 				`{"securitiesAccount":{"type":"MARGIN","accountNumber":"33334444","positions":{"longQuantity":1}}}`,
 			},
 			`ACCOUNT  SYMBOL  QTY  AVG COST  VALUE  COST  OPEN P/L  DESCRIPTION
-...2222  AAPL      1      1.00   4.00  4.00      0.00
-...4444  ?         -         -      -     -         -
+...222   AAPL      1      1.00   4.00  4.00      0.00
+...444   ?         -         -      -     -         -
 TOTAL                               -     -         -
 `,
 		},
@@ -1619,7 +1629,7 @@ TOTAL                               -     -         -
 			"an account that is not an object",
 			[]string{holdingAccount(pos("AAPL", 4, "")), `null`},
 			`ACCOUNT  SYMBOL  QTY  AVG COST  VALUE  COST  OPEN P/L  DESCRIPTION
-...2222  AAPL      1      1.00   4.00  4.00      0.00
+...222   AAPL      1      1.00   4.00  4.00      0.00
 ?        ?         -         -      -     -         -
 TOTAL                               -     -         -
 `,
@@ -1628,8 +1638,8 @@ TOTAL                               -     -         -
 			"a position that is not an object",
 			[]string{holdingAccount(pos("AAPL", 4, "") + `,null`)},
 			`ACCOUNT  SYMBOL  QTY  AVG COST  VALUE  COST  OPEN P/L  DESCRIPTION
-...2222  ?         -         -      -     -         -
-...2222  AAPL      1      1.00   4.00  4.00      0.00
+...222   ?         -         -      -     -         -
+...222   AAPL      1      1.00   4.00  4.00      0.00
 TOTAL                               -     -         -
 `,
 		},
@@ -1637,7 +1647,7 @@ TOTAL                               -     -         -
 			"a description with control characters",
 			[]string{holdingAccount(pos("AAPL", 4, "APPLE\u001b[2J\u2028INC "+strings.Repeat("x", 40)))},
 			`ACCOUNT  SYMBOL  QTY  AVG COST  VALUE  COST  OPEN P/L  DESCRIPTION
-...2222  AAPL      1      1.00   4.00  4.00      0.00  APPLE?[2J INC xxxxxxxxxxxxxxxxxxxxxxx...
+...222   AAPL      1      1.00   4.00  4.00      0.00  APPLE?[2J INC xxxxxxxxxxxxxxxxxxxxxxx...
 `,
 		},
 		{
@@ -1650,8 +1660,8 @@ TOTAL                               -     -         -
 				`{"longQuantity":0,"shortQuantity":1,"averagePrice":2.0533,"marketValue":-272.5,"shortOpenProfitLoss":-67.17,` +
 				`"instrument":{"assetType":"OPTION","symbol":"MRVL  250321C00155000","description":"MARVELL TECHNOLOGY INC 03/21/2025 $155 Call"}}`)},
 			`ACCOUNT  SYMBOL                 QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
-...2222  AAPL                     1      1.00     4.00     4.00      0.00  APPLE INC xxxxxxxxxxxxxxxxxxxxxxxxxxx...
-...2222  MRVL  250321C00155000   -1    2.0533  -272.50  -205.33    -67.17  ...TECHNOLOGY INC 03/21/2025 $155 Call
+...222   AAPL                     1      1.00     4.00     4.00      0.00  APPLE INC xxxxxxxxxxxxxxxxxxxxxxxxxxx...
+...222   MRVL  250321C00155000   -1    2.0533  -272.50  -205.33    -67.17  ...TECHNOLOGY INC 03/21/2025 $155 Call
 TOTAL                                          -268.50  -201.33    -67.17
 `,
 		},
@@ -1741,8 +1751,8 @@ func TestPositionsWarnOfUnreadablePositions(t *testing.T) {
 		t.Errorf("warned %q\nwant %q", stderr, want)
 	}
 	want := `ACCOUNT  SYMBOL  QTY  AVG COST   VALUE  COST  OPEN P/L  DESCRIPTION
-...2222  T        10     17.50  250.00     -         -  AT&T INC
-...2222  VTI       5    246.91       -     -     65.95  VANGUARD TOTAL STOCK MARKET ETF
+...222   T        10     17.50  250.00     -         -  AT&T INC
+...222   VTI       5    246.91       -     -     65.95  VANGUARD TOTAL STOCK MARKET ETF
 TOTAL                                -     -         -
 `
 	if stdout != want {

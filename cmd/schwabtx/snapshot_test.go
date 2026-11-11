@@ -195,23 +195,20 @@ func TestSnapshotStartsANewLineAfterACutShortWrite(t *testing.T) {
 func TestSnapshotWarnsWhenAnAccountGoesMissing(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 1, testNow, time.Hour)
-	f.addAccount("33334444", 5000, 1, testNow, time.Hour)
+	f.addAccount("12345678", 5000, 1, testNow, time.Hour)
 	doLogin(t)
 	if _, stderr, err := runTx(t, "snapshot"); err != nil || stderr != "" {
 		t.Fatalf("first snapshot: %v %q", err, stderr)
 	}
 
 	// At the next login only the first account was ticked.
-	f.removeAccount("33334444")
+	f.removeAccount("12345678")
 	_, stderr, err := runTx(t, "snapshot")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stderr, "account ...4444") || strings.Contains(stderr, "...2222") {
+	if !showsMasked(stderr) || strings.Contains(stderr, "...222") {
 		t.Errorf("wrong warning about missing accounts: %q", stderr)
-	}
-	if strings.Contains(stderr, "33334444") {
-		t.Errorf("warning shows a full account number: %q", stderr)
 	}
 	if lines := snapshotLines(t, os.Getenv("SCHWAB_SNAPSHOT_FILE")); len(lines) != 2 {
 		t.Errorf("got %d snapshots, want 2", len(lines))

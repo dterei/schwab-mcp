@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
@@ -59,7 +60,7 @@ func fetchRecent(ctx context.Context, c *client, accounts []schwab.AccountNumber
 	for _, acct := range accounts {
 		txs, err := fetchAccount(ctx, c, acct, opt)
 		if err != nil {
-			return nil, fmt.Errorf("account %s: %w", maskAccount(acct.AccountNumber), err)
+			return nil, fmt.Errorf("account %s: %w", mask.Number(acct.AccountNumber), err)
 		}
 		all = append(all, txs...)
 	}
@@ -103,7 +104,7 @@ func fetchAccount(ctx context.Context, c *client, acct schwab.AccountNumber, opt
 					continue
 				}
 				opt.Warn(fmt.Sprintf("account %s: Schwab refused transactions before about %s, so older ones are missing (%v)",
-					maskAccount(acct.AccountNumber), end.Format("2006-01-02"), err))
+					mask.Number(acct.AccountNumber), end.Format("2006-01-02"), err))
 				break
 			}
 			return nil, err

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
@@ -62,7 +63,7 @@ func runLookup(ctx context.Context, name string, args []string, stdout, stderr i
 	fs.SetOutput(stderr)
 	account := fs.String("account", "", "only this account: the last digits of its number, or its nickname")
 	asJSON := fs.Bool("json", false, "print Schwab's raw JSON instead of a table (includes full account numbers)")
-	showAccounts := fs.Bool("show-accounts", false, "print full account numbers in the table instead of the last 4 digits")
+	showAccounts := fs.Bool("show-accounts", false, "print full account numbers in the table instead of the last 3 digits")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -202,11 +203,11 @@ func parseSelector(v string) selector {
 
 // shown returns -account's value as an error shows it: as given, but with
 // no more of an account number than the tables show. Each run of more than
-// 4 digits, which comes close to a whole number, shows as ... and its last
-// 4, as the tables mask a number, whether the value names digits or a
-// nickname. A run goes on across anything but a letter, so that the digits
-// of a number written with dots, dashes or spaces of any kind among them
-// make one run.
+// 3 digits, which may be part of a number, shows as ... and its last 3, as
+// the tables mask a number, whether the value names digits or a nickname.
+// A run goes on across anything but a letter, so that the digits of a
+// number written with dots, dashes or spaces of any kind among them make
+// one run.
 func (s selector) shown() string {
 	rs := []rune(s.given)
 	var b strings.Builder
@@ -224,12 +225,12 @@ func (s selector) shown() string {
 			}
 		}
 		switch {
-		case len(digits) <= 4:
+		case len(digits) <= 3:
 			b.WriteString(string(rs[i:end]))
 		case strings.HasSuffix(b.String(), "..."): // masked already, as the tables mask
-			b.WriteString(string(digits[len(digits)-4:]))
+			b.WriteString(string(digits[len(digits)-3:]))
 		default:
-			b.WriteString("..." + string(digits[len(digits)-4:]))
+			b.WriteString(mask.Number(string(digits)))
 		}
 		i = end
 	}

@@ -47,7 +47,7 @@ The transactions command, the default, takes these flags:
 -types TRADE,...   only these transaction types (default: all)
 -json              Schwab's raw JSON instead of a table (best input for calculators;
                    includes full account numbers)
--show-accounts     full account numbers in the table instead of the last 4 digits
+-show-accounts     full account numbers in the table instead of the last 3 digits
 ```
 
 The login token is stored in your user config directory under
@@ -83,19 +83,19 @@ you ask. They only read, and save nothing.
 schwabtx accounts                               # each account's nickname, type and value
 schwabtx balances                               # each account's value, cash and buying power
 schwabtx positions                              # what each account holds
-schwabtx positions -account 0135                # one account, by the last digits of its number
+schwabtx positions -account 135                 # one account, by the last digits of its number
 schwabtx balances -account "Options & Margin"   # or by its whole nickname on schwab.com
 ```
 
 They take the same flags:
 
 ```
--account X       only the account whose number ends in the digits X (...0135, as
+-account X       only the account whose number ends in the digits X (...135, as
                  the tables print it, and 2947-0135 work too), or whose whole
                  nickname is X, as the tables print it, in any case
 -json            Schwab's raw JSON for the accounts instead of a table (includes
                  full account numbers)
--show-accounts   full account numbers in the table instead of the last 4 digits
+-show-accounts   full account numbers in the table instead of the last 3 digits
 ```
 
 Every figure is as of the moment you ask: in the evening, and again from
@@ -105,8 +105,8 @@ values are not the day's close.
 ```
 $ schwabtx balances
 ACCOUNT  NAME              TYPE       VALUE     CASH  BUYING POWER
-...0135  Individual        CASH     6997.68  1532.17       1532.17
-...3398  Options & Margin  MARGIN   5503.84  5210.44       8258.84
+...135   Individual        CASH     6997.68  1532.17       1532.17
+...398   Options & Margin  MARGIN   5503.84  5210.44       8258.84
 TOTAL                              12501.52  6742.61
 ```
 
@@ -137,13 +137,13 @@ TOTAL                              12501.52  6742.61
   too, rather than a total that leaves an account out.
 
 ```
-$ schwabtx positions -account 0135
+$ schwabtx positions -account 135
 4 positions in 1 account, not counting cash (see schwabtx balances)
 ACCOUNT  SYMBOL         QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
-...0135  00507V109       10     81.50     0.00   815.00   -815.00
-...0135  AAPL        2.1788    190.20   495.70   414.41     81.29
-...0135  SWVXX      1220.89      1.00  1220.89  1220.89      0.00  SCHWAB VALUE ADVANTAGE MONEY FUND
-...0135  VTI             12  251.3075  3748.92  3015.69    733.23  VANGUARD TOTAL STOCK MARKET ETF
+...135   00507V109       10     81.50     0.00   815.00   -815.00
+...135   AAPL        2.1788    190.20   495.70   414.41     81.29
+...135   SWVXX      1220.89      1.00  1220.89  1220.89      0.00  SCHWAB VALUE ADVANTAGE MONEY FUND
+...135   VTI             12  251.3075  3748.92  3015.69    733.23  VANGUARD TOTAL STOCK MARKET ETF
 TOTAL                                  5465.51  5465.99     -0.48
 ```
 

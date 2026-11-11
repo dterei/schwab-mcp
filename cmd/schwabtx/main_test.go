@@ -524,7 +524,7 @@ func TestLoginThenMostRecent100AcrossAccounts(t *testing.T) {
 	if len(lines) != 101 {
 		t.Fatalf("table has %d lines, want header + 100", len(lines))
 	}
-	for _, want := range []string{"VTI", "246.91", "-1234.56", "...2222", "TRADE", "VANGUARD TOTAL STOCK MARKET ETF"} {
+	for _, want := range []string{"VTI", "246.91", "-1234.56", "...222", "TRADE", "VANGUARD TOTAL STOCK MARKET ETF"} {
 		if !strings.Contains(lines[1], want) {
 			t.Errorf("first row %q is missing %q", lines[1], want)
 		}
@@ -695,9 +695,23 @@ func TestTruncatedResponsesAreSplit(t *testing.T) {
 	}
 }
 
+// showsMasked reports whether s names the account 12345678 as the tables
+// show it, "account ...678", and holds no 4 of its digits in a row, which
+// its last 4 or the whole number would.
+func showsMasked(s string) bool {
+	const number = "12345678"
+	for i := 0; i+4 <= len(number); i++ {
+		if strings.Contains(s, number[i:i+4]) {
+			return false
+		}
+	}
+	_, after, ok := strings.Cut(s, "account ...678")
+	return ok && (after == "" || after[0] < '0' || after[0] > '9')
+}
+
 func TestOlderWindowRefusedKeepsWhatWeHave(t *testing.T) {
 	f, _ := setup(t)
-	f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+	f.addAccount("12345678", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
 	doLogin(t)
 	// Schwab has not been seen to refuse an old window, but the tool copes.
 	oldest := testNow.Add(-61 * 24 * time.Hour)
@@ -711,8 +725,8 @@ func TestOlderWindowRefusedKeepsWhatWeHave(t *testing.T) {
 	if got, want := idsFromJSON(t, out), f.expected(100, oldest); !equal(got, want) {
 		t.Fatalf("got %v\nwant %v", got, want)
 	}
-	if !strings.Contains(stderr, "older ones are missing") {
-		t.Errorf("no warning about the missing history: %q", stderr)
+	if !strings.Contains(stderr, "older ones are missing") || !showsMasked(stderr) {
+		t.Errorf("no warning about the missing history of account ...678: %q", stderr)
 	}
 }
 
@@ -764,11 +778,11 @@ func TestRefusedAccountFailsTheRun(t *testing.T) {
 	} {
 		t.Run(refusal.name, func(t *testing.T) {
 			f, _ := setup(t)
-			f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+			f.addAccount("12345678", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
 			doLogin(t)
 			f.atSecondTransactions(func() { f.Override(schwabtest.TransactionsRoute, refusal.answer) })
 			_, stderr, err := runTx(t)
-			if !errors.Is(err, schwab.ErrInvalidAccount) || !strings.Contains(err.Error(), "...2222") {
+			if !errors.Is(err, schwab.ErrInvalidAccount) || !showsMasked(err.Error()) {
 				t.Errorf("got %v, want the refused account", err)
 			}
 			if strings.Contains(stderr, "older ones are missing") {
@@ -806,13 +820,13 @@ func TestLaterWindowFailureFailsTheRun(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := setup(t)
-			f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+			f.addAccount("12345678", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
 			doLogin(t)
 			timeNow = func() time.Time { return testNow.Add(2 * time.Minute) } // a token not just issued, nor stale
 			f.atSecondTransactions(func() { tc.fail(f) })
 			out, stderr, err := runTx(t)
 			var se *schwab.Error
-			if !errors.As(err, &se) || se.Status != tc.status || tc.is != nil && !errors.Is(err, tc.is) || !strings.Contains(err.Error(), "...2222") {
+			if !errors.As(err, &se) || se.Status != tc.status || tc.is != nil && !errors.Is(err, tc.is) || !showsMasked(err.Error()) {
 				t.Errorf("got %v, printed %d bytes, warned %q; want the run to fail with HTTP %d", err, len(out), stderr, tc.status)
 			}
 			if strings.Contains(stderr, "older ones are missing") {
@@ -948,7 +962,7 @@ func TestLoginLapsesDuringARun(t *testing.T) {
 
 func TestRefusedWindowIsNarrowedToTheLimit(t *testing.T) {
 	f, _ := setup(t)
-	f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+	f.addAccount("12345678", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
 	doLogin(t)
 	oldest := testNow.Add(-85 * 24 * time.Hour) // inside the second 60-day window
 	f.SetTransactionRules(schwabtest.TransactionRules{RefuseBefore: oldest})
@@ -961,8 +975,8 @@ func TestRefusedWindowIsNarrowedToTheLimit(t *testing.T) {
 	if len(want) != 29 || !equal(got, want) {
 		t.Fatalf("got %v\nwant %v", got, want)
 	}
-	if !strings.Contains(stderr, "older ones are missing") {
-		t.Errorf("no warning about the missing history: %q", stderr)
+	if !strings.Contains(stderr, "older ones are missing") || !showsMasked(stderr) {
+		t.Errorf("no warning about the missing history of account ...678: %q", stderr)
 	}
 }
 
@@ -1054,13 +1068,13 @@ func TestDateOnlyTransactionKeepsItsDate(t *testing.T) {
 
 func TestFirstWindowErrorFails(t *testing.T) {
 	f, _ := setup(t)
-	f.addAccount("11112222", 1000, 5, testNow.Add(-time.Hour), time.Hour)
+	f.addAccount("12345678", 1000, 5, testNow.Add(-time.Hour), time.Hour)
 	doLogin(t)
 	f.SetTransactionRules(schwabtest.TransactionRules{RefuseBefore: testNow.Add(time.Hour)}) // every request is refused
 
 	if out, _, err := runTx(t); err == nil {
 		t.Fatalf("expected an error, got output %q", out)
-	} else if !strings.Contains(err.Error(), "HTTP 400") || !strings.Contains(err.Error(), "...2222") {
+	} else if !strings.Contains(err.Error(), "HTTP 400") || !showsMasked(err.Error()) {
 		t.Fatalf("unhelpful error: %v", err)
 	}
 }
@@ -1201,6 +1215,30 @@ func TestTableShowsTimes(t *testing.T) {
 	}
 	if s := table.String(); !strings.Contains(s, "2025-01-13 21:15") || !strings.Contains(s, "2024-03-28 ") || strings.Contains(s, "2024-03-27") {
 		t.Errorf("table:\n%s", s)
+	}
+}
+
+// The table shows an account's number as Schwab masks it, "..." and its
+// last 3 digits, unless -show-accounts asks for it whole, and nothing for
+// a transaction without one.
+func TestTableMasksAccountNumbers(t *testing.T) {
+	var txs []schwab.Transaction
+	if err := json.Unmarshal([]byte(`[{"activityId":1,"accountNumber":"12345678","tradeDate":"2024-03-28","type":"JOURNAL","status":"VALID","netAmount":1},`+
+		`{"activityId":2,"tradeDate":"2024-03-28","type":"JOURNAL","status":"VALID","netAmount":2}]`), &txs); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		show bool
+		want string
+	}{{false, "...678"}, {true, "12345678"}} {
+		var table bytes.Buffer
+		if err := printTable(&table, txs, tc.show); err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(table.String(), "\n")
+		if len(lines) < 3 || strings.Fields(lines[1])[2] != tc.want || strings.Fields(lines[2])[2] != "JOURNAL" {
+			t.Errorf("show %t: table\n%s\nwant the account %s in the first row and none in the second", tc.show, table.String(), tc.want)
+		}
 	}
 }
 

@@ -155,7 +155,7 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 	window := fs.Int("window", 60, "days per API request, at most 365")
 	types := fs.String("types", "", "comma-separated transaction types (default: all)")
 	asJSON := fs.Bool("json", false, "print Schwab's raw JSON instead of a table (includes full account numbers)")
-	showAccounts := fs.Bool("show-accounts", false, "print full account numbers in the table instead of the last 4 digits")
+	showAccounts := fs.Bool("show-accounts", false, "print full account numbers in the table instead of the last 3 digits")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
