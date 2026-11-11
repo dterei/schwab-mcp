@@ -1,11 +1,14 @@
 // Command schwabtx connects to the Charles Schwab Trader API. It prints the
-// most recent transactions across every account linked to the login, and
-// saves snapshots of their positions and balances.
+// accounts linked to the login, their balances, and the most recent
+// transactions across them, and saves snapshots of their positions and
+// balances.
 //
 // Usage:
 //
 //	schwabtx login           one-time browser login (repeat every 7 days)
 //	schwabtx [flags]         print the most recent transactions
+//	schwabtx accounts        list the accounts with their nicknames and values
+//	schwabtx balances        print each account's value, cash and buying power
 //	schwabtx snapshot        append today's positions and balances to a file
 package main
 
@@ -105,6 +108,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return runTransactions(ctx, args, stdout, stderr)
 	case "snapshot":
 		return runSnapshot(ctx, args, stdout, stderr)
+	case "accounts", "balances":
+		return runLookup(ctx, cmd, args, stdout, stderr)
 	case "help":
 		usage(stdout)
 		return nil
@@ -115,14 +120,16 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 }
 
 func usage(w io.Writer) {
-	fmt.Fprint(w, `schwabtx prints your most recent Charles Schwab transactions and saves
-snapshots of your positions and balances.
+	fmt.Fprint(w, `schwabtx prints your Charles Schwab accounts, balances and most recent
+transactions, and saves snapshots of your positions and balances.
 
   schwabtx login        one-time browser login (Schwab makes you repeat it every 7 days)
   schwabtx [flags]      print the most recent transactions across all accounts
+  schwabtx accounts     list your accounts with their nicknames, types and values
+  schwabtx balances     print each account's value, cash and buying power
   schwabtx snapshot     save today's positions and balances of all accounts to a file
 
-Run "schwabtx -h" or "schwabtx snapshot -h" for flags. Credentials come from
+Run "schwabtx -h" or "schwabtx <command> -h" for flags. Credentials come from
 SCHWAB_APP_KEY and SCHWAB_APP_SECRET; see README.md.
 `)
 }

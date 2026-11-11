@@ -60,7 +60,7 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	}
 	c := newClient(auth)
 
-	accounts, err := c.accounts(ctx)
+	accounts, err := c.accounts(ctx, schwab.AccountFieldPositions)
 	if err != nil {
 		return fmt.Errorf("fetching accounts: %w", err)
 	}

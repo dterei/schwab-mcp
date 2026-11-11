@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
@@ -107,4 +111,164 @@ func truncate(s string, limit int) string {
 		return s
 	}
 	return string(r[:limit-3]) + "..."
+}
+
+// money is an amount in cents, or none: a figure that Schwab did not send,
+// or that could not be read.
+type money struct {
+	cents int64
+	ok    bool
+}
+
+// moneyOf returns *v in cents, or none for nil.
+func moneyOf(v *float64) money {
+	if v == nil {
+		return money{}
+	}
+	return amount(*v)
+}
+
+// amount returns x in cents, rounded as scaled rounds it.
+func amount(x float64) money {
+	cents, ok := scaled(x, 2)
+	return money{cents: cents, ok: ok}
+}
+
+// plus returns m + n, or none when either is none.
+func (m money) plus(n money) money {
+	if !m.ok || !n.ok {
+		return money{}
+	}
+	return money{cents: m.cents + n.cents, ok: true}
+}
+
+// minus returns m - n, or none when either is none.
+func (m money) minus(n money) money {
+	return m.plus(money{cents: -n.cents, ok: n.ok})
+}
+
+// String returns m with two decimals and a leading - when it is negative,
+// as the transactions table prints amounts, or "-" for none. Zero is 0.00,
+// never -0.00.
+func (m money) String() string {
+	if !m.ok {
+		return "-"
+	}
+	return formatScaled(m.cents, 2, 2)
+}
+
+// scaled returns x rounded to places decimals, half away from zero, as a
+// whole number of tenths, hundredths or the like. It rounds the shortest
+// decimal that reads back as x, which is the number as Schwab wrote it, so
+// that 1.005 rounds up, though the double nearest to it is below it. ok is
+// false for a trillion or more, which no real figure reaches, so that sums
+// of the results cannot overflow.
+func scaled(x float64, places int) (int64, bool) {
+	if math.Abs(x) >= 1e12 {
+		return 0, false
+	}
+	whole, frac, _ := strings.Cut(strconv.FormatFloat(math.Abs(x), 'f', -1, 64), ".")
+	frac += strings.Repeat("0", places+1)
+	n, err := strconv.ParseInt(whole+frac[:places], 10, 64)
+	if err != nil { // NaN, which JSON cannot hold
+		return 0, false
+	}
+	if frac[places] >= '5' {
+		n++
+	}
+	if x < 0 {
+		n = -n
+	}
+	return n, true
+}
+
+// formatScaled writes n, a whole number of tenths, hundredths or the like,
+// as places says, as a decimal with at least keep decimals: the zeros that
+// end the others are dropped, with the point when none is left. It never
+// writes -0.
+func formatScaled(n int64, places, keep int) string {
+	sign := ""
+	if n < 0 {
+		sign, n = "-", -n
+	}
+	digits := fmt.Sprintf("%0*d", places+1, n)
+	whole, frac := digits[:len(digits)-places], strings.TrimRight(digits[len(digits)-places:], "0")
+	frac += strings.Repeat("0", max(0, keep-len(frac)))
+	if frac == "" {
+		return sign + whole
+	}
+	return sign + whole + "." + frac
+}
+
+// accountCell returns an account's number for a table: masked as
+// maskAccount masks it, unless show, or ? when Schwab sent no number that
+// could be read.
+func accountCell(number string, show bool) string {
+	switch {
+	case number == "":
+		return "?"
+	case !show:
+		number = maskAccount(number)
+	}
+	return plainCell(number)
+}
+
+// plainCell returns s, text that Schwab or the user wrote, for a table:
+// every control or format character in it, and every line or paragraph
+// separator, is ?, so that no cell can break the table, move the
+// terminal's cursor or turn the text around it.
+func plainCell(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp) {
+			return '?'
+		}
+		return r
+	}, s)
+}
+
+// nameCell returns a nickname for a table: with its white space collapsed
+// and cut to 30 runes, as truncate does, and made plain, as plainCell does.
+func nameCell(nickname string) string { return plainCell(truncate(nickname, 30)) }
+
+// column is one column of a table: its head, and whether its cells are
+// numbers, which are aligned right.
+type column struct {
+	head  string
+	right bool
+}
+
+// writeTable writes the heads of cols, then rows, a line each: each column
+// as wide as its widest cell, counted in runes, two spaces between
+// columns, numbers aligned right and text left, and no spaces at the end of
+// a line. text/tabwriter aligns every column one way.
+func writeTable(w io.Writer, cols []column, rows [][]string) error {
+	heads := make([]string, len(cols))
+	widths := make([]int, len(cols))
+	for i, c := range cols {
+		heads[i] = c.head
+		widths[i] = utf8.RuneCountInString(c.head)
+	}
+	for _, r := range rows {
+		for i, cell := range r {
+			widths[i] = max(widths[i], utf8.RuneCountInString(cell))
+		}
+	}
+	var b strings.Builder
+	for _, r := range slices.Concat([][]string{heads}, rows) {
+		var line strings.Builder
+		for i, cell := range r {
+			if i > 0 {
+				line.WriteString("  ")
+			}
+			pad := strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell))
+			if cols[i].right {
+				line.WriteString(pad + cell)
+			} else {
+				line.WriteString(cell + pad)
+			}
+		}
+		b.WriteString(strings.TrimRight(line.String(), " ") + "\n")
+	}
+	_, err := io.WriteString(w, b.String())
+	return err
 }
