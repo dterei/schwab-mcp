@@ -1650,9 +1650,10 @@ func testHashesOnTheFake(t *testing.T) {
 // cap left out of that answer is new to the state, though it was there.
 // Neither says that no row went or came late: a row missing from a cut
 // answer, as one gone would be, and a row new to the state that a cut last
-// answer may have left out, leave it undecided. And the state keeps a row
-// that a cut answer left out, so that a complete answer after it shows the
-// row changed, or gone.
+// answer may have left out, leave it undecided, beside a row that it shows
+// changed, while a cut answer that holds every row of the state shows that
+// none went. And the state keeps a row that a cut answer left out, so that
+// a complete answer after it shows the row changed, or gone.
 func testChangesCutOnTheFake(t *testing.T) {
 	t.Run("this run's answer", func(t *testing.T) {
 		t.Parallel()
@@ -1670,6 +1671,43 @@ func testChangesCutOnTheFake(t *testing.T) {
 		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or came late since the last run; undecided: whether 1 row went"})
 		wantEvidence(t, report, "Q12",
 			"{account 2}: 1 row as they were; 0 rows new to the state; the answer may have been cut at the cap, so 1 row missing from it cannot be shown gone")
+	})
+	t.Run("this run's answer, with a row changed", func(t *testing.T) {
+		t.Parallel()
+		// What changed is said, beside what the cut answer leaves undecided.
+		fl := newProbeLive(t, probeNow, "Q12")
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		fl.f.RemoveRow(secondAccount.Hash, xyzDividend)
+		fl.f.ReplaceRow(secondAccount.Hash, optionClose, fixtureRow(t, optionClose, "netAmount", "311.32"))
+		later := fl.again(t, probeNow.AddDate(0, 0, 1), false)
+		later.r.pageCap = 1
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "rows changed after they posted; undecided: whether 1 row went"})
+		wantEvidence(t, report, "Q12", "{account 2}: 0 rows as they were; 0 rows new to the state; 1 row changed, 28 days old, in netAmount (1); "+
+			"the answer may have been cut at the cap, so 1 row missing from it cannot be shown gone")
+	})
+	t.Run("this run's answer, holding every row of the state", func(t *testing.T) {
+		t.Parallel()
+		// {account 2}'s 2 rows reach a cap of 2, though none is missing:
+		// no row went.
+		fl := newProbeLive(t, probeNow, "Q12")
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		later := fl.again(t, probeNow.AddDate(0, 0, 1), false)
+		later.r.pageCap = 2
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "no row changed, went or came late since the last run"})
+		wantEvidence(t, report, "Q12",
+			"{account 2}: 2 rows as they were; 0 rows new to the state; the answer may have been cut at the cap, though no row of the state is missing from it")
 	})
 	t.Run("the last run's answer", func(t *testing.T) {
 		t.Parallel()
