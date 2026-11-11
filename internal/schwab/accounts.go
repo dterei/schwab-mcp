@@ -32,10 +32,13 @@ type AccountNumber struct {
 // describes. It never fails.
 func (a *AccountNumber) UnmarshalJSON(b []byte) error {
 	type plain AccountNumber
-	var w struct{ plain }
+	var w struct {
+		plain
+		Problems json.RawMessage `json:"problems"` // Schwab's, as decode says
+	}
 	isObject, err := decode(b, &w)
 	*a = AccountNumber(w.plain)
-	ps := recordProblems(b, a, isObject, err)
+	ps := recordProblems(b, a, isObject, err, "problems")
 	if isObject {
 		need(&ps, a.AccountNumber != "", "accountNumber")
 		need(&ps, a.HashValue != "", "hashValue")
@@ -62,10 +65,13 @@ type Account struct {
 // describes. It never fails.
 func (a *Account) UnmarshalJSON(b []byte) error {
 	type plain Account
-	var w struct{ plain }
+	var w struct {
+		plain
+		Problems json.RawMessage `json:"problems"` // Schwab's, as decode says
+	}
 	isObject, err := decode(b, &w)
 	*a = Account(w.plain)
-	ps := recordProblems(b, a, isObject, err)
+	ps := recordProblems(b, a, isObject, err, "problems")
 	if isObject {
 		need(&ps, a.SecuritiesAccount.AccountNumber != "", "securitiesAccount.accountNumber")
 	}
@@ -91,7 +97,7 @@ type SecuritiesAccount struct {
 
 	// Positions are what the account holds, when they were asked for. An
 	// account that holds nothing has none, even then.
-	Positions []Position `json:"positions,omitempty"`
+	Positions []Position `json:"positions,omitzero"`
 
 	// InitialBalances are as of the start of the session, and stay so
 	// through the evening and the weekend. CurrentBalances are as of the
@@ -233,10 +239,11 @@ func (p *Position) UnmarshalJSON(b []byte) error {
 		LongQuantity  json.RawMessage `json:"longQuantity"`
 		ShortQuantity json.RawMessage `json:"shortQuantity"`
 		MarketValue   json.RawMessage `json:"marketValue"`
+		Problems      json.RawMessage `json:"problems"` // Schwab's, as decode says
 	}
 	isObject, err := decode(b, &w)
 	*p = Position(w.plain)
-	ps := recordProblems(b, p, isObject, err, "longQuantity", "shortQuantity", "marketValue")
+	ps := recordProblems(b, p, isObject, err, "longQuantity", "shortQuantity", "marketValue", "problems")
 	hasLong := readField(w.LongQuantity, "longQuantity", &p.LongQuantity, &ps)
 	hasShort := readField(w.ShortQuantity, "shortQuantity", &p.ShortQuantity, &ps)
 	hasValue := readField(w.MarketValue, "marketValue", &p.MarketValue, &ps)

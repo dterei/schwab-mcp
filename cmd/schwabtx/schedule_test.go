@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf16"
+
+	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
 
 // TestMain makes this test binary act as schwabtx when it is run the way the
@@ -458,7 +461,11 @@ func TestSnapshotScripts(t *testing.T) {
 				t.Run(tc.name, func(t *testing.T) {
 					f := newFakeSchwab(t)
 					f.addAccount("11112222", 1000, 1, time.Now(), time.Hour)
-					f.failDetails = tc.failDetails
+					f.AllowRefresh(testRefresh)
+					for range tc.failDetails {
+						f.Queue(schwabtest.AccountsRoute,
+							schwabtest.Answer(http.StatusForbidden, `{"message":"try again later"}`, "Content-Type", "application/json"))
+					}
 					home := t.TempDir()
 
 					// The script runs from a copy of the repository's layout, with
@@ -504,7 +511,7 @@ func TestSnapshotScripts(t *testing.T) {
 						"# Schwab app settings",
 						"SCHWAB_APP_KEY=" + testKey,
 						"SCHWAB_APP_SECRET=" + testSecret,
-						"SCHWAB_BASE_URL=" + f.srv.URL,
+						"SCHWAB_BASE_URL=" + f.URL(),
 						`SCHWAB_TOKEN_FILE="` + tokenValue + `"`,
 						`SCHWAB_SNAPSHOT_FILE="` + snapshotsValue + `"`,
 					}
@@ -704,6 +711,7 @@ func TestSnapshotTrace(t *testing.T) {
 	}
 	f := newFakeSchwab(t)
 	f.addAccount("11112222", 1000, 1, time.Now(), time.Hour)
+	f.AllowRefresh(testRefresh)
 	home := t.TempDir()
 	repo := filepath.Join(home, "schwab-mcp")
 	script := filepath.Join(repo, "cmd", "schwabtx", "schedule", "snapshot.sh")
@@ -714,7 +722,7 @@ func TestSnapshotTrace(t *testing.T) {
 	env := []string{
 		"SCHWAB_APP_KEY=" + testKey,
 		"SCHWAB_APP_SECRET=" + testSecret,
-		"SCHWAB_BASE_URL=" + f.srv.URL,
+		"SCHWAB_BASE_URL=" + f.URL(),
 		`SCHWAB_TOKEN_FILE="` + tokenFile + `"`,
 		`SCHWAB_SNAPSHOT_FILE="` + snapshots + `"`,
 		`SCHWABTX="` + self + `"`,

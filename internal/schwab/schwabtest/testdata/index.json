@@ -1,0 +1,371 @@
+[
+  {
+    "file": "account_numbers.json",
+    "request": {
+      "method": "GET",
+      "path": "/trader/v1/accounts/accountNumbers",
+      "query": ""
+    },
+    "response": {
+      "status": 200,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "hand-made, modeled on the scrubbed captures of piekstra/schwab-cli (August 2026) and jwplatta/schwab_rb (2025)",
+    "cr": 0
+  },
+  {
+    "file": "accounts.json",
+    "request": {
+      "method": "GET",
+      "path": "/trader/v1/accounts",
+      "query": "fields=positions"
+    },
+    "response": {
+      "status": 200,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "hand-made, modeled on the captures of piekstra/schwab-cli (August 2026), z-Wind/schwab_api (2024), jwplatta/schwab_rb (2025) and gregtee2/wheelhouse (2026)",
+    "cr": 0
+  },
+  {
+    "file": "transaction.json",
+    "request": {
+      "method": "GET",
+      "path": "/trader/v1/accounts/742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691/transactions/73508261946",
+      "query": ""
+    },
+    "response": {
+      "status": 200,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "hand-made, modeled on z-Wind/schwab_api's capture of May 2024, assetType sent twice as there",
+    "cr": 0
+  },
+  {
+    "file": "transactions.json",
+    "request": {
+      "method": "GET",
+      "path": "/trader/v1/accounts/742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691/transactions",
+      "query": ""
+    },
+    "response": {
+      "status": 200,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "hand-made, modeled on the captures of z-Wind/schwab_api (2023-24), piekstra/schwab-cli (August 2026) and jwplatta/schwab_rb (2025); its rows are of two accounts and three years, more than one request returns",
+    "cr": 0
+  },
+  {
+    "file": "user_preference.json",
+    "request": {
+      "method": "GET",
+      "path": "/trader/v1/userPreference",
+      "query": ""
+    },
+    "response": {
+      "status": 200,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "hand-made, modeled on the captures of z-Wind/schwab_api (2024) and jwplatta/schwab_rb (2025)",
+    "cr": 0
+  },
+  {
+    "file": "errors/akamai_403.html",
+    "request": {
+      "method": "POST",
+      "path": "/v1/oauth/token",
+      "query": ""
+    },
+    "response": {
+      "status": 403,
+      "headers": {
+        "Content-Type": [
+          "text/html; charset=utf-8"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from the pages that Schwabdev#61 (July 2025, on the token endpoint) and strat-journal-app#51 (August 2026) logged; its Reference is a fake",
+    "cr": 0
+  },
+  {
+    "file": "errors/gateway_timeout_504.json",
+    "request": {
+      "method": "GET",
+      "path": "/trader/v1/accounts",
+      "query": ""
+    },
+    "response": {
+      "status": 504,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "Schwab-Client-CorrelID": [
+          "corr-504"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from Apigee's documented default fault for a gateway timeout; never seen from Schwab",
+    "cr": 0
+  },
+  {
+    "file": "errors/invalid_account_400.json",
+    "request": {
+      "method": "GET",
+      "path": "/trader/v1/accounts/29470135",
+      "query": "fields=positions"
+    },
+    "response": {
+      "status": 400,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "Schwab-Client-CorrelID": [
+          "corr-400"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from z-Wind/schwab_api's ServiceError_real.json (May 2024), the answer to an account number in the path",
+    "cr": 0
+  },
+  {
+    "file": "errors/invalid_account_list_400.json",
+    "request": {
+      "method": "GET",
+      "path": "/trader/v1/accounts/29470135/transactions",
+      "query": ""
+    },
+    "response": {
+      "status": 400,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "Schwab-Client-CorrelID": [
+          "corr-400"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from schwab-py#203 (June 2025), the answer to an account number in the path as printed there, in a list of one; its status was not shown",
+    "cr": 0
+  },
+  {
+    "file": "errors/invalid_api_key_401.json",
+    "request": {
+      "method": "POST",
+      "path": "/v1/oauth/token",
+      "query": ""
+    },
+    "response": {
+      "status": 401,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "Schwab-Client-CorrelID": [
+          "corr-401"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from Apigee's documented fault for an unknown API key; never seen from Schwab",
+    "cr": 0
+  },
+  {
+    "file": "errors/not_authorized_401.json",
+    "request": {
+      "method": "GET",
+      "path": "/trader/v1/userPreference",
+      "query": ""
+    },
+    "response": {
+      "status": 401,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "Schwab-Client-CorrelID": [
+          "corr-401"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from z-Wind/schwab_api's ServiceError_real2.json (May 2024) and Schwabdev#5 (April 2024, on userPreference); its id is a fake",
+    "cr": 0
+  },
+  {
+    "file": "errors/rate_limit_429.txt",
+    "request": {
+      "method": "GET",
+      "path": "/marketdata/v1/pricehistory",
+      "query": ""
+    },
+    "response": {
+      "status": 429,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "Schwab-Client-CorrelID": [
+          "corr-429"
+        ],
+        "X-Request-Id": [
+          "req-429"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from marketlake's 24 rate limits of October 2026, on Market Data: a body of white space and no Retry-After",
+    "cr": 0
+  },
+  {
+    "file": "errors/refusal_2024_400.json",
+    "request": {
+      "method": "POST",
+      "path": "/v1/oauth/token",
+      "query": ""
+    },
+    "response": {
+      "status": 400,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from Schwabdev#40 (December 2024), the refusal of a refresh token that a later login replaced; its digests are written abc",
+    "cr": 0
+  },
+  {
+    "file": "errors/refusal_2026_400.json",
+    "request": {
+      "method": "POST",
+      "path": "/v1/oauth/token",
+      "query": ""
+    },
+    "response": {
+      "status": 400,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from schwab-py#266 (August 2026) and other logs of 2026, the refusal of a refresh token that lapsed or was revoked",
+    "cr": 0
+  },
+  {
+    "file": "errors/refusal_invalid_client_400.json",
+    "request": {
+      "method": "POST",
+      "path": "/v1/oauth/token",
+      "query": ""
+    },
+    "response": {
+      "status": 400,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from schwab-py's documentation of 2024, the refusal of a refresh token as it describes it; no log shows it, and its status is not recorded",
+    "cr": 0
+  },
+  {
+    "file": "errors/too_big_body_502.json",
+    "request": {
+      "method": "GET",
+      "path": "/marketdata/v1/chains",
+      "query": "symbol=%24SPX"
+    },
+    "response": {
+      "status": 502,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "Schwab-Client-CorrelID": [
+          "corr-502"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from Schwabdev's troubleshooting page and marketlake#539, on Market Data: an option chain without bounds",
+    "cr": 0
+  },
+  {
+    "file": "errors/unavailable_503.json",
+    "request": {
+      "method": "GET",
+      "path": "/trader/v1/accounts",
+      "query": ""
+    },
+    "response": {
+      "status": 503,
+      "headers": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "Schwab-Client-CorrelID": [
+          "corr-503"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from Apigee's documented default fault for a service that is down; never seen from Schwab",
+    "cr": 0
+  },
+  {
+    "file": "errors/whitelabel_500.html",
+    "request": {
+      "method": "GET",
+      "path": "/trader/v1/accounts",
+      "query": ""
+    },
+    "response": {
+      "status": 500,
+      "headers": {
+        "Content-Type": [
+          "text/html; charset=utf-8"
+        ]
+      },
+      "otherHeaders": []
+    },
+    "source": "rebuilt from Schwabdev's troubleshooting page, the answer for an app not yet Ready For Use or an account the API does not serve; its time is made up",
+    "cr": 0
+  }
+]

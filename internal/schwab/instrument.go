@@ -74,7 +74,7 @@ type Instrument struct {
 	OptionPremiumMultiplier float64             `json:"optionPremiumMultiplier,omitzero"`
 	UnderlyingSymbol        string              `json:"underlyingSymbol,omitzero"`
 	UnderlyingCUSIP         string              `json:"underlyingCusip,omitzero"`
-	OptionDeliverables      []OptionDeliverable `json:"optionDeliverables,omitempty"`
+	OptionDeliverables      []OptionDeliverable `json:"optionDeliverables,omitzero"`
 
 	// problems are what UnmarshalJSON could not read, for the record that
 	// holds the instrument to report.

@@ -5,23 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"os"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
 
-// readTestdata returns the contents of testdata/name.
-func readTestdata(t *testing.T, name string) []byte {
+// readTestdata returns the fixture with the given name, from the fake
+// Schwab's embedded testdata.
+func readTestdata(t testing.TB, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile("testdata/" + name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
+	return schwabtest.Fixture(t, name)
 }
 
 // elements returns the bytes of each element of the JSON array in b, as
@@ -361,66 +359,36 @@ func jsonFields(t reflect.Type) map[string]field {
 	return fields
 }
 
-// census is what a walk of the testdata found: for each struct type, the
-// keys of each of its records, and the keys that no field takes.
-type census struct {
-	records map[reflect.Type][]map[string]bool
-	unknown []string
-}
-
-func (c *census) walk(t reflect.Type, v any) {
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	switch {
-	case t == reflect.TypeFor[time.Time]():
-	case t.Kind() == reflect.Slice:
-		for _, e := range v.([]any) {
-			c.walk(t.Elem(), e)
-		}
-	case t.Kind() == reflect.Struct:
-		fields := jsonFields(t)
-		keys := map[string]bool{}
-		for k, x := range v.(map[string]any) {
-			keys[k] = true
-			f, ok := fields[k]
-			if !ok {
-				c.unknown = append(c.unknown, t.Name()+"."+k)
-				continue
-			}
-			c.walk(f.t, x)
-		}
-		c.records[t] = append(c.records[t], keys)
-	}
-}
-
-func testdataCensus(t *testing.T) *census {
+// testdataCensus walks every record of the testdata, each fixture that
+// answers an account endpoint read as that endpoint's records, and returns
+// the census and the keys that no field takes, each after the file that
+// holds it.
+func testdataCensus(t *testing.T) (c *census, unknown []string) {
 	t.Helper()
-	c := &census{records: map[reflect.Type][]map[string]bool{}}
-	for file, typ := range map[string]reflect.Type{
-		"account_numbers.json": reflect.TypeFor[[]AccountNumber](),
-		"accounts.json":        reflect.TypeFor[[]Account](),
-		"transactions.json":    reflect.TypeFor[[]Transaction](),
-		"transaction.json":     reflect.TypeFor[Transaction](),
-		"user_preference.json": reflect.TypeFor[UserPreference](),
-	} {
-		var v any
-		if err := json.Unmarshal(readTestdata(t, file), &v); err != nil {
-			t.Fatal(err)
+	c = newCensus()
+	for _, a := range testdataAnswers(t) {
+		for _, r := range a.records {
+			var v any
+			if err := json.Unmarshal(r, &v); err != nil {
+				t.Fatalf("%s: %v", a.file, err)
+			}
+			keys, _ := c.add(a.typ, v)
+			for _, k := range keys {
+				unknown = append(unknown, a.file+": "+k.String())
+			}
 		}
-		c.walk(typ, v)
 	}
-	return c
+	return c, unknown
 }
 
 // The structs take every key in the testdata, every key seen live is both a
 // field and in the testdata, and a field whose tag does not mark it as
 // optional is in every record of its kind, as in Schwab's answers.
 func TestModelsCoverEveryKey(t *testing.T) {
-	c := testdataCensus(t)
-	if len(c.unknown) > 0 {
-		slices.Sort(c.unknown)
-		t.Errorf("testdata keys that no field takes: %v", slices.Compact(c.unknown))
+	c, unknown := testdataCensus(t)
+	if len(unknown) > 0 {
+		slices.Sort(unknown)
+		t.Errorf("testdata keys that no field takes: %v", slices.Compact(unknown))
 	}
 	for typ, keys := range liveKeys {
 		fields := jsonFields(typ)
@@ -453,9 +421,14 @@ func TestModelsCoverEveryKey(t *testing.T) {
 	}
 }
 
-// No account number is part of another value in the testdata, so that a
-// test that looks for leaked account numbers can search for them as text.
-func TestTestdataAccountNumbersStandAlone(t *testing.T) {
+// standAloneProblems returns where an account number of files, the value
+// of an accountNumber key in any case, as a string or a whole number, as
+// Schwab may send it, is part of another value of theirs, or of another
+// account number, so that a test that looks for leaked account numbers can
+// search for them as text; and how many account numbers they hold. It
+// reads every file that holds JSON.
+func standAloneProblems(t *testing.T, files []indexedFile) (problems []string, accounts int) {
+	t.Helper()
 	var numbers []string
 	var values []string
 	var walk func(key string, v any)
@@ -470,20 +443,27 @@ func TestTestdataAccountNumbersStandAlone(t *testing.T) {
 				walk(key, x)
 			}
 		case string:
-			if key == "accountNumber" {
+			if strings.EqualFold(key, "accountNumber") {
 				numbers = append(numbers, v)
 			} else {
 				values = append(values, v)
 			}
 		default:
 			b, _ := json.Marshal(v)
-			values = append(values, string(b))
+			if n, ok := v.(float64); ok && strings.EqualFold(key, "accountNumber") && n == float64(int64(n)) {
+				numbers = append(numbers, string(b))
+			} else {
+				values = append(values, string(b))
+			}
 		}
 	}
-	for _, f := range []string{"account_numbers.json", "accounts.json", "transactions.json", "transaction.json", "user_preference.json"} {
+	for _, f := range files {
+		if schwabtest.ExtensionFor(f.body) != ".json" {
+			continue
+		}
 		var v any
-		if err := json.Unmarshal(readTestdata(t, f), &v); err != nil {
-			t.Fatal(err)
+		if err := json.Unmarshal(f.body, &v); err != nil {
+			t.Fatalf("%s: %v", f.entry.File, err)
 		}
 		walk("", v)
 	}
@@ -492,14 +472,35 @@ func TestTestdataAccountNumbersStandAlone(t *testing.T) {
 	for _, n := range numbers {
 		for _, v := range values {
 			if strings.Contains(v, n) {
-				t.Errorf("account number %s is in the value %q", n, v)
+				problems = append(problems, fmt.Sprintf("account number %s is in the value %q", n, v))
 			}
 		}
 		for _, m := range numbers {
 			if m != n && strings.Contains(m, n) {
-				t.Errorf("account number %s is in account number %s", n, m)
+				problems = append(problems, fmt.Sprintf("account number %s is in account number %s", n, m))
 			}
 		}
+	}
+	return problems, len(numbers)
+}
+
+// No account number is part of another value in the testdata, in any file
+// of the fake's index that holds JSON, a recording as well as the hand-made
+// ones, so that a test that looks for leaked account numbers can search for
+// them as text. An account number sent as a number is one too, at its key
+// in any case.
+func TestTestdataAccountNumbersStandAlone(t *testing.T) {
+	problems, accounts := standAloneProblems(t, indexedFiles(t))
+	if accounts < len(schwabtest.FixtureAccounts) {
+		t.Errorf("the JSON files hold %d account numbers, fewer than the fixtures' %d", accounts, len(schwabtest.FixtureAccounts))
+	}
+	for _, p := range problems {
+		t.Error(p)
+	}
+	numberAt := `[{"accountNumber":` + schwabtest.FixtureAccounts[0].Number + `,"x":"` + schwabtest.FixtureAccounts[1].Number + `"},` +
+		`{"AccountNumber":"` + schwabtest.FixtureAccounts[1].Number + `","y":1` + schwabtest.FixtureAccounts[0].Number + `}]`
+	if problems, accounts := standAloneProblems(t, []indexedFile{{body: []byte(numberAt)}}); accounts != 2 || len(problems) != 2 {
+		t.Errorf("account numbers as a number and at a key in another case: %d, %q", accounts, problems)
 	}
 }
 
@@ -903,40 +904,54 @@ func keyPath(path []any) string {
 }
 
 // testdataRecords returns the records of the testdata by type, the positions
-// of the accounts among them.
-func testdataRecords(t *testing.T) map[reflect.Type][]json.RawMessage {
+// of the accounts among them: those of each fixture that answers an account
+// endpoint, read as that endpoint's records, in testdataAnswers' order.
+func testdataRecords(t testing.TB) map[reflect.Type][]json.RawMessage {
 	t.Helper()
-	accounts := elements(t, readTestdata(t, "accounts.json"))
-	var positions []json.RawMessage
-	for _, account := range accounts {
-		var a struct {
-			SecuritiesAccount struct {
-				Positions []json.RawMessage `json:"positions"`
-			} `json:"securitiesAccount"`
+	records := map[reflect.Type][]json.RawMessage{}
+	positions := reflect.TypeFor[Position]()
+	for _, a := range testdataAnswers(t) {
+		records[a.typ] = append(records[a.typ], a.records...)
+		if a.typ != reflect.TypeFor[Account]() {
+			continue
 		}
-		if err := json.Unmarshal(account, &a); err != nil {
-			t.Fatal(err)
+		for _, account := range a.records {
+			var held struct {
+				SecuritiesAccount struct {
+					Positions []json.RawMessage `json:"positions"`
+				} `json:"securitiesAccount"`
+			}
+			if err := json.Unmarshal(account, &held); err != nil {
+				t.Fatal(err)
+			}
+			records[positions] = append(records[positions], held.SecuritiesAccount.Positions...)
 		}
-		positions = append(positions, a.SecuritiesAccount.Positions...)
 	}
-	return map[reflect.Type][]json.RawMessage{
-		reflect.TypeFor[AccountNumber]():  elements(t, readTestdata(t, "account_numbers.json")),
-		reflect.TypeFor[Account]():        accounts,
-		reflect.TypeFor[Position]():       positions,
-		reflect.TypeFor[Transaction]():    append(elements(t, readTestdata(t, "transactions.json")), readTestdata(t, "transaction.json")),
-		reflect.TypeFor[UserPreference](): {readTestdata(t, "user_preference.json")},
-	}
+	return records
 }
 
 // Taking out, or making null, any one key of a testdata record that Schwab
 // sends on every record of its kind, at any depth, gives the record that
-// key's absence as its one problem.
+// key's absence as its one problem. Each key path is taken out of the first
+// record of its type that has it, and a record of a shape seen already is
+// passed over before it is read, so that the cost follows the shapes of the
+// records rather than their number, which a recording can make large.
 func TestDropAnyAlwaysPresentKey(t *testing.T) {
 	seen := map[string]bool{}
 	for typ, records := range testdataRecords(t) {
+		done, shapes := map[string]bool{}, map[string]bool{}
 		for i, raw := range records {
+			shape := recordShape(raw)
+			if shapes[shape] {
+				continue
+			}
+			shapes[shape] = true
 			record := decodeAny(t, raw)
 			for _, path := range alwaysPresent(typ, record, nil) {
+				if done[keyPath(path)] {
+					continue
+				}
+				done[keyPath(path)] = true
 				for _, to := range []any{gone, nil} {
 					b, err := json.Marshal(changed(record, path, to))
 					if err != nil {
@@ -1003,10 +1018,47 @@ func TestReadTime(t *testing.T) {
 		`"2024-03-28T21:10:42"`: `time: Schwab sent "2024-03-28T21:10:42", which is not a time`,
 		`true`:                  "time: Schwab sent a boolean where a time was expected",
 		`{}`:                    "time: Schwab sent an object where a time was expected",
+		// An offset out of range is named as such, though it would also take
+		// the instant outside the years 0 to 9999.
+		`"9999-12-31T23:59:59-2400"`:  `time: Schwab sent "9999-12-31T23:59:59-2400", whose offset from UTC is out of range`,
+		`"0000-01-01T00:00:00+24:00"`: `time: Schwab sent "0000-01-01T00:00:00+24:00", whose offset from UTC is out of range`,
 	} {
 		ps = nil
 		if got, present := readTime(json.RawMessage(in), "time", &ps); !got.IsZero() || !present || !slices.Equal(problemStrings(ps), []string{problem}) {
 			t.Errorf("readTime(%s) = %v, %v, %q; want the zero time and %q", in, got, present, ps, problem)
+		}
+	}
+
+	// The years that time.Time encodes, 0 to 9999 in UTC, are kept to their
+	// last second, and an instant that its offset takes outside them is
+	// refused, since no record holding it could be encoded.
+	for _, tt := range []struct {
+		in   string
+		want time.Time // the zero time for one refused
+	}{
+		{"0000-01-01T00:00:00Z", time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{"0000-01-01T01:00:00+0100", time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{"9999-12-31T23:59:59Z", time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)},
+		{"9999-12-31T22:59:59.999-01:00", time.Date(9999, 12, 31, 23, 59, 59, 999e6, time.UTC)},
+		{"0000-01-01T00:00:00+0100", time.Time{}},
+		{"0000-01-01T00:59:59.999+01:00", time.Time{}},
+		{"9999-12-31T23:59:59-2359", time.Time{}},
+		{"9999-12-31T23:59:59-0001", time.Time{}},
+	} {
+		ps = nil
+		got, present := readTime(json.RawMessage(`"`+tt.in+`"`), "time", &ps)
+		if tt.want.IsZero() {
+			want := []string{fmt.Sprintf("time: Schwab sent %q, which is outside the years 0 to 9999 in UTC", tt.in)}
+			if !got.IsZero() || !present || !slices.Equal(problemStrings(ps), want) {
+				t.Errorf("readTime(%q) = %v, %v, %q; want the zero time and %q", tt.in, got, present, ps, want)
+			}
+			continue
+		}
+		if got != tt.want || !present || ps != nil {
+			t.Errorf("readTime(%q) = %v, %v, %q; want %v", tt.in, got, present, ps, tt.want)
+		}
+		if _, err := json.Marshal(got); err != nil {
+			t.Errorf("readTime(%q) = %v, which does not encode: %v", tt.in, got, err)
 		}
 	}
 }
@@ -1106,6 +1158,10 @@ func TestDecodeBodies(t *testing.T) {
 		``:                 "the answer is nothing, not a list",
 		`[{"a":1}`:         "unexpected end of JSON input",
 		`[] []`:            "invalid character '[' after top-level value",
+		// White space that JSON does not allow around a value.
+		"\f[]":       "the answer is something else, not a list",
+		"\u00a0[]\n": "the answer is something else, not a list",
+		"[]\f":       `invalid character '\f' after top-level value`,
 	} {
 		if _, err := decodeList[Transaction]([]byte(body)); err == nil || err.Error() != msg {
 			t.Errorf("decodeList(%q) = %v, want %q", body, err, msg)
@@ -1125,6 +1181,9 @@ func TestDecodeBodies(t *testing.T) {
 		`5`:                  "the answer is a number, not an object",
 		`"a"`:                "the answer is a string, not an object",
 		`{"activityId":1} x`: "invalid character 'x' after top-level value",
+		// White space that JSON does not allow around a value.
+		"\v{}":       "the answer is something else, not an object",
+		"\u3000[{}]": "the answer is something else, not an object",
 	} {
 		if _, err := decodeOne[Transaction]([]byte(body)); err == nil || err.Error() != msg {
 			t.Errorf("decodeOne(%q) = %v, want %q", body, err, msg)
@@ -1210,6 +1269,159 @@ func extraKeys(a, b any, path string) []string {
 		}
 	}
 	return extra
+}
+
+// A list that Schwab sends empty is still there, and empty, after the
+// record's encoding, and one that Schwab does not send is still absent.
+func TestEmptyListsSurviveEncoding(t *testing.T) {
+	for _, tt := range []struct {
+		list string // the list sent, or "" for none
+		key  string // how the encoding holds it, or "" for not at all
+	}{
+		{"[]", "[]"},
+		{"", ""},
+	} {
+		account := `{"securitiesAccount":` + withKeys(baseSecuritiesAccount, "positions", tt.list) + "}"
+		a, back, enc := roundTrip[Account](t, account)
+		if len(a.Problems) > 0 || encodedList(enc, "positions") != tt.key ||
+			(a.SecuritiesAccount.Positions == nil) != (tt.list == "") || (back.SecuritiesAccount.Positions == nil) != (tt.list == "") {
+			t.Errorf("positions %q: decoded as %#v, %q; encoded as %s; decoded again as %#v",
+				tt.list, a.SecuritiesAccount.Positions, a.Problems, enc, back.SecuritiesAccount.Positions)
+		}
+
+		in := withKeys(`{"assetType":"OPTION","symbol":"X"}`, "optionDeliverables", tt.list)
+		tx, txBack, enc := roundTrip[Transaction](t, withKeys(baseTransaction, "transferItems", "["+withKeys(baseLeg, "instrument", in)+"]"))
+		sent, got := tx.TransferItems[0].Instrument.OptionDeliverables, txBack.TransferItems[0].Instrument.OptionDeliverables
+		if len(tx.Problems) > 0 || encodedList(enc, "optionDeliverables") != tt.key || (sent == nil) != (tt.list == "") || (got == nil) != (tt.list == "") {
+			t.Errorf("optionDeliverables %q: decoded as %#v, %q; encoded as %s; decoded again as %#v", tt.list, sent, tx.Problems, enc, got)
+		}
+	}
+}
+
+// roundTrip decodes body as a T, encodes the record and decodes that, and
+// returns both records and the encoding.
+func roundTrip[T any](t *testing.T, body string) (sent, back T, enc []byte) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(body), &sent); err != nil {
+		t.Fatal(err)
+	}
+	enc, err := json.Marshal(sent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(enc, &back); err != nil {
+		t.Fatal(err)
+	}
+	return sent, back, enc
+}
+
+// encodedList returns the empty list that enc holds under key, "[]", or ""
+// if enc does not hold key at all, or "?" if it holds something else there.
+func encodedList(enc []byte, key string) string {
+	switch {
+	case bytes.Contains(enc, []byte(`"`+key+`":[]`)):
+		return "[]"
+	case bytes.Contains(enc, []byte(`"`+key+`"`)):
+		return "?"
+	}
+	return ""
+}
+
+// baseRecords are a record of each of the five types that Schwab's answers
+// hold, without problems, for tests to change.
+var baseRecords = []struct {
+	typ  reflect.Type
+	body string
+}{
+	{reflect.TypeFor[AccountNumber](), `{"accountNumber":"29470135","hashValue":"H"}`},
+	{reflect.TypeFor[Account](), `{"securitiesAccount":` + baseSecuritiesAccount + "}"},
+	{reflect.TypeFor[Position](), basePosition},
+	{reflect.TypeFor[Transaction](), baseTransaction},
+	{reflect.TypeFor[UserPreference](), `{"accounts":[],"streamerInfo":[],"offers":[]}`},
+}
+
+// A problems key from Schwab is a key that no field takes, whatever it holds
+// and in whatever case: it fills no field and gives no problem, on every Go
+// version, and Raw keeps it.
+func TestSchwabsOwnProblemsKey(t *testing.T) {
+	for _, base := range baseRecords {
+		want := reflect.New(base.typ).Elem()
+		if err := json.Unmarshal([]byte(base.body), want.Addr().Interface()); err != nil {
+			t.Fatal(err)
+		}
+		want.FieldByName("Raw").SetZero()
+		for _, key := range []string{"problems", "Problems", "PROBLEMS"} {
+			for _, value := range []string{`5`, `"x"`, `true`, `null`, `{}`, `[]`, `[{}]`, `[{"what":"x","path":7}]`, `[{"what":"x"}]`} {
+				body := withKeys(base.body, key, value)
+				got := reflect.New(base.typ).Elem()
+				if err := json.Unmarshal([]byte(body), got.Addr().Interface()); err != nil {
+					t.Fatal(err)
+				}
+				if ps := problemsField(got); len(ps) > 0 {
+					t.Errorf("%s with %q: %s: problems %q", base.typ.Name(), key, value, ps)
+				}
+				if raw := got.FieldByName("Raw").Bytes(); string(raw) != body {
+					t.Errorf("%s with %q: %s: Raw is %s, want %s", base.typ.Name(), key, value, raw, body)
+				}
+				got.FieldByName("Raw").SetZero()
+				if !reflect.DeepEqual(got.Interface(), want.Interface()) {
+					t.Errorf("%s with %q: %s decoded as %+v, want %+v", base.typ.Name(), key, value, got, want)
+				}
+			}
+		}
+	}
+}
+
+// nonJSONSpace is white space that JSON does not allow around a value: a
+// vertical tab, a form feed, and Unicode's next line, no-break, line
+// separator and ideographic spaces, all of which bytes.TrimSpace trims.
+var nonJSONSpace = []string{"\v", "\f", "\u0085", "\u00a0", "\u2028", "\u3000"}
+
+// Only JSON's white space, spaces, tabs and line ends, may be around a
+// record, and Raw leaves it out. Other white space makes the bytes no JSON,
+// as encoding/json has it, so a record given them directly has a problem:
+// before the record, it is not an object; after it, the JSON could not be
+// read. An instrument, which a record holds, is null only with JSON's white
+// space around.
+func TestOnlyJSONWhiteSpaceAround(t *testing.T) {
+	for _, base := range baseRecords {
+		decode := func(b string) (rec reflect.Value, raw string) {
+			v := reflect.New(base.typ)
+			if err := v.Interface().(json.Unmarshaler).UnmarshalJSON([]byte(b)); err != nil {
+				t.Fatalf("%s from %q: %v", base.typ.Name(), b, err)
+			}
+			return v.Elem(), string(v.Elem().FieldByName("Raw").Bytes())
+		}
+		for _, space := range []string{" ", "\t", "\r\n", " \t\r\n"} {
+			if rec, raw := decode(space + base.body + space); len(problemsField(rec)) > 0 || raw != base.body {
+				t.Errorf("%s in %q: problems %q, Raw %q; want none, and the record alone", base.typ.Name(), space, problemsField(rec), raw)
+			}
+		}
+		for _, space := range nonJSONSpace {
+			want := []string{"Schwab sent something else where an object was expected"}
+			if rec, raw := decode(space + base.body); !slices.Equal(problemStrings(problemsField(rec)), want) || raw != space+base.body {
+				t.Errorf("%s after %q: problems %q, Raw %q; want %q, and the bytes sent", base.typ.Name(), space, problemsField(rec), raw, want)
+			}
+			rec, raw := decode(base.body + space)
+			if ps := problemsField(rec); len(ps) != 1 || ps[0].Path != "" || !strings.HasPrefix(ps[0].What, "the JSON could not be read: ") || raw != base.body+space {
+				t.Errorf("%s before %q: problems %q, Raw %q; want that the JSON could not be read, and the bytes sent", base.typ.Name(), space, ps, raw)
+			}
+		}
+	}
+
+	for _, b := range []string{"null", " null", "\tnull\r\n"} {
+		var in Instrument
+		if err := in.UnmarshalJSON([]byte(b)); err != nil || !reflect.DeepEqual(in, Instrument{}) {
+			t.Errorf("an instrument from %q: %+v, %v; want the zero instrument", b, in, err)
+		}
+	}
+	for _, space := range nonJSONSpace {
+		var in Instrument
+		want := []string{"Schwab sent something else where an object was expected"}
+		if err := in.UnmarshalJSON([]byte(space + "null")); err != nil || !slices.Equal(problemStrings(in.problems), want) {
+			t.Errorf("an instrument from %q: problems %q, %v; want %q", space+"null", in.problems, err, want)
+		}
+	}
 }
 
 // recordTypes are the types that decode themselves leniently.

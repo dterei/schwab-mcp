@@ -23,10 +23,13 @@ type UserPreference struct {
 // describes. It never fails.
 func (u *UserPreference) UnmarshalJSON(b []byte) error {
 	type plain UserPreference
-	var w struct{ plain }
+	var w struct {
+		plain
+		Problems json.RawMessage `json:"problems"` // Schwab's, as decode says
+	}
 	isObject, err := decode(b, &w)
 	*u = UserPreference(w.plain)
-	u.Problems, u.Raw = recordProblems(b, u, isObject, err), copyRaw(b)
+	u.Problems, u.Raw = recordProblems(b, u, isObject, err, "problems"), copyRaw(b)
 	return nil
 }
 

@@ -153,17 +153,26 @@ its `fetched_at`.
 go test ./cmd/schwabtx
 ```
 
-The tests run the whole tool against a fake Schwab server: login, token
-refresh, paging backwards through windows, merging accounts, splitting
-truncated responses, rate-limit retries and snapshots. They also run the
-scheduler scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
-`snapshot.ps1` with each PowerShell on Windows.
+The tests run the whole tool against the fake Schwab server that the
+project's tests share,
+[`internal/schwab/schwabtest`](../../internal/schwab/schwabtest): a login
+through the fake's authorize page, from the link the tool prints, token
+refresh, paging backwards through windows, windows older than an account's
+history answered with an empty list, as Schwab was seen to answer them,
+merging accounts, splitting truncated responses however the fake caps them,
+Schwab's own error answers, rate-limit retries and snapshots. They also run
+the scheduler scripts as a scheduler would: `snapshot.sh` on Linux and
+macOS, `snapshot.ps1` with each PowerShell on Windows.
 
 ## Open questions
 
 - How far back Schwab serves transactions is not documented (see
   [the API notes](../../docs/schwab-api.md#transactions)). It only affects
-  `-lookback` and `-window`.
+  `-lookback` and `-window`. Probe Q1 of
+  [the live mode](../../docs/live.md#the-probes) walks your accounts'
+  history back and reports the date of each account's oldest row and what
+  an older window gets; whether Schwab holds older activity that it does
+  not serve stays yours to judge.
 
 ## Troubleshooting
 

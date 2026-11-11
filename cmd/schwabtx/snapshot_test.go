@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
 
 // snapshotLines returns the lines of the snapshot file at path, which must
@@ -44,8 +46,8 @@ func TestSnapshotAppendsSchwabsResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.detailsFields != "positions" {
-		t.Errorf("asked for fields=%q, want positions", f.detailsFields)
+	if qs := f.queries(schwabtest.AccountsRoute); len(qs) == 0 || qs[len(qs)-1].Get("fields") != "positions" {
+		t.Errorf("asked for the accounts with %v, want fields=positions", qs)
 	}
 	if want := "Saved a snapshot of 2 accounts with 4 positions to " + path + "\n"; out != want {
 		t.Errorf("printed %q, want %q", out, want)
@@ -67,7 +69,7 @@ func TestSnapshotAppendsSchwabsResponse(t *testing.T) {
 		t.Fatalf("got %d lines, want 2:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
 	for i, when := range []string{"2026-10-08T12:00:00Z", "2026-10-09T12:00:00Z"} {
-		want := `{"version":1,"fetched_at":"` + when + `","accounts":` + f.detailsBody + `}`
+		want := `{"version":1,"fetched_at":"` + when + `","accounts":` + f.detailsBody() + `}`
 		if lines[i] != want {
 			t.Errorf("line %d:\n got %s\nwant %s", i+1, lines[i], want)
 		}
@@ -112,16 +114,11 @@ func TestSnapshotFailsWithoutLoginOrAccounts(t *testing.T) {
 		assertNoFile(t, os.Getenv("SCHWAB_SNAPSHOT_FILE"))
 	})
 	t.Run("expired login", func(t *testing.T) {
-		f, tokenFile := setup(t)
+		f, _ := setup(t)
 		f.addAccount("11112222", 1000, 1, testNow, time.Hour)
 		doLogin(t)
-		b, err := os.ReadFile(tokenFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(tokenFile, bytes.ReplaceAll(b, []byte(testRefresh), []byte("stale-refresh")), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		// Eight days later Schwab has ended the login.
+		f.EndLogin()
 		timeNow = func() time.Time { return testNow.Add(8 * 24 * time.Hour) }
 
 		if _, _, err := runTx(t, "snapshot"); err == nil || !strings.Contains(err.Error(), "schwabtx login") {
@@ -205,7 +202,7 @@ func TestSnapshotWarnsWhenAnAccountGoesMissing(t *testing.T) {
 	}
 
 	// At the next login only the first account was ticked.
-	f.accounts = f.accounts[:1]
+	f.removeAccount("33334444")
 	_, stderr, err := runTx(t, "snapshot")
 	if err != nil {
 		t.Fatal(err)
@@ -222,8 +219,7 @@ func TestSnapshotWarnsWhenAnAccountGoesMissing(t *testing.T) {
 
 	// An account whose number cannot be read is not taken for another one
 	// gone missing.
-	f.accounts = f.accounts[:1]
-	f.numberJSON = `11112222`
+	f.setNumberJSON(`11112222`)
 	_, stderr, err = runTx(t, "snapshot")
 	if err != nil {
 		t.Fatal(err)
@@ -238,8 +234,8 @@ func TestSnapshotWarnsWhenAnAccountGoesMissing(t *testing.T) {
 func TestSnapshotWarnsOfUnreadableAccounts(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 1, testNow, time.Hour)
-	f.balancesJSON = `{"liquidationValue":"12345.60","cashBalance":100.0}`
-	f.positionsJSON = `5`
+	f.setBalancesJSON(`{"liquidationValue":"12345.60","cashBalance":100.0}`)
+	f.setPositionsJSON(`5`)
 	doLogin(t)
 	_, stderr, err := runTx(t, "snapshot")
 	if err != nil {
@@ -298,6 +294,7 @@ func TestSnapshotRejectsBadArguments(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 1, testNow, time.Hour)
 	doLogin(t)
+	before := f.AllRequests()
 	for _, args := range [][]string{
 		{"snapshot", "extra"},
 		{"snapshot", "-file"},
@@ -307,8 +304,8 @@ func TestSnapshotRejectsBadArguments(t *testing.T) {
 			t.Errorf("%v: expected an error", args)
 		}
 	}
-	if f.detailsFields != "" {
-		t.Error("bad arguments still fetched the accounts")
+	if n := f.AllRequests() - before; n != 0 {
+		t.Errorf("bad arguments still made %d requests", n)
 	}
 	assertNoFile(t, os.Getenv("SCHWAB_SNAPSHOT_FILE"))
 }
@@ -346,9 +343,9 @@ func TestLastLine(t *testing.T) {
 func TestSnapshotWarnsOfUnreadablePositions(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 1, testNow, time.Hour)
-	f.positionsJSON = `{"shortQuantity":0,"averagePrice":246.91,"currentDayProfitLoss":0,"currentDayProfitLossPercentage":0,` +
+	f.setPositionsJSON(`{"shortQuantity":0,"averagePrice":246.91,"currentDayProfitLoss":0,"currentDayProfitLossPercentage":0,` +
 		`"longQuantity":5,"settledLongQuantity":5,"settledShortQuantity":0,"instrument":{"assetType":"EQUITY","symbol":"VTI"},` +
-		`"marketValue":"1300.5","maintenanceRequirement":0,"currentDayCost":0}`
+		`"marketValue":"1300.5","maintenanceRequirement":0,"currentDayCost":0}`)
 	doLogin(t)
 	out, stderr, err := runTx(t, "snapshot")
 	if err != nil {

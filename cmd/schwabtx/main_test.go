@@ -8,145 +8,78 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/dterei/schwab-mcp/internal/schwab"
+	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
 
-// fakeSchwab imitates the OAuth token endpoint and the Trader API endpoints
-// the tool uses, enforcing the same auth rules.
-type fakeSchwab struct {
-	t   *testing.T
-	srv *httptest.Server
+// The app that the fake takes.
+const (
+	testKey      = schwabtest.AppKey
+	testSecret   = schwabtest.AppSecret
+	testCallback = schwabtest.CallbackURL
+)
 
-	mu            sync.Mutex
-	accounts      []schwab.AccountNumber
-	txs           map[string][]fakeTx // by account hash
-	validAccess   string
-	issued        int
-	codeGrants    int
-	refreshGrants int
-	txCalls       int
-	cap           int       // max transactions per response, 0 = unlimited
-	oldestAllowed time.Time // startDate before this gets a 400
-	rateLimitNext int       // answer this many transaction calls with 429
-	failDetails   int       // answer this many GET /accounts calls with 403
-	// accountsReply, if set, answers GET /accounts/accountNumbers instead.
-	accountsReply http.HandlerFunc
-	// afterTx, if set, runs after each transactions call, under mu.
-	afterTx       func()
-	refuseRefresh bool   // refuse every refresh, as for a login that lapsed
-	detailsFields string // fields= of the last GET /accounts
-	detailsBody   string // what the last GET /accounts returned
-	positionsJSON string // if set, the positions of every account instead of fakePositions
-	balancesJSON  string // if set, the current balances of every account
-	numberJSON    string // if set, every account's accountNumber in GET /accounts
-	// refuseAccount, if set, is the body of a 400 that answers every
-	// transactions call, as Schwab answers for an account it does not take.
-	refuseAccount string
+// testRefresh is the refresh token of a token file that a test writes by
+// hand, for schwabtx run in a process of its own; the fake takes it once
+// AllowRefresh is told of it. A login gets the fake's own tokens.
+const testRefresh = "refresh-token-1"
+
+// fakeSchwab is the fake Schwab of package schwabtest, which the CLI's tests
+// drive, with what they gave it kept beside it: each account's rows, from
+// which expected works out what the tool should print, and the parts of the
+// accounts' details that the snapshot tests change. Accounts and rows are
+// added, changed and removed through its own methods, so that it keeps
+// step with the fake, and only the test's goroutine calls those; the rest
+// is the Server's, which a hook may call too.
+type fakeSchwab struct {
+	*schwabtest.Server
+	t        *testing.T
+	accounts []*fakeAccount // in the order they were added
+	// The parts of every account's details that a test can set: its
+	// positions, in place of fakePositions; its currentBalances; and its
+	// accountNumber, in place of its number as a string.
+	positionsJSON, balancesJSON, numberJSON string
 }
 
+// A fakeAccount is an account that a test gave the fake.
+type fakeAccount struct {
+	number  string
+	details string // its element of GET /accounts, as the fake holds it
+	rows    []fakeRow
+}
+
+// A fakeRow is a transaction that a test gave the fake, and its handle on
+// the fake's copy.
+type fakeRow struct {
+	fakeTx
+	ref schwabtest.RowRef
+}
+
+// A fakeTx is a transaction as a test gave it: its id and time, by which
+// expected ranks it, and the JSON the fake sends for it.
 type fakeTx struct {
 	ID   int64
 	When time.Time
 	JSON string
 }
 
-// schwabTimeFormat is how Schwab takes instants in a query.
-const schwabTimeFormat = "2006-01-02T15:04:05.000Z"
-
-const (
-	testKey      = "test-app-key"
-	testSecret   = "test-app-secret"
-	testCode     = "C0.abc123@"
-	testRefresh  = "refresh-token-1"
-	testCallback = "https://127.0.0.1"
-)
-
+// newFakeSchwab starts a fake Schwab without accounts, which the end of the
+// test closes.
 func newFakeSchwab(t *testing.T) *fakeSchwab {
-	f := &fakeSchwab{t: t, txs: map[string][]fakeTx{}}
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/oauth/token", f.handleToken)
-	mux.HandleFunc("GET /trader/v1/accounts/accountNumbers", f.handleAccounts)
-	mux.HandleFunc("GET /trader/v1/accounts", f.handleAccountDetails)
-	mux.HandleFunc("GET /trader/v1/accounts/{hash}/transactions", f.handleTransactions)
-	f.srv = httptest.NewServer(mux)
-	t.Cleanup(f.srv.Close)
-	return f
-}
-
-func (f *fakeSchwab) handleToken(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	user, pass, ok := r.BasicAuth()
-	if !ok || user != testKey || pass != testSecret {
-		http.Error(w, `{"error":"invalid_client"}`, http.StatusUnauthorized)
-		return
-	}
-	if ct := r.Header.Get("Content-Type"); ct != "application/x-www-form-urlencoded" {
-		http.Error(w, `{"error":"bad content type"}`, http.StatusBadRequest)
-		return
-	}
-	switch r.FormValue("grant_type") {
-	case "authorization_code":
-		if r.FormValue("code") != testCode || r.FormValue("redirect_uri") != testCallback {
-			http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
-			return
-		}
-		f.codeGrants++
-	case "refresh_token":
-		if r.FormValue("refresh_token") != testRefresh || f.refuseRefresh {
-			http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
-			return
-		}
-		f.refreshGrants++
-	default:
-		http.Error(w, `{"error":"unsupported_grant_type"}`, http.StatusBadRequest)
-		return
-	}
-	f.issued++
-	f.validAccess = fmt.Sprintf("access-%d", f.issued)
-	f.writeJSON(w, map[string]any{
-		"expires_in": 1800, "token_type": "Bearer", "scope": "api",
-		"refresh_token": testRefresh, "access_token": f.validAccess,
-	})
-}
-
-func (f *fakeSchwab) writeJSON(w http.ResponseWriter, v any) {
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		f.t.Errorf("fake Schwab: writing response: %v", err)
-	}
-}
-
-func (f *fakeSchwab) authed(w http.ResponseWriter, r *http.Request) bool {
-	if f.validAccess == "" || r.Header.Get("Authorization") != "Bearer "+f.validAccess {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-		return false
-	}
-	return true
-}
-
-func (f *fakeSchwab) handleAccounts(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if !f.authed(w, r) {
-		return
-	}
-	if f.accountsReply != nil {
-		f.accountsReply(w, r)
-		return
-	}
-	f.writeJSON(w, f.accounts)
+	return &fakeSchwab{Server: schwabtest.New(t), t: t}
 }
 
 // fakePositions are the positions of every fake account, with the keys
@@ -162,118 +95,96 @@ const fakePositions = `{"shortQuantity":0,"averagePrice":246.91,"currentDayProfi
 	`"instrument":{"assetType":"EQUITY","symbol":"T","description":"AT&T` + "\u2028" + `INC"},` +
 	`"marketValue":250.0,"maintenanceRequirement":0.0,"currentDayCost":0.0}`
 
-// handleAccountDetails answers GET /accounts, with positions only when asked
-// for, as Schwab does. The JSON is written by hand so that tests can check
-// the tool keeps it as sent, and it goes out indented, so they can check the
+// details returns the element of GET /accounts for the account with the
+// given number: the keys that Schwab sends on every account, and its
+// positions, which the fake leaves out unless fields=positions asks for
+// them, as Schwab does. It is written by hand, so that tests can check that
+// the tool keeps it as sent, and indented, so that they can check that the
 // tool puts it on one line.
-func (f *fakeSchwab) handleAccountDetails(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if !f.authed(w, r) {
-		return
+func (f *fakeSchwab) details(number string) string {
+	f.t.Helper()
+	positions := fakePositions
+	if f.positionsJSON != "" {
+		positions = f.positionsJSON
 	}
-	if f.failDetails > 0 {
-		f.failDetails--
-		http.Error(w, `{"message":"try again later"}`, http.StatusForbidden)
-		return
+	balances := `{"liquidationValue":12345.60,"cashBalance":100.0}`
+	if f.balancesJSON != "" {
+		balances = f.balancesJSON
 	}
-	f.detailsFields = r.URL.Query().Get("fields")
-	parts := make([]string, len(f.accounts))
-	for i, a := range f.accounts {
-		positions := ""
-		if f.detailsFields == "positions" {
-			pos := fakePositions
-			if f.positionsJSON != "" {
-				pos = f.positionsJSON
-			}
-			positions = `"positions":[` + pos + `],`
-		}
-		number := strconv.Quote(a.AccountNumber)
-		if f.numberJSON != "" {
-			number = f.numberJSON
-		}
-		balances := `{"liquidationValue":12345.60,"cashBalance":100.0}`
-		if f.balancesJSON != "" {
-			balances = f.balancesJSON
-		}
-		parts[i] = fmt.Sprintf(`{"securitiesAccount":{"type":"MARGIN","accountNumber":%s,"roundTrips":0,"isDayTrader":false,`+
-			`"isClosingOnlyRestricted":false,"pfcbFlag":false,%s`+
-			`"initialBalances":{"liquidationValue":12345.60,"cashBalance":100.0},`+
-			`"currentBalances":%s,"projectedBalances":{"cashAvailableForTrading":100.0}},`+
-			`"aggregatedBalance":{"currentLiquidationValue":12345.60,"liquidationValue":12345.60}}`,
-			number, positions, balances)
+	accountNumber := strconv.Quote(number)
+	if f.numberJSON != "" {
+		accountNumber = f.numberJSON
 	}
-	f.detailsBody = "[" + strings.Join(parts, ",") + "]"
-	var sent bytes.Buffer
-	if err := json.Indent(&sent, []byte(f.detailsBody), "", "  "); err != nil {
-		f.t.Errorf("fake Schwab: indenting response: %v", err)
+	compact := fmt.Sprintf(`{"securitiesAccount":{"type":"MARGIN","accountNumber":%s,"roundTrips":0,"isDayTrader":false,`+
+		`"isClosingOnlyRestricted":false,"pfcbFlag":false,"positions":[%s],`+
+		`"initialBalances":{"liquidationValue":12345.60,"cashBalance":100.0},`+
+		`"currentBalances":%s,"projectedBalances":{"cashAvailableForTrading":100.0}},`+
+		`"aggregatedBalance":{"currentLiquidationValue":12345.60,"liquidationValue":12345.60}}`,
+		accountNumber, positions, balances)
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, []byte(compact), "", "  "); err != nil {
+		f.t.Fatalf("fake Schwab: indenting an account's details: %v", err)
 	}
-	sent.WriteString("\n")
-	w.Header().Set("Content-Type", "application/json")
-	if _, err := io.Copy(w, &sent); err != nil {
-		f.t.Errorf("fake Schwab: writing response: %v", err)
+	return indented.String()
+}
+
+// setPositionsJSON gives every account the positions in js, a list's
+// elements, in place of fakePositions.
+func (f *fakeSchwab) setPositionsJSON(js string) {
+	f.t.Helper()
+	f.positionsJSON = js
+	f.redetail()
+}
+
+// setBalancesJSON gives every account js as its currentBalances.
+func (f *fakeSchwab) setBalancesJSON(js string) {
+	f.t.Helper()
+	f.balancesJSON = js
+	f.redetail()
+}
+
+// setNumberJSON sends js, such as a number, as every account's
+// accountNumber in GET /accounts.
+func (f *fakeSchwab) setNumberJSON(js string) {
+	f.t.Helper()
+	f.numberJSON = js
+	f.redetail()
+}
+
+// redetail gives every account its details again, once a part of them has
+// changed. Each keeps its place, its hash and its rows.
+func (f *fakeSchwab) redetail() {
+	f.t.Helper()
+	for _, a := range f.accounts {
+		a.details = f.details(a.number)
+		f.SetDetails(f.hash(a.number), a.details)
 	}
 }
 
-func (f *fakeSchwab) handleTransactions(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if !f.authed(w, r) {
-		return
+// detailsBody returns what a snapshot of the fake's accounts should hold:
+// Schwab's answer to GET /accounts?fields=positions, on one line. The fake
+// keeps no bodies, so it is worked out from the details it was given.
+func (f *fakeSchwab) detailsBody() string {
+	f.t.Helper()
+	ds := make([]string, len(f.accounts))
+	for i, a := range f.accounts {
+		ds[i] = a.details
 	}
-	f.txCalls++
-	if f.afterTx != nil {
-		defer f.afterTx()
+	var b bytes.Buffer
+	if err := json.Compact(&b, []byte("["+strings.Join(ds, ",")+"]")); err != nil {
+		f.t.Fatalf("fake Schwab: compacting the accounts' details: %v", err)
 	}
-	if f.rateLimitNext > 0 {
-		// As Schwab answers: a body of whitespace, and no Retry-After.
-		f.rateLimitNext--
-		w.Header().Set("Schwab-Client-CorrelId", "corr-429")
-		w.WriteHeader(http.StatusTooManyRequests)
-		fmt.Fprint(w, " \n")
-		return
-	}
-	if f.refuseAccount != "" {
-		http.Error(w, f.refuseAccount, http.StatusBadRequest)
-		return
-	}
-	q := r.URL.Query()
-	start, err1 := time.Parse(schwabTimeFormat, q.Get("startDate"))
-	end, err2 := time.Parse(schwabTimeFormat, q.Get("endDate"))
-	if err1 != nil || err2 != nil || q.Get("types") == "" {
-		http.Error(w, `{"message":"bad startDate, endDate or types"}`, http.StatusBadRequest)
-		return
-	}
-	if !f.oldestAllowed.IsZero() && start.Before(f.oldestAllowed) {
-		http.Error(w, `{"message":"startDate too far back"}`, http.StatusBadRequest)
-		return
-	}
-	all, ok := f.txs[r.PathValue("hash")]
-	if !ok {
-		http.Error(w, `{"message":"no such account"}`, http.StatusNotFound)
-		return
-	}
-	var out []json.RawMessage
-	for _, tx := range all {
-		if !tx.When.Before(start) && !tx.When.After(end) { // inclusive, like a careless API
-			out = append(out, json.RawMessage(tx.JSON))
-		}
-	}
-	if f.cap > 0 && len(out) > f.cap {
-		out = out[len(out)-f.cap:] // keep the oldest ones: the worst case for us
-	}
-	if out == nil {
-		out = []json.RawMessage{}
-	}
-	f.writeJSON(w, out)
+	return b.String()
 }
 
 // addAccount gives the fake an account with count transactions, the newest at
 // newest and each one step older than the last.
 func (f *fakeSchwab) addAccount(number string, idBase int64, count int, newest time.Time, step time.Duration) {
-	hash := "HASH" + number
-	f.accounts = append(f.accounts, schwab.AccountNumber{AccountNumber: number, HashValue: schwab.AccountHash(hash)})
-	f.txs[hash] = nil
+	f.t.Helper()
+	a := &fakeAccount{number: number, details: f.details(number)}
+	f.AddAccount(schwabtest.Account{Number: number, Details: a.details})
+	f.accounts = append(f.accounts, a)
+	txs := make([]fakeTx, count)
 	for i := range count {
 		when := newest.Add(-time.Duration(i) * step)
 		id := idBase + int64(count-i)
@@ -282,17 +193,84 @@ func (f *fakeSchwab) addAccount(number string, idBase int64, count int, newest t
 			`"transferItems":[{"instrument":{"assetType":"CURRENCY","symbol":"CURRENCY_USD"},"amount":0.01,"cost":-0.01,"feeType":"SEC_FEE"},`+
 			`{"instrument":{"assetType":"EQUITY","symbol":"VTI","description":"VANGUARD TOTAL STOCK MARKET ETF"},"amount":5,"cost":-1234.55,"price":246.91,"positionEffect":"OPENING"}]}`,
 			id, when.UTC().Format("2006-01-02T15:04:05-0700"), number, when.UTC().Format("2006-01-02T15:04:05-0700"))
-		f.txs[hash] = append(f.txs[hash], fakeTx{ID: id, When: when, JSON: js})
+		txs[i] = fakeTx{ID: id, When: when, JSON: js}
 	}
+	f.addRows(number, txs...)
+}
+
+// addRows gives the account with the given number the transactions txs,
+// after its others. The fake reads each one's id, time and type from its
+// JSON.
+func (f *fakeSchwab) addRows(number string, txs ...fakeTx) {
+	f.t.Helper()
+	a := f.account(number)
+	js := make([]string, len(txs))
+	for i, tx := range txs {
+		js[i] = tx.JSON
+	}
+	refs := f.AddRows(f.hash(number), js...)
+	if len(refs) != len(txs) {
+		f.t.Fatalf("fake Schwab: account %s took %d of %d rows", number, len(refs), len(txs))
+	}
+	for i, tx := range txs {
+		a.rows = append(a.rows, fakeRow{fakeTx: tx, ref: refs[i]})
+	}
+}
+
+// account returns the account with the given number, failing the test if
+// the fake has none.
+func (f *fakeSchwab) account(number string) *fakeAccount {
+	f.t.Helper()
+	for _, a := range f.accounts {
+		if a.number == number {
+			return a
+		}
+	}
+	f.t.Fatalf("fake Schwab: no account %s", number)
+	return nil
+}
+
+// hash returns the hash of the account with the given number, by which the
+// endpoints for one account take it.
+func (f *fakeSchwab) hash(number string) string { return schwabtest.HashFor(number) }
+
+// rows returns the transactions of the account with the given number, in
+// the order they were added: newest first, for addAccount's.
+func (f *fakeSchwab) rows(number string) []fakeTx {
+	f.t.Helper()
+	a := f.account(number)
+	txs := make([]fakeTx, len(a.rows))
+	for i, r := range a.rows {
+		txs[i] = r.fakeTx
+	}
+	return txs
+}
+
+// setRow replaces the JSON of the ith transaction of the account with the
+// given number, which keeps its place. expected goes on ranking it by the
+// id and time it was added with, so js should keep its time.
+func (f *fakeSchwab) setRow(number string, i int, js string) {
+	f.t.Helper()
+	r := &f.account(number).rows[i]
+	r.ref.Replace(schwabtest.Row{JSON: js})
+	r.JSON = js
+}
+
+// removeAccount takes the account with the given number out of the fake,
+// with its rows, as when it was not ticked at the last login.
+func (f *fakeSchwab) removeAccount(number string) {
+	f.t.Helper()
+	f.RemoveAccount(f.hash(number))
+	f.accounts = slices.DeleteFunc(f.accounts, func(a *fakeAccount) bool { return a.number == number })
 }
 
 // expected returns the ids of the n most recent transactions newer than cutoff.
 func (f *fakeSchwab) expected(n int, cutoff time.Time) []string {
 	var all []fakeTx
-	for _, txs := range f.txs {
-		for _, tx := range txs {
-			if !tx.When.Before(cutoff) {
-				all = append(all, tx)
+	for _, a := range f.accounts {
+		for _, r := range a.rows {
+			if !r.When.Before(cutoff) {
+				all = append(all, r.fakeTx)
 			}
 		}
 	}
@@ -312,6 +290,38 @@ func (f *fakeSchwab) expected(n int, cutoff time.Time) []string {
 	return ids
 }
 
+// queries returns the query of each request to route that the fake was
+// sent with a working access token, in the order they came.
+func (f *fakeSchwab) queries(route schwabtest.Route) []url.Values {
+	f.t.Helper()
+	var qs []url.Values
+	for _, r := range f.Requests() {
+		if r.Route != route {
+			continue
+		}
+		q, err := url.ParseQuery(r.Query)
+		if err != nil {
+			f.t.Fatalf("fake Schwab: the query of %s: %v", r.URL, err)
+		}
+		qs = append(qs, q)
+	}
+	return qs
+}
+
+// atSecondTransactions calls do as the second request for transactions
+// arrives, before the fake looks at it, so that the walk goes wrong part way
+// through: a walk that failed on its first window would end at once, before
+// the checks that come after a window worked. do runs on one of the fake's
+// goroutines, so it may call only the Server.
+func (f *fakeSchwab) atSecondTransactions(do func()) {
+	var n atomic.Int32
+	f.OnAPI(func(r *http.Request) {
+		if schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute && n.Add(1) == 2 {
+			do()
+		}
+	})
+}
+
 var testNow = time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 
 func setup(t *testing.T) (*fakeSchwab, string) {
@@ -320,7 +330,7 @@ func setup(t *testing.T) (*fakeSchwab, string) {
 	t.Setenv("SCHWAB_APP_KEY", testKey)
 	t.Setenv("SCHWAB_APP_SECRET", testSecret)
 	t.Setenv("SCHWAB_CALLBACK_URL", "")
-	t.Setenv("SCHWAB_BASE_URL", f.srv.URL)
+	t.Setenv("SCHWAB_BASE_URL", f.URL())
 	t.Setenv("SCHWAB_TOKEN_FILE", tokenFile)
 	t.Setenv("SCHWAB_SNAPSHOT_FILE", filepath.Join(filepath.Dir(tokenFile), "snapshots.jsonl"))
 	// Keep the user config directory in the test's temp space too, so that
@@ -340,9 +350,11 @@ func setup(t *testing.T) (*fakeSchwab, string) {
 	return f, tokenFile
 }
 
-// doLogin runs `schwabtx login`, pasting back a redirect address the way a
-// browser would show it.
-func doLogin(t *testing.T) {
+// doLogin runs `schwabtx login` as a browser would have it: it opens the
+// printed link at the fake's authorize page, which signs in and approves at
+// once, and pastes back the address the page sends the browser on to. It
+// returns what login printed.
+func doLogin(t *testing.T) string {
 	t.Helper()
 	var out bytes.Buffer
 	pr, pw, err := os.Pipe()
@@ -370,12 +382,36 @@ func doLogin(t *testing.T) {
 	if u.Path != "/v1/oauth/authorize" || q.Get("client_id") != testKey || q.Get("redirect_uri") != testCallback || q.Get("state") == "" {
 		t.Fatalf("bad authorize link: %s", link)
 	}
-	redirect := testCallback + "/?code=" + url.QueryEscape(testCode) + "&session=abc&state=" + q.Get("state")
-	fmt.Fprintln(pw, redirect)
+	fmt.Fprintln(pw, authorize(t, link))
 	pw.Close()
 	if err := <-done; err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
+	outMu.Lock()
+	defer outMu.Unlock()
+	return out.String()
+}
+
+// authorize opens link, where a login starts, and returns the address that
+// the fake's authorize page sends the browser on to: the callback, with the
+// code and the state. The browser stops there, since nothing answers at the
+// callback.
+func authorize(t *testing.T, link string) string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, link, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := browser.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("the authorize page answered %s, not a redirect", resp.Status)
+	}
+	return resp.Header.Get("Location")
 }
 
 // waitForPrompt returns login's output once it is waiting for the pasted
@@ -444,14 +480,17 @@ func TestLoginThenMostRecent100AcrossAccounts(t *testing.T) {
 	f.addAccount("11112222", 1000, 150, testNow.Add(-time.Hour), 48*time.Hour)
 	f.addAccount("33334444", 5000, 30, testNow.Add(-3*time.Hour), 240*time.Hour)
 	f.addAccount("55556666", 9000, 1, testNow.Add(-60*24*time.Hour), time.Hour)
+	// Schwab was reported once to refuse a request without types, so the
+	// tool names them on every request.
+	f.SetTransactionRules(schwabtest.TransactionRules{RequireTypes: true})
 
 	if _, _, err := runTx(t); err == nil || !strings.Contains(err.Error(), "schwabtx login") {
 		t.Fatalf("expected a not-logged-in error, got %v", err)
 	}
 
-	doLogin(t)
-	if f.codeGrants != 1 {
-		t.Fatalf("code grants = %d, want 1", f.codeGrants)
+	login := doLogin(t)
+	if code, _ := f.Grants(); code != 1 {
+		t.Fatalf("code grants = %d, want 1", code)
 	}
 	info, err := os.Stat(tokenFile)
 	if err != nil {
@@ -471,8 +510,8 @@ func TestLoginThenMostRecent100AcrossAccounts(t *testing.T) {
 	if len(got) != 100 || !equal(got, want) {
 		t.Fatalf("wrong transactions\n got %v\nwant %v", got, want)
 	}
-	if f.refreshGrants != 0 {
-		t.Fatalf("refreshed a still-valid access token %d times", f.refreshGrants)
+	if _, refresh := f.Grants(); refresh != 0 {
+		t.Fatalf("refreshed a still-valid access token %d times", refresh)
 	}
 
 	// The table shows the security leg, not the fee leg, and masks accounts.
@@ -495,8 +534,10 @@ func TestLoginThenMostRecent100AcrossAccounts(t *testing.T) {
 	if !strings.Contains(stderr, "100 transactions from 3 accounts") {
 		t.Errorf("unexpected summary: %q", stderr)
 	}
-	for _, secret := range []string{testSecret, testRefresh, "access-1"} {
-		if strings.Contains(table+stderr+out, secret) {
+	// The app secret, the codes, and every token the fake issued, as they
+	// are or escaped as in an address, such as the pasted one.
+	for _, secret := range f.Secrets() {
+		if all := login + table + stderr + out; strings.Contains(all, secret) || strings.Contains(all, url.QueryEscape(secret)) {
 			t.Errorf("output leaks %q", secret)
 		}
 	}
@@ -529,17 +570,20 @@ func TestExpiredAccessTokenIsRefreshed(t *testing.T) {
 	f, tokenFile := setup(t)
 	f.addAccount("11112222", 1000, 5, testNow.Add(-time.Hour), time.Hour)
 	doLogin(t)
+	// Whether a refresh ends Schwab's older access tokens is not known, so
+	// the tool must use the new one.
+	f.SetRevokeOlder(true)
 
 	// 31 minutes later the access token has lapsed.
 	timeNow = func() time.Time { return testNow.Add(31 * time.Minute) }
 	if _, _, err := runTx(t, "-json"); err != nil {
 		t.Fatal(err)
 	}
-	if f.refreshGrants != 1 {
-		t.Fatalf("refresh grants = %d, want 1", f.refreshGrants)
+	if _, refresh := f.Grants(); refresh != 1 {
+		t.Fatalf("refresh grants = %d, want 1", refresh)
 	}
 	b, _ := os.ReadFile(tokenFile)
-	if !strings.Contains(string(b), "access-2") {
+	if !strings.Contains(string(b), schwabtest.AccessToken(2)) {
 		t.Fatalf("refreshed token was not saved: %s", b)
 	}
 }
@@ -548,15 +592,15 @@ func TestRevokedAccessTokenIsRefreshedOn401(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 5, testNow.Add(-time.Hour), time.Hour)
 	doLogin(t)
-	f.validAccess = "revoked-server-side"
+	f.RevokeAccess()
 
 	// Schwab refusing a token it has only just issued is not the token's
 	// fault, so the tool reports it rather than refresh.
 	if _, _, err := runTx(t, "-json"); err == nil || !strings.Contains(err.Error(), "HTTP 401") {
 		t.Fatalf("a 401 right after the login: %v, want Schwab's HTTP 401", err)
 	}
-	if f.refreshGrants != 0 {
-		t.Fatalf("refresh grants = %d, want 0", f.refreshGrants)
+	if _, refresh := f.Grants(); refresh != 0 {
+		t.Fatalf("refresh grants = %d, want 0", refresh)
 	}
 
 	// Ten minutes later, the fake's refresh handler issues a fresh token, so
@@ -565,20 +609,18 @@ func TestRevokedAccessTokenIsRefreshedOn401(t *testing.T) {
 	if _, _, err := runTx(t, "-json"); err != nil {
 		t.Fatal(err)
 	}
-	if f.refreshGrants != 1 {
-		t.Fatalf("refresh grants = %d, want 1", f.refreshGrants)
+	if _, refresh := f.Grants(); refresh != 1 {
+		t.Fatalf("refresh grants = %d, want 1", refresh)
 	}
 }
 
 func TestExpiredRefreshTokenAsksForLogin(t *testing.T) {
-	f, tokenFile := setup(t)
+	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 5, testNow.Add(-time.Hour), time.Hour)
 	doLogin(t)
 
-	b, _ := os.ReadFile(tokenFile)
-	if err := os.WriteFile(tokenFile, bytes.ReplaceAll(b, []byte(testRefresh), []byte("stale-refresh")), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	// Eight days later Schwab has ended the login.
+	f.EndLogin()
 	timeNow = func() time.Time { return testNow.Add(8 * 24 * time.Hour) }
 
 	_, _, err := runTx(t)
@@ -587,37 +629,68 @@ func TestExpiredRefreshTokenAsksForLogin(t *testing.T) {
 	}
 }
 
+// A window whose answer holds pageCap rows or more may have been cut short,
+// so it is split until no answer does. The newest 100 come back whichever
+// rows Schwab keeps at its cap, the newest, as seen live, or the oldest, and
+// however the cap meets a request for several types, which is not known: an
+// answer can then be cut short at the cap or hold more than it.
 func TestTruncatedResponsesAreSplit(t *testing.T) {
-	f, _ := setup(t)
-	f.addAccount("11112222", 1000, 300, testNow.Add(-time.Hour), 6*time.Hour) // 240 per 60-day window
-	doLogin(t)
-	f.cap = 50
+	// The types of the rows in turn. Trades outnumber the others, so that a
+	// cap on each type's rows leaves out some of the newest rows too.
+	several := []string{"TRADE", "TRADE", "DIVIDEND_OR_INTEREST", "TRADE", "JOURNAL"}
+	for _, tc := range []struct {
+		name   string
+		types  []string // the types of the rows in turn; TRADE alone when nil
+		mode   schwabtest.CapMode
+		oldest bool // the oldest rows are kept at the cap
+	}{
+		{"newest kept", nil, schwabtest.NewestAcrossTypes, false},
+		{"oldest kept", nil, schwabtest.NewestAcrossTypes, true},
+		{"several types, newest kept across them", several, schwabtest.NewestAcrossTypes, false},
+		{"several types, oldest kept across them", several, schwabtest.NewestAcrossTypes, true},
+		{"several types, cut in type order", several, schwabtest.InTypeOrder, false},
+		{"several types, cut in type order, oldest first", several, schwabtest.InTypeOrder, true},
+		{"several types, each capped", several, schwabtest.PerType, false},
+		{"several types, each capped, oldest kept", several, schwabtest.PerType, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := setup(t)
+			f.addAccount("11112222", 1000, 300, testNow.Add(-time.Hour), 6*time.Hour) // 240 per 60-day window
+			if tc.types != nil {
+				for i, tx := range f.rows("11112222") {
+					f.setRow("11112222", i, strings.Replace(tx.JSON, `"type":"TRADE"`, `"type":"`+tc.types[i%len(tc.types)]+`"`, 1))
+				}
+			}
+			doLogin(t)
+			f.SetTransactionRules(schwabtest.TransactionRules{Cap: 50, CapMode: tc.mode, KeepOldest: tc.oldest})
 
-	// The cap is Schwab's 3000 in real life; shrink it to match the fake.
-	cfg, _ := loadConfig()
-	auth, err := openLogin(cfg, io.Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := newClient(auth)
-	c.pageCap = 50
-	accounts, err := c.accountNumbers(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	txs, err := fetchRecent(context.Background(), c, accounts, fetchOptions{
-		N: 100, Lookback: 365 * 24 * time.Hour, Window: 60 * 24 * time.Hour,
-		Types: schwab.AllTransactionTypes(), Now: testNow, Warn: func(s string) { t.Errorf("unexpected warning: %s", s) },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := make([]string, len(txs))
-	for i, tx := range txs {
-		got[i] = strconv.FormatInt(tx.ActivityID, 10)
-	}
-	if want := f.expected(100, time.Time{}); !equal(got, want) {
-		t.Fatalf("got %v\nwant %v", got, want)
+			// The cap is Schwab's 3000 in real life; shrink it to match the fake.
+			cfg, _ := loadConfig()
+			auth, err := openLogin(cfg, io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := newClient(auth)
+			c.pageCap = 50
+			accounts, err := c.accountNumbers(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			txs, err := fetchRecent(context.Background(), c, accounts, fetchOptions{
+				N: 100, Lookback: 365 * 24 * time.Hour, Window: 60 * 24 * time.Hour,
+				Types: schwab.AllTransactionTypes(), Now: testNow, Warn: func(s string) { t.Errorf("unexpected warning: %s", s) },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, len(txs))
+			for i, tx := range txs {
+				got[i] = strconv.FormatInt(tx.ActivityID, 10)
+			}
+			if want := f.expected(100, time.Time{}); !equal(got, want) {
+				t.Fatalf("got %v\nwant %v", got, want)
+			}
+		})
 	}
 }
 
@@ -625,14 +698,16 @@ func TestOlderWindowRefusedKeepsWhatWeHave(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
 	doLogin(t)
-	f.oldestAllowed = testNow.Add(-61 * 24 * time.Hour)
+	// Schwab has not been seen to refuse an old window, but the tool copes.
+	oldest := testNow.Add(-61 * 24 * time.Hour)
+	f.SetTransactionRules(schwabtest.TransactionRules{RefuseBefore: oldest})
 
 	out, stderr, err := runTx(t, "-json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The tool narrows the refused window, so it gets everything Schwab serves.
-	if got, want := idsFromJSON(t, out), f.expected(100, f.oldestAllowed); !equal(got, want) {
+	if got, want := idsFromJSON(t, out), f.expected(100, oldest); !equal(got, want) {
 		t.Fatalf("got %v\nwant %v", got, want)
 	}
 	if !strings.Contains(stderr, "older ones are missing") {
@@ -640,22 +715,112 @@ func TestOlderWindowRefusedKeepsWhatWeHave(t *testing.T) {
 	}
 }
 
+// Schwab answers [] for a window older than an account's history, as for
+// any window without transactions, so the same walk keeps every row and
+// warns of nothing.
+func TestOlderWindowsAnsweredEmpty(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+	doLogin(t)
+
+	out, stderr, err := runTx(t, "-json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := idsFromJSON(t, out), f.expected(100, time.Time{}); !equal(got, want) {
+		t.Fatalf("got %v\nwant %v", got, want)
+	}
+	if stderr != "" {
+		t.Errorf("warnings: %q", stderr)
+	}
+	// An empty window does not show that the history has ended, so the walk
+	// goes on to the end of the lookback.
+	walked := testNow
+	for _, q := range f.queries(schwabtest.TransactionsRoute) {
+		start, err := time.Parse(time.RFC3339, q.Get("startDate"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if start.Before(walked) {
+			walked = start
+		}
+	}
+	if want := testNow.Add(-365 * 24 * time.Hour); !walked.Equal(want) {
+		t.Errorf("walked back to %v, want the whole lookback, to %v", walked, want)
+	}
+}
+
 // An account that Schwab stops taking part way through a run fails the run;
 // it is not taken for the end of the account's history, whether the refusal
 // comes alone or, as one report shows it, in a list of one.
 func TestRefusedAccountFailsTheRun(t *testing.T) {
-	for _, body := range []string{`{"message":"Invalid account number"}`, `[{"message":"Invalid account number"}]`} {
-		f, _ := setup(t)
-		f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
-		doLogin(t)
-		f.afterTx = func() { f.refuseAccount = body }
-		_, stderr, err := runTx(t)
-		if !errors.Is(err, schwab.ErrInvalidAccount) || !strings.Contains(err.Error(), "...2222") {
-			t.Errorf("%s: got %v, want the refused account", body, err)
-		}
-		if strings.Contains(stderr, "older ones are missing") {
-			t.Errorf("%s: took the refused account for refused history: %q", body, stderr)
-		}
+	for _, refusal := range []struct {
+		name   string
+		answer http.HandlerFunc
+	}{
+		{"alone", schwabtest.InvalidAccount},
+		{"in a list of one", schwabtest.InvalidAccountList},
+	} {
+		t.Run(refusal.name, func(t *testing.T) {
+			f, _ := setup(t)
+			f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+			doLogin(t)
+			f.atSecondTransactions(func() { f.Override(schwabtest.TransactionsRoute, refusal.answer) })
+			_, stderr, err := runTx(t)
+			if !errors.Is(err, schwab.ErrInvalidAccount) || !strings.Contains(err.Error(), "...2222") {
+				t.Errorf("got %v, want the refused account", err)
+			}
+			if strings.Contains(stderr, "older ones are missing") {
+				t.Errorf("took the refused account for refused history: %q", stderr)
+			}
+			if n := len(f.queries(schwabtest.TransactionsRoute)); n < 2 {
+				t.Errorf("%d requests for transactions, want the refusal after one was answered", n)
+			}
+		})
+	}
+}
+
+// Only Schwab's 400 for a later window is taken for history it will not
+// serve. Anything else that fails a later window fails the run: a 429 after
+// every try, a 403 from Schwab's network, a 503 after every try, and a
+// refresh that Schwab refuses for the app's key or secret, whose 400 is the
+// token endpoint's.
+func TestLaterWindowFailureFailsTheRun(t *testing.T) {
+	override := func(h http.HandlerFunc) func(*fakeSchwab) {
+		return func(f *fakeSchwab) { f.Override(schwabtest.TransactionsRoute, h) }
+	}
+	for _, tc := range []struct {
+		name   string
+		fail   func(f *fakeSchwab) // on the fake's goroutine, as the second request for transactions arrives
+		status int                 // of the error that fails the run
+		is     error               // that the error must be, if not nil
+	}{
+		{"rate limited", override(schwabtest.TooMany), http.StatusTooManyRequests, schwab.ErrRateLimited},
+		{"turned away by Schwab's network", override(schwabtest.AccessDenied), http.StatusForbidden, nil},
+		{"unavailable", override(schwabtest.Unavailable), http.StatusServiceUnavailable, nil},
+		{"the app rejected", func(f *fakeSchwab) {
+			f.RevokeAccess()
+			f.FailTokens(schwabtest.Failure{Status: http.StatusBadRequest, Body: `{"error":"invalid_client","error_description":"Unauthorized"}`})
+		}, http.StatusBadRequest, schwab.ErrAppRejected},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := setup(t)
+			f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
+			doLogin(t)
+			timeNow = func() time.Time { return testNow.Add(2 * time.Minute) } // a token not just issued, nor stale
+			f.atSecondTransactions(func() { tc.fail(f) })
+			out, stderr, err := runTx(t)
+			var se *schwab.Error
+			if !errors.As(err, &se) || se.Status != tc.status || tc.is != nil && !errors.Is(err, tc.is) || !strings.Contains(err.Error(), "...2222") {
+				t.Errorf("got %v, printed %d bytes, warned %q; want the run to fail with HTTP %d", err, len(out), stderr, tc.status)
+			}
+			if strings.Contains(stderr, "older ones are missing") {
+				t.Errorf("took the failure for refused history: %q", stderr)
+			}
+			if len(f.queries(schwabtest.TransactionsRoute)) == 0 {
+				t.Error("the run failed before a request for transactions was answered")
+			}
+		})
 	}
 }
 
@@ -665,9 +830,8 @@ func TestRecordsThatShareATimeAreKept(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 3, testNow.Add(-time.Hour), 0) // three fills at one instant
 	f.addAccount("33334444", 5000, 3, testNow.Add(-time.Hour), time.Hour)
-	for i, tx := range f.txs["HASH33334444"][:2] {
-		tx.JSON = strings.Replace(tx.JSON, fmt.Sprintf(`"activityId":%d`, tx.ID), fmt.Sprintf(`"activityId":"%d"`, tx.ID), 1)
-		f.txs["HASH33334444"][i] = tx
+	for i, tx := range f.rows("33334444")[:2] {
+		f.setRow("33334444", i, strings.Replace(tx.JSON, fmt.Sprintf(`"activityId":%d`, tx.ID), fmt.Sprintf(`"activityId":"%d"`, tx.ID), 1))
 	}
 	doLogin(t)
 	out, _, err := runTx(t, "-json")
@@ -680,6 +844,40 @@ func TestRecordsThatShareATimeAreKept(t *testing.T) {
 	}
 }
 
+// Records that share a time are ranked by their ids, the highest first, so
+// that -n keeps the same ones whatever order Schwab sends them in. Here the
+// lowest id, 1001, arrives before the others, in one answer or from the
+// account listed first.
+func TestRecordsThatShareATimeAreRankedByID(t *testing.T) {
+	at := testNow.Add(-time.Hour)
+	for _, tc := range []struct {
+		name string
+		add  func(f *fakeSchwab) // ids 1001 to 1003, all at one time
+	}{
+		{"in one answer", func(f *fakeSchwab) {
+			f.SetTransactionRules(schwabtest.TransactionRules{Order: schwabtest.Shuffled}) // which sends 1001, 1002, 1003
+			f.addAccount("11112222", 1000, 3, at, 0)
+		}},
+		{"across accounts", func(f *fakeSchwab) {
+			f.addAccount("11112222", 1000, 1, at, 0)
+			f.addAccount("33334444", 1001, 2, at, 0)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := setup(t)
+			tc.add(f)
+			doLogin(t)
+			out, _, err := runTx(t, "-json", "-n", "2")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := idsFromJSON(t, out), []string{"1003", "1002"}; !equal(got, want) {
+				t.Errorf("got %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 // The most recent transactions are the latest by time, not by trade date: a
 // dividend posted in the afternoon is newer than that morning's fill, though
 // its tradeDate is midnight.
@@ -687,7 +885,7 @@ func TestMostRecentIsByTime(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 1, testNow.Add(-2*time.Hour), time.Hour)
 	posted := testNow.Add(-time.Hour)
-	f.txs["HASH11112222"] = append(f.txs["HASH11112222"], fakeTx{ID: 999, When: posted, JSON: fmt.Sprintf(
+	f.addRows("11112222", fakeTx{ID: 999, When: posted, JSON: fmt.Sprintf(
 		`{"activityId":999,"time":%q,"tradeDate":"2026-10-08T04:00:00+0000","settlementDate":"2026-10-08T04:00:00+0000",`+
 			`"accountNumber":"11112222","type":"DIVIDEND_OR_INTEREST","status":"VALID","subAccount":"CASH",`+
 			`"description":"Ordinary Dividend~VTI","netAmount":5,`+
@@ -711,9 +909,8 @@ func TestMostRecentIsByTime(t *testing.T) {
 func TestUnreadableAccountNumberWarns(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 1, testNow.Add(-time.Hour), time.Hour)
-	f.accountsReply = func(w http.ResponseWriter, _ *http.Request) {
-		f.writeJSON(w, []map[string]any{{"accountNumber": "11112222", "hashValue": 12345}})
-	}
+	f.Override(schwabtest.AccountNumbersRoute,
+		schwabtest.Answer(http.StatusOK, `[{"accountNumber":"11112222","hashValue":12345}]`, "Content-Type", "application/json"))
 	doLogin(t)
 	_, stderr, err := runTx(t)
 	if err == nil || !strings.Contains(err.Error(), "no account hash") {
@@ -732,10 +929,10 @@ func TestLoginLapsesDuringARun(t *testing.T) {
 	f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
 	doLogin(t)
 	timeNow = func() time.Time { return testNow.Add(2 * time.Minute) } // a token not just issued, nor stale
-	f.afterTx = func() {
-		f.validAccess = "revoked"
-		f.refuseRefresh = true
-	}
+	f.atSecondTransactions(func() {
+		f.RevokeAccess()
+		f.EndLogin()
+	})
 	_, stderr, err := runTx(t)
 	if err == nil || !strings.Contains(err.Error(), "schwabtx login") {
 		t.Errorf("got %v, want the refused login", err)
@@ -743,19 +940,23 @@ func TestLoginLapsesDuringARun(t *testing.T) {
 	if strings.Contains(stderr, "older ones are missing") {
 		t.Errorf("took the refused login for refused history: %q", stderr)
 	}
+	if len(f.queries(schwabtest.TransactionsRoute)) == 0 {
+		t.Error("the login lapsed before a request for transactions was answered")
+	}
 }
 
 func TestRefusedWindowIsNarrowedToTheLimit(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 40, testNow.Add(-time.Hour), 72*time.Hour) // spans 120 days
 	doLogin(t)
-	f.oldestAllowed = testNow.Add(-85 * 24 * time.Hour) // inside the second 60-day window
+	oldest := testNow.Add(-85 * 24 * time.Hour) // inside the second 60-day window
+	f.SetTransactionRules(schwabtest.TransactionRules{RefuseBefore: oldest})
 
 	out, stderr, err := runTx(t, "-json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, want := idsFromJSON(t, out), f.expected(100, f.oldestAllowed)
+	got, want := idsFromJSON(t, out), f.expected(100, oldest)
 	if len(want) != 29 || !equal(got, want) {
 		t.Fatalf("got %v\nwant %v", got, want)
 	}
@@ -791,7 +992,13 @@ func TestLoginStopsOnCancel(t *testing.T) {
 func TestBadFlagsFailBeforeAnyRequest(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 5, testNow.Add(-time.Hour), time.Hour)
+	// Two of the five are a journal and a dividend, which Schwab sends only
+	// when the types asked for name them.
+	for i, typ := range []string{"JOURNAL", "DIVIDEND_OR_INTEREST"} {
+		f.setRow("11112222", i, strings.Replace(f.rows("11112222")[i].JSON, `"type":"TRADE"`, `"type":"`+typ+`"`, 1))
+	}
 	doLogin(t)
+	before := f.AllRequests()
 	for _, args := range [][]string{
 		{"-types", "TRADES"},
 		{"-types", ","},
@@ -804,15 +1011,20 @@ func TestBadFlagsFailBeforeAnyRequest(t *testing.T) {
 			t.Errorf("%v: expected an error, got output %q", args, out)
 		}
 	}
-	if f.txCalls != 0 {
-		t.Errorf("bad flags still caused %d transaction requests", f.txCalls)
+	if n := f.AllRequests() - before; n != 0 {
+		t.Errorf("bad flags still caused %d requests", n)
 	}
-	if out, _, err := runTx(t, "-json", "-types", "trade, dividend_or_interest"); err != nil || len(idsFromJSON(t, out)) != 5 {
+	// -types asks for the trades and the dividend alone.
+	if out, _, err := runTx(t, "-json", "-types", "trade, dividend_or_interest"); err != nil {
 		t.Errorf("valid -types failed: %v", err)
+	} else if ids := idsFromJSON(t, out); len(ids) != 4 {
+		t.Errorf("-types trade, dividend_or_interest printed %v, want all but the journal", ids)
 	}
 	// -window takes Schwab's whole year.
-	if out, _, err := runTx(t, "-json", "-window", "365"); err != nil || len(idsFromJSON(t, out)) != 5 {
+	if out, _, err := runTx(t, "-json", "-window", "365"); err != nil {
 		t.Errorf("-window 365 failed: %v", err)
+	} else if ids := idsFromJSON(t, out); len(ids) != 5 {
+		t.Errorf("-window 365 printed %v, want all five", ids)
 	}
 }
 
@@ -843,7 +1055,7 @@ func TestFirstWindowErrorFails(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 5, testNow.Add(-time.Hour), time.Hour)
 	doLogin(t)
-	f.oldestAllowed = testNow.Add(time.Hour) // every request is refused
+	f.SetTransactionRules(schwabtest.TransactionRules{RefuseBefore: testNow.Add(time.Hour)}) // every request is refused
 
 	if out, _, err := runTx(t); err == nil {
 		t.Fatalf("expected an error, got output %q", out)
@@ -856,7 +1068,7 @@ func TestRateLimitIsRetried(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 5, testNow.Add(-time.Hour), time.Hour)
 	doLogin(t)
-	f.rateLimitNext = 2
+	f.Queue(schwabtest.TransactionsRoute, schwabtest.TooMany, schwabtest.TooMany)
 
 	cfg, _ := loadConfig()
 	auth, err := openLogin(cfg, io.Discard)
@@ -864,12 +1076,13 @@ func TestRateLimitIsRetried(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := newClient(auth)
-	txs, err := c.transactions(context.Background(), "HASH11112222", testNow.Add(-24*time.Hour), testNow, schwab.AllTransactionTypes())
+	txs, err := c.transactions(context.Background(), schwab.AccountHash(f.hash("11112222")), testNow.Add(-24*time.Hour), testNow,
+		schwab.AllTransactionTypes())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(txs) != 5 || f.txCalls != 3 {
-		t.Fatalf("got %d transactions in %d calls, want 5 in 3", len(txs), f.txCalls)
+	if calls := len(f.queries(schwabtest.TransactionsRoute)); len(txs) != 5 || calls != 3 {
+		t.Fatalf("got %d transactions in %d calls, want 5 in 3", len(txs), calls)
 	}
 }
 
@@ -878,33 +1091,29 @@ func TestSchwabErrorsSayWhatToDo(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		status int
-		body   string
+		answer http.HandlerFunc // to every try
 		want   []string
 	}{
-		{"rate limited", http.StatusTooManyRequests, " \n", []string{"HTTP 429 from Schwab after 4 tries", "wait a minute"}},
+		{"rate limited", http.StatusTooManyRequests, schwabtest.TooMany, []string{"HTTP 429 from Schwab after 4 tries", "wait a minute"}},
 		{
-			"an app not yet Ready For Use", http.StatusInternalServerError,
-			`<html><body><h1>Whitelabel Error Page</h1><p>This application has no configured error view.</p></body></html>`,
+			"an app not yet Ready For Use", http.StatusInternalServerError, schwabtest.Whitelabel,
 			[]string{"Whitelabel Error Page", `until the app says "Ready For Use"`},
 		},
 		{
-			"turned away by Schwab's network", http.StatusForbidden,
-			"<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY>Reference&#32;&#35;18&#46;9efa3f17&#46;1792539138</BODY></HTML>",
-			[]string{"Access Denied (reference #18.9efa3f17.1792539138)", "traderapi@schwab.com"},
+			"turned away by Schwab's network", http.StatusForbidden, schwabtest.AccessDenied,
+			[]string{"Access Denied (reference #" + schwabtest.AkamaiReference + ")", "traderapi@schwab.com"},
 		},
 		{
 			"Schwab's network, with its servers not answering", http.StatusServiceUnavailable,
-			"<HTML><HEAD><TITLE>Service Unavailable</TITLE></HEAD><BODY>Reference&#32;&#35;18&#46;77</BODY></HTML>",
+			schwabtest.Answer(http.StatusServiceUnavailable,
+				"<HTML><HEAD><TITLE>Service Unavailable</TITLE></HEAD><BODY>Reference&#32;&#35;18&#46;77</BODY></HTML>"),
 			[]string{"after 4 tries: an HTML page, Service Unavailable (reference #18.77)"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := setup(t)
 			doLogin(t)
-			f.accountsReply = func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(tc.status)
-				fmt.Fprint(w, tc.body)
-			}
+			f.Override(schwabtest.AccountNumbersRoute, tc.answer)
 			_, _, err := runTx(t)
 			for _, want := range tc.want {
 				if err == nil || !strings.Contains(err.Error(), want) {
@@ -1015,6 +1224,31 @@ func TestPrintJSONKeepsSchwabsText(t *testing.T) {
 	}
 }
 
+// -json prints a transaction as Schwab sent it, all the way from the
+// answer: the fake sends a row's bytes as they are, and the output is them
+// re-indented, "&", "<", U+2028 and 250.0 as they came.
+func TestJSONPrintsWhatSchwabSent(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 1, testNow.Add(-time.Hour), time.Hour)
+	tx := strings.Replace(f.rows("11112222")[0].JSON, `"description":""`, `"description":"AT&T <x>`+"\u2028"+`"`, 1)
+	tx = strings.Replace(tx, `"netAmount":-1234.56`, `"netAmount":250.0`, 1)
+	f.setRow("11112222", 0, tx)
+	doLogin(t)
+	out, _, err := runTx(t, "-json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want bytes.Buffer
+	want.WriteString("[\n  ")
+	if err := json.Indent(&want, []byte(tx), "  ", "  "); err != nil {
+		t.Fatal(err)
+	}
+	want.WriteString("\n]\n")
+	if out != want.String() {
+		t.Errorf("printed\n%s\nwant\n%s", out, want.String())
+	}
+}
+
 // The warning about records with problems names each place once.
 func TestProblemsWarning(t *testing.T) {
 	if w := problemsWarning("transaction", [][]schwab.Problem{nil, nil}); w != "" {
@@ -1040,9 +1274,7 @@ func TestProblemsWarning(t *testing.T) {
 func TestUnreadableTransactionWarns(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 3, testNow.Add(-time.Hour), time.Hour)
-	tx := f.txs["HASH11112222"][0]
-	tx.JSON = strings.Replace(tx.JSON, `"netAmount":-1234.56`, `"netAmount":"-1234.56"`, 1)
-	f.txs["HASH11112222"][0] = tx
+	f.setRow("11112222", 0, strings.Replace(f.rows("11112222")[0].JSON, `"netAmount":-1234.56`, `"netAmount":"-1234.56"`, 1))
 	doLogin(t)
 	out, stderr, err := runTx(t)
 	if err != nil {

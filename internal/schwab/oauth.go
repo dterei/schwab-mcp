@@ -38,6 +38,11 @@ func (a *Auth) AuthorizeURL(state string) string {
 // browser was sent to after the login, as pasted by the user. A bare code, an
 // address without its scheme and a bare query string are accepted too. The
 // state in the address, if any, must be wantState.
+//
+// An error quotes nothing of what was pasted, which can hold the code, but
+// the error and its description that Schwab put in the address, each cut to
+// 200 bytes and quoted, so that a control character in them, such as one
+// that moves the cursor, is shown rather than sent to the terminal.
 func CodeFromRedirect(pasted, wantState string) (string, error) {
 	pasted = strings.TrimSpace(pasted)
 	if pasted == "" {
@@ -57,11 +62,17 @@ func CodeFromRedirect(pasted, wantState string) (string, error) {
 	}
 	u, err := url.Parse(pasted)
 	if err != nil {
-		return "", fmt.Errorf("that doesn't look like a web address: %w", err)
+		// url.Parse's error quotes the address, or a part of it, which can
+		// be the code.
+		return "", errors.New("that doesn't look like a web address; paste the whole address from the browser's address bar")
 	}
 	q := u.Query()
 	if e := q.Get("error"); e != "" {
-		return "", fmt.Errorf("Schwab reported %q: %s", e, q.Get("error_description"))
+		msg := fmt.Sprintf("Schwab reported %q", clip(e, 200))
+		if d := q.Get("error_description"); d != "" {
+			msg += fmt.Sprintf(": %q", clip(d, 200))
+		}
+		return "", errors.New(msg)
 	}
 	code := q.Get("code")
 	if code == "" {

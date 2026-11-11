@@ -37,12 +37,14 @@ func (p Problem) String() string {
 
 // decode decodes b, one record of Schwab's JSON, into w, the record's
 // wrapper: a struct that embeds, by value, a method-less alias of the
-// record's type, beside the fields that the record reads by hand. It
-// reports whether b is an object, and encoding/json's error, which says only
-// that something could not be read: a value of the wrong JSON type is
-// skipped, and the rest of the record still decodes.
+// record's type, beside the fields that the record reads by hand and a
+// json.RawMessage tagged "problems", which takes a problems key from Schwab
+// so that the record's own Problems never does. It reports whether b is an
+// object, and encoding/json's error, which says only that something could
+// not be read: a value of the wrong JSON type is skipped, and the rest of
+// the record still decodes.
 func decode(b []byte, w any) (isObject bool, err error) {
-	b = bytes.TrimSpace(b)
+	b = trimSpace(b)
 	if len(b) == 0 || b[0] != '{' {
 		return false, nil
 	}
@@ -51,11 +53,13 @@ func decode(b []byte, w any) (isObject bool, err error) {
 
 // recordProblems returns the problems of rec, a pointer to a record decoded
 // from b: that b is not an object, or what a walk of b against rec finds,
-// which see. skip names the keys that the record reads by hand, which report
-// their own problems. Should the decode have failed with err and the walk
-// found no value that explains it, err itself is a problem.
+// which see. skip names the keys that the walk passes over: those that the
+// record reads by hand, which report their own problems, and "problems",
+// which is the record's own field, not one of Schwab's. Should the decode
+// have failed with err and the walk found no value that explains it, err
+// itself is a problem.
 func recordProblems(b []byte, rec any, isObject bool, err error, skip ...string) []Problem {
-	b = bytes.TrimSpace(b)
+	b = trimSpace(b)
 	if !isObject {
 		return []Problem{{What: sent(b, "an object")}}
 	}
@@ -333,7 +337,7 @@ func derefType(t reflect.Type) reflect.Type {
 
 // isNull reports whether raw is JSON null.
 func isNull(raw json.RawMessage) bool {
-	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+	return bytes.Equal(trimSpace(raw), []byte("null"))
 }
 
 // mismatch returns what is wrong with raw, a JSON value other than null, as
@@ -523,6 +527,14 @@ func skipSpace(b []byte, i int) int {
 	return i
 }
 
+// trimSpace returns b without the JSON white space around it: spaces, tabs
+// and line ends. Unlike bytes.TrimSpace, it leaves white space that JSON
+// does not allow, such as a form feed or a no-break space, so that a record
+// or list with it around is refused, as encoding/json refuses it.
+func trimSpace(b []byte) []byte {
+	return bytes.Trim(b, " \t\n\r")
+}
+
 // jsonName returns the JSON key of a struct field, or "" for a field that
 // JSON leaves out.
 func jsonName(f reflect.StructField) string {
@@ -560,7 +572,9 @@ var timeLayouts = []string{"2006-01-02T15:04:05Z0700", time.RFC3339Nano}
 // readTime reads raw, the value at path, a timestamp as Schwab writes one,
 // as an instant in UTC, and reports whether the key was there and not null.
 // A date alone stands for midnight in New York, as Schwab's dates do.
-// Anything that is not a timestamp is the zero time and a problem.
+// Anything that is not a timestamp is the zero time and a problem. So is an
+// instant outside the years 0 to 9999 in UTC, which time.Time cannot encode,
+// so that a record holding one could not be encoded either.
 func readTime(raw json.RawMessage, path string, ps *[]Problem) (time.Time, bool) {
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
 		return time.Time{}, false
@@ -580,10 +594,16 @@ func readTime(raw json.RawMessage, path string, ps *[]Problem) (time.Time, bool)
 				*ps = append(*ps, Problem{Path: path, What: fmt.Sprintf("Schwab sent %q, whose offset from UTC is out of range", s)})
 				return time.Time{}, true
 			}
+			if y := t.UTC().Year(); y < 0 || y > 9999 {
+				*ps = append(*ps, Problem{Path: path, What: fmt.Sprintf("Schwab sent %q, which is outside the years 0 to 9999 in UTC", s)})
+				return time.Time{}, true
+			}
 			return t.UTC(), true
 		}
 	}
 	if t, err := time.ParseInLocation(time.DateOnly, s, newYork()); err == nil {
+		// Midnight in New York is on the same date in UTC, so a date alone
+		// is never outside the years 0 to 9999.
 		return t.UTC(), true
 	}
 	*ps = append(*ps, Problem{Path: path, What: fmt.Sprintf("Schwab sent %q, which is not a time", s)})
@@ -647,17 +667,17 @@ func within(ps []Problem, prefix string, nested []Problem) []Problem {
 	return ps
 }
 
-// copyRaw returns a copy of b without the space around it; the decoder may
-// reuse b.
+// copyRaw returns a copy of b without the JSON white space around it; the
+// decoder may reuse b.
 func copyRaw(b []byte) json.RawMessage {
-	return append(json.RawMessage(nil), bytes.TrimSpace(b)...)
+	return append(json.RawMessage(nil), trimSpace(b)...)
 }
 
 // decodeList decodes body as a JSON array of records, which Schwab sends for
 // the list endpoints. A record that cannot be read is still in the list,
 // with its problems.
 func decodeList[T any](body []byte) ([]T, error) {
-	b := bytes.TrimSpace(body)
+	b := trimSpace(body)
 	if len(b) == 0 || b[0] != '[' {
 		return nil, fmt.Errorf("the answer is %s, not a list", describeJSON(b))
 	}
@@ -673,7 +693,7 @@ func decodeList[T any](body []byte) ([]T, error) {
 // one object is taken too.
 func decodeOne[T any](body []byte) (T, error) {
 	var one T
-	b := bytes.TrimSpace(body)
+	b := trimSpace(body)
 	switch {
 	case len(b) > 0 && b[0] == '{':
 		err := json.Unmarshal(b, &one)
@@ -686,7 +706,7 @@ func decodeOne[T any](body []byte) (T, error) {
 		if len(elems) != 1 {
 			return one, fmt.Errorf("the answer is a list of %d, where one was expected", len(elems))
 		}
-		if e := bytes.TrimSpace(elems[0]); len(e) == 0 || e[0] != '{' {
+		if e := trimSpace(elems[0]); len(e) == 0 || e[0] != '{' {
 			return one, fmt.Errorf("the answer is a list holding %s, not an object", describeJSON(e))
 		}
 		err := json.Unmarshal(elems[0], &one)

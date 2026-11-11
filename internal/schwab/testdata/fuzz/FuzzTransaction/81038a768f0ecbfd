@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("\v{\"activityId\":1,\"time\":\"2024-04-04T15:56:07+0000\",\"accountNumber\":\"29470135\",\"type\":\"TRADE\",\"status\":\"VALID\",\"subAccount\":\"CASH\",\"tradeDate\":\"2024-04-04T15:56:07+0000\",\"netAmount\":1,\"transferItems\":[]}")

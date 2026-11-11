@@ -126,6 +126,7 @@ You need Go 1.26 or newer.
 ```sh
 make check   # everything CI runs: go.mod tidiness, lint, tests, govulncheck
 make test    # tests with the race detector
+make fuzz    # fuzz each target in internal/schwab in turn (needs Go 1.27)
 make lint    # golangci-lint, with go vet and the format check, and ShellCheck
 make fmt     # format the code
 make help    # all targets
@@ -152,11 +153,17 @@ internal/schwab/
                 process using the app key shares, and the accounts,
                 positions, transactions and preferences they return, with
                 Schwab's JSON kept
+internal/schwab/schwabtest/
+                a fake Schwab for the tests, kept out of the programs: its
+                token endpoint, authorize page and account endpoints, with
+                Schwab's rules for tokens and its error answers, and fixtures
+                in the shape Schwab sends them
 internal/filelock/
                 file locks across processes, which keep two processes from
                 refreshing the login at once, or from going over the rate
                 limit together
-docs/           roadmap, notes on the Schwab API and a survey of prior art
+docs/           roadmap, notes on the Schwab API, the live mode and a survey
+                of prior art
 .github/        CI and Dependabot
 ```
 
@@ -165,8 +172,13 @@ What runs where:
 - **Linting** ([`.golangci.yml`](.golangci.yml)): golangci-lint v2 with its
   standard linters (go vet, staticcheck, errcheck, ineffassign, unused) plus
   ones for error wrapping, HTTP bodies and contexts, security (gosec) and
-  modern Go idioms. Code is formatted with gofumpt and goimports. ShellCheck
-  checks the shell scripts.
+  modern Go idioms, and a rule that keeps the fake Schwab out of the
+  programs. Code is formatted with gofumpt and goimports. ShellCheck checks
+  the shell scripts.
+- **Tests** run against the fake Schwab, `internal/schwab/schwabtest`, a
+  server that each test starts for itself; only the live mode, below,
+  reaches Schwab. They include each fuzz target's seeds, and the live mode's
+  harness run against the fake, every probe included.
 - **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), on pull
   requests, pushes to `main` and weekly: tests with the race detector on
   Linux, macOS and Windows with the latest Go, and on Linux with the oldest
@@ -176,6 +188,19 @@ What runs where:
   grouped updates for Go modules and GitHub Actions, each release left to age
   a week first. Actions are referenced by major version (`@v7`), so their
   minor and patch releases arrive without Dependabot and without the wait.
+- **Fuzzing**, by hand: `make fuzz` fuzzes each target in `internal/schwab`
+  in turn, 30 seconds each unless `FUZZTIME` says otherwise, and stops at
+  the first that fails. It needs Go 1.27. A failing input is saved under
+  `internal/schwab/testdata/fuzz`, to commit with the fix.
+- **The live mode** ([docs/live.md](docs/live.md)), by hand and never in CI:
+  `go test ./internal/schwab -run '^TestLive$' -live -v` probes Schwab's real
+  API with your saved login, checks each answer against the records, and
+  runs the default probes of the roadmap's
+  [open questions](docs/ROADMAP.md#open-questions); the watches and the rate
+  probe each run alone, with a flag of their own and `-timeout 0`. It only
+  reads, and its report leaves out account numbers, hashes, IDs and balances,
+  each line checked for what the run has seen before it is written, so that
+  you can share it once you have read it.
 
 ## License
 

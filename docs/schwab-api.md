@@ -18,7 +18,8 @@ The authority is <https://developer.schwab.com>. These notes come from:
 Checked in October 2026, and for the account endpoints again in November
 2026. Where live behavior is known to differ from the spec, it says so.
 Things nobody has pinned down are collected under
-[open questions](ROADMAP.md#open-questions).
+[open questions](ROADMAP.md#open-questions); most of them have a probe in
+[the live mode](live.md#the-probes), named below where a note awaits one.
 
 ## Access and app setup
 
@@ -65,7 +66,9 @@ Things nobody has pinned down are collected under
   schwab-py, Schwabdev and this project's CLI send no scope;
   sudowealth/schwab-api sends `api offline_access`; ssandy33/regress has sent
   `scope=readonly` since May 2026 without reporting any effect. Whether
-  `readonly` limits the token is unknown.
+  `readonly` limits the token is unknown: [probe Q6](live.md#the-probes)
+  reports the scope Schwab grants, but only an order could show that a
+  token cannot trade.
 - **The code** comes back URL-encoded in the redirect, must be decoded, and
   expires in about 30 seconds.
 - **Token requests** are `POST /v1/oauth/token` with HTTP Basic auth (app key
@@ -79,9 +82,10 @@ Things nobody has pinned down are collected under
   every response reported). A refresh token works for 7 days from the browser
   login, and refreshing does not extend that. A refresh gives back the same
   refresh token, or at least never ends the old one: community clients send
-  the login's original refresh token all week. It can stop sooner, after a
-  later login (below). schwab-py forces a new login at 6.5 days and
-  jkoelker/schwab-mcp at 5.
+  the login's original refresh token all week, though none has compared the
+  token that comes back with the one sent ([probe Q15](live.md#the-probes)).
+  It can stop sooner, after a later login (below). schwab-py forces a new
+  login at 6.5 days and jkoelker/schwab-mcp at 5.
 - **Callback URLs** must be `https`, match the registered value exactly
   (a trailing slash difference gives an "Access Denied" page) and use
   `127.0.0.1`, not `localhost`. An app may register several, comma-separated.
@@ -94,10 +98,11 @@ Things nobody has pinned down are collected under
   token at a time", Schwabdev's maintainer in
   [Schwabdev#40](https://github.com/tylerebowers/Schwabdev/issues/40)). So
   processes that use one login share its token file and re-read it before they
-  refresh. Whether a refresh ends older access tokens is not known. schwab-py's
-  warning that two programs sharing a token file lock each other out was
-  copied from its TD Ameritrade predecessor, whose refresh tokens did change.
-  Schwabdev serializes refreshes with a database lock.
+  refresh. Whether a refresh ends older access tokens is not known
+  ([probe Q15](live.md#the-probes)). schwab-py's warning that two programs
+  sharing a token file lock each other out was copied from its TD Ameritrade
+  predecessor, whose refresh tokens did change. Schwabdev serializes
+  refreshes with a database lock.
 - **A refused refresh token** gets HTTP 400 with `unsupported_token_type`. The
   real reason is nested, as JSON, in `error_description`: `invalid_grant`,
   "Refresh token is invalid, expired or revoked", in 2026 reports, and
@@ -123,7 +128,7 @@ with `{"message": "Invalid account number"}`
 | GET | `/accounts/accountNumbers` | `[{accountNumber, hashValue}]`; see [account numbers](#user-preferences-and-account-numbers) |
 | GET | `/accounts` | Every linked account. Add `fields=positions` for holdings (the only documented `fields` value). See [positions and balances](#positions-and-balances). |
 | GET | `/accounts/{hash}` | One account, same shape |
-| GET | `/accounts/{hash}/orders` | `fromEnteredTime` and `toEnteredTime` required, `maxResults` (default 3000), `status`. The spec says at most a year; schwab-py says 60 days. |
+| GET | `/accounts/{hash}/orders` | `fromEnteredTime` and `toEnteredTime` required, `maxResults` (default 3000), `status`. The spec says at most a year; schwab-py says 60 days ([probe Q5](live.md#the-probes)). |
 | POST | `/accounts/{hash}/orders` | 201 with an empty body; the new order's URL, ending in its ID, is in the `Location` header |
 | GET, PUT, DELETE | `/accounts/{hash}/orders/{orderId}` | Get, replace or cancel. A replace cancels the order and creates a new one, with a new `Location`. |
 | GET | `/orders` | Orders across all accounts; `fromEnteredTime` must be within 60 days |
@@ -143,25 +148,33 @@ that followed live failures.
 
 - `startDate`, `endDate` and `types` are required by the spec; `symbol` is
   optional. Live, the two dates must come together, and omitting `types`
-  returns every type
+  returned every type in August 2026
   ([piekstra/schwab-cli](https://github.com/piekstra/schwab-cli/blob/main/docs/api.md)),
-  but this project always sends it.
+  though in December 2025 a client fixed failures that it put down to a
+  missing required parameter, and it now insists on `types`
+  ([SchwabPy 2.0.2](https://github.com/jaycollett/schwabpy/releases/tag/2.0.2)).
+  This project's client, and so its CLI, always sends `types`; only the live
+  mode's extras ask Schwab for a window without it
+  ([probes](live.md#the-probes)).
 - Dates are instants in UTC, formatted `yyyy-MM-dd'T'HH:mm:ss.SSSZ`.
 - The spec types `types` as a single value, but a comma-separated list
   works: schwab-py and this project's CLI send all 15 types that way.
 - A `symbol` filter may leave out dividends and withholdings, which name
-  their security only in their description (untested).
+  their security only in their description (untested;
+  [probe Q4](live.md#the-probes)).
 
 **Limits.**
 
 - At most **3000 transactions per response**, with **no paging**. A window
-  with more comes back with the newest 3000 and the oldest day cut part way.
+  with more came back with the newest 3000 and the oldest day cut part way
+  (schwab-cli, August 2026, most likely asking for TRADE alone); how the cap
+  meets a request for several types, as this project sends, is not known.
 - At most **one year per request**.
 - A window that comes back with 3000 rows may have been cut short, so split
   it and ask again.
 
-**How far back.** Not documented. The one-year limit is per request, not a
-retention period.
+**How far back.** Not documented ([probe Q1](live.md#the-probes)). The
+one-year limit is per request, not a retention period.
 
 - schwab-py's docs, jkoelker/schwab-mcp and TradeZella say 60 days. That
   probably comes from the wording for orders; schwab-cli got 121-day-old rows
@@ -186,11 +199,25 @@ retention period.
 
 - Send exact instants. A date-only end date sent as midnight UTC drops that
   day's trades.
-- A window whose start equals its end returns nothing.
+- Whether Schwab takes a window that ends days after the request, and
+  whether it then serves the part past the request, is not known. The live
+  mode's Q12 and Q13 send one, to take in evening and overnight fills dated
+  a later trading day ([probes](live.md#the-probes)).
+- What Schwab answers to a window whose start equals its end is not known.
+  The one report that it returns nothing
+  ([GeneBO98/tradetally#274](https://github.com/GeneBO98/tradetally/issues/274))
+  reasoned from code that never sent such a request.
 - Keep each window at most 365 × 24 hours from start to end. The spec says
-  only "1 year", but one client says the cap counts hours, so a window from
-  local midnight a year ago up to now is a few hours too long
+  only "1 year", but one client says, without having tried it, that the cap
+  counts hours, so a window from local midnight a year ago up to now would
+  be a few hours too long
   ([Akiko0210/PersonalAssistant#25](https://github.com/Akiko0210/PersonalAssistant/pull/25)).
+  z-Wind's live test of May 2024, to judge by its code, got rows for a
+  window of 366 days, from 2023-05-01 to 2024-05-01
+  ([z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/commit/2c760ad)).
+- The live mode's extras ask Schwab for a window whose start equals its
+  end, one of 365 days and a second, and one of 366 days
+  ([probes](live.md#the-probes)).
 
 **Response.**
 
@@ -217,12 +244,13 @@ retention period.
   futures-option fill at 00:15 in New York included. A fill between 6 PM and
   midnight there (CME's evening session, or Schwab's overnight session from
   8 PM), which no sample shows, may be booked on the next trading day (see
-  the roadmap's open questions). Order rows by `time`: ordering by
-  `tradeDate` puts sales before the purchases they close. Monthly interest
-  is posted around 9 PM in New York on the last business day of the month,
-  which is the next day in UTC. `settlementDate` is midnight in New
-  York, and absent on executions. All are `2024-04-04T15:56:07+0000`: no
-  fraction and an offset without a colon (see [encodings](#encodings)).
+  the roadmap's open questions and [probe Q2](live.md#the-probes)). Order
+  rows by `time`: ordering by `tradeDate` puts sales before the purchases
+  they close. Monthly interest is posted around 9 PM in New York on the last
+  business day of the month, which is the next day in UTC. `settlementDate`
+  is midnight in New York, and absent on executions. All are
+  `2024-04-04T15:56:07+0000`: no fraction and an offset without a colon (see
+  [encodings](#encodings)).
 - **Legs.** Each transfer item has `instrument`, `amount` and `cost`, and
   some have `price`, `feeType` and `positionEffect` (OPENING or CLOSING).
   - On a trade, a security leg's `amount` is the signed quantity in shares
@@ -276,7 +304,8 @@ retention period.
     not deposits ([LumiBot](https://github.com/Lumiwealth/lumibot)).
 
   No public sample shows expirations, assignments, transfers in kind or
-  corporate actions; they are probably RECEIVE_AND_DELIVER.
+  corporate actions; they are probably RECEIVE_AND_DELIVER
+  ([probe Q11](live.md#the-probes)).
 - Rows are not in time order, even within one type: jwplatta's twelve TRADE
   fills of January 2025 come in no order, and z-Wind's history, grouped by
   type and newest first within each, may be one answer per type joined.
@@ -323,7 +352,9 @@ retention period.
   request: in the evening it follows extended-hours prices, and it moves
   again on Sunday evening, while `initialBalances.liquidationValue` (equal to
   `accountValue`) stays at the start of the session. A daily snapshot taken
-  in the evening therefore does not hold the close. In current balances,
+  in the evening therefore does not hold the close. When initial balances
+  move to the next session, and whether they then hold the close, is not
+  known ([probe Q3](live.md#the-probes)). In current balances,
   `liquidationValue` equals `cashBalance + longMarketValue + mutualFundValue
   + longOptionMarketValue + shortOptionMarketValue + shortMarketValue +
   bondValue + moneyMarketFund + savings` to the cent in every sample, and
@@ -396,7 +427,8 @@ retention period.
   `hashValue` 64 characters. Schwabdev's maintainer believes the hash changes
   with the refresh token
   ([Schwabdev#51](https://github.com/tylerebowers/Schwabdev/issues/51)); other
-  clients treat it as stable, with no evidence either way. So keep data by
+  clients treat it as stable, with no evidence either way
+  ([probe Q10](live.md#the-probes)). So keep data by
   account number, and look the hashes up again for each run. The account
   number is the one key present in all four endpoints.
 
@@ -473,7 +505,8 @@ Indexes take a `$` prefix wherever the index itself is named: quotes
   requests a minute, one with a single request in flight
   ([marketlake#533](https://github.com/l3a0/marketlake/issues/533)). So no
   client-side limit prevents every 429; back off and try again. Whether
-  bursts are what Schwab refuses is not known.
+  bursts are what Schwab refuses is not known
+  ([probe Q14](live.md#the-probes)).
 - **The stream** has its own limits (see [streaming](#streaming)).
 
 ## Streaming
@@ -616,7 +649,9 @@ is identical to the 2024 one, so none of this has been fixed.
 - Transaction history depth and boundaries:
   [ssandy33/regress#125](https://github.com/ssandy33/regress/issues/125),
   [Akiko0210/PersonalAssistant#25](https://github.com/Akiko0210/PersonalAssistant/pull/25),
-  [GeneBO98/tradetally#274](https://github.com/GeneBO98/tradetally/issues/274)
+  [GeneBO98/tradetally#274](https://github.com/GeneBO98/tradetally/issues/274),
+  and [z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/commit/2c760ad)'s
+  live test of May 2024 (a window of 366 days)
 - Orders: [k1xme/schwab-mcp](https://github.com/k1xme/schwab-mcp)
   (`previewOrder` on live accounts),
   [Schwabdev#110](https://github.com/tylerebowers/Schwabdev/issues/110)
@@ -647,7 +682,9 @@ is identical to the 2024 one, so none of this has been fixed.
   [schwab-sdk#6](https://github.com/jonathan-g-davis/schwab-sdk/pull/6)
   (the shape of `/userPreference`, and `isInCall` as a boolean),
   [z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/commit/2c760ad)'s
-  change of May 2024 (the shape of `/userPreference`), and
+  change of May 2024 (the shape of `/userPreference`),
+  [SchwabPy 2.0.2](https://github.com/jaycollett/schwabpy/releases/tag/2.0.2)
+  (transactions without `types`, December 2025), and
   [major/schwab-go](https://github.com/major/schwab-go)'s history (the shape
   of `/transactions/{id}`)
 - Account hashes: [Schwabdev#51](https://github.com/tylerebowers/Schwabdev/issues/51),

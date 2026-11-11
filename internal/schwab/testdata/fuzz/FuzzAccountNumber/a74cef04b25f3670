@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("\v{\"accountNumber\":\"29470135\",\"hashValue\":\"H\"}")

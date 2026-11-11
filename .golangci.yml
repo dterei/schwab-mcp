@@ -5,6 +5,7 @@ linters:
   enable:
     - bodyclose
     - copyloopvar
+    - depguard
     - durationcheck
     - errorlint
     - gocritic
@@ -23,6 +24,15 @@ linters:
     - usetesting
     - wastedassign
   settings:
+    depguard:
+      rules:
+        # The fake Schwab is a package that tests import. go build compiles
+        # it as a library, so it would not notice a program importing it.
+        schwabtest:
+          files: ["!$test"]
+          deny:
+            - pkg: github.com/dterei/schwab-mcp/internal/schwab/schwabtest
+              desc: the fake Schwab is for tests only
     nolintlint:
       require-specific: true
       require-explanation: true

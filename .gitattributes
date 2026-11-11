@@ -1,2 +1,5 @@
 # Shell scripts keep LF line endings, which sh needs, in every checkout.
 *.sh text eol=lf
+# The fake Schwab serves its fixtures byte for byte, so they keep the bytes
+# they were written with in every checkout.
+internal/schwab/schwabtest/testdata/** -text

@@ -51,11 +51,14 @@ current as of October 2026.
 - **Orders are never retried automatically.** A retried order request can be
   a second order.
 - **Few dependencies.** The standard library and golang.org/x/sys, for file
-  locks on Windows, an MCP SDK and, from milestone 2, SQLite, whose driver
-  needs x/sys too. Each new dependency has to earn its place.
+  locks on Windows, an MCP SDK and, from milestone 2, SQLite through
+  modernc.org/sqlite, a pure-Go driver that needs x/sys too and brings a few
+  small modules of its own. Each new dependency has to earn its place.
 - **Tested against a fake Schwab.** Every endpoint the code uses is imitated by
-  an in-process fake server that enforces Schwab's auth rules, as the CLI's
-  tests already do. Nothing in CI talks to the real API.
+  an in-process fake server, `internal/schwab/schwabtest`, that enforces
+  Schwab's auth rules and says which of its answers are guesses. The tests of
+  the client and the CLI share it. Nothing in CI talks to the real API; the
+  [live mode](live.md), which does, runs only by hand, and only reads.
 
 ## Where this fits
 
@@ -88,7 +91,8 @@ internal/filelock/       file locks across processes, for the token file
 internal/schwab/         Schwab API client: OAuth, token store, HTTP with
                          retries and rate limiting, typed models + raw JSON
 internal/schwab/schwabtest/
-                         the fake Schwab server used by every test
+                         the fake Schwab server that the tests run against,
+                         and its fixtures
 internal/history/        local SQLite store, sync, cash-flow classification,
                          CSV import, export
 internal/perf/           valuations, TWR, MWR/IRR, income
@@ -175,30 +179,67 @@ and HTTP code into `internal/schwab` with what the history store needs.
       balance or flag that Schwab sends only sometimes is nil when absent.
       Transactions give their trade day as a New York date, through the
       system's time zone or an embedded copy of New York's
-- [ ] `internal/schwab/schwabtest`: the fake Schwab server for those
-      endpoints, plus scrubbed recordings of real responses as fixtures
-- [ ] Fuzz tests for the parsers (Schwab timestamps, pasted redirect
-      addresses, transaction JSON)
-- [ ] A manual `-live` test mode for probing the real API, never run in CI,
+- [x] `internal/schwab/schwabtest`: the fake Schwab server for those
+      endpoints, which the tests of the client and the CLI share. It
+      imitates the token endpoint, the authorize page and the six account
+      endpoints, with Schwab's rules for tokens. It serves its fixtures byte
+      for byte: answers made by hand in the shape Schwab sends them, and
+      Schwab's error bodies and pages, rebuilt from community logs and the
+      gateway's documentation, each indexed with where it came from. Several
+      things not known about Schwab, such as how the 3000-row cap meets a
+      request for several types, are settings, whose defaults are labeled
+      guesses. A lint rule keeps it out of the programs
+- [ ] Scrubbed recordings of real responses as fixtures, beside the
+      hand-made ones. The tools are built: a live run's `-live.record` keeps
+      each answer raw (see [the live mode](live.md#recording)), and a
+      scrubber turns a recording into candidate fixtures, splicing fakes
+      into Schwab's bytes and writing nothing that fails its checks (see
+      [scrubbing](live.md#scrubbing-a-recording-into-fixtures)). This waits
+      for a first recording of a real account, and for the owner's choice of
+      what to do with its amounts
+- [x] Fuzz tests for the parsers (Schwab timestamps, pasted redirect
+      addresses, transaction JSON) and every other record. `make fuzz` runs
+      each target in turn, and CI runs their seeds. A table test also changes
+      the member at each key path of the fixture records in each way that
+      Schwab could, and checks that the record's problems say exactly what
+      changed
+- [x] A manual `-live` test mode for probing the real API, never run in CI,
       that also checks each real answer against the records: no record with
-      problems, no key that no field takes, and no key repeated in an object
+      problems, no key that no field takes, and no key repeated in an object.
+      It only reads, and writes a report without account numbers, hashes,
+      IDs or balances, for you to read and then share (see
+      [the live mode](live.md)). CI runs its harness and every probe against
+      the fake
 - [ ] Answer the open questions below that a probe can settle, starting with
-      how far back transactions go and what Schwab returns past that point
+      how far back transactions go and what Schwab returns past that point.
+      The probes are built, and each question names its own; a question
+      stays open until a run against a real account settles it. For the
+      default probes, export the app's key and secret, run `schwabtx login`,
+      then `go test ./internal/schwab -run '^TestLive$' -live -v`; the
+      watches and the rate probe each run alone (see
+      [the live mode](live.md#running-it))
 
 ### M2. Full transaction history, stored locally
 
 The data your return calculators need, kept complete and current.
 
-- [ ] SQLite store (pure-Go driver, so cross-compiling stays easy) holding
-      transactions with their raw JSON, transfer items, sync state per
-      account, and snapshots of positions and balances. Two-decimal money
+- [ ] SQLite store, through modernc.org/sqlite (pure Go, so cross-compiling
+      stays easy, and it runs SQLite's own file locking on every system),
+      holding transactions with their raw JSON, transfer items, sync state
+      per account, and snapshots of positions and balances, in STRICT
+      tables. Every process shares the one store, in WAL mode: a writer takes
+      the write lock as its transaction starts and others wait their turn,
+      one sync runs at a time, and no transaction stays open across a
+      request to Schwab. Two-decimal money
       (balances, transaction amounts) as integer cents and quantities in
       millionths, from the records' float64s, which is exact while the value
       times its scale stays under 2^51; prices, averages and positions'
       profit/loss figures, which carry fractions of a cent, stay REAL.
       Accounts keyed by account number behind a local id, never by hash,
       which may change between logins: the hashes are looked up again on
-      each run. A 400 "Invalid account number" (`schwab.ErrInvalidAccount`)
+      each run. The masked number has a column of its own, so that no view
+      the model sees reads the full one. A 400 "Invalid account number"
+      (`schwab.ErrInvalidAccount`)
       means Schwab refused the account in the path: seen for a plain account
       number, and possible for a changed hash or an account no longer
       shared. Look the hashes up again and retry once if the account is
@@ -335,12 +376,20 @@ The data your return calculators need, kept complete and current.
       income report and a performance report; CSV and JSON output for
       external dashboards
 - [ ] Read-only SQL over the local store, for the CLI and as an MCP tool. The
-      MCP tool sees only views that leave out the raw JSON and show accounts
-      by nickname, hash or masked number. The database enforces this, not an
-      inspection of the query: a read-only connection plus an SQLite
-      authorizer that allows only reads of those views and refuses attaching
-      databases and loading extensions (a read-only connection alone still
-      allows temporary views)
+      MCP tool's SQL runs in a private in-memory database holding copies of
+      views that leave out the raw JSON and show accounts by nickname, hash
+      or masked number. The server copies the views' rows from a read-only
+      connection in one transaction, and detaches the store, before the
+      model's statement runs under an authorizer that allows only reads (no
+      attaching, `VACUUM INTO`, pragmas, temporary objects or extensions),
+      with no database attachable and a time limit. The copy is rebuilt when
+      another process has written to the store. The database enforces this,
+      not an inspection of the query, and an authorizer over the store itself
+      could not: it is told which view a read is made for, but a CTE given an
+      allowed view's name is reported the same way, so a query that defines
+      one over the accounts table reads full account numbers; and a
+      read-only connection can still write a copy of the whole store with
+      `VACUUM INTO`
 
 ### M5. Trading, opt-in
 
@@ -508,8 +557,12 @@ Everything planned, by area.
 
 ## Open questions
 
-Most of these can be settled with a short probe against a real account in
-milestone 1.
+Most of these can be settled with a probe against a real account. Each one
+that can names its probe in [the live mode](live.md#the-probes) and the run
+it takes: the default run, or a watch or the rate probe, each of which runs
+alone. CI runs every probe against the fake, which settles nothing about
+Schwab, so a question stays open until a run against a real account answers
+it.
 
 - **How far back do transactions go, and what does Schwab return for a window
   older than that (an error or an empty list)?** Schwab documents at most a
@@ -518,56 +571,77 @@ milestone 1.
   Schwab saying it starts when the account was enabled for thinkorswim.
   Another, in 2026, got empty lists for windows past an account's history
   ([schwab-cli](https://github.com/piekstra/schwab-cli/blob/main/docs/api.md)),
-  so an empty window does not show that the history has ended.
+  so an empty window does not show that the history has ended. Probe: Q1,
+  in the default run.
 - **Does a fill between 6 PM and midnight in New York, in the futures or
   overnight sessions, carry its instant in `tradeDate`, or the next day's
   midnight?** A futures-option fill at 00:15 carried its instant. It decides
-  which day such a fill is booked on.
+  which day such a fill is booked on. Probe: Q2, in the default run, which
+  needs such a fill in your history.
 - **When do initial balances move to the new session**, and do they then
   hold the close? A snapshot taken after that could stand for the close.
+  Probe: Q3, a watch of balances (`-live.watch=balances`) from 15:45 in New
+  York to 10:00 the next day, which needs holdings with prices.
 - **Does the transactions `symbol` filter keep dividends and withholdings**,
-  which name their security only in their description?
+  which name their security only in their description? Probe: Q4, in the
+  default run, which needs a symbol in your history, other than SPY, VTI or
+  one of a single character, with both a trade and a dividend or a W-8
+  withholding.
 - **Does the per-account orders endpoint serve a year or only 60 days?** The
-  spec and community clients disagree.
+  spec and community clients disagree. Probe: Q5, in the default run, which
+  needs an order that filled more than 67 days ago, within the year.
 - **Does `scope=readonly` give a token that cannot trade?** It appears in
   Schwab's own spec. Most community clients send no scope, and the one
   project known to send `readonly` has reported no effect. If it works,
   `schwabtx login` should request it unless asked for trading, and the token
   file should record which kind of login it holds, so the server registers
   order tools only when trading is enabled and the token allows it.
-  Switching trading on then takes one new login.
+  Switching trading on then takes one new login. Probe: Q6, in the default
+  run after a login with `&scope=readonly` added to the login link. It
+  reports the scope Schwab granted, but whether the token cannot trade stays
+  open: only an order could show it, and the live mode sends none.
 - **Does `previewOrder` work on live accounts?** One community server says it
-  returns 404 there; others use it.
+  returns 404 there; others use it. No probe: it would need a POST, and the
+  live mode only reads.
 - **Are daily price bars adjusted for dividends, or only for splits?** If only
   for splits, the API has no record of a benchmark's past dividends, so total
-  return before the first recorded dividend needs a file you import.
+  return before the first recorded dividend needs a file you import. Probe:
+  Q8, over two default runs, one before the last close ahead of an ex-date of
+  SPY or VTI and one after the ex-date; it needs the Market Data product.
 - **How do you confirm an order in a client that cannot elicit?**
   jkoelker/schwab-mcp sends each order to Discord or Signal for approval. A
   command in your own terminal is simpler, but an assistant that can run
-  shell commands, as coding agents can, could run it itself.
+  shell commands, as coding agents can, could run it itself. No probe: it is
+  a question of design, not of Schwab's API.
 - **Are account hashes stable across logins and across developer apps?**
   Schwabdev's maintainer believes a new login changes them; other clients
   treat them as stable. The store keeps data by account number either way.
+  Probe: Q10, over default runs either side of a new login, or with another
+  app's key.
 - **How do option expirations and assignments, transfers in kind, corporate
   actions, money market sweeps and other transfers show up in
   transactions?** No public sample shows an expiration, an assignment, a
   transfer in kind or a corporate action; those are probably
   RECEIVE_AND_DELIVER rows. This decides the classification rules in
-  milestone 2.
+  milestone 2. Probe: Q11, in the default run, which counts the shapes of
+  the rows in your history, and so shows only the kinds of event your
+  accounts have had.
 - **Do transactions change after they post (pending to valid,
   cancellations), and how long after?** This decides the overlap for
-  incremental syncs.
+  incremental syncs. Probe: Q12, over two default runs or more.
 - **How soon after a fill does the trade appear in transactions?** This
   decides whether a sync triggered by a stream event needs a delayed
-  re-check.
+  re-check. Probe: Q13, a watch of fills (`-live.watch=fills`) for half an
+  hour, during which you place a trade by hand.
 - **How far under 120 a minute does Schwab refuse requests, and are bursts
   what it refuses?** It answers 429 with no Retry-After, and has done so to a
   client sending 19 a minute (see [the API notes](schwab-api.md#rate-limits)).
-  This decides the limit's rate and burst.
+  This decides the limit's rate and burst. Probe: Q14, the rate probe
+  (`-live.rate`), about ten minutes while nothing else uses the app key.
 - **Does a refresh end the older access tokens, and does it ever change the
   refresh token?** Community clients suggest that it does not change the
   refresh token. The login code copes either way, but each answer saves
-  requests.
+  requests. Probe: Q15, in the default run.
 
 ## Risks
 
