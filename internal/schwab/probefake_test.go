@@ -3612,7 +3612,10 @@ func watchFillsWith(t *testing.T, start time.Time, rules schwabtest.TransactionR
 // reach back to, by its time or by its tradeDate; a fill whose row never
 // comes, alone, beside one whose row comes, and beside one whose row is
 // there from the start; a watch whose every read of rows fails; and a watch
-// in which nothing fills.
+// in which nothing fills. The Friday evening's fill in windows served only
+// up to the request is watched beside a fill earlier that day whose row
+// never comes, and beside one whose row is there from the start, too,
+// where the verdict says of it only that no read could show its row.
 func testFillsOnTheFake(t *testing.T) {
 	soon := probeNow.Add(5 * time.Minute) // 11:05 in New York, a Tuesday
 	t.Run("a fill", func(t *testing.T) {
@@ -3663,19 +3666,41 @@ func testFillsOnTheFake(t *testing.T) {
 			watchedFill{filled: friday.Add(5 * time.Minute), tradeDate: monday, after: 150 * time.Second})
 		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "a fill's trade appears from 2 to 3 minutes after the fill"})
 	})
-	t.Run("a Friday evening's fill dated Monday, in windows by tradeDate served only up to the request", func(t *testing.T) {
-		t.Parallel()
-		// No read holds the row before Monday, nor does an answer show
-		// that Schwab serves a window past the request: no read could
-		// show it.
-		friday := time.Date(2026, 9, 11, 23, 0, 0, 0, time.UTC) // 19:00 in New York
-		monday := time.Date(2026, 9, 14, 4, 0, 0, 0, time.UTC)
-		fl := watchFills(t, friday, schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate, UpToNow: true},
-			watchedFill{filled: friday.Add(5 * time.Minute), tradeDate: monday, after: 150 * time.Second})
-		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: no read after a fill could show its row"})
-		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "filled orders whose rows no read after the fill could show: 1")
-	})
+	friday := time.Date(2026, 9, 11, 23, 0, 0, 0, time.UTC) // 19:00 in New York
+	monday := time.Date(2026, 9, 14, 4, 0, 0, 0, time.UTC)
+	const unread = "filled orders whose rows no read after the fill could show: 1"
+	for _, tc := range []struct {
+		name     string
+		beside   []watchedFill // fills earlier that Friday
+		want     string
+		evidence []string // the evidence after the polls' line
+	}{
+		{"", nil, "inconclusive: no read after a fill could show its row", []string{unread}},
+		{
+			", beside a fill whose row never comes",
+			[]watchedFill{{filled: friday.Add(-70 * time.Minute), after: -1}},
+			"inconclusive: no read could show the rows of 1 fill, and no other fill's row came during the watch",
+			[]string{"filled orders without a row by the watch's end: 1, 99 minutes after the fills", unread},
+		},
+		{
+			", beside a fill whose row is there from the start",
+			[]watchedFill{{filled: friday.Add(-3 * time.Hour)}},
+			"inconclusive: no read could show the rows of 1 fill, and no other fill's row came during the watch",
+			[]string{"rows there at the first read that could show them: 1, within 181 minutes of the fills", unread},
+		},
+	} {
+		t.Run("a Friday evening's fill dated Monday, in windows by tradeDate served only up to the request"+tc.name, func(t *testing.T) {
+			t.Parallel()
+			// No read holds the row before Monday, nor does an answer show
+			// that Schwab serves a window past the request: no read could
+			// show it, and the verdict says no more of it than that.
+			fills := append([]watchedFill{{filled: friday.Add(5 * time.Minute), tradeDate: monday, after: 150 * time.Second}}, tc.beside...)
+			fl := watchFills(t, friday, schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate, UpToNow: true}, fills...)
+			report := fl.report(t)
+			wantVerdicts(t, report, map[string]string{"Q13": tc.want})
+			wantEvidence(t, report, "Q13", append([]string{"30 polls, a minute apart; " + plural(len(fills), "order") + " filled in the last day"}, tc.evidence...)...)
+		})
+	}
 	t.Run("the evening's fill before Thanksgiving, dated the Friday, in windows by tradeDate", func(t *testing.T) {
 		t.Parallel()
 		wednesday := time.Date(2026, 11, 26, 0, 30, 0, 0, time.UTC) // 19:30 in New York

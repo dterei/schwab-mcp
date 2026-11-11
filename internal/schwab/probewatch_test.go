@@ -352,7 +352,8 @@ func latency(reads []rowsRead, id string, filled time.Time, ahead bool) (how int
 // part of a window past its request, where the row of such a fill may lie,
 // is not known: a read says nothing of a row dated after it unless an
 // answer of the watch held a row dated after it came, which shows that it
-// does.
+// does. Of a fill whose row no read could show, the verdict says no more
+// than that.
 func probeFills(ctx context.Context, r *liveRun) verdict {
 	start := r.now()
 	// Every fill lies after the earliest entry that the orders' span takes
@@ -470,6 +471,10 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 		if len(waited) > 0 {
 			v.answer += fmt.Sprintf(", though %s had none by the watch's end, %d minutes or more after it", plural(len(waited), "other fill"), slices.Min(waited))
 		}
+	case unread > 0 && len(waited)+len(upTo) > 0:
+		// The verdicts below speak of every fill, but no read could show
+		// these fills' rows.
+		v.answer = "inconclusive: no read could show the rows of " + plural(unread, "fill") + ", and no other fill's row came during the watch"
 	case len(waited) > 0 && len(upTo) == 0:
 		v.answer = fmt.Sprintf("no fill's trade appeared by the watch's end, %s after the fills", minutesSpan(slices.Min(waited), slices.Max(waited)))
 	case len(waited) > 0:
