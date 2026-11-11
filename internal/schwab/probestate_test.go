@@ -413,9 +413,10 @@ type rowsState struct {
 
 // An accountRows is one account's window as the last run asked for it, when
 // that run's probe began, whether its answer was complete, under pageCap
-// rows, whether it held a row dated after it came, which shows that Schwab
-// serves a window past its request, and its rows, by the digest of each
-// one's activityId. The state keeps when the probe began as "end", where
+// rows, whether it held a row dated after it came, which shows that the
+// reads of that run show such a row whose time came before them, as Schwab
+// serves a window past its request or takes rows by their time, and its
+// rows, by the digest of each one's activityId. The state keeps when the probe began as "end", where
 // the versions of the probe whose window ended then kept its end: they read
 // the window as ending at the run, narrower than it is, which leaves the
 // rows that only the rest of it held undecided, rather than shown late or
@@ -555,37 +556,39 @@ type changesSeen struct {
 // taking it for a row new to the state; and a row is late when it is new to
 // the state though both lie inside the last run's window, that run's answer
 // was complete, its time was more than postingLatency before that run, and,
-// if it is dated after that run, that run's answer held a row dated after
-// it came. A late row posted after the last run and before this run's
-// answer came with it, which bound how long after its time it came. Both
-// times count, since whether a window takes a row by its time or by its
-// tradeDate is not known; nor is it known whether Schwab serves the part
-// of a window past its request, where a row dated after the run lies,
-// until an answer holds such a row: one that served it only up to the
-// request would leave out such a fill, as a window that ended at the run
-// would. What the answers cannot show, the verdict says is undecided,
-// rather than that no row did it: whether rows changed or went, of a row
-// of the state missing from the answer, which it can neither compare nor
-// show gone, and of rows that the last run's answer left out if it may
-// have been cut at the cap, which never came into the state; whether rows
-// changed, of a row new to the state from before the last run and dated
-// after it, which that run's answer, holding no row dated after it came,
-// may have left out though it was there; whether rows
-// came late, of a row new to the state from before the last run, but not
-// shown late nor from the hour before that run, and of rows that this
-// run's answer left out if it may have been cut; and anything of the rows
-// of an account not compared, whose window failed or that no earlier run
-// read, beside which it speaks of the accounts compared alone. With no row
-// compared, none of the state's seen again or shown gone and none of this
-// run's shown late, as for accounts without activity, it says nothing, nor
-// when the answers leave all three undecided. Nor does it compare a state
-// kept by a version of the probe whose window ended at its run, which could
-// leave out such an evening fill: the account starts afresh, as if no
-// earlier run had read it. The window ends a second past the latest
-// tradeDate that lastDated gives, since whether Schwab's end takes in a row
-// dated at it is not known. Nor can an answer show gone a fill dated after
-// the last run that Schwab left out of that run's answer, serving its
-// window only up to the request: "no row went" cannot speak of one.
+// if it is dated after that run, an answer of that run held a row dated
+// after it came, which shows that its reads would have shown the row, as
+// Schwab served the rest of their windows, or took rows by their time. A
+// late row posted after the last run and before this run's answer came with
+// it, which bound how long after its time it came. Both times count, since
+// whether a window takes a row by its time or by its tradeDate is not
+// known; nor is it known whether Schwab serves the part of a window past
+// its request, where a row dated after the run lies: one that served it
+// only up to the request, taking rows by their tradeDate, would leave out
+// such a fill, as a window that ended at the run would. What the answers
+// cannot show, the verdict says is undecided, rather than that no row did
+// it: whether rows changed or went, of a row of the state missing from the
+// answer, which it can neither compare nor show gone, and of rows that the
+// last run's answer left out if it may have been cut at the cap, which
+// never came into the state; whether rows changed, of a row new to the
+// state from before the last run and dated after it, which that run's
+// answer may have left out though it was there, when no answer of that run
+// held a row dated after it came; whether rows came late, of a row new to
+// the state from before the last run, but not shown late nor from the hour
+// before that run, and of rows that this run's answer left out if it may
+// have been cut; and anything of the rows of an account not compared, whose
+// window failed or that no earlier run read, beside which it speaks of the
+// accounts compared alone. With no row compared, none of the state's seen
+// again or shown gone and none of this run's shown late, as for accounts
+// without activity, it says nothing, nor when the answers leave all three
+// undecided. Nor does it compare a state kept by a version of the probe
+// whose window ended at its run, which could leave out such an evening
+// fill: the account starts afresh, as if no earlier run had read it. The
+// window ends a second past the latest tradeDate that lastDated gives,
+// since whether Schwab's end takes in a row dated at it is not known. Nor
+// can an answer show gone a fill dated after the last run that Schwab left
+// out of that run's answer, serving its window only up to the request: "no
+// row went" cannot speak of one.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
@@ -601,6 +604,15 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 	seen, missing, unsure, unserved := 0, 0, 0, 0 // the rows compared with the last run's, and those left undecided
 	cut, lastCut := false, false                  // whether an answer compared, this run's or the last's, may have been cut at the cap
 	var failed, unread []string                   // the accounts not compared: those whose window failed, and those that no earlier run read
+	// When each earlier run began whose answer of an account, as the state
+	// keeps it, held a row dated after it came: such an answer shows that
+	// the reads of that run, of every account, would have shown such a row.
+	var aheadAt []time.Time
+	for _, ar := range st.Accounts {
+		if ar.Ahead {
+			aheadAt = append(aheadAt, ar.At)
+		}
+	}
 	for _, a := range r.accounts {
 		if a.hash == "" {
 			continue
@@ -612,7 +624,7 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 			// which kept no other end: the account starts afresh.
 			prev = accountRows{}
 		}
-		cs, next := r.changesOf(ctx, a, prev, now)
+		cs, next := r.changesOf(ctx, a, prev, now, slices.ContainsFunc(aheadAt, prev.At.Equal))
 		if cs.failed {
 			v.evidence = append(v.evidence, reportLine{text: a.label() + ": the window of the last 60 days failed"})
 			if cs.compared {
@@ -734,8 +746,9 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 // changesOf reads a's window, from 60 days before now to a second past the
 // latest tradeDate that a row up to now can bear, and compares it with
 // prev, what the last run kept, returning what it found and what the state
-// keeps next.
-func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows, now time.Time) (changesSeen, accountRows) {
+// keeps next; ahead says whether an answer of that run, of any account,
+// held a row dated after it came.
+func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows, now time.Time, ahead bool) (changesSeen, accountRows) {
 	cs := changesSeen{changed: map[string]int{}, compared: prev.Rows != nil}
 	// The latest tradeDate that a row up to now can bear is that of a fill
 	// in the overnight session that began now's day in New York, which may
@@ -747,8 +760,9 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 	// either, so it is asked, as the extras' odd windows are: Schwab may
 	// refuse it for reasons of its own, which Q6 does not count. Nor is it
 	// known whether Schwab serves the part past the request, where a row
-	// dated after the run lies, as an answer that holds a row dated after
-	// it came shows that it does.
+	// dated after the run lies; an answer that holds a row dated after it
+	// came shows that the reads of its run show such a row whose time came
+	// before them, as Schwab serves the rest, or takes rows by their time.
 	rep, err := r.ask(ctx, a.endpoint("/transactions"), a.path()+"/transactions", txValues(w, ""), "transactions")
 	if err != nil {
 		cs.failed = true
@@ -796,15 +810,15 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 			}
 			// The last run's answer left it out: when that window held both
 			// its times, the answer was complete, and the row is dated by
-			// that run, or the answer held a row dated after it came, which
-			// shows that Schwab served the window past the request, it
+			// that run, or an answer of that run held a row dated after it
+			// came, which shows that its reads would have shown the row, it
 			// posted after that run, at least this long after its time;
-			// else it may have. One dated after that run, whose answer, not
-			// cut, held no row dated after it came, may instead have been
-			// there, left out by a window that Schwab served only up to the
-			// request, and changed since, even one too near that run to be
-			// shown late.
-			hidden := !cs.lastCut && row.TradeDate.After(lastRun) && !prev.Ahead
+			// else it may have. One dated after that run, whose answer was
+			// not cut, when no answer of that run held a row dated after it
+			// came, may instead have been there, left out by a window that
+			// Schwab served only up to the request, and changed since, even
+			// one too near that run to be shown late.
+			hidden := !cs.lastCut && row.TradeDate.After(lastRun) && !ahead
 			switch least := lastRun.Sub(row.Time); {
 			case least <= postingLatency && hidden:
 				cs.nearUnserved++

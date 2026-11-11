@@ -2007,11 +2007,14 @@ func testChangesCutOnTheFake(t *testing.T) {
 // before a run at 22:00, is held by that run's window, as a window by time
 // would hold it, and is shown as it was, changed or gone 12 days later.
 // When it posted after that run, it is shown late beside such a fill at
-// 21:30 that the run held, which shows that Schwab serves a window past the
-// request; alone, it is left undecided whether it came late, or was there
-// all along and changed, as it is when it did change, under a Schwab that
-// serves a window only up to the request, which left it out of that run's
-// answer. Such a fill at 21:30 is shown changed too, and, when it posted
+// 21:30 of another account that the run held, which shows that its reads
+// would have shown the fill; alone, it is left undecided whether it came
+// late, or was there all along and changed, as it is when it did change,
+// under a Schwab that serves a window only up to the request, which left it
+// out of that run's answer; and so it is of such a fill on a Friday, dated
+// the Monday, that posted after a run at 22:00 that Friday, beside such a
+// fill of the run before, of another account, whose window failed in the
+// last run. Such a fill at 21:30 is shown changed too, and, when it posted
 // after that run, too near it to be shown late, though it may have been
 // there all along and changed. Such a fill, which the
 // last run held, before the start of a window that holds it by its
@@ -2111,7 +2114,7 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 		name, time string
 		after      string // what the fill does after the last run: "changed", "went", or "posted", when it was not there before
 		upTo       bool   // whether Schwab serves a window only up to the request
-		beside     bool   // whether another such fill, at 21:30, is there at both runs
+		beside     bool   // whether another such fill, at 21:30, of {account 1}, is there at both runs
 		want, line string
 	}{
 		{
@@ -2137,8 +2140,8 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 			"2 rows as they were; 1 row new to the state; " + unserved,
 		},
 		{
-			"an evening fill before the last run, dated the next midnight, posted after it, beside one that the last run held", at2030, "posted", false, true,
-			"rows came late", "3 rows as they were; 1 row new to the state; 1 row came late, posted from 1 hour to 13 days after its time",
+			"an evening fill before the last run, dated the next midnight, posted after it, beside one of another account that the last run held", at2030, "posted", false, true,
+			"rows came late", "2 rows as they were; 1 row new to the state; 1 row came late, posted from 1 hour to 13 days after its time",
 		},
 		{
 			"an evening fill half an hour before the last run, dated the next midnight, changed", at2130, "changed", false, false,
@@ -2171,8 +2174,8 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 			}
 			if tc.beside {
 				fl.more = append(fl.more, "84000000117")
-				fl.f.AddRows(secondAccount.Hash, fixtureRow(t, metaSale, "activityId", "84000000117", "time", at2130, "tradeDate", `"2026-08-21T04:00:00+0000"`))
-				kept++
+				fl.f.AddRows(firstAccount.Hash, fixtureRow(t, metaSale, "activityId", "84000000117", "accountNumber", strconv.Quote(firstAccount.Number),
+					"time", at2130, "tradeDate", `"2026-08-21T04:00:00+0000"`))
 			}
 			if err := fl.runClean(t); err != nil {
 				t.Fatal(err)
@@ -2196,6 +2199,46 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 			wantEvidence(t, report, "Q12", "{account 2}: "+tc.line)
 		})
 	}
+	t.Run("an evening fill before the last run, dated after it, posted after it, beside a fill dated ahead that an earlier run held", func(t *testing.T) {
+		t.Parallel()
+		// {account 1}'s fill at 21:30 on a Thursday, dated the next midnight,
+		// is in its answer at a run at 22:00, and its window fails at a run
+		// a day later, whose answers hold no row dated after they came, so
+		// the state keeps {account 1}'s of the first run. {account 2}'s fill
+		// at 20:30 on the Friday, dated the Monday, posts after the second
+		// run, whose reads the first run's answer says nothing of.
+		first := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC) // 22:00 in New York
+		fl := newProbeLive(t, first, "Q12")
+		fl.f.SetTransactionRules(byTradeDate)
+		fl.more = append(fl.more, "84000000105", "84000000117")
+		fl.f.AddRows(firstAccount.Hash, fixtureRow(t, metaSale, "activityId", "84000000117", "accountNumber", strconv.Quote(firstAccount.Number),
+			"time", at2130, "tradeDate", `"2026-08-21T04:00:00+0000"`))
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		var arrivals atomic.Int32
+		fl.f.OnAPI(func(r *http.Request) {
+			// The checks' read of {account 1}'s rows, then Q12's.
+			if schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute && r.PathValue("hash") == firstAccount.Hash && arrivals.Add(1) == 2 {
+				fl.f.Script(schwabtest.Answer(http.StatusBadRequest, `{"message":"a guess: refused"}`, "Content-Type", "application/json"))
+			}
+		})
+		second := fl.again(t, first.Add(oneDay), false)
+		second.more = fl.more
+		if err := second.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		wantEvidence(t, second.report(t), "Q12", "{account 1}: the window of the last 60 days failed")
+		fl.f.AddRows(secondAccount.Hash, fixtureRow(t, metaSale, "activityId", "84000000105", "time", `"2026-08-22T00:30:00+0000"`, "tradeDate", `"2026-08-24T04:00:00+0000"`))
+		later := second.again(t, first.AddDate(0, 0, 13), true)
+		later.more = fl.more
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "no row went since the last run; undecided: whether 1 row changed, and whether 1 row came late"})
+		wantEvidence(t, report, "Q12", "{account 1}: 1 row as they were; 0 rows new to the state", "{account 2}: 2 rows as they were; 1 row new to the state; "+unserved)
+	})
 	for _, after := range []string{"as it was", "changed", "went"} {
 		t.Run("an evening fill before the last run, dated the next midnight, left out by an earlier version's window, "+after, func(t *testing.T) {
 			t.Parallel()
