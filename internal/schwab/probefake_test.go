@@ -2014,9 +2014,11 @@ func testChangesCutOnTheFake(t *testing.T) {
 // is shown changed too, and, when it posted after that run, too near it to
 // be shown late, which leaves nothing undecided. Such a fill, which the
 // last run held, before the start of a window that holds it by its
-// tradeDate, the state keeps, which leaves nothing undecided either; and
-// such a fill before the start of the last run's window, dated inside it,
-// a run an hour later finds new. The fill at 20:30, left out of the state
+// tradeDate, the state keeps, which leaves nothing undecided either, and
+// one that posted after the last run, whose window held both its times,
+// came late, though this window's start leaves out its time; and such a
+// fill before the start of the last run's window, dated inside it, a run
+// an hour later finds new. The fill at 20:30, left out of the state
 // of an earlier version whose window ended at the run, which kept no other
 // end, 12 days later as it was, changed or gone, is not compared: the run
 // starts afresh. Such a version reads the state of this one as of a window
@@ -2257,28 +2259,54 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 			wantEvidence(t, report, "Q12", "{account 2}: "+kept+", kept for the next run; no earlier run to compare with")
 		})
 	}
-	t.Run("an evening fill before the window's start, dated inside it", func(t *testing.T) {
-		t.Parallel()
-		fl := newProbeLive(t, probeNow, "Q12")
-		fl.f.SetTransactionRules(byTradeDate)
-		fl.more = append(fl.more, "84000000106")
-		fl.f.AddRows(secondAccount.Hash, fixtureRow(t, metaSale, "activityId", "84000000106",
-			"time", `"2026-07-11T00:30:00+0000"`, "tradeDate", `"2026-07-11T04:00:00+0000"`))
-		if err := fl.runClean(t); err != nil {
-			t.Fatal(err)
-		}
-		wantEvidence(t, fl.report(t), "Q12", "{account 2}: 3 rows, kept for the next run; no earlier run to compare with")
-		// The window starts at 2026-07-11T02:00Z, between the fill's time and
-		// its tradeDate, by which it is still served: the state keeps it.
-		later := fl.again(t, time.Date(2026, 9, 9, 2, 0, 0, 0, time.UTC), true)
-		later.more = fl.more
-		if err := later.runClean(t); err != nil {
-			t.Fatal(err)
-		}
-		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "no row changed, went or came late since the last run"})
-		wantEvidence(t, report, "Q12", "{account 2}: 3 rows as they were; 0 rows new to the state")
-	})
+	for _, tc := range []struct {
+		name       string
+		posted     bool // whether the fill posts after the last run, rather than before it
+		want, line string
+	}{
+		{
+			"an evening fill before the window's start, dated inside it", false,
+			"no row changed, went or came late since the last run", "3 rows as they were; 0 rows new to the state",
+		},
+		{
+			"an evening fill before the window's start, dated inside it, posted after the last run", true,
+			"rows came late", "2 rows as they were; 1 row new to the state; 1 row came late, posted from 52 to 61 days after its time",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fl := newProbeLive(t, probeNow, "Q12")
+			fl.f.SetTransactionRules(byTradeDate)
+			fl.more = append(fl.more, "84000000106")
+			fill := fixtureRow(t, metaSale, "activityId", "84000000106",
+				"time", `"2026-07-11T00:30:00+0000"`, "tradeDate", `"2026-07-11T04:00:00+0000"`)
+			kept := "3 rows"
+			if tc.posted {
+				kept = "2 rows"
+			} else {
+				fl.f.AddRows(secondAccount.Hash, fill)
+			}
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			wantEvidence(t, fl.report(t), "Q12", "{account 2}: "+kept+", kept for the next run; no earlier run to compare with")
+			if tc.posted {
+				fl.f.AddRows(secondAccount.Hash, fill)
+			}
+			// The window starts at 2026-07-11T02:00Z, between the fill's time
+			// and its tradeDate, by which it is still served: the state keeps
+			// it, or, when it posted after the last run, whose window held
+			// both its times, it came late.
+			later := fl.again(t, time.Date(2026, 9, 9, 2, 0, 0, 0, time.UTC), true)
+			later.more = fl.more
+			if err := later.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			report := later.report(t)
+			wantVerdicts(t, report, map[string]string{"Q12": tc.want})
+			wantEvidence(t, report, "Q12", "{account 2}: "+tc.line)
+		})
+	}
 	t.Run("an evening fill before the last window's start, dated inside it, new since", func(t *testing.T) {
 		t.Parallel()
 		// The last run's window starts at 2026-07-03T02:00Z, between the
