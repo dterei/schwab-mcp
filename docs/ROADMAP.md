@@ -303,7 +303,18 @@ The data your return calculators need, kept complete and current.
       transaction or per leg with its category, plus the snapshots, with raw
       JSON optional
 - [ ] Export formats for existing tools: Portfolio Performance and Ghostfolio
-- [ ] `schwabtx accounts`, `positions` and `balances` for quick lookups
+- [x] `schwabtx accounts`, `positions` and `balances` for quick lookups:
+      each account's nickname, type and value; its positions, with
+      quantity, average cost, value, cost basis and open profit or loss,
+      signed so that a short position's are negative and a gain is
+      positive; and its cash and buying power, with totals. One request for
+      the accounts, with their positions for `positions`, and one for the
+      nicknames where a table shows them. A figure that Schwab did not send,
+      or that could not be read, is `-`, never 0, and so is a cash that is
+      not what the value leaves once the holdings are taken out. `-account`
+      picks one account by the last digits of its number or by its
+      nickname, account numbers are masked unless asked for, and `-json`
+      prints Schwab's own JSON
 
 ### M3. MCP server, read-only
 
@@ -540,6 +551,7 @@ Everything planned, by area.
 | History | Every transaction classified, with overrides | M2 |
 | History | Import of schwab.com History and Realized Gain/Loss CSVs, each transaction counted once | M2 |
 | History | CSV, JSON Lines, Portfolio Performance and Ghostfolio export | M2 |
+| Lookups | Accounts, positions and balances at a glance (`schwabtx accounts`, `positions`, `balances`) | done |
 | MCP | Read-only tools for accounts, positions, history, orders, market data | M3 |
 | MCP | Resources, prompts, structured output, tool annotations, masked account numbers | M3 |
 | MCP | Streamable HTTP on `127.0.0.1`, with a token and an `Origin` check | M7 |

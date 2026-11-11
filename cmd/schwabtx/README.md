@@ -1,9 +1,9 @@
 # schwabtx
 
 A small CLI that logs in to the Charles Schwab Trader API, prints your most
-recent transactions across every account you share with it, and saves
-snapshots of those accounts' positions and balances. It uses only the Go
-standard library, and golang.org/x/sys for file locks on Windows.
+recent transactions across every account you share with it, looks up those
+accounts' positions and balances, and saves snapshots of them. It uses only
+the Go standard library, and golang.org/x/sys for file locks on Windows.
 
 Before the first run, set up a Schwab developer app as described in the
 [top-level README](../../README.md#one-time-setup).
@@ -19,6 +19,9 @@ set -a; . ./.env; set +a
 
 go run ./cmd/schwabtx login      # opens nothing itself: follow the printed steps
 go run ./cmd/schwabtx            # the 100 most recent transactions, all accounts
+go run ./cmd/schwabtx accounts   # your accounts, with their nicknames and values
+go run ./cmd/schwabtx positions  # what each account holds
+go run ./cmd/schwabtx balances   # each account's value, cash and buying power
 go run ./cmd/schwabtx snapshot   # save today's positions and balances
 ```
 
@@ -35,7 +38,7 @@ and your browser lands on `https://127.0.0.1/?code=...` with a connection
 error. That is expected. Paste that whole address back into the terminal
 within about 30 seconds.
 
-Flags:
+The transactions command, the default, takes these flags:
 
 ```
 -n 100             how many transactions to print
@@ -70,6 +73,121 @@ in your user cache directory, `schwabtx/rate-` followed by a hash of the app
 key; it holds only two times. Another program that uses the same key, or the
 key used on another computer, draws from Schwab's 120 too, which the 20 left
 over leave room for.
+
+## Accounts, positions and balances
+
+Three commands look up what your accounts hold, as Schwab reports it when
+you ask. They only read, and save nothing.
+
+```sh
+schwabtx accounts                               # each account's nickname, type and value
+schwabtx balances                               # each account's value, cash and buying power
+schwabtx positions                              # what each account holds
+schwabtx positions -account 0135                # one account, by the last digits of its number
+schwabtx balances -account "Options & Margin"   # or by its whole nickname on schwab.com
+```
+
+They take the same flags:
+
+```
+-account X       only the account whose number ends in the digits X (...0135, as
+                 the tables print it, and 2947-0135 work too), or whose whole
+                 nickname is X, in any case
+-json            Schwab's raw JSON for the accounts instead of a table (includes
+                 full account numbers)
+-show-accounts   full account numbers in the table instead of the last 4 digits
+```
+
+Every figure is as of the moment you ask: in the evening, and again from
+Sunday evening, Schwab values holdings at extended-hours prices, so the
+values are not the day's close.
+
+```
+$ schwabtx balances
+ACCOUNT  NAME              TYPE       VALUE     CASH  BUYING POWER
+...0135  Individual        CASH     6997.68  1532.17       1532.17
+...3398  Options & Margin  MARGIN   5503.84  5210.44       8258.84
+TOTAL                              12501.52  6742.61
+```
+
+- **VALUE** is what Schwab calls the account's liquidation value: its cash
+  and holdings at their current prices, short positions subtracted.
+- **CASH** is the account's cash, not counting money market funds, which
+  Schwab holds as positions. A margin account with a loan or short
+  positions can keep its cash in its margin and short balances, and CASH is
+  then their sum: negative while you owe more than your short sales
+  brought in. Schwab's figures have always added up, the value being the
+  cash and the holdings' market values; where they do not, as when part of
+  the account's money is in a figure that the tool does not take for cash,
+  such as `savings`, which has been 0 in every answer seen, CASH is `-`,
+  with a warning.
+- **BUYING POWER** is, for a margin account, Schwab's buying power for
+  stock that it can buy on margin, which counts what you can borrow, so it
+  can exceed the account's value; options and most mutual funds can use
+  less (`buyingPowerNonMarginableTrade` in `-json`). For a cash account it
+  is the cash available to trade. It has no total, since buying power does
+  not pass between accounts.
+- **TYPE** is CASH or MARGIN. An IRA is one of the two: the API does not say
+  which accounts are retirement accounts, though their nicknames usually
+  do.
+- `accounts` prints ACCOUNT, NAME, TYPE and VALUE: NAME is the account's
+  nickname on schwab.com.
+- `-` is a figure Schwab did not send, or sent in a form the tool could not
+  read, and a warning says which. A total with a `-` in its column is `-`
+  too, rather than a total that leaves an account out.
+
+```
+$ schwabtx positions -account 0135
+4 positions in 1 account, not counting cash (see schwabtx balances)
+ACCOUNT  SYMBOL         QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
+...0135  00507V109       10     81.50     0.00   815.00   -815.00
+...0135  AAPL        2.1788    190.20   495.70   414.41     81.29
+...0135  SWVXX      1220.89      1.00  1220.89  1220.89      0.00  SCHWAB VALUE ADVANTAGE MONEY FUND
+...0135  VTI             12  251.3075  3748.92  3015.69    733.23  VANGUARD TOTAL STOCK MARKET ETF
+TOTAL                                  5465.51  5465.99     -0.48
+```
+
+- Positions are listed account by account, and by symbol within an
+  account, so that an option usually comes straight after its underlying
+  stock.
+- **QTY** is negative for a short position.
+- **AVG COST** is Schwab's average cost per share, fees included, or for a
+  short position what each share brought in, fees taken out. For an option
+  it is the premium per share, so a contract of 100 shares costs 100 times
+  it. No answer seen holds a bond or a CD, whose AVG COST is as Schwab sends
+  it.
+- **VALUE** is the market value, negative for a short position.
+- **OPEN P/L** is the profit or loss since the position was opened, positive
+  for a gain whether long or short.
+- **COST** is VALUE less OPEN P/L: what a long position cost, fees included,
+  or for a short one the proceeds, as a negative amount. So VALUE - COST =
+  OPEN P/L on every row and in the totals.
+- The totals are of the positions alone. Cash is not a position, so they
+  are not the accounts' value: `balances` shows the cash and the value.
+- A figure is `-` as in `balances`, and so is a COST that needs it. An
+  account whose positions could not be read has one row, with the symbol
+  `?`.
+- Today's profit or loss is left out. For some stocks and ETFs, Schwab's
+  figure counts the whole cost basis as the day's loss, and a position sold
+  to open that day can show its whole value (see
+  [the API notes](../../docs/schwab-api.md#positions-and-balances)). Prices
+  are left out too: positions do not carry them.
+- A security that is no longer listed can come back under its CUSIP as its
+  symbol, like the first row above.
+
+`accounts` and `balances` make two requests. The first is for the accounts
+and their balances, and the second is for your preferences, which hold the
+nicknames; if those cannot be read, the table shows no nicknames and a
+warning says why. `positions` makes one request, for the accounts with
+their positions, and reads your preferences only when `-account` names a
+nickname, or names no account or several, to list them by their names.
+`-account` picks from the answer, so one account costs no more than all of
+them.
+
+`-json` prints each account as Schwab sent it, re-indented. For `positions`
+it includes the account's positions, as a snapshot keeps them. For
+`accounts` and `balances` it leaves them out, so those two print the same
+JSON, without nicknames, which come from your preferences.
 
 ## Snapshots
 
@@ -160,9 +278,10 @@ through the fake's authorize page, from the link the tool prints, token
 refresh, paging backwards through windows, windows older than an account's
 history answered with an empty list, as Schwab was seen to answer them,
 merging accounts, splitting truncated responses however the fake caps them,
-Schwab's own error answers, rate-limit retries and snapshots. They also run
-the scheduler scripts as a scheduler would: `snapshot.sh` on Linux and
-macOS, `snapshot.ps1` with each PowerShell on Windows.
+Schwab's own error answers, rate-limit retries, snapshots, and the lookups'
+tables and JSON of the fixtures' accounts. They also run the scheduler
+scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
+`snapshot.ps1` with each PowerShell on Windows.
 
 ## Open questions
 
@@ -197,9 +316,26 @@ macOS, `snapshot.ps1` with each PowerShell on Windows.
 - "differed from what Schwab has sent before" (a warning): Schwab sent a
   value in a form it has not sent before, such as a string where a number
   belongs, left out a key that it has always sent, or sent an object or
-  array twice. The table may show such a field as 0 or blank or, for one
+  array twice. The table may show such a field as 0, blank or `-` or, for one
   sent twice, as a mix of the copies; `-json` prints Schwab's own JSON, and
   the snapshot keeps it. The warning names the fields.
+- "Schwab sent no current value" (a warning), or no cash or buying power:
+  Schwab's answer lacks the figure for that account, as answers of 2024 did
+  for some margin accounts. The table shows `-` for it, and for its total.
+- "Schwab's cash for ... is not its value less its holdings" (a warning):
+  Schwab's figures for the account do not add up as they always have: part
+  of its money may be in a figure that the tool does not take for cash,
+  such as `savings`. CASH shows `-`; `-json` prints Schwab's figures.
+- "the table leaves out the accounts' nicknames" (a warning): your
+  preferences, which hold the nicknames, could not be read. The rest of the
+  table is complete.
+- `no account matches -account`: the error lists the accounts this login
+  shares. An account you did not tick at `schwabtx login` is not among them;
+  log in again and tick it.
+- `-account "..." matches 2 accounts`: give the nickname of the one you
+  want, or more digits of its number, which
+  `schwabtx accounts -show-accounts` prints; when two accounts share a
+  nickname, give the last digits of the number instead.
 - "Invalid account number" (`HTTP 400`): Schwab refused an account that it
   had just listed, for a reason not known. Run the command again; if it
   keeps failing, write to Schwab with the correlation ID.

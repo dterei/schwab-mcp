@@ -10,8 +10,9 @@ in a local store and plain files that your own return calculators and
 performance dashboards can read. The longer-term goal is a full
 [MCP](https://modelcontextprotocol.io) server for Schwab retail accounts that
 lets an AI assistant look up your accounts, positions, transactions and market
-data. Today it is a small CLI that logs in, prints your recent transactions
-and saves snapshots of your positions and balances.
+data. Today it is a small CLI that logs in, prints your recent transactions,
+looks up your accounts, positions and balances, and saves snapshots of your
+positions and balances.
 
 This project is not affiliated with, endorsed by or supported by Charles
 Schwab & Co.
@@ -21,6 +22,7 @@ Schwab & Co.
 | Piece | State |
 | --- | --- |
 | [`schwabtx`](cmd/schwabtx): log in and print recent transactions across all accounts | Works |
+| [`schwabtx accounts`, `positions` and `balances`](cmd/schwabtx/README.md#accounts-positions-and-balances): look up your accounts, holdings, cash and buying power, account numbers masked | Works |
 | [`schwabtx snapshot`](cmd/schwabtx/README.md#snapshots): save your current positions and balances; [run it daily](cmd/schwabtx/schedule) with launchd, cron or Task Scheduler | Works |
 | Go client for Schwab's API (milestone 1): the login, retries under a shared rate limit, and the account records | In progress, internal for now |
 | Full transaction history, stored locally and exported for your calculators (milestone 2) | Planned |
@@ -89,6 +91,7 @@ set -a; . ./.env; set +a      # load it into the environment
 
 go run ./cmd/schwabtx login      # follow the printed steps
 go run ./cmd/schwabtx            # your 100 most recent transactions
+go run ./cmd/schwabtx positions  # what your accounts hold now
 go run ./cmd/schwabtx snapshot   # save today's positions and balances
 ```
 
@@ -109,9 +112,10 @@ See [cmd/schwabtx](cmd/schwabtx/README.md) for flags and troubleshooting.
 - The saved login is a file readable only by you, in your user config
   directory. Treat it like a password: the login is not read-only, so the file
   lets whoever has it act on your accounts, trading included.
-- `schwabtx -json` prints Schwab's raw data, which includes full account
-  numbers. `schwabtx snapshot` saves the same kind of data, in a file
-  readable only by you.
+- `-json`, on any command, prints Schwab's raw data, which includes full
+  account numbers; the tables show the last 4 digits unless you ask for
+  more with `-show-accounts`. `schwabtx snapshot` saves the same kind of
+  data, in a file readable only by you.
 - Once the MCP server exists, what its tools return also goes to your AI
   assistant's model, which for most assistants runs on the provider's
   servers rather than your machine. The server will mask account numbers in

@@ -366,6 +366,14 @@ one-year limit is per request, not a retention period.
   cash. With short positions or a debit, `cashBalance` can read 0, with the
   cash in `marginBalance` and `shortBalance`
   ([jkoelker/schwab-mcp#222](https://github.com/jkoelker/schwab-mcp/pull/222)).
+  That project takes the cash to be `marginBalance + shortBalance` when
+  `cashBalance` is 0 or missing and `marginBalance` is sent, the cash, its
+  code says, that schwab.com shows. A missing `cashBalance` says nothing of
+  the cash, though: in a margin account's answer of 2024
+  ([z-Wind/schwab_api](https://github.com/z-Wind/schwab_api/tree/main/tests/model/Trader)),
+  the current balances carry no `cashBalance`, and `marginBalance` and
+  `shortBalance` are both 0.0, while the initial balances hold 4069.76 of
+  cash.
 - **Money market funds** are positions of asset type MUTUAL_FUND (type
   NO_LOAD_TAXABLE), priced at 1 and counted in `mutualFundValue`.
   `moneyMarketFund` has been 0 in every sample, and CASH_EQUIVALENT has not
