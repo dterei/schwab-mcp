@@ -169,7 +169,7 @@ func fixtureDigits(s string) string {
 // without -show-accounts: not the tables, nor the warnings, nor an error
 // that echoes -account, though it holds most of a number.
 func TestLookupsMaskAccountNumbers(t *testing.T) {
-	setupFixtures(t)
+	f := setupFixtures(t)
 	for _, args := range [][]string{
 		{"accounts"},
 		{"balances"},
@@ -192,13 +192,42 @@ func TestLookupsMaskAccountNumbers(t *testing.T) {
 			t.Errorf("%q shows %s of an account's number:\n%s", args, run, all)
 		}
 	}
+
+	// An error shows -account's value with more than 4 digits in a row as
+	// ... and the last 4, as the tables mask a number, whatever separates
+	// them and whatever words surround them.
+	for _, tc := range []struct{ account, shown string }{
+		{"03399", "...3399"},
+		{"1803399", "...3399"},
+		{"...61803399", "...3399"},
+		{"6180.3399", "...3399"},
+		{"6180_3399", "...3399"},
+		{"6180−3399", "...3399"},
+		{"#61803399", "#...3399"},
+		{"Account 2947-0136", "Account ...0136"},
+		{"2947 - 0136 Joint", "...0136 Joint"},
+		{"Joint ...29470136", "Joint ...0136"},
+		{"Roth 2019", "Roth 2019"},
+		{"Joint 12-34", "Joint 12-34"},
+		{"401k 2019", "401k 2019"},
+	} {
+		_, _, err := runTx(t, "accounts", "-account", tc.account)
+		if want := fmt.Sprintf("no account matches -account %q: ", tc.shown); err == nil || !strings.HasPrefix(err.Error(), want) {
+			t.Errorf("-account %q: %v, want %q", tc.account, err, want)
+		}
+	}
+	f.Override(schwabtest.UserPreferenceRoute, schwabtest.Unavailable)
+	_, _, err := runTx(t, "positions", "-account", "Account 2947-0135")
+	if want := `fetching the user preferences, to find the account named "Account ...0135": `; err == nil || !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("-account %q without the preferences: %v, want %q", "Account 2947-0135", err, want)
+	}
 }
 
 // -account picks one account from the answer for all of them: by the last
 // digits of its number, written as the tables, Schwab or schwab.com write
-// them, or by its whole nickname, whatever its case and the spaces around
-// it. A nickname costs the preferences' request in -json mode too, and
-// digits cost no request.
+// them, with dashes or spaces of any kind among them, or by its whole
+// nickname, whatever its case and the spaces around it. A nickname costs
+// the preferences' request in -json mode too, and digits cost no request.
 func TestLookupsPickAnAccount(t *testing.T) {
 	f := setupFixtures(t)
 	contributory := `ACCOUNT  NAME          TYPE    VALUE
@@ -218,6 +247,9 @@ func TestLookupsPickAnAccount(t *testing.T) {
 		{[]string{"accounts", "-account", "...783"}, contributory, both},
 		{[]string{"accounts", "-account", "4022-1783"}, contributory, both},
 		{[]string{"accounts", "-account", " 4022 1783 "}, contributory, both},
+		{[]string{"accounts", "-account", "4022\u20131783"}, contributory, both},
+		{[]string{"accounts", "-account", "4022\u00a01783"}, contributory, both},
+		{[]string{"accounts", "-account", "4022\t1783"}, contributory, both},
 		{[]string{"accounts", "-account", "contributory"}, contributory, both},
 		{[]string{"balances", "-account", "61803398"}, margin, both},
 		{[]string{"balances", "-account", "...3398"}, margin, both},

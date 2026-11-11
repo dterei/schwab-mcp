@@ -9,6 +9,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
@@ -117,7 +118,7 @@ func runLookup(ctx context.Context, name string, args []string, stdout, stderr i
 		case ctx.Err() != nil:
 			return fmt.Errorf("fetching the user preferences: %w", err)
 		case sel.nickname != "":
-			return fmt.Errorf("fetching the user preferences, to find the account named %q: %w", sel.nickname, err)
+			return fmt.Errorf("fetching the user preferences, to find the account named %q: %w", sel.shown(), err)
 		default:
 			warn("the table leaves out the accounts' nicknames: fetching the user preferences: " + err.Error())
 		}
@@ -176,16 +177,21 @@ func lookupProblems(a schwab.Account) []schwab.Problem {
 type selector struct{ given, digits, nickname string }
 
 // parseSelector reads -account's value. Digits, with or without a leading
-// "...", as the tables and Schwab mask numbers, and with dashes or spaces
-// among them, as schwab.com writes a number, name the account whose number
-// ends in them; a whole number names its account too. Anything else names
-// the account with that nickname, ignoring case and the spaces around it,
-// so a nickname of digits alone cannot be given, though its account's
-// number can.
+// "...", as the tables and Schwab mask numbers, and with dashes or spaces of
+// any kind among them, as schwab.com writes a number, name the account
+// whose number ends in them; a whole number names its account too.
+// Anything else names the account with that nickname, ignoring case and the
+// spaces around it, so a nickname of digits alone cannot be given, though
+// its account's number can.
 func parseSelector(v string) selector {
 	v = strings.TrimSpace(v)
 	s := selector{given: v}
-	digits := strings.NewReplacer("-", "", " ", "").Replace(strings.TrimPrefix(v, "..."))
+	digits := strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) || unicode.Is(unicode.Pd, r) {
+			return -1
+		}
+		return r
+	}, strings.TrimPrefix(v, "..."))
 	if digits != "" && strings.Trim(digits, "0123456789") == "" {
 		s.digits = digits
 	} else {
@@ -194,14 +200,40 @@ func parseSelector(v string) selector {
 	return s
 }
 
-// shown returns -account's value as an error shows it: as given, but for
-// more than 4 digits, which come close to a whole account number, and are
-// masked as the tables mask one.
+// shown returns -account's value as an error shows it: as given, but with
+// no more of an account number than the tables show. Each run of more than
+// 4 digits, which comes close to a whole number, shows as ... and its last
+// 4, as the tables mask a number, whether the value names digits or a
+// nickname. A run goes on across anything but a letter, so that the digits
+// of a number written with dots, dashes or spaces of any kind among them
+// make one run.
 func (s selector) shown() string {
-	if len(s.digits) > 4 {
-		return "..." + s.digits[len(s.digits)-4:]
+	rs := []rune(s.given)
+	var b strings.Builder
+	for i := 0; i < len(rs); {
+		if !unicode.IsDigit(rs[i]) {
+			b.WriteRune(rs[i])
+			i++
+			continue
+		}
+		var digits []rune
+		end := i // just after the run's last digit
+		for j := i; j < len(rs) && !unicode.IsLetter(rs[j]); j++ {
+			if unicode.IsDigit(rs[j]) {
+				digits, end = append(digits, rs[j]), j+1
+			}
+		}
+		switch {
+		case len(digits) <= 4:
+			b.WriteString(string(rs[i:end]))
+		case strings.HasSuffix(b.String(), "..."): // masked already, as the tables mask
+			b.WriteString(string(digits[len(digits)-4:]))
+		default:
+			b.WriteString("..." + string(digits[len(digits)-4:]))
+		}
+		i = end
 	}
-	return s.given
+	return b.String()
 }
 
 // pick returns the accounts of as that s names: all of them when it names
