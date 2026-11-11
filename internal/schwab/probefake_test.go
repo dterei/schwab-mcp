@@ -1008,12 +1008,13 @@ func testSymbolFilterOnTheFake(t *testing.T) {
 }
 
 // Q6 counts a read of the checks that Schwab refuses as unauthorized, with
-// a 401 or a 403, but not the reads whose answers the probes ask about,
-// which Schwab may refuse for reasons of its own: here with a 403, the
-// windows of Q1's walk before 2020, Q5's every account's orders from 61
-// days back, and the extras' windows of more than a year, their window
-// without types, their date alone, their row by its id, and their unknown
-// hash and unknown activityId.
+// a 401 or a 403, but not the reads that Schwab may refuse for reasons of
+// its own, those whose answers the probes ask about and Q12's windows,
+// which end days ahead: here with a 403, the windows of Q1's walk before
+// 2020, Q5's every account's orders from 61 days back, Q12's windows, and
+// the extras' windows of more than a year, their window without types,
+// their date alone, their row by its id, and their unknown hash and
+// unknown activityId.
 func testScopeOnTheFake(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -1032,13 +1033,13 @@ func testScopeOnTheFake(t *testing.T) {
 			report := fl.report(t)
 			wantVerdicts(t, report, map[string]string{"Q6": `the login's scope is "api"; 1 read of the account API refused as unauthorized`})
 			wantEvidence(t, report, "Q6", "reads counted: 14, those of the account API that a working login passes: the account numbers, "+
-				"the preferences, the checks, and Q4's and Q12's windows; not those whose answer a probe asks about, Q1's walk, "+
-				"Q5's old orders and the extras', which Schwab may refuse for reasons of its own")
+				"the preferences, the checks, and Q4's windows; not those that Schwab may refuse for reasons of its own: Q1's walk, "+
+				"Q5's old orders and the extras', whose answers the probes ask about, and Q12's windows, which end days ahead")
 		})
 	}
 	t.Run("the probes' questions refused", func(t *testing.T) {
 		t.Parallel()
-		fl := newProbeLive(t, probeNow, "Q1", "Q5", "extras", "Q6")
+		fl := newProbeLive(t, probeNow, "Q1", "Q5", "Q12", "extras", "Q6")
 		refused, windows := 0, 0
 		var mu sync.Mutex
 		fl.f.OnAPI(func(r *http.Request) {
@@ -1056,7 +1057,7 @@ func testScopeOnTheFake(t *testing.T) {
 			if route == schwabtest.AccountRoute && r.PathValue("hash") == schwabtest.UnknownHash ||
 				route == schwabtest.TransactionRoute && windows > checksTransactions ||
 				route == schwabtest.TransactionsRoute && (q.Get("startDate") < "2020" || !q.Has("types") || err1 != nil ||
-					err2 == nil && end.Sub(start) > MaxTransactionWindow) ||
+					err2 == nil && (end.Sub(start) > MaxTransactionWindow || end.After(fl.clock.Now().Add(oneDay)))) ||
 				r.URL.Path == "/trader/v1/orders" {
 				refused++
 				fl.f.Script(schwabtest.Answer(http.StatusForbidden, `{"message":"a guess: not for this login"}`, "Content-Type", "application/json"))
@@ -1066,7 +1067,10 @@ func testScopeOnTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q6": `the login's scope is "api"; no read of the account API was refused as unauthorized`})
+		wantVerdicts(t, report, map[string]string{
+			"Q6":  `the login's scope is "api"; no read of the account API was refused as unauthorized`,
+			"Q12": "inconclusive: no account's window was read",
+		})
 		forbidden := "refused, HTTP 403, a guess: not for this login"
 		wantEvidence(t, report, "extras", "a window of 365 days and a second: "+forbidden, "a window of 366 days: "+forbidden,
 			"a window without types: "+forbidden, "a startDate that is a date alone: "+forbidden, "a row by its id: "+forbidden,
@@ -1074,8 +1078,8 @@ func testScopeOnTheFake(t *testing.T) {
 		wantEvidence(t, report, "Q5", "every account's orders from 61 days back: "+forbidden)
 		mu.Lock()
 		defer mu.Unlock()
-		if refused < 9 {
-			t.Errorf("%d requests refused, want the walk's, Q5's and the extras'", refused)
+		if refused < 12 {
+			t.Errorf("%d requests refused, want the walk's, Q5's, Q12's and the extras'", refused)
 		}
 	})
 }

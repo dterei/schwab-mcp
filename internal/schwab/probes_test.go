@@ -1171,9 +1171,10 @@ var scopeWord = regexp.MustCompile(`^[A-Za-z0-9_.:/ -]{1,40}$`)
 // cannot trade: it reports the scope that Schwab said it granted, and
 // whether any read of the run's account API that a working login passes
 // was refused as unauthorized, as get and read count them, not the reads
-// whose answer a probe asks about, which ask sends. Whether such a token
-// cannot trade stays open, since only an order could show it. It sends
-// nothing.
+// that Schwab may refuse for reasons of its own, which ask sends: those
+// whose answer a probe asks about, and Q12's windows, which end days
+// ahead. Whether such a token cannot trade stays open, since only an order
+// could show it. It sends nothing.
 func probeScope(_ context.Context, r *liveRun) verdict {
 	st, err := r.auth.Status()
 	scope := "no scope"
@@ -1196,8 +1197,8 @@ func probeScope(_ context.Context, r *liveRun) verdict {
 		answer: "the login's scope is " + scope + "; " + worked,
 		evidence: lines(
 			"reads counted: "+strconv.Itoa(counted)+", those of the account API that a working login passes: the account numbers, "+
-				"the preferences, the checks, and Q4's and Q12's windows; not those whose answer a probe asks about, Q1's walk, "+
-				"Q5's old orders and the extras', which Schwab may refuse for reasons of its own",
+				"the preferences, the checks, and Q4's windows; not those that Schwab may refuse for reasons of its own: Q1's walk, "+
+				"Q5's old orders and the extras', whose answers the probes ask about, and Q12's windows, which end days ahead",
 			"whether a token of scope readonly cannot trade stays open: only an order could show it, and the live run sends none"),
 	}
 }

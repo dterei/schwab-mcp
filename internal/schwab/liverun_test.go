@@ -534,7 +534,7 @@ func (r *liveRun) get(ctx context.Context, endpoint, path string, query url.Valu
 	return r.fetch(ctx, r.client, endpoint, path, query, kind, false, false)
 }
 
-// read is get for a probe that reads an endpoint many times, as Q12 does:
+// read is get for a probe that reads an endpoint many times, as Q4 does:
 // it checks every answer as get does, but writes one to the report only
 // when it fails or holds a finding that the report does not have yet for
 // its endpoint, and counts a finding that fails once, however many answers
@@ -545,10 +545,11 @@ func (r *liveRun) read(ctx context.Context, endpoint, path string, query url.Val
 
 // ask is read for a request whose answer is what a probe asks about, such
 // as a window older than an account's history, a window longer than Schwab
-// serves, or an id that no row has. Schwab may refuse such a request with
-// a 401 or a 403 for reasons of its own, so, unlike get's and read's, its
-// refusal is not counted among the reads of the account API that a working
-// login passes, which Q6 reports.
+// serves, or an id that no row has, or that Schwab is not known to take,
+// such as Q12's window, which ends days ahead. Schwab may refuse such a
+// request with a 401 or a 403 for reasons of its own, so, unlike get's and
+// read's, its refusal is not counted among the reads of the account API
+// that a working login passes, which Q6 reports.
 func (r *liveRun) ask(ctx context.Context, endpoint, path string, query url.Values, kind string) (*reply, error) {
 	return r.fetch(ctx, r.client, endpoint, path, query, kind, true, true)
 }

@@ -715,7 +715,10 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 	// row dated at it is not known, so the window ends a second past it, not
 	// a millisecond, which Schwab may drop.
 	w := window{now.Add(-changeWindow), lastDated(nyMidnight(now, 0)).Add(time.Second)}
-	rep, err := r.read(ctx, a.endpoint("/transactions"), a.path()+"/transactions", txValues(w, ""), "transactions")
+	// Whether Schwab takes a window that ends days ahead is not known
+	// either, so it is asked, as the extras' odd windows are: Schwab may
+	// refuse it for reasons of its own, which Q6 does not count.
+	rep, err := r.ask(ctx, a.endpoint("/transactions"), a.path()+"/transactions", txValues(w, ""), "transactions")
 	if err != nil {
 		cs.failed = true
 		return cs, prev
