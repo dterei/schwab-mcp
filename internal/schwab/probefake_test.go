@@ -2501,28 +2501,50 @@ func testChangesVerdictsOnTheFake(t *testing.T) {
 	}
 }
 
+// keptRows returns how many rows of {account 2} the state that fl's run
+// left keeps for Q12, and how many of them it marks gone.
+func keptRows(t *testing.T, fl *fakeLive) (rows, gone int) {
+	t.Helper()
+	var st rowsState
+	if _, err := fl.r.state.get("Q12", &st); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range st.Accounts[fl.r.state.digest("account number", secondAccount.Number)].Rows {
+		rows++
+		if !e.Gone.IsZero() {
+			gone++
+		}
+	}
+	return rows, gone
+}
+
 // Q12 under the fake's settings: two runs, 12 days apart, the second after
 // a new login, so that their windows slide, with a row changed, in a value
 // and by a key it lost, a row gone and a row that came late between them,
 // and a row that the second run's window no longer takes in, which is not
-// shown gone; and two runs three days apart, between which come the rows of
-// two fills before the first run that its answer left out: one two minutes
-// before it, whose row may have posted in the ordinary course, which is not
-// shown late, and one five hours before it, whose row came late, from five
-// hours to four days after its time. Rows gone and rows that came late are
+// shown gone, but pruned, while the state keeps the row gone, marked so;
+// and two runs three days apart, between which come the rows of two fills
+// before the first run that its answer left out: one two minutes before it,
+// whose row may have posted in the ordinary course, which is not shown
+// late, and one five hours before it, whose row came late, from five hours
+// to four days after its time. Rows gone and rows that came late are
 // compared too, so that the verdict comes of every row of the state gone,
-// and of a row that came late to an account that had none. A row that
-// posts while the second run's read of its window waits out a 429 is
-// bounded by when the answer came, not by when the probe began; and a row
-// whose time changes keeps its new time, by which it is shown gone three
-// weeks later. And two runs a day apart, where the window of an account, or
-// of two, fails in the second, which leaves all that their rows did
-// undecided, though a row of one went, while the verdict speaks of the
-// accounts compared alone, or says nothing when the other's window failed
-// in the first run, which left nothing of it to compare with; and where an
-// account's window fails in both runs, or in the first alone, before a row
-// of it comes late, which leaves what its rows did undecided as well, since
-// no earlier run read them. The first run says nothing either way.
+// and of a row that came late to an account that had none; a run a day
+// later, while those rows are gone still, shows them neither gone again nor
+// missing, and one a day after that, when they have come back, one of them
+// changed, compares them with the rows that the state kept, rather than
+// showing them late. A row that posts while the second run's read of its
+// window waits out a 429 is bounded by when the answer came, not by when
+// the probe began; and a row whose time changes keeps its new time, by
+// which it is shown gone three weeks later. And two runs a day apart, where
+// the window of an account, or of two, fails in the second, which leaves
+// all that their rows did undecided, though a row of one went, while the
+// verdict speaks of the accounts compared alone, or says nothing when the
+// other's window failed in the first run, which left nothing of it to
+// compare with; and where an account's window fails in both runs, or in the
+// first alone, before a row of it comes late, which leaves what its rows
+// did undecided as well, since no earlier run read them. The first run says
+// nothing either way.
 func testChangesOnTheFake(t *testing.T) {
 	t.Run("rows changed, gone and late", func(t *testing.T) {
 		t.Parallel()
@@ -2550,13 +2572,9 @@ func testChangesOnTheFake(t *testing.T) {
 		report := later.report(t)
 		wantVerdicts(t, report, map[string]string{"Q12": "rows changed after they posted, and went, and came late"})
 		// The state keeps the rows of the second run's window alone: the row
-		// that slid out of it is pruned, and the row gone is dropped.
-		var st rowsState
-		if _, err := later.r.state.get("Q12", &st); err != nil {
-			t.Fatal(err)
-		}
-		if rows := st.Accounts[later.r.state.digest("account number", secondAccount.Number)].Rows; len(rows) != 3 {
-			t.Errorf("the state keeps %d rows of {account 2}, want 3", len(rows))
+		// that slid out of it is pruned, and the row gone is kept, marked so.
+		if rows, gone := keptRows(t, later); rows != 4 || gone != 1 {
+			t.Errorf("the state keeps %d rows of {account 2}, %d of them marked gone; want 4, 1 of them marked gone", rows, gone)
 		}
 		wantEvidence(t, report, "Q12", "{account 1}: 0 rows as they were; 0 rows new to the state",
 			"{account 2}: 0 rows as they were; 2 rows new to the state; 1 row changed, 27 days old, in netAmount (1), positionId (1); "+
@@ -2617,11 +2635,15 @@ func testChangesOnTheFake(t *testing.T) {
 	t.Run("every row of the state gone", func(t *testing.T) {
 		t.Parallel()
 		// Both of {account 2}'s rows go, and no row of the state is seen
-		// again: the rows gone are the ones compared.
+		// again: the rows gone are the ones compared. A day later, still
+		// gone, they are neither shown gone again nor missing; and when they
+		// come back, one of them changed, they are compared with the rows
+		// that the state kept, rather than shown late.
 		fl := newProbeLive(t, probeNow, "Q12")
 		if err := fl.runClean(t); err != nil {
 			t.Fatal(err)
 		}
+		dividend, option := fixtureRow(t, xyzDividend), fixtureRow(t, optionClose, "netAmount", "311.32")
 		fl.f.RemoveRow(secondAccount.Hash, xyzDividend)
 		fl.f.RemoveRow(secondAccount.Hash, optionClose)
 		later := fl.again(t, probeNow.AddDate(0, 0, 1), false)
@@ -2631,6 +2653,28 @@ func testChangesOnTheFake(t *testing.T) {
 		report := later.report(t)
 		wantVerdicts(t, report, map[string]string{"Q12": "rows went"})
 		wantEvidence(t, report, "Q12", "{account 2}: 0 rows as they were; 0 rows new to the state; 2 rows gone")
+		if rows, gone := keptRows(t, later); rows != 2 || gone != 2 {
+			t.Errorf("the state keeps %d rows of {account 2}, %d of them marked gone; want 2, both marked gone", rows, gone)
+		}
+		still := later.again(t, probeNow.AddDate(0, 0, 2), false)
+		if err := still.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report = still.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": noRowCompared})
+		wantEvidence(t, report, "Q12", "{account 2}: 0 rows as they were; 0 rows new to the state")
+		fl.f.AddRows(secondAccount.Hash, dividend, option)
+		back := still.again(t, probeNow.AddDate(0, 0, 3), false)
+		if err := back.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report = back.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "rows changed after they posted"})
+		wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 0 rows new to the state; 1 row changed, 30 days old, in netAmount (1); "+
+			"2 rows back that an earlier run showed gone")
+		if rows, gone := keptRows(t, back); rows != 2 || gone != 0 {
+			t.Errorf("the state keeps %d rows of {account 2}, %d of them marked gone; want 2, neither marked gone", rows, gone)
+		}
 	})
 	t.Run("a row that came late alone", func(t *testing.T) {
 		t.Parallel()

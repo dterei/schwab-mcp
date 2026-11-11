@@ -430,12 +430,15 @@ type accountRows struct {
 	Rows     map[string]rowSeen `json:"rows"`
 }
 
-// A rowSeen is one row as the state keeps it: when it was first seen, its
-// time and its tradeDate, and a digest of each key path's values, with each
-// instrument cut to its assetType and instrumentId, as milestone 2 will
-// compare rows.
+// A rowSeen is one row as the state keeps it: when it was first seen, and
+// when a run showed it gone, if one did, its time and its tradeDate, and a
+// digest of each key path's values, with each instrument cut to its
+// assetType and instrumentId, as milestone 2 will compare rows. A row shown
+// gone stays until it is pruned, so that one that comes back is compared
+// with it, rather than taken for a row that came late.
 type rowSeen struct {
 	FirstSeen time.Time         `json:"firstSeen"`
+	Gone      time.Time         `json:"gone,omitzero"`
 	Time      time.Time         `json:"time"`
 	TradeDate time.Time         `json:"tradeDate,omitzero"`
 	Keys      map[string]string `json:"keys"`
@@ -510,6 +513,7 @@ func (r *liveRun) rowDigests(raw json.RawMessage) map[string]string {
 type changesSeen struct {
 	compared         bool           // whether the last run read this account's rows, with a window that reached ahead
 	same, fresh      int            // rows as they were, and rows new to the state
+	back             int            // rows that an earlier run showed gone, among those as they were or changed
 	changed          map[string]int // the key paths that changed, with how many rows each
 	changedRows      int
 	ages             []time.Duration // how old each changed row was
@@ -545,9 +549,12 @@ type changesSeen struct {
 // row whose key paths' digests differ changed, and the keys are named; a
 // row is gone only when both its time and its tradeDate lie inside both
 // runs' windows and this run's answer is complete, under pageCap rows in
-// all and of each type; and a row is late when it is new to the state
-// though both lie inside the last run's window, that run's answer was
-// complete, its time was more than postingLatency before that run, and,
+// all and of each type, and the state keeps it, marked gone, until it is
+// pruned: an answer without it shows it neither gone again nor missing, and
+// one that holds it again compares it as any row of the state, rather than
+// taking it for a row new to the state; and a row is late when it is new to
+// the state though both lie inside the last run's window, that run's answer
+// was complete, its time was more than postingLatency before that run, and,
 // if it is dated after that run, that run's answer held a row dated after
 // it came. A late row posted after the last run and before this run's
 // answer came with it, which bound how long after its time it came. Both
@@ -814,6 +821,10 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 				cs.lateMost = append(cs.lateMost, answered.Sub(row.Time))
 			}
 		default:
+			if !e.Gone.IsZero() {
+				cs.back++ // shown gone by an earlier run, and compared as any row of the state
+				e.Gone = time.Time{}
+			}
 			var diff []string
 			for p := range maps.Keys(digests) {
 				if e.Keys[p] != digests[p] {
@@ -841,8 +852,12 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 	for id, e := range kept {
 		switch {
 		case seen[id]:
+		case !e.Gone.IsZero():
+			next.Rows[id] = e // shown gone by an earlier run, and gone still
 		case cs.complete && last.takesRow(e.Time, e.TradeDate) && w.takesRow(e.Time, e.TradeDate):
 			cs.gone++
+			e.Gone = now
+			next.Rows[id] = e
 		default:
 			cs.missing++
 			next.Rows[id] = e // not in this answer, but not shown gone
@@ -871,6 +886,9 @@ func (cs changesSeen) line(a liveAccount) string {
 			keys = append(keys, fmt.Sprintf("%s (%d)", p, cs.changed[p]))
 		}
 		parts = append(parts, fmt.Sprintf("%s changed, %s old, in %s", plural(cs.changedRows, "row"), days(cs.ages), strings.Join(keys, ", ")))
+	}
+	if cs.back > 0 {
+		parts = append(parts, plural(cs.back, "row")+" back that an earlier run showed gone")
 	}
 	if cs.late > 0 {
 		its := map[bool]string{true: "its time", false: "their times"}[cs.late == 1]
