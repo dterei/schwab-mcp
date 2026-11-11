@@ -3821,7 +3821,7 @@ func testFillsOnTheFake(t *testing.T) {
 			fl := watchFills(t, probeNow, by.rules, watchedFill{filled: dayBefore, tradeDate: midnight.AddDate(0, 0, -1)})
 			report := fl.report(t)
 			wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: every fill's row was there at the first read that could show it, within 1351 minutes of its fill; " +
-				"place a trade just before the watch to measure it"})
+				"place a trade during the watch to measure it"})
 			wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "rows there at the first read that could show them: 1, within 1351 minutes of the fills")
 		})
 	}
@@ -3964,7 +3964,7 @@ func testFillsOnTheFake(t *testing.T) {
 		fl := watchFills(t, probeNow, schwabtest.TransactionRules{}, watchedFill{filled: probeNow.Add(-3 * time.Hour)})
 		report := fl.report(t)
 		wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: every fill's row was there at the first read that could show it, within 181 minutes of its fill; " +
-			"place a trade just before the watch to measure it"})
+			"place a trade during the watch to measure it"})
 		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "rows there at the first read that could show them: 1, within 181 minutes of the fills")
 	})
 	t.Run("a fill whose row never comes", func(t *testing.T) {
@@ -4040,7 +4040,7 @@ func testFillsOnTheFake(t *testing.T) {
 		if err := fl.runClean(t); err != nil {
 			t.Fatal(err)
 		}
-		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "inconclusive: no order of the last day was filled; place a trade by hand, then run the watch"})
+		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "inconclusive: no order of the last day was filled; run the watch, then place a trade by hand"})
 	})
 }
 

@@ -339,7 +339,8 @@ func latency(reads []rowsRead, id string, filled time.Time, ahead bool) (how int
 }
 
 // probeFills is Q13, how soon after a fill its trade appears in the
-// transactions, after the owner places a trade by hand. Every minute for
+// transactions, of a trade that the owner places by hand during the watch,
+// whose reads before the fill bound the time from below. Every minute for
 // half an hour it reads each account's orders entered in the last day and
 // its TRADE rows over every time that their fills' rows can be dated by:
 // from a second before the midnight in New York that begins the day a day
@@ -442,7 +443,7 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 		v.evidence = append(v.evidence, reportLine{text: fmt.Sprintf("reads that failed: %d of the orders, %d of the rows", failedOrders, failedRows)})
 	}
 	if len(fills) == 0 {
-		v.answer = "inconclusive: no order of the last day was filled; place a trade by hand, then run the watch"
+		v.answer = "inconclusive: no order of the last day was filled; run the watch, then place a trade by hand"
 		return v
 	}
 	minutes := func(d time.Duration) int { return int(math.Ceil(d.Minutes())) }
@@ -501,7 +502,7 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 		v.answer = "inconclusive: no fill's row came during the watch: some were there at the first read that could show them, and the others had not come by its end"
 	case len(upTo) > 0:
 		v.answer = fmt.Sprintf("inconclusive: every fill's row was there at the first read that could show it, within %d minutes of its fill; "+
-			"place a trade just before the watch to measure it", slices.Max(upTo))
+			"place a trade during the watch to measure it", slices.Max(upTo))
 	default:
 		v.answer = "inconclusive: no read after a fill could show its row"
 	}

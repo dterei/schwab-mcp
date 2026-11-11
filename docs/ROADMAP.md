@@ -632,7 +632,7 @@ it.
 - **How soon after a fill does the trade appear in transactions?** This
   decides whether a sync triggered by a stream event needs a delayed
   re-check. Probe: Q13, a watch of fills (`-live.watch=fills`) for half an
-  hour after you place a trade by hand.
+  hour, during which you place a trade by hand.
 - **How far under 120 a minute does Schwab refuse requests, and are bursts
   what it refuses?** It answers 429 with no Retry-After, and has done so to a
   client sending 19 a minute (see [the API notes](schwab-api.md#rate-limits)).
