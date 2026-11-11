@@ -2295,7 +2295,8 @@ func changesClaimed(verdict string) (did, none []string) {
 // run's or both are. The row lies inside both windows, which go by time;
 // or, under windows by tradeDate, it is a Friday's evening fill at 20:30,
 // dated the fourth weekday after, the latest that lastDated allows, before
-// a run at 10:00 on the Saturday; or a Thursday's evening fill at 21:30,
+// a run at 10:00 on the Saturday, in windows that leave out a row dated at
+// their end, as Schwab's may; or a Thursday's evening fill at 21:30,
 // dated the next midnight, before a run at 22:00; or its tradeDate lies
 // before this window's start, and its time after; or it is an evening fill
 // before the last window's start, dated inside it, before a run an hour
@@ -2304,42 +2305,42 @@ func changesClaimed(verdict string) (did, none []string) {
 // across this window's start, which this window leaves out by its
 // tradeDate.
 func testChangesVerdictsOnTheFake(t *testing.T) {
+	var byTime schwabtest.TransactionRules
+	byTradeDate := schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate}
+	endLeftOut := schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate, ExclusiveEnd: true}
 	for _, p := range []struct {
 		name          string
 		first, second time.Time // the runs
 		time, date    string    // the row's time and tradeDate
-		byTradeDate   bool
+		rules         schwabtest.TransactionRules
 		lateUnseen    bool // whether no answer can show that the row came late
 	}{
 		{
 			"inside both windows", probeNow, probeNow.Add(oneDay),
-			`"2026-08-22T15:00:00+0000"`, `"2026-08-22T15:00:00+0000"`, false, false,
+			`"2026-08-22T15:00:00+0000"`, `"2026-08-22T15:00:00+0000"`, byTime, false,
 		},
 		{
 			"a Friday's evening fill dated the fourth weekday after", time.Date(2026, 8, 22, 14, 0, 0, 0, time.UTC), time.Date(2026, 9, 3, 14, 0, 0, 0, time.UTC),
-			`"2026-08-22T00:30:00+0000"`, `"2026-08-27T04:00:00+0000"`, true, false,
+			`"2026-08-22T00:30:00+0000"`, `"2026-08-27T04:00:00+0000"`, endLeftOut, false,
 		},
 		{
 			"an evening fill from the hour before the last run", time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC), time.Date(2026, 9, 2, 2, 0, 0, 0, time.UTC),
-			`"2026-08-21T01:30:00+0000"`, `"2026-08-21T04:00:00+0000"`, true, true,
+			`"2026-08-21T01:30:00+0000"`, `"2026-08-21T04:00:00+0000"`, byTradeDate, true,
 		},
 		{
 			"across this window's start", probeNow, time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC),
-			`"2026-07-20T14:40:00+0000"`, `"2026-07-20T04:00:00+0000"`, true, true,
+			`"2026-07-20T14:40:00+0000"`, `"2026-07-20T04:00:00+0000"`, byTradeDate, true,
 		},
 		{
 			"before the last window's start, dated inside it", time.Date(2026, 9, 1, 2, 0, 0, 0, time.UTC), time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC),
-			`"2026-07-03T00:30:00+0000"`, `"2026-07-03T04:00:00+0000"`, true, false,
+			`"2026-07-03T00:30:00+0000"`, `"2026-07-03T04:00:00+0000"`, byTradeDate, false,
 		},
 	} {
 		for _, event := range []string{"as it was", "changed", "went", "came late"} {
 			for _, cut := range []string{"neither answer", "this run's answer", "the last run's answer", "both answers"} {
 				t.Run(p.name+", "+event+", "+cut+" cut", func(t *testing.T) {
 					t.Parallel()
-					var rules schwabtest.TransactionRules
-					if p.byTradeDate {
-						rules.FilterOn = schwabtest.FilterOnTradeDate
-					}
+					rules := p.rules
 					fl := newProbeLive(t, p.first, "Q12")
 					first := rules
 					if cut == "the last run's answer" || cut == "both answers" {
@@ -3524,8 +3525,10 @@ func watchFillsWith(t *testing.T, start time.Time, rules schwabtest.TransactionR
 // tradeDate; a fill 23 seconds past the minute, whose row comes between the
 // polls 1m37s and 2m37s after it, which the verdict rounds out to whole
 // minutes; a Friday evening's fill whose row, dated Monday, windows by
-// tradeDate take in only past the poll, and the evening's before
-// Thanksgiving, dated the Friday after it; a row that comes while a slow
+// tradeDate take in only past the poll, the evening's before Thanksgiving,
+// dated the Friday after it, and a Friday evening's dated the Thursday
+// after, as after three holidays, which windows that leave out a row at
+// their end take in only past that midnight; a row that comes while a slow
 // read of another account's holds a poll up, and one that comes after the
 // read that it held up, which the bounds take from when each read went and
 // was answered, not from the poll's start; a fill in windows that leave out
@@ -3594,6 +3597,17 @@ func testFillsOnTheFake(t *testing.T) {
 		friday := time.Date(2026, 11, 27, 5, 0, 0, 0, time.UTC)
 		fl := watchFills(t, wednesday, schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate},
 			watchedFill{filled: wednesday.Add(5 * time.Minute), tradeDate: friday, after: 150 * time.Second})
+		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "a fill's trade appears from 2 to 3 minutes after the fill"})
+	})
+	t.Run("a Friday evening's fill dated the fourth weekday after, in windows by tradeDate that leave out a row at their end", func(t *testing.T) {
+		t.Parallel()
+		// Dated Thursday, as after three holidays, the latest that
+		// lastDated allows: a window must end after that midnight to hold
+		// it.
+		friday := time.Date(2026, 9, 11, 23, 0, 0, 0, time.UTC) // 19:00 in New York
+		thursday := time.Date(2026, 9, 17, 4, 0, 0, 0, time.UTC)
+		fl := watchFills(t, friday, schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate, ExclusiveEnd: true},
+			watchedFill{filled: friday.Add(5 * time.Minute), tradeDate: thursday, after: 150 * time.Second})
 		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "a fill's trade appears from 2 to 3 minutes after the fill"})
 	})
 	t.Run("a row that comes while a slow read holds a poll up", func(t *testing.T) {

@@ -328,12 +328,14 @@ func latency(reads []rowsRead, id string, filled time.Time) (how int, least, mos
 // its TRADE rows over every time that their fills' rows can be dated by:
 // from the midnight in New York that begins the day a day before the watch,
 // to the read, or later for a fill of the evening or overnight sessions,
-// whose row may be dated the next trading day. For each filled order it
-// finds the first read that held a row with its orderId, and so the
-// minutes from the fill to the row, bounded by when the read before was
-// sent and when that read's answer came, as latency says. A row there at
-// the first read that could show it bounds the time only from above, and a
-// row that never came only from below; a read that failed says nothing.
+// whose row may be dated the next trading day, to a second past the latest
+// tradeDate that lastDated allows it, whether or not Schwab's end takes in
+// a row dated at it. For each filled order it finds the first read that
+// held a row with its orderId, and so the minutes from the fill to the
+// row, bounded by when the read before was sent and when that read's
+// answer came, as latency says. A row there at the first read that could
+// show it bounds the time only from above, and a row that never came only
+// from below; a read that failed says nothing.
 func probeFills(ctx context.Context, r *liveRun) verdict {
 	start := r.now()
 	// Every fill lies after the earliest entry that the orders' span takes
@@ -376,7 +378,7 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 			rd.end = rd.sent
 			for _, f := range fills {
 				if f.account == a.n {
-					rd.end = maxTime(rd.end, lastDated(f.filled))
+					rd.end = maxTime(rd.end, lastDated(f.filled).Add(time.Second))
 				}
 			}
 			q, err := TransactionQuery{Start: from, End: rd.end, Types: []TransactionType{TransactionTrade}}.values()

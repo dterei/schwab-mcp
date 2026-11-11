@@ -558,7 +558,9 @@ type changesSeen struct {
 // when the answers leave all three undecided. Nor does it compare a state
 // kept by a version of the probe whose window ended at its run, which could
 // leave out such an evening fill: the account starts afresh, as if no
-// earlier run had read it.
+// earlier run had read it. The window ends a second past the latest
+// tradeDate that lastDated gives, since whether Schwab's end takes in a row
+// dated at it is not known.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
@@ -701,16 +703,18 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 	return v
 }
 
-// changesOf reads a's window, from 60 days before now to the latest
-// tradeDate that a row up to now can bear, and compares it with prev, what
-// the last run kept, returning what it found and what the state keeps
-// next.
+// changesOf reads a's window, from 60 days before now to a second past the
+// latest tradeDate that a row up to now can bear, and compares it with
+// prev, what the last run kept, returning what it found and what the state
+// keeps next.
 func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows, now time.Time) (changesSeen, accountRows) {
 	cs := changesSeen{changed: map[string]int{}, compared: prev.Rows != nil}
 	// The latest tradeDate that a row up to now can bear is that of a fill
 	// in the overnight session that began now's day in New York, which may
-	// be dated the fourth weekday after it.
-	w := window{now.Add(-changeWindow), lastDated(nyMidnight(now, 0))}
+	// be dated the fourth weekday after it. Whether Schwab's end takes in a
+	// row dated at it is not known, so the window ends a second past it, not
+	// a millisecond, which Schwab may drop.
+	w := window{now.Add(-changeWindow), lastDated(nyMidnight(now, 0)).Add(time.Second)}
 	rep, err := r.read(ctx, a.endpoint("/transactions"), a.path()+"/transactions", txValues(w, ""), "transactions")
 	if err != nil {
 		cs.failed = true
