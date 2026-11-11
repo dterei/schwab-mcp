@@ -199,6 +199,10 @@ one-year limit is per request, not a retention period.
 
 - Send exact instants. A date-only end date sent as midnight UTC drops that
   day's trades.
+- Whether Schwab takes a window that ends days after the request is not
+  known. The live mode's Q12 and Q13 send one, to take in evening and
+  overnight fills dated a later trading day
+  ([probes](live.md#the-probes)).
 - What Schwab answers to a window whose start equals its end is not known.
   The one report that it returns nothing
   ([GeneBO98/tradetally#274](https://github.com/GeneBO98/tradetally/issues/274))
