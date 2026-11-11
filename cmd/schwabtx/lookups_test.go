@@ -441,6 +441,11 @@ func TestBalanceOf(t *testing.T) {
 			marginAccount(`"cashBalance":5210.44,"marginBalance":-5,"buyingPower":1`, ""),
 			"- 5210.44 1.00; unsent value",
 		},
+		{
+			"a negative cashBalance beside a margin balance",
+			marginAccount(`"cashBalance":-50,"marginBalance":-5,"shortBalance":20,"buyingPower":1`, ""),
+			"- -50.00 1.00; unsent value",
+		},
 		{"unreadable cashBalance", marginAccount(`"cashBalance":"1532.17","buyingPower":1`, ""), "- - 1.00; unsent value"},
 		{
 			"unreadable shortBalance",
@@ -472,6 +477,40 @@ func TestBalanceOf(t *testing.T) {
 			"cash a cent from what the value leaves",
 			marginAccount(`"liquidationValue":8500.46,"cashBalance":500.45,"buyingPower":1,`+held, ""),
 			"8500.46 500.45 1.00",
+		},
+		{
+			"cash a cent above what the value leaves",
+			marginAccount(`"liquidationValue":8500.44,"cashBalance":500.45,"buyingPower":1,`+held, ""),
+			"8500.44 500.45 1.00",
+		},
+		{
+			"cash two cents below what the value leaves",
+			marginAccount(`"liquidationValue":8500.45,"cashBalance":500.43,"buyingPower":1,`+held, ""),
+			"8500.45 - 1.00; cash differs",
+		},
+		{
+			"cash two cents above what the value leaves",
+			marginAccount(`"liquidationValue":8500.45,"cashBalance":500.47,"buyingPower":1,`+held, ""),
+			"8500.45 - 1.00; cash differs",
+		},
+		{
+			"long options and bonds",
+			marginAccount(`"liquidationValue":9000.45,"cashBalance":500.45,"buyingPower":1,`+
+				strings.NewReplacer(`"longOptionMarketValue":0`, `"longOptionMarketValue":300`, `"bondValue":0`, `"bondValue":200`).Replace(held), ""),
+			"9000.45 500.45 1.00",
+		},
+		{
+			// A real margin account of 2025, jwplatta/schwab_rb's fixture,
+			// which holds long and short options and nothing else.
+			"options long and short",
+			marginAccount(`"liquidationValue":50946.39,"cashBalance":51420.89,"longMarketValue":0,"shortMarketValue":0,`+
+				`"longOptionMarketValue":436,"shortOptionMarketValue":-910.5,"mutualFundValue":0,"bondValue":0,"buyingPower":88853.04`, ""),
+			"50946.39 51420.89 88853.04",
+		},
+		{
+			"no cashBalance beside every market value",
+			marginAccount(`"liquidationValue":8500.45,"buyingPower":1,`+held, ""),
+			"8500.45 - 1.00; unsent cash",
 		},
 		{
 			"savings beside the cash",
@@ -673,24 +712,145 @@ func TestWriteTable(t *testing.T) {
 	}
 }
 
-// A value that cannot be read is named in a warning, and the value falls
-// back to the aggregated balance's.
+// A value that cannot be read is named in a warning, which counts every
+// account that it is true of, and the value falls back to the aggregated
+// balance's.
 func TestLookupsWarnOfUnreadableBalances(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 0, testNow, time.Hour)
+	f.addAccount("33334444", 2000, 0, testNow, time.Hour)
 	f.setBalancesJSON(`{"liquidationValue":"12345.60","cashBalance":100.0}`)
 	doLogin(t)
 	stdout, stderr, err := runTx(t, "accounts")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "warning: 1 account differed from what Schwab has sent before (securitiesAccount.currentBalances.liquidationValue: " +
+	if want := "warning: 2 accounts differed from what Schwab has sent before (securitiesAccount.currentBalances.liquidationValue: " +
 		"Schwab sent a string where a number was expected); the table may not show those fields as Schwab sent them, " +
 		"and -json prints Schwab's own JSON\n"; stderr != want {
 		t.Errorf("warned %q\nwant %q", stderr, want)
 	}
-	if want := "ACCOUNT  NAME       TYPE       VALUE\n...2222  Account 1  MARGIN  12345.60\n"; stdout != want {
+	if want := `ACCOUNT  NAME       TYPE       VALUE
+...2222  Account 1  MARGIN  12345.60
+...4444  Account 2  MARGIN  12345.60
+TOTAL                       24691.20
+`; stdout != want {
 		t.Errorf("printed\n%s\nwant\n%s", stdout, want)
+	}
+}
+
+// Each - in balances, and so in its column's total, is explained on
+// stderr: a warning names each account whose figure Schwab did not send,
+// and each whose cash is not what its value leaves once the market values
+// of its holdings are taken out. Long options are a holding like any
+// other.
+func TestLookupsSayWhyAFigureIsNone(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 0, testNow, time.Hour)
+	f.addAccount("33334444", 2000, 0, testNow, time.Hour)
+	doLogin(t)
+	// The market values of holdings worth nothing.
+	const nothing = `"longMarketValue":0,"shortMarketValue":0,"longOptionMarketValue":0,"shortOptionMarketValue":0,"mutualFundValue":0,"bondValue":0`
+	for _, tc := range []struct {
+		name, balances, stdout, stderr string
+	}{
+		{
+			"savings beside the cash",
+			`{"liquidationValue":1500,"cashBalance":1000,"buyingPower":2000,"savings":500,` + nothing + `}`,
+			`ACCOUNT  NAME       TYPE      VALUE  CASH  BUYING POWER
+...2222  Account 1  MARGIN  1500.00     -       2000.00
+...4444  Account 2  MARGIN  1500.00     -       2000.00
+TOTAL                       3000.00     -
+`,
+			"warning: Schwab's cash for ...2222 (Account 1) is not its value less its holdings, so CASH shows -\n" +
+				"warning: Schwab's cash for ...4444 (Account 2) is not its value less its holdings, so CASH shows -\n",
+		},
+		{
+			"long options beside the cash",
+			`{"liquidationValue":1500,"cashBalance":1000,"buyingPower":2000,` +
+				strings.Replace(nothing, `"longOptionMarketValue":0`, `"longOptionMarketValue":500`, 1) + `}`,
+			`ACCOUNT  NAME       TYPE      VALUE     CASH  BUYING POWER
+...2222  Account 1  MARGIN  1500.00  1000.00       2000.00
+...4444  Account 2  MARGIN  1500.00  1000.00       2000.00
+TOTAL                       3000.00  2000.00
+`,
+			"",
+		},
+		{
+			"no buying power",
+			`{"liquidationValue":1500.01,"cashBalance":1500}`,
+			`ACCOUNT  NAME       TYPE      VALUE     CASH  BUYING POWER
+...2222  Account 1  MARGIN  1500.01  1500.00             -
+...4444  Account 2  MARGIN  1500.01  1500.00             -
+TOTAL                       3000.02  3000.00
+`,
+			"warning: Schwab sent no current buying power for ...2222 (Account 1)\n" +
+				"warning: Schwab sent no current buying power for ...4444 (Account 2)\n",
+		},
+		{
+			"no cash beside every market value",
+			`{"liquidationValue":1500,"buyingPower":2000,` + nothing + `}`,
+			`ACCOUNT  NAME       TYPE      VALUE  CASH  BUYING POWER
+...2222  Account 1  MARGIN  1500.00     -       2000.00
+...4444  Account 2  MARGIN  1500.00     -       2000.00
+TOTAL                       3000.00     -
+`,
+			"warning: Schwab sent no current cash for ...2222 (Account 1)\n" +
+				"warning: Schwab sent no current cash for ...4444 (Account 2)\n",
+		},
+		{
+			"no current balances",
+			`{}`,
+			`ACCOUNT  NAME       TYPE       VALUE  CASH  BUYING POWER
+...2222  Account 1  MARGIN  12345.60     -             -
+...4444  Account 2  MARGIN  12345.60     -             -
+TOTAL                       24691.20     -
+`,
+			"warning: Schwab sent no current cash or buying power for ...2222 (Account 1)\n" +
+				"warning: Schwab sent no current cash or buying power for ...4444 (Account 2)\n",
+		},
+		{
+			"no balances at all",
+			"",
+			`ACCOUNT  NAME       TYPE    VALUE  CASH  BUYING POWER
+...2222  Account 1  MARGIN      -     -             -
+...4444  Account 2  MARGIN      -     -             -
+TOTAL                           -     -
+`,
+			"warning: Schwab sent no current value, cash or buying power for ...2222 (Account 1)\n" +
+				"warning: Schwab sent no current value, cash or buying power for ...4444 (Account 2)\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.balances != "" {
+				f.setBalancesJSON(tc.balances)
+			} else {
+				// The current balances empty, and no aggregated balance.
+				f.setBalancesJSON(`{}`)
+				for _, number := range []string{"11112222", "33334444"} {
+					var details map[string]json.RawMessage
+					if err := json.Unmarshal([]byte(f.account(number).details), &details); err != nil {
+						t.Fatal(err)
+					}
+					delete(details, "aggregatedBalance")
+					js, err := json.Marshal(details)
+					if err != nil {
+						t.Fatal(err)
+					}
+					f.SetDetails(f.hash(number), string(js))
+				}
+			}
+			stdout, stderr, err := runTx(t, "balances")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stdout != tc.stdout {
+				t.Errorf("printed\n%s\nwant\n%s", stdout, tc.stdout)
+			}
+			if stderr != tc.stderr {
+				t.Errorf("warned %q\nwant %q", stderr, tc.stderr)
+			}
+		})
 	}
 }
 
