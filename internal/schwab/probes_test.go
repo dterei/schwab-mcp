@@ -961,7 +961,7 @@ const (
 
 // An orderSeen is an order of an answer of Schwab's orders, as the probes
 // read it: its id, when it was entered, its status, and when it was
-// filled, by its last execution or else its closeTime, if it was.
+// filled, by its first execution or else its closeTime, if it was.
 type orderSeen struct {
 	id      string
 	entered time.Time
@@ -996,7 +996,9 @@ func readOrder(raw json.RawMessage) orderSeen {
 	seen := orderSeen{id: o.OrderID.String(), entered: at(o.EnteredTime), status: o.Status}
 	for _, act := range o.Activities {
 		for _, leg := range act.Legs {
-			seen.filled = maxTime(seen.filled, at(leg.Time))
+			if t := at(leg.Time); !t.IsZero() && (seen.filled.IsZero() || t.Before(seen.filled)) {
+				seen.filled = t
+			}
 		}
 	}
 	if seen.filled.IsZero() && o.Status == "FILLED" {
@@ -1542,17 +1544,19 @@ func TestPlanFilter(t *testing.T) {
 }
 
 // An order is read for its id, when it was entered, its status and when it
-// was filled: by its last execution, or, for one filled without them, its
+// was filled: by its first execution, whichever activity holds it, of the
+// legs whose time can be read, or, for one filled without them, its
 // closeTime.
 func TestReadOrder(t *testing.T) {
-	legs := `"orderActivityCollection":[{"executionLegs":[{"time":"2026-03-13T13:55:09+0000"},{"time":"2026-03-13T13:56:10+0000"}]}]`
+	legs := `"orderActivityCollection":[{"executionLegs":[{"time":"2026-03-13T13:56:10+0000"}]},` +
+		`{"executionLegs":[{"time":"2026-03-13T13:55:09+0000"},{"time":"not a time"}]}]`
 	for _, tc := range []struct {
 		body string
 		want orderSeen
 	}{
 		{
 			`{"orderId":1004517688020,"status":"FILLED","enteredTime":"2026-03-13T13:50:09+0000","closeTime":"2026-03-13T13:59:00+0000",` + legs + `}`,
-			orderSeen{id: "1004517688020", status: "FILLED", entered: time.Date(2026, 3, 13, 13, 50, 9, 0, time.UTC), filled: time.Date(2026, 3, 13, 13, 56, 10, 0, time.UTC)},
+			orderSeen{id: "1004517688020", status: "FILLED", entered: time.Date(2026, 3, 13, 13, 50, 9, 0, time.UTC), filled: time.Date(2026, 3, 13, 13, 55, 9, 0, time.UTC)},
 		},
 		{
 			`{"orderId":7,"status":"FILLED","enteredTime":"2026-03-13T13:50:09+0000","closeTime":"2026-03-13T13:59:00+0000"}`,

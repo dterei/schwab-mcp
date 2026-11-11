@@ -171,11 +171,13 @@ func schwabTime(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05
 
 // A fakeOrder is an order as the fake serves it, on the paths of orders,
 // which no Route serves: entered at entered, and filled at filled, working
-// until then, or for good while filled is zero.
+// until then, or for good while filled is zero, with an execution at each
+// of earlier before that, as of an order filled in parts.
 type fakeOrder struct {
 	account         schwabtest.FixtureAccount
 	id              int64
 	entered, filled time.Time
+	earlier         []time.Time
 }
 
 // metaSaleOrder is the order of the META sale, entered five minutes before
@@ -188,11 +190,20 @@ var metaSaleOrder = fakeOrder{
 // json returns o as Schwab sends an order, as of now.
 func (o fakeOrder) json(now time.Time) string {
 	status, filled := "WORKING", ""
+	var executions []string
+	for _, at := range append(slices.Clone(o.earlier), o.filled) {
+		if !at.IsZero() && !now.Before(at) {
+			executions = append(executions, `{"activityType":"EXECUTION","executionType":"FILL",`+
+				`"quantity":1.0,"orderRemainingQuantity":0.0,"executionLegs":[{"legId":1,"price":603.4,"quantity":1.0,"mismarkedQuantity":0.0,`+
+				`"instrumentId":1873219,"time":"`+schwabTime(at)+`"}]}`)
+		}
+	}
+	if len(executions) > 0 {
+		filled = `,"orderActivityCollection":[` + strings.Join(executions, ",") + `]`
+	}
 	if !o.filled.IsZero() && !now.Before(o.filled) {
 		status = "FILLED"
-		filled = `,"closeTime":"` + schwabTime(o.filled) + `","orderActivityCollection":[{"activityType":"EXECUTION","executionType":"FILL",` +
-			`"quantity":1.0,"orderRemainingQuantity":0.0,"executionLegs":[{"legId":1,"price":603.4,"quantity":1.0,"mismarkedQuantity":0.0,` +
-			`"instrumentId":1873219,"time":"` + schwabTime(o.filled) + `"}]}]`
+		filled = `,"closeTime":"` + schwabTime(o.filled) + `"` + filled
 	}
 	return fmt.Sprintf(`{"session":"NORMAL","duration":"DAY","orderType":"MARKET","complexOrderStrategyType":"NONE","quantity":1.0,`+
 		`"orderLegCollection":[{"orderLegType":"EQUITY","legId":1,"instrument":{"assetType":"EQUITY","symbol":"META","instrumentId":1873219},`+
@@ -3650,10 +3661,12 @@ func testBalancesOnTheFake(t *testing.T) {
 // A watchedFill is an order of {account 2} that the watch of fills sees
 // filled, on the fake: its fill, and its row, dated tradeDate, or the fill
 // when that is zero, which the fake serves from after past the fill on,
-// from the start when after is 0, or never when it is negative.
+// from the start when after is 0, or never when it is negative; and, if it
+// is set, an earlier execution of the order, with a row of its own, dated
+// tradeDate or itself, which the fake serves from as long after it.
 type watchedFill struct {
-	filled, tradeDate time.Time
-	after             time.Duration
+	filled, tradeDate, earlier time.Time
+	after                      time.Duration
 }
 
 // watchFills runs the watch of fills on the fake from start, under rules,
@@ -3673,23 +3686,37 @@ func watchFillsWith(t *testing.T, start time.Time, rules schwabtest.TransactionR
 	fl := newOptInLive(t, start, modeFills)
 	fl.f.SetTransactionRules(rules)
 	var orders []fakeOrder
-	rows := make([]string, len(fills))
+	var rows []string     // the rows that come during the watch
+	var comes []time.Time // and when each comes
 	for i, w := range fills {
-		id, activity := 1004517700001+int64(i), 84000000301+int64(i)
-		orders = append(orders, fakeOrder{account: secondAccount, id: id, entered: w.filled.Add(-time.Minute), filled: w.filled})
-		fl.more = append(fl.more, strconv.FormatInt(id, 10), strconv.FormatInt(activity, 10))
-		tradeDate := w.tradeDate
-		if tradeDate.IsZero() {
-			tradeDate = w.filled
+		id := 1004517700001 + int64(i)
+		o := fakeOrder{account: secondAccount, id: id, entered: w.filled.Add(-time.Minute), filled: w.filled}
+		executions := []time.Time{w.filled}
+		if !w.earlier.IsZero() {
+			o.entered, o.earlier = w.earlier.Add(-time.Minute), []time.Time{w.earlier}
+			executions = append(executions, w.earlier)
 		}
-		rows[i] = fixtureRow(t, metaSale, "activityId", strconv.FormatInt(activity, 10), "orderId", strconv.FormatInt(id, 10),
-			"time", strconv.Quote(schwabTime(w.filled)), "tradeDate", strconv.Quote(schwabTime(tradeDate)))
-		if w.after == 0 {
-			fl.f.AddRows(secondAccount.Hash, rows[i])
+		orders = append(orders, o)
+		fl.more = append(fl.more, strconv.FormatInt(id, 10))
+		for j, at := range executions {
+			activity := 84000000301 + int64(i) + 50*int64(j)
+			fl.more = append(fl.more, strconv.FormatInt(activity, 10))
+			tradeDate := w.tradeDate
+			if tradeDate.IsZero() {
+				tradeDate = at
+			}
+			row := fixtureRow(t, metaSale, "activityId", strconv.FormatInt(activity, 10), "orderId", strconv.FormatInt(id, 10),
+				"time", strconv.Quote(schwabTime(at)), "tradeDate", strconv.Quote(schwabTime(tradeDate)))
+			switch {
+			case w.after == 0:
+				fl.f.AddRows(secondAccount.Hash, row)
+			case w.after > 0:
+				rows, comes = append(rows, row), append(comes, at.Add(w.after))
+			}
 		}
 	}
 	serveOrders(fl, orders, keptFor(MaxTransactionWindow))
-	added := make([]atomic.Bool, len(fills))
+	added := make([]atomic.Bool, len(rows))
 	var n atomic.Int32
 	fl.f.OnAPI(func(r *http.Request) {
 		isRows := schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute
@@ -3703,9 +3730,9 @@ func watchFillsWith(t *testing.T, start time.Time, rules schwabtest.TransactionR
 		if !isRows {
 			return
 		}
-		for i, w := range fills {
-			if w.after > 0 && !fl.clock.Now().Before(w.filled.Add(w.after)) && added[i].CompareAndSwap(false, true) {
-				fl.f.AddRows(secondAccount.Hash, rows[i])
+		for i, row := range rows {
+			if !fl.clock.Now().Before(comes[i]) && added[i].CompareAndSwap(false, true) {
+				fl.f.AddRows(secondAccount.Hash, row)
 			}
 		}
 	})
@@ -3734,7 +3761,9 @@ func watchFillsWith(t *testing.T, start time.Time, rules schwabtest.TransactionR
 // in windows that leave out a row at their end, which a window must end
 // after the fill to hold; an evening fill whose reads of orders fail, so
 // that the reads of rows after it end at their polls and cannot show its
-// row; an order filled three hours before the watch, whose row is there
+// row; an order filled in two parts before the watch, each part with a
+// row that comes 270 seconds after it, which is timed from its first part;
+// an order filled three hours before the watch, whose row is there
 // from the start, and one filled at 12:30 the day before, whose row, there
 // from the start too and dated that day's midnight, the reads of rows must
 // reach back to, by its time or by its tradeDate; a fill whose row never
@@ -3909,6 +3938,18 @@ func testFillsOnTheFake(t *testing.T) {
 		report := fl.report(t)
 		wantVerdicts(t, report, map[string]string{"Q13": "a fill's trade appears from 0 to 3 minutes after the fill"})
 		wantEvidence(t, report, "Q13", "reads that failed: 2 of the orders, 0 of the rows", "rows that came during the watch: 1, from 0 to 3 minutes after the fills")
+	})
+	t.Run("an order filled in two parts before the watch", func(t *testing.T) {
+		t.Parallel()
+		// At 10:56:00 and 10:59:40, each part's row 270 seconds after it, the
+		// first's at 11:00:30 and the last's at 11:04:10: timed from the
+		// first part, whose row comes first, between the polls 4 and 5
+		// minutes after it.
+		fl := watchFills(t, probeNow, schwabtest.TransactionRules{},
+			watchedFill{filled: probeNow.Add(-20 * time.Second), earlier: probeNow.Add(-4 * time.Minute), after: 270 * time.Second})
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q13": "a fill's trade appears from 4 to 5 minutes after the fill"})
+		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "rows that came during the watch: 1, from 4 to 5 minutes after the fills")
 	})
 	t.Run("a fill hours before the watch", func(t *testing.T) {
 		t.Parallel()
