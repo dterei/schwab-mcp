@@ -311,7 +311,8 @@ const (
 // serves a window past the request, or takes rows by their time. A read
 // whose answer came before the fill does not hold its row: a row of the
 // order that it holds is of an execution that the order does not show,
-// which the reads after the fill cannot tell from the fill's.
+// which the reads after the fill cannot tell from the fill's, so that no
+// read can show the fill's row.
 func latency(reads []rowsRead, id string, filled time.Time, ahead bool) (how int, least, most time.Duration) {
 	dated := lastDated(filled) // the later of the fill and the row's tradeDate
 	for _, rd := range reads {
@@ -325,6 +326,8 @@ func latency(reads []rowsRead, id string, filled time.Time, ahead bool) (how int
 		_, held := rd.orders[id]
 		switch {
 		case rd.orders == nil:
+		case held && rd.answered.Before(filled):
+			return rowUnread, 0, 0
 		case held && !rd.answered.Before(filled) && before.IsZero():
 			return rowThere, 0, rd.answered.Sub(filled)
 		case held && !rd.answered.Before(filled):
@@ -355,17 +358,20 @@ func latency(reads []rowsRead, id string, filled time.Time, ahead bool) (how int
 // answer came, as latency says. Every execution of an order has a row of
 // its own, with the order's id, so it times an order filled in parts from
 // its first execution, whose row comes first when rows post in the order
-// of their executions. A row there at the first read that could show it
-// bounds the time only from above, and a row that never came only from
-// below; a read that failed says nothing. Whether Schwab serves the part of
-// a window past its request, where the row of such a fill may lie, is not
-// known: a read says nothing of a row dated after it unless an answer of
-// the watch held a row dated after it came, which shows that a read can
-// show such a row, as Schwab serves a window past the request, or takes
-// rows by their time. Of a fill whose row no read could show, the verdict
-// says no more than that. A verdict from rows that came starts its span at
-// 0 when a row there at the first read that could show it was there within
-// as many minutes of its fill as the least of theirs, or fewer.
+// of their executions; a row of the order in a read answered before it is
+// of an execution that the order does not show, which no read after it can
+// tell from the first's, so that none can show the fill's row. A row there
+// at the first read that could show it bounds the time only from above, and
+// a row that never came only from below; a read that failed says nothing.
+// Whether Schwab serves the part of a window past its request, where the
+// row of such a fill may lie, is not known: a read says nothing of a row
+// dated after it unless an answer of the watch held a row dated after it
+// came, which shows that a read can show such a row, as Schwab serves a
+// window past the request, or takes rows by their time. Of a fill whose row
+// no read could show, the verdict says no more than that. A verdict from
+// rows that came starts its span at 0 when a row there at the first read
+// that could show it was there within as many minutes of its fill as the
+// least of theirs, or fewer.
 func probeFills(ctx context.Context, r *liveRun) verdict {
 	start := r.now()
 	// Every fill lies after the earliest entry that the orders' span takes
@@ -845,8 +851,9 @@ func TestMoveOf(t *testing.T) {
 // window ends before the row's tradeDate can, nor, unless an answer held a
 // row dated after it came, one sent before the row's tradeDate, or before
 // the latest it can bear for a row that never came; and a read answered
-// before the fill does not hold its row, though it may hold another row of
-// the order, of an execution that the order does not show.
+// before the fill does not hold its row, and when it holds another row of
+// the order, of an execution that the order does not show, which no read
+// after the fill can tell from the fill's, no read can show the fill's row.
 func TestFillLatency(t *testing.T) {
 	base := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC) // 11:00 in New York
 	const id = "1004517700001"
@@ -913,7 +920,7 @@ func TestFillLatency(t *testing.T) {
 		{"came at a read sent before the fill and answered after it", reads(4, 1), base.Add(time.Minute + 2*time.Second), false, rowCame, 0, 3 * time.Second},
 		{"came after a read sent before the fill and answered after it", reads(4, 1), base.Add(2 * time.Second), false, rowCame, 0, 63 * time.Second},
 		{"came after a read that failed", reads(4, 3, 2), base.Add(30 * time.Second), false, rowCame, 30 * time.Second, 155 * time.Second},
-		{"another row of the order before the fill", reads(4, 0), base.Add(90 * time.Second), false, rowCame, 0, 35 * time.Second},
+		{"another row of the order before the fill", reads(4, 0), base.Add(90 * time.Second), false, rowUnread, 0, 0},
 		{"came after reads that could not show it", late, evening, false, rowCame, 0, 2*time.Minute + 45*time.Second},
 		{"came after reads that reach its last date, dated by the fill", reaching(time.Time{}), evening, false, rowCame, 100 * time.Second, 165 * time.Second},
 		{"came after reads that reach its date", reaching(nextMidnight), evening, true, rowCame, 100 * time.Second, 165 * time.Second},
