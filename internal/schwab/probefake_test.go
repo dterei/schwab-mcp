@@ -4117,7 +4117,7 @@ func testFillsOnTheFake(t *testing.T) {
 		if err := fl.runClean(t); err != nil {
 			t.Fatal(err)
 		}
-		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "inconclusive: no order of the last day was filled; run the watch, then place a trade by hand"})
+		wantVerdicts(t, fl.report(t), map[string]string{"Q13": "inconclusive: no order of the last day was filled; start the watch, then place a trade by hand"})
 	})
 }
 

@@ -451,7 +451,7 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 		v.evidence = append(v.evidence, reportLine{text: fmt.Sprintf("reads that failed: %d of the orders, %d of the rows", failedOrders, failedRows)})
 	}
 	if len(fills) == 0 {
-		v.answer = "inconclusive: no order of the last day was filled; run the watch, then place a trade by hand"
+		v.answer = "inconclusive: no order of the last day was filled; start the watch, then place a trade by hand"
 		return v
 	}
 	minutes := func(d time.Duration) int { return int(math.Ceil(d.Minutes())) }
