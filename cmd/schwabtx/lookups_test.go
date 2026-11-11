@@ -44,6 +44,12 @@ TOTAL                                     -
 ...1783  Contributory      MARGIN        -        -       8710.00
 TOTAL                                    -        -
 `
+	balancesOfThreeShown = `ACCOUNT   NAME              TYPE      VALUE     CASH  BUYING POWER
+29470135  Individual        CASH    6997.68  1532.17       1532.17
+61803398  Options & Margin  MARGIN  5503.84  5210.44       8258.84
+40221783  Contributory      MARGIN        -        -       8710.00
+TOTAL                                     -        -
+`
 )
 
 // setupFixtures starts the fake with the fixtures' three accounts, and logs
@@ -97,6 +103,7 @@ func TestLookupsOfTheFixtures(t *testing.T) {
 		{[]string{"accounts"}, accountsOfThree, "warning: Schwab sent no current value for ...1783 (Contributory)\n"},
 		{[]string{"accounts", "-show-accounts"}, accountsOfThreeShown, "warning: Schwab sent no current value for ...1783 (Contributory)\n"},
 		{[]string{"balances"}, balancesOfThree, "warning: Schwab sent no current value or cash for ...1783 (Contributory)\n"},
+		{[]string{"balances", "-show-accounts"}, balancesOfThreeShown, "warning: Schwab sent no current value or cash for ...1783 (Contributory)\n"},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			f := setupFixtures(t)
@@ -949,19 +956,70 @@ TOTAL                   24691.20
 	}
 }
 
-// A nickname with control characters in it prints plain: no escape reaches
-// the terminal, and a tab is a space.
+// A nickname with control characters in it prints plain wherever it
+// shows: in the tables, and in the warnings and the errors that name its
+// account. No escape reaches the terminal, and a tab is a space.
 func TestLookupsPrintNicknamesPlain(t *testing.T) {
 	f, _ := setup(t)
 	f.addAccount("11112222", 1000, 0, testNow, time.Hour)
 	f.SetUserPreference(preferenceBody("11112222", "Joint\x1b[31m\tBrokerage"))
 	doLogin(t)
-	stdout, _, err := runTx(t, "accounts")
+	stdout, stderr, err := runTx(t, "accounts")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "ACCOUNT  NAME                  TYPE       VALUE\n...2222  Joint?[31m Brokerage  MARGIN  12345.60\n"; stdout != want {
+	if want := "ACCOUNT  NAME                  TYPE       VALUE\n...2222  Joint?[31m Brokerage  MARGIN  12345.60\n"; stdout != want || stderr != "" {
+		t.Errorf("printed\n%q\nwarned %q; want\n%q", stdout, stderr, want)
+	}
+	// The fake sends no buying power, which balances warns of.
+	stdout, stderr, err = runTx(t, "balances")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ACCOUNT  NAME                  TYPE       VALUE    CASH  BUYING POWER\n" +
+		"...2222  Joint?[31m Brokerage  MARGIN  12345.60  100.00             -\n"; stdout != want {
 		t.Errorf("printed\n%q\nwant\n%q", stdout, want)
+	}
+	if want := "warning: Schwab sent no current buying power for ...2222 (Joint?[31m Brokerage)\n"; stderr != want {
+		t.Errorf("warned %q, want %q", stderr, want)
+	}
+	// An error lists the accounts with their nicknames, which positions
+	// reads for that.
+	for _, command := range []string{"accounts", "positions"} {
+		_, _, err := runTx(t, command, "-account", "9999")
+		if want := `no account matches -account "9999": the login shares ...2222 (Joint?[31m Brokerage); ` +
+			"to share another, run `schwabtx login` and tick it"; err == nil || err.Error() != want {
+			t.Errorf("%s -account 9999: %v, want %q", command, err, want)
+		}
+	}
+}
+
+// Every cell of text that Schwab or the user wrote prints its control and
+// format characters as ?, in each table, whether it shows full numbers or
+// masked ones: an account's number, nickname and type, and a position's
+// symbol and description; and so does a warning that names an account.
+func TestLookupsPrintTextPlain(t *testing.T) {
+	const esc = `\u001b[2J` // an escape that clears the screen, as JSON writes it
+	a := namedAccount{
+		account: account(t, `{"securitiesAccount":{"type":"MARGIN`+esc+`","accountNumber":"1111`+esc+`2222","positions":[`+
+			`{"longQuantity":1,"shortQuantity":0,"averagePrice":1,"marketValue":1,"longOpenProfitLoss":0,`+
+			`"instrument":{"assetType":"EQUITY","symbol":"AAPL`+esc+`","description":"APPLE`+esc+` INC"}}],"currentBalances":{}}}`),
+		nickname: "Joint\x1b[2J",
+	}
+	for _, tc := range []struct {
+		name  string
+		table func([]namedAccount, bool) ([]column, [][]string, []string)
+	}{
+		{"accounts", accountsTable},
+		{"balances", balancesTable},
+		{"positions", positionsTable},
+	} {
+		for _, show := range []bool{false, true} {
+			_, rows, warnings := tc.table([]namedAccount{a}, show)
+			if all := fmt.Sprint(rows, warnings); strings.ContainsRune(all, '\x1b') || !strings.Contains(all, "?[2J") {
+				t.Errorf("%s, show %t: printed %q, warned %q", tc.name, show, rows, warnings)
+			}
+		}
 	}
 }
 
@@ -998,19 +1056,31 @@ TOTAL                        -        -
 		t.Errorf("-json -account 9999: %v, want %q", err, want)
 	}
 
-	// A cancel, as by Ctrl-C, while the preferences are read ends the run.
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Schwab's answers keep their hints, as the accounts' do.
+	f.Override(schwabtest.UserPreferenceRoute, schwabtest.TooMany)
+	_, _, err = runTx(t, "positions", "-account", "Individual")
+	if want := `fetching the user preferences, to find the account named "Individual": HTTP 429 from Schwab after 4 tries`; err == nil ||
+		!strings.HasPrefix(err.Error(), want) || !strings.Contains(err.Error(), "wait a minute") {
+		t.Errorf("-account Individual, rate limited: %v", err)
+	}
+
+	// A cancel, as by Ctrl-C, while the preferences are read ends the run:
+	// a read for the table's nicknames, and one for the names of the
+	// accounts that an error lists.
 	f.Override(schwabtest.UserPreferenceRoute, schwabtest.Hang)
-	f.OnAPI(func(r *http.Request) {
-		if schwabtest.Route(r.Pattern) == schwabtest.UserPreferenceRoute {
-			cancel()
+	for _, args := range [][]string{{"balances"}, {"positions", "-account", "9999"}, {"accounts", "-json", "-account", "9999"}} {
+		ctx, cancel := context.WithCancel(context.Background())
+		f.OnAPI(func(r *http.Request) {
+			if schwabtest.Route(r.Pattern) == schwabtest.UserPreferenceRoute {
+				cancel()
+			}
+		})
+		var o, e bytes.Buffer
+		err = run(ctx, args, strings.NewReader(""), &o, &e)
+		cancel()
+		if !errors.Is(err, context.Canceled) || o.Len() != 0 || strings.Contains(e.String(), "leaves out") {
+			t.Errorf("%q canceled: %v, printed %q, warned %q", args, err, o.String(), e.String())
 		}
-	})
-	var o, e bytes.Buffer
-	err = run(ctx, []string{"balances"}, strings.NewReader(""), &o, &e)
-	if !errors.Is(err, context.Canceled) || o.Len() != 0 || strings.Contains(e.String(), "leaves out") {
-		t.Errorf("canceled: %v, printed %q, warned %q", err, o.String(), e.String())
 	}
 }
 
@@ -1147,6 +1217,15 @@ const (
 ...3398  XYZ   260619P00045000       -2      1.60  -310.00  -320.00     10.00  XYZ 06/19/2026 45.00 P
 TOTAL                                              5758.91  5657.99    100.92
 `
+	positionsOfThreeShown = `ACCOUNT   SYMBOL                     QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
+29470135  00507V109                   10     81.50     0.00   815.00   -815.00
+29470135  AAPL                    2.1788    190.20   495.70   414.41     81.29
+29470135  SWVXX                  1220.89      1.00  1220.89  1220.89      0.00  SCHWAB VALUE ADVANTAGE MONEY FUND
+29470135  VTI                         12  251.3075  3748.92  3015.69    733.23  VANGUARD TOTAL STOCK MARKET ETF
+61803398  META                         1    512.00   603.40   512.00     91.40
+61803398  XYZ   260619P00045000       -2      1.60  -310.00  -320.00     10.00  XYZ 06/19/2026 45.00 P
+TOTAL                                               5758.91  5657.99    100.92
+`
 	positionsOf0135 = `ACCOUNT  SYMBOL         QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
 ...0135  00507V109       10     81.50     0.00   815.00   -815.00
 ...0135  AAPL        2.1788    190.20   495.70   414.41     81.29
@@ -1168,6 +1247,7 @@ func TestPositionsOfTheFixtures(t *testing.T) {
 		stdout, stderr string
 	}{
 		{[]string{"positions"}, positionsOfThree, "6 positions in 3 accounts, not counting cash (see schwabtx balances)\n"},
+		{[]string{"positions", "-show-accounts"}, positionsOfThreeShown, "6 positions in 3 accounts, not counting cash (see schwabtx balances)\n"},
 		{[]string{"positions", "-account", "0135"}, positionsOf0135, "4 positions in 1 account, not counting cash (see schwabtx balances)\n"},
 	} {
 		stdout, stderr, requests, err := runLookupOn(t, f, tc.args...)
