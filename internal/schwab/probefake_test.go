@@ -389,6 +389,7 @@ func TestLiveOnTheFake(t *testing.T) {
 		{"Q12", testChangesOnTheFake},
 		{"Q12 with a cut answer", testChangesCutOnTheFake},
 		{"Q12 with windows by tradeDate", testChangesByTradeDateOnTheFake},
+		{"Q12's verdicts on what a row does", testChangesVerdictsOnTheFake},
 		{"Q1 and Q12 without a row", testNoRowsOnTheFake},
 		{"Q15", testRefreshOnTheFake},
 		{"extras", testExtrasOnTheFake},
@@ -2194,6 +2195,126 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 1 row new to the state; "+
 			"1 row new to the state, with its time or tradeDate outside the last run's window, so not shown late")
 	})
+}
+
+// changesClaimed returns what a verdict of Q12's says that rows did, of
+// "changed", "went" and "came late", and what it says that no row did.
+func changesClaimed(verdict string) (did, none []string) {
+	head, _, _ := strings.Cut(verdict, "; ")
+	if found, ok := strings.CutPrefix(head, "rows "); ok {
+		for k := range strings.SplitSeq(found, ", and ") {
+			did = append(did, strings.TrimSuffix(k, " after they posted"))
+		}
+		return did, nil
+	}
+	if denied, ok := strings.CutPrefix(head, "no row "); ok {
+		denied = strings.TrimSuffix(strings.TrimPrefix(denied, "of the accounts compared "), " since the last run")
+		return nil, strings.Split(strings.ReplaceAll(denied, " or ", ", "), ", ")
+	}
+	return nil, nil
+}
+
+// Q12's verdict says neither that no row did what a row did that an answer
+// could show, nor that rows did what none did, wherever the row lies, what
+// it does between two runs and whichever answers are cut. A row of
+// {account 2} stays as it was, changes, goes, or posts after the first run,
+// coming late; neither answer is cut at a cap of 1, or this run's, the last
+// run's or both are. The row lies inside both windows, which go by time;
+// or, under windows by tradeDate, it is a Friday's evening fill at 20:30,
+// dated the fourth weekday after, the latest that lastDated allows, before
+// a run at 10:00 on the Saturday; or a Thursday's evening fill at 21:30,
+// dated the next midnight, before a run at 22:00; or its tradeDate lies
+// before this window's start, and its time after; or it is an evening fill
+// before the last window's start, dated inside it, before a run an hour
+// later. No answer can show that a row came late that posts from the hour
+// before the last run, which Q12 does not call late, nor one that posts
+// across this window's start, which this window leaves out by its
+// tradeDate.
+func testChangesVerdictsOnTheFake(t *testing.T) {
+	for _, p := range []struct {
+		name          string
+		first, second time.Time // the runs
+		time, date    string    // the row's time and tradeDate
+		byTradeDate   bool
+		lateUnseen    bool // whether no answer can show that the row came late
+	}{
+		{
+			"inside both windows", probeNow, probeNow.Add(oneDay),
+			`"2026-08-22T15:00:00+0000"`, `"2026-08-22T15:00:00+0000"`, false, false,
+		},
+		{
+			"a Friday's evening fill dated the fourth weekday after", time.Date(2026, 8, 22, 14, 0, 0, 0, time.UTC), time.Date(2026, 9, 3, 14, 0, 0, 0, time.UTC),
+			`"2026-08-22T00:30:00+0000"`, `"2026-08-27T04:00:00+0000"`, true, false,
+		},
+		{
+			"an evening fill from the hour before the last run", time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC), time.Date(2026, 9, 2, 2, 0, 0, 0, time.UTC),
+			`"2026-08-21T01:30:00+0000"`, `"2026-08-21T04:00:00+0000"`, true, true,
+		},
+		{
+			"across this window's start", probeNow, time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC),
+			`"2026-07-20T14:40:00+0000"`, `"2026-07-20T04:00:00+0000"`, true, true,
+		},
+		{
+			"before the last window's start, dated inside it", time.Date(2026, 9, 1, 2, 0, 0, 0, time.UTC), time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC),
+			`"2026-07-03T00:30:00+0000"`, `"2026-07-03T04:00:00+0000"`, true, false,
+		},
+	} {
+		for _, event := range []string{"as it was", "changed", "went", "came late"} {
+			for _, cut := range []string{"neither answer", "this run's answer", "the last run's answer", "both answers"} {
+				t.Run(p.name+", "+event+", "+cut+" cut", func(t *testing.T) {
+					t.Parallel()
+					var rules schwabtest.TransactionRules
+					if p.byTradeDate {
+						rules.FilterOn = schwabtest.FilterOnTradeDate
+					}
+					fl := newProbeLive(t, p.first, "Q12")
+					first := rules
+					if cut == "the last run's answer" || cut == "both answers" {
+						first.Cap, fl.r.pageCap = 1, 1
+					}
+					fl.f.SetTransactionRules(first)
+					fl.more = append(fl.more, "84000000116")
+					row := func(changes ...string) string {
+						return fixtureRow(t, metaSale, append([]string{"activityId", "84000000116", "time", p.time, "tradeDate", p.date}, changes...)...)
+					}
+					if event != "came late" {
+						fl.f.AddRows(secondAccount.Hash, row())
+					}
+					if err := fl.runClean(t); err != nil {
+						t.Fatal(err)
+					}
+					switch event {
+					case "changed":
+						fl.f.ReplaceRow(secondAccount.Hash, 84000000116, row("netAmount", "603.37"))
+					case "went":
+						fl.f.RemoveRow(secondAccount.Hash, 84000000116)
+					case "came late":
+						fl.f.AddRows(secondAccount.Hash, row())
+					}
+					later := fl.again(t, p.second, true)
+					later.more = fl.more
+					second := rules
+					later.r.pageCap = MaxTransactions
+					if cut == "this run's answer" || cut == "both answers" {
+						second.Cap, later.r.pageCap = 1, 1
+					}
+					fl.f.SetTransactionRules(second)
+					if err := later.runClean(t); err != nil {
+						t.Fatal(err)
+					}
+					verdict := verdictOf(later.report(t), "Q12")
+					did, none := changesClaimed(verdict)
+					if slices.ContainsFunc(did, func(k string) bool { return k != event }) {
+						t.Errorf("the verdict says that rows did what none did: %s", verdict)
+					}
+					shown := event != "came late" || !p.lateUnseen // whether an answer could show what the row did
+					if shown && slices.Contains(none, event) {
+						t.Errorf("the verdict says that no row %s, though one did: %s", event, verdict)
+					}
+				})
+			}
+		}
+	}
 }
 
 // Q12 under the fake's settings: two runs, 12 days apart, the second after
