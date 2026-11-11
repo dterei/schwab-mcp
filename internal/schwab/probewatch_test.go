@@ -342,8 +342,9 @@ func latency(reads []rowsRead, id string, filled time.Time, ahead bool) (how int
 // transactions, after the owner places a trade by hand. Every minute for
 // half an hour it reads each account's orders entered in the last day and
 // its TRADE rows over every time that their fills' rows can be dated by:
-// from the midnight in New York that begins the day a day before the watch,
-// to the read, or later for a fill of the evening or overnight sessions,
+// from a second before the midnight in New York that begins the day a day
+// before the watch, whether or not Schwab's start takes in a row dated at
+// it, to the read, or later for a fill of the evening or overnight sessions,
 // whose row may be dated the next trading day, to a second past the latest
 // tradeDate that lastDated allows it, whether or not Schwab's end takes in
 // a row dated at it. For each filled order it finds the first read that
@@ -362,9 +363,12 @@ func latency(reads []rowsRead, id string, filled time.Time, ahead bool) (how int
 func probeFills(ctx context.Context, r *liveRun) verdict {
 	start := r.now()
 	// Every fill lies after the earliest entry that the orders' span takes
-	// in, so after this midnight, and so does the midnight that begins its
-	// day, a tradeDate that rows carry.
-	from := nyMidnight(start.Add(-fillsOrdersBack), 0)
+	// in, so after this midnight, and the midnight that begins its day, a
+	// tradeDate that rows carry, is this midnight or after it. Whether
+	// Schwab's start takes in a row dated at it is not known, so the window
+	// starts a second before it, not a millisecond, which Schwab may round
+	// away.
+	from := nyMidnight(start.Add(-fillsOrdersBack), 0).Add(-time.Second)
 	fills := map[string]*fillSeen{} // by the order's id
 	reads := map[int][]rowsRead{}   // by the account's place
 	ahead := false                  // whether an answer held a row dated after it came
