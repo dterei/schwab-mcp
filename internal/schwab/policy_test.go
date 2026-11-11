@@ -209,19 +209,6 @@ var (
 	// second, with a fraction of up to nine digits, and Z or an offset, with
 	// a colon or without; or a date alone.
 	timeForm = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}(?:T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:?[0-9]{2}))?$`)
-	// plainSymbol is the symbol of a stock, a fund or an index, such as
-	// AAPL, SWVXX, BRK.B, BRK/B or $SPX.
-	plainSymbol = regexp.MustCompile(`^\$?[A-Z][A-Z0-9]{0,5}(?:[./][A-Z]{1,3})?$`)
-	// occSymbol is an OCC option symbol: the root, padded with spaces to
-	// six characters, the expiration as YYMMDD, C or P, and the strike in
-	// thousandths of a dollar, eight digits, as in XYZ   260619P00045000.
-	occSymbol = regexp.MustCompile(`^` + occRoot + `([0-9]{6})[CP][0-9]{8}$`)
-	// futureSymbol is the symbol of a future, or of an option on one, as
-	// Schwab writes it: /ESH25:XCME, /ESH25_P5050:XCME, and .ESH25:XCME for
-	// such an option's underlying.
-	futureSymbol = regexp.MustCompile(`^[/.][A-Z][A-Z0-9]{0,3}[FGHJKMNQUVXZ][0-9]{2}(?:_[CP][0-9]{1,6}(?:\.[0-9]{1,4})?)?:[A-Z]{4}$`)
-	// currencySymbol is cash's symbol, such as CURRENCY_USD.
-	currencySymbol = regexp.MustCompile(`^CURRENCY_[A-Z]{3}$`)
 	// cusipForm is a CUSIP as Schwab sends one: nine characters, or, for an
 	// option, up to sixteen with dots, such as 0XYZ..RI60045000.
 	cusipForm = regexp.MustCompile(`^[0-9A-Z.]{9,16}$`)
@@ -244,10 +231,6 @@ var (
 	threeDigits = regexp.MustCompile(`^[0-9]{3}$`)
 )
 
-// occRoot is an OCC option symbol's root, padded with spaces to six
-// characters.
-const occRoot = `(?:[A-Z0-9]{6}|[A-Z0-9]{5} |[A-Z0-9]{4} {2}|[A-Z0-9]{3} {3}|[A-Z0-9]{2} {4}|[A-Z0-9] {5})`
-
 // isTime reports whether s is a time as Schwab writes one, which readTime
 // takes without a problem.
 func isTime(s string) bool {
@@ -257,43 +240,6 @@ func isTime(s string) bool {
 	var ps []Problem
 	readTime(jsonText(s), "", &ps)
 	return len(ps) == 0
-}
-
-// isSymbol reports whether s is a symbol: a stock's, a fund's or an
-// index's; an OCC option symbol, whose expiration is a date; a future's,
-// or an option's on one; cash's; or a CUSIP, which Schwab sends in place of
-// the symbol of a delisted security.
-func isSymbol(s string) bool {
-	if m := occSymbol.FindStringSubmatch(s); m != nil {
-		_, err := time.Parse("060102", m[1])
-		return err == nil
-	}
-	return plainSymbol.MatchString(s) || futureSymbol.MatchString(s) || currencySymbol.MatchString(s) || isCUSIP(s)
-}
-
-// isCUSIP reports whether s is a CUSIP: eight letters and digits and a
-// check digit that agrees with them, as the CUSIP's own algorithm gives it.
-func isCUSIP(s string) bool {
-	if len(s) != 9 {
-		return false
-	}
-	sum := 0
-	for i := range 8 {
-		var v int
-		switch c := s[i]; {
-		case '0' <= c && c <= '9':
-			v = int(c - '0')
-		case 'A' <= c && c <= 'Z':
-			v = int(c-'A') + 10
-		default:
-			return false
-		}
-		if i%2 == 1 {
-			v *= 2
-		}
-		sum += v/10 + v%10
-	}
-	return s[8] == byte('0'+(10-sum%10)%10)
 }
 
 // isJavaDate reports whether s is a time as Java's Date.toString writes it.
