@@ -1040,7 +1040,7 @@ func testScopeOnTheFake(t *testing.T) {
 	t.Run("the probes' questions refused", func(t *testing.T) {
 		t.Parallel()
 		fl := newProbeLive(t, probeNow, "Q1", "Q5", "Q12", "extras", "Q6")
-		refused, windows := 0, 0
+		refused, ahead, windows := 0, 0, 0 // ahead: Q12's windows refused
 		var mu sync.Mutex
 		fl.f.OnAPI(func(r *http.Request) {
 			route := schwabtest.Route(r.Pattern)
@@ -1052,16 +1052,22 @@ func testScopeOnTheFake(t *testing.T) {
 			if route == schwabtest.TransactionsRoute {
 				windows++
 			}
-			// A row asked for by its id once the checks' windows have gone
-			// is the extras': the row by its id, or the unknown activityId.
-			if route == schwabtest.AccountRoute && r.PathValue("hash") == schwabtest.UnknownHash ||
-				route == schwabtest.TransactionRoute && windows > checksTransactions ||
+			// Q12's windows alone end over a day after the run. A row asked
+			// for by its id once the checks' windows have gone is the
+			// extras': the row by its id, or the unknown activityId.
+			switch {
+			case route == schwabtest.TransactionsRoute && err2 == nil && end.After(fl.clock.Now().Add(oneDay)):
+				ahead++
+			case route == schwabtest.AccountRoute && r.PathValue("hash") == schwabtest.UnknownHash,
+				route == schwabtest.TransactionRoute && windows > checksTransactions,
 				route == schwabtest.TransactionsRoute && (q.Get("startDate") < "2020" || !q.Has("types") || err1 != nil ||
-					err2 == nil && (end.Sub(start) > MaxTransactionWindow || end.After(fl.clock.Now().Add(oneDay)))) ||
-				r.URL.Path == "/trader/v1/orders" {
+					err2 == nil && end.Sub(start) > MaxTransactionWindow),
+				r.URL.Path == "/trader/v1/orders":
 				refused++
-				fl.f.Script(schwabtest.Answer(http.StatusForbidden, `{"message":"a guess: not for this login"}`, "Content-Type", "application/json"))
+			default:
+				return
 			}
+			fl.f.Script(schwabtest.Answer(http.StatusForbidden, `{"message":"a guess: not for this login"}`, "Content-Type", "application/json"))
 		})
 		if err := fl.runClean(t); err != nil {
 			t.Fatal(err)
@@ -1078,8 +1084,8 @@ func testScopeOnTheFake(t *testing.T) {
 		wantEvidence(t, report, "Q5", "every account's orders from 61 days back: "+forbidden)
 		mu.Lock()
 		defer mu.Unlock()
-		if refused < 12 {
-			t.Errorf("%d requests refused, want the walk's, Q5's, Q12's and the extras'", refused)
+		if refused != 13 || ahead != 3 {
+			t.Errorf("%d requests refused, want the walk's 5, Q5's 1 and the extras' 7; and %d of Q12's windows, want 3", refused, ahead)
 		}
 	})
 }
