@@ -2627,14 +2627,16 @@ func testEdgeOnTheFake(t *testing.T) {
 // which settles neither bound; a gateway that cuts each window's bounds to
 // whole seconds, which settles both by whole seconds, but not with an
 // exclusive end, and which, cutting one row's windows alone, makes the rows
-// disagree, as a window that leaves out one row alone does; a gateway that
-// rounds them, which settles both by whole seconds too, but with an
-// exclusive end reads as a time finer than a row shows; a first account
-// without rows, whose next account's rows are asked about; windows that
-// take a row by its tradeDate; both windows around a month-end interest
-// row holding it, which says by neither; a longest window of 366 days;
-// and, on an account without a month-end interest row, an evening fill,
-// whose time comes before its tradeDate.
+// disagree, as a window that leaves out one row alone does, at its start or
+// at its end; a gateway that rounds them, which settles both by whole
+// seconds too, but with an exclusive end reads as a time finer than a row
+// shows; a window of each row's bounds refused, which settles nothing; a
+// first account without rows, whose next account's rows are asked about;
+// windows that take a row by its tradeDate; the window around a month-end
+// interest row's tradeDate holding it, as the window around its time does,
+// or refused, either of which says by neither; a longest window of 366
+// days; and, on an account without a month-end interest row, an evening
+// fill, whose time comes before its tradeDate.
 func testExtrasOnTheFake(t *testing.T) {
 	t.Run("the tokens of the 401s", func(t *testing.T) {
 		t.Parallel()
@@ -2824,45 +2826,83 @@ func testExtrasOnTheFake(t *testing.T) {
 			wantEvidence(t, report, "extras", tc.evidence...)
 		})
 	}
-	t.Run("both windows around a month-end row holding it", func(t *testing.T) {
-		t.Parallel()
-		// The window around its tradeDate, which holds its tradeDate and not
-		// its time, answers with the row too, as if a window took a row by
-		// either.
-		fl := newProbeLive(t, probeNow, "Q1", "extras")
-		fl.f.OnAPI(func(r *http.Request) {
-			q := r.URL.Query()
-			if q.Get("startDate") == "2024-04-30T03:00:00.000Z" && q.Get("endDate") == "2024-05-01T00:18:44.000Z" {
-				fl.f.Script(schwabtest.Answer(http.StatusOK, "["+fixtureRow(t, 73508261949)+"]", "Content-Type", "application/json"))
+	// Answers to windows by their startDate and endDate: around the first
+	// row, at 2025-06-02T14:30:27Z, and the second, the month-end interest
+	// row at 2024-05-01T01:18:44Z, whose tradeDate is 2024-04-30T04:00Z.
+	refused := schwabtest.Answer(http.StatusBadRequest, `{"message":"a guess: refused"}`, "Content-Type", "application/json")
+	empty := schwabtest.Answer(http.StatusOK, "[]", "Content-Type", "application/json")
+	for _, tc := range []struct {
+		name     string
+		windows  [][2]string // the startDate and endDate of each window answered so
+		answer   http.HandlerFunc
+		want     string
+		evidence []string
+	}{
+		{
+			// The window around its tradeDate, which holds its tradeDate
+			// and not its time, answers with the row too, as if a window
+			// took a row by either.
+			"both windows around a month-end row holding it",
+			[][2]string{{"2024-04-30T03:00:00.000Z", "2024-05-01T00:18:44.000Z"}},
+			schwabtest.Answer(http.StatusOK, "["+fixtureRow(t, 73508261949)+"]", "Content-Type", "application/json"),
+			inclusive + "; by time or tradeDate: inconclusive",
+			[]string{"by time or tradeDate, of a month-end interest row: the window around its time holds it, and the window around its tradeDate holds it"},
+		},
+		{
+			// One window cannot rule out a window that takes a row by
+			// either time.
+			"the window around a month-end row's tradeDate refused",
+			[][2]string{{"2024-04-30T03:00:00.000Z", "2024-05-01T00:18:44.000Z"}},
+			refused,
+			inclusive + "; by time or tradeDate: inconclusive",
+			[]string{"by time or tradeDate, of a month-end interest row: a window was refused: 200, 1 row; refused, HTTP 400, a guess: refused"},
+		},
+		{
+			// [t.000, t+1s] around the second row answers [], as if its
+			// start were exclusive, while the first row's shows it
+			// inclusive.
+			"rows that disagree",
+			[][2]string{{"2024-05-01T01:18:44.000Z", "2024-05-01T01:18:45.000Z"}},
+			empty,
+			"the bounds: inconclusive, since the rows disagree; a window takes a row by its time",
+			[]string{"the bounds, row 1: the start is inclusive and the end inclusive", "the bounds, row 2: the start is exclusive and the end inclusive"},
+		},
+		{
+			// [t-1s, t.000] around the first row answers [], as if its end
+			// were exclusive, while the second row's shows it inclusive.
+			"rows that disagree on the end alone",
+			[][2]string{{"2025-06-02T14:30:26.000Z", "2025-06-02T14:30:27.000Z"}},
+			empty,
+			"the bounds: inconclusive, since the rows disagree; a window takes a row by its time",
+			[]string{"the bounds, row 1: the start is inclusive and the end exclusive", "the bounds, row 2: the start is inclusive and the end inclusive"},
+		},
+		{
+			// [t-1s, t.000] is refused around both rows: a refusal is no
+			// answer without the row, which would make the end exclusive.
+			"a window of each row's bounds refused",
+			[][2]string{{"2025-06-02T14:30:26.000Z", "2025-06-02T14:30:27.000Z"}, {"2024-05-01T01:18:43.000Z", "2024-05-01T01:18:44.000Z"}},
+			refused,
+			"the bounds: inconclusive; a window takes a row by its time",
+			[]string{"the bounds, row 1: a window was refused, so it settles nothing", "the bounds, row 2: a window was refused, so it settles nothing"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fl := newProbeLive(t, probeNow, "Q1", "extras")
+			fl.f.OnAPI(func(r *http.Request) {
+				q := r.URL.Query()
+				if slices.Contains(tc.windows, [2]string{q.Get("startDate"), q.Get("endDate")}) {
+					fl.f.Script(tc.answer)
+				}
+			})
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
 			}
+			report := fl.report(t)
+			wantVerdicts(t, report, map[string]string{"extras": tc.want})
+			wantEvidence(t, report, "extras", tc.evidence...)
 		})
-		if err := fl.runClean(t); err != nil {
-			t.Fatal(err)
-		}
-		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"extras": inclusive + "; by time or tradeDate: inconclusive"})
-		wantEvidence(t, report, "extras",
-			"by time or tradeDate, of a month-end interest row: the window around its time holds it, and the window around its tradeDate holds it")
-	})
-	t.Run("rows that disagree", func(t *testing.T) {
-		t.Parallel()
-		// [t.000, t+1s] around the second row answers [], as if its start
-		// were exclusive, while the first row's shows it inclusive.
-		fl := newProbeLive(t, probeNow, "Q1", "extras")
-		fl.f.OnAPI(func(r *http.Request) {
-			q := r.URL.Query()
-			if q.Get("startDate") == "2024-05-01T01:18:44.000Z" && q.Get("endDate") == "2024-05-01T01:18:45.000Z" {
-				fl.f.Script(schwabtest.Answer(http.StatusOK, "[]", "Content-Type", "application/json"))
-			}
-		})
-		if err := fl.runClean(t); err != nil {
-			t.Fatal(err)
-		}
-		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"extras": "the bounds: inconclusive, since the rows disagree; a window takes a row by its time"})
-		wantEvidence(t, report, "extras", "the bounds, row 1: the start is inclusive and the end inclusive",
-			"the bounds, row 2: the start is exclusive and the end inclusive")
-	})
+	}
 	t.Run("a first account without rows", func(t *testing.T) {
 		t.Parallel()
 		// {account 1}'s every window answers []: the extras ask of
