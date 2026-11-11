@@ -813,14 +813,15 @@ func testDepthOnTheFake(t *testing.T) {
 
 // Q4 under the fake's settings: symbol= dropping the rows that name the
 // symbol only after a "~", by default, keeping them, and filtering nothing,
-// which no verdict may come from; and a control answer without the dividend
-// and the W-8 journal, of which nothing is said. No window around BND's or
-// XYZ's rows holds a row of another symbol, so the widening makes each
-// verdict: BND's window back to 2024-03-14 takes in the VBR sale, and
-// XYZ's, back to 2026-03-12, the META sale. A refusal of symbol= that
-// quotes the symbol, in its message or in a code, shows a label in its
-// place, and a symbol that the scrubber does not hide, a benchmark's, is
-// never sent.
+// which no verdict may come from; a control answer without the symbol's
+// TRADE, which no verdict of its account's may come from either, and one
+// without the dividend and the W-8 journal, of which nothing is said. No
+// window around BND's or XYZ's rows holds a row of another symbol, so the
+// widening makes each verdict: BND's window back to 2024-03-14 takes in the
+// VBR sale, and XYZ's, back to 2026-03-12, the META sale. A refusal of
+// symbol= that quotes the symbol, in its message or in a code, shows a
+// label in its place, and a symbol that the scrubber does not hide, a
+// benchmark's, is never sent.
 func testSymbolFilterOnTheFake(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -885,6 +886,28 @@ func testSymbolFilterOnTheFake(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a control answer without the symbol's TRADE", func(t *testing.T) {
+		t.Parallel()
+		// {account 1}'s window without symbol= holds the VBR sale alone, as
+		// a cap could leave it, while the window with symbol= holds BND's
+		// TRADE: the filter's answer is not held against a control.
+		fl := newProbeLive(t, probeNow, "Q1", "Q4")
+		control := "[" + fixtureRow(t, 73508261947) + "]"
+		fl.f.OnAPI(func(r *http.Request) {
+			q := r.URL.Query()
+			if schwabtest.Route(r.Pattern) == schwabtest.TransactionsRoute && r.PathValue("hash") == firstAccount.Hash &&
+				!q.Has("symbol") && strings.HasPrefix(q.Get("startDate"), "2024-03-14") {
+				fl.f.Script(schwabtest.Answer(http.StatusOK, control, "Content-Type", "application/json"))
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q4": "the filter drops dividends"})
+		wantEvidence(t, report, "Q4", "{account 1}: inconclusive: no control answer held the symbol's TRADE",
+			"{account 2}: the dividend was "+filterDropped)
+	})
 	t.Run("a control answer without the dividend and the W-8 journal", func(t *testing.T) {
 		t.Parallel()
 		// {account 1}'s window without symbol= holds BND's TRADE and the VBR
@@ -1966,8 +1989,10 @@ func testChangesOnTheFake(t *testing.T) {
 // tokens or not, and changes the refresh token or not, each verdict after
 // waiting on the run's clock until the token is a minute old; a refresh
 // that ends them only some seconds later; an older token refused at once
-// and working again 30 seconds later, which no verdict may come from; a
-// run after a new login, whose refresh token is not held against the last
+// and working again 30 seconds later, or the new token refused, which no
+// verdict may come from; three runs under one login, the last of which
+// holds the refresh token against the run before it, not the first; a run
+// after a new login, whose refresh token is not held against the last
 // login's; and another process's refresh between the probe's reading of
 // the token file and its own refresh, or a refresh that gives back the
 // same access token, which no verdict may come from.
@@ -2091,6 +2116,45 @@ func testRefreshOnTheFake(t *testing.T) {
 		report := fl.report(t)
 		wantVerdicts(t, report, map[string]string{"Q15": "inconclusive: the token before the refresh answered 401, then 200 30s later"})
 		wantEvidence(t, report, "Q15", "after the refresh, the token before it answered 401, and 200 when tried again 30s later; the new token answered 200")
+	})
+	t.Run("the new token refused", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q15")
+		newer := "Bearer " + schwabtest.AccessToken(2)
+		var refused atomic.Bool
+		fl.f.OnAPI(func(r *http.Request) {
+			if schwabtest.Route(r.Pattern) == schwabtest.AccountNumbersRoute && r.Header.Get("Authorization") == newer && refused.CompareAndSwap(false, true) {
+				fl.f.Queue(schwabtest.AccountNumbersRoute, schwabtest.NotAuthorized)
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q15": "inconclusive: the new token answered 401"})
+		wantEvidence(t, report, "Q15", "after the refresh, the token before it answered 200, and 200 when tried again 30s later; the new token answered 401")
+	})
+	t.Run("three runs under one login", func(t *testing.T) {
+		t.Parallel()
+		// The second run's refresh changes the refresh token, and the
+		// third's keeps it: the third holds it against the second's, the
+		// last run under the login, not the first's.
+		fl := newProbeLive(t, probeNow, "Q15")
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		fl.f.SetRotate(true)
+		second := fl.again(t, probeNow.Add(time.Hour), false)
+		if err := second.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		wantEvidence(t, second.report(t), "Q15", "since the last run under this login, the refresh token changed")
+		fl.f.SetRotate(false)
+		third := second.again(t, probeNow.Add(2*time.Hour), false)
+		if err := third.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		wantEvidence(t, third.report(t), "Q15", "since the last run under this login, the refresh token stayed the same")
 	})
 	t.Run("a token with under five minutes left", func(t *testing.T) {
 		t.Parallel()
@@ -2250,9 +2314,10 @@ func testEdgeOnTheFake(t *testing.T) {
 // rounds them, which settles both by whole seconds too, but with an
 // exclusive end reads as a time finer than a row shows; a first account
 // without rows, whose next account's rows are asked about; windows that
-// take a row by its tradeDate; a longest window of 366 days; and, on an
-// account without a month-end interest row, an evening fill, whose time
-// comes before its tradeDate.
+// take a row by its tradeDate; both windows around a month-end interest
+// row holding it, which says by neither; a longest window of 366 days;
+// and, on an account without a month-end interest row, an evening fill,
+// whose time comes before its tradeDate.
 func testExtrasOnTheFake(t *testing.T) {
 	t.Run("the tokens of the 401s", func(t *testing.T) {
 		t.Parallel()
@@ -2442,6 +2507,26 @@ func testExtrasOnTheFake(t *testing.T) {
 			wantEvidence(t, report, "extras", tc.evidence...)
 		})
 	}
+	t.Run("both windows around a month-end row holding it", func(t *testing.T) {
+		t.Parallel()
+		// The window around its tradeDate, which holds its tradeDate and not
+		// its time, answers with the row too, as if a window took a row by
+		// either.
+		fl := newProbeLive(t, probeNow, "Q1", "extras")
+		fl.f.OnAPI(func(r *http.Request) {
+			q := r.URL.Query()
+			if q.Get("startDate") == "2024-04-30T03:00:00.000Z" && q.Get("endDate") == "2024-05-01T00:18:44.000Z" {
+				fl.f.Script(schwabtest.Answer(http.StatusOK, "["+fixtureRow(t, 73508261949)+"]", "Content-Type", "application/json"))
+			}
+		})
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"extras": inclusive + "; by time or tradeDate: inconclusive"})
+		wantEvidence(t, report, "extras",
+			"by time or tradeDate, of a month-end interest row: the window around its time holds it, and the window around its tradeDate holds it")
+	})
 	t.Run("rows that disagree", func(t *testing.T) {
 		t.Parallel()
 		// [t.000, t+1s] around the second row answers [], as if its start

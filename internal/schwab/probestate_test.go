@@ -898,11 +898,9 @@ func probeRefresh(ctx context.Context, r *liveRun) (v verdict) {
 		return inconclusive("the refresh failed: " + schwabSays(err))
 	case readErr != nil:
 		return inconclusive("the token file could not be read after the refresh")
-	case requests != 1:
-		return inconclusive(fmt.Sprintf("the refresh made %s, where a verdict needs exactly one, as when another process refreshed in between",
-			plural(requests, "token request")))
-	case t2.AccessToken == a1 || t2.AccessToken != got:
-		return inconclusive("the token file does not hold the refresh's new access token, as when another process saved one in between")
+	}
+	if why := refreshUnseen(requests, a1, got, t2.AccessToken); why != "" {
+		return inconclusive(why)
 	}
 	statuses := map[string]int{}
 	for _, s := range []struct {
@@ -946,6 +944,23 @@ func probeRefresh(ctx context.Context, r *liveRun) (v verdict) {
 	return verdict{answer: survive + ", " + keeps, evidence: ev}
 }
 
+// refreshUnseen returns why a refresh from a1 that made requests token
+// requests and returned got, after which the token file held held, shows
+// nothing of what a refresh does to older tokens, or "": a verdict needs
+// exactly one token request, and the file then holding that request's new
+// access token, else another process refreshed, or saved a token, in
+// between.
+func refreshUnseen(requests int, a1, got, held string) string {
+	switch {
+	case requests != 1:
+		return fmt.Sprintf("the refresh made %s, where a verdict needs exactly one, as when another process refreshed in between",
+			plural(requests, "token request"))
+	case held == a1 || held != got:
+		return "the token file does not hold the refresh's new access token, as when another process saved one in between"
+	}
+	return ""
+}
+
 // refreshAcrossRuns compares the refresh token that the token file holds,
 // as this run leaves it, with the last run's under the same login, and
 // keeps its digest in the state: a refresh token that changes within one
@@ -982,8 +997,9 @@ func (r *liveRun) refreshAcrossRuns() []reportLine {
 // latest such of the runs kept, and this run after the ex-date, its closes
 // reaching it. It compares the closes before the ex-date that both runs
 // hold, of days that had ended when the earlier run read them: unchanged
-// is split-adjusted only, all scaled alike by the dividend's factor
-// dividend-adjusted, and changed otherwise neither.
+// to the cent is split-adjusted only, all scaled alike by the dividend's
+// factor dividend-adjusted, however small the dividend, and changed
+// otherwise neither.
 func TestCompareCloses(t *testing.T) {
 	at := func(day string, hour, minute int) time.Time {
 		d, err := time.ParseInLocation(time.DateOnly, day, newYork())
@@ -1065,6 +1081,7 @@ func TestCompareCloses(t *testing.T) {
 	}{
 		{"unchanged", one(prev), scaled(1), q, adjustNone, ""},
 		{"scaled by the dividend's factor", one(prev), scaled(factor), q, adjustDividend, ""},
+		{"scaled by a small dividend's factor", one(prev), scaled(1 - 0.3/620), dividendQuote{exDate: "2026-09-18", amount: 0.3}, adjustDividend, ""},
 		{"scaled otherwise", one(prev), scaled(0.9), q, "", notByFactor},
 		{"scaled unevenly, by the dividend's factor halfway", one(prev), uneven, q, "", notByFactor},
 		{"no earlier run", nil, scaled(1), q, "", "no earlier run kept its closes"},
@@ -1094,6 +1111,29 @@ func TestCompareCloses(t *testing.T) {
 	} {
 		if answer, why := compareCloses(tc.runs, tc.cur, tc.q); answer != tc.answer || why != tc.why {
 			t.Errorf("%s: %q, %q; want %q, %q", tc.name, answer, why, tc.answer, tc.why)
+		}
+	}
+}
+
+// A refresh shows what it does to older tokens only when it made exactly
+// one token request, and the token file then holds that request's new
+// access token: not the old one, nor another that a process saved in
+// between.
+func TestRefreshUnseen(t *testing.T) {
+	const crowd = "as when another process saved one in between"
+	for _, tc := range []struct {
+		name           string
+		requests       int
+		got, held, why string
+	}{
+		{"one request, its token held", 1, "zq-a2", "zq-a2", ""},
+		{"no request", 0, "zq-a2", "zq-a2", "the refresh made 0 token requests, where a verdict needs exactly one, as when another process refreshed in between"},
+		{"two requests", 2, "zq-a2", "zq-a2", "the refresh made 2 token requests, where a verdict needs exactly one, as when another process refreshed in between"},
+		{"the old token held", 1, "zq-a1", "zq-a1", "the token file does not hold the refresh's new access token, " + crowd},
+		{"another token held", 1, "zq-a2", "zq-a3", "the token file does not hold the refresh's new access token, " + crowd},
+	} {
+		if why := refreshUnseen(tc.requests, "zq-a1", tc.got, tc.held); why != tc.why {
+			t.Errorf("%s: %q, want %q", tc.name, why, tc.why)
 		}
 	}
 }
