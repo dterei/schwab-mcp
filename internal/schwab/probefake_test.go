@@ -2002,7 +2002,11 @@ func testChangesCutOnTheFake(t *testing.T) {
 // before the start of a window that holds it by its tradeDate, the state
 // keeps, which leaves nothing undecided either; and such a fill before the
 // start of the last run's window, dated inside it, a run an hour later
-// finds new.
+// finds new. The fill at 20:30, left out of the state of an earlier version
+// whose window ended at the run, which kept no other end, 12 days later
+// as it was, changed or gone, is not compared: the run starts afresh. Such
+// a version reads the state of this one as of a window that ended at the
+// run.
 func testChangesByTradeDateOnTheFake(t *testing.T) {
 	byTradeDate := schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate}
 	for _, tc := range []struct {
@@ -2147,6 +2151,75 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 			report := later.report(t)
 			wantVerdicts(t, report, map[string]string{"Q12": tc.want})
 			wantEvidence(t, report, "Q12", "{account 2}: "+tc.line)
+		})
+	}
+	for _, after := range []string{"as it was", "changed", "went"} {
+		t.Run("an evening fill before the last run, dated the next midnight, left out by an earlier version's window, "+after, func(t *testing.T) {
+			t.Parallel()
+			first := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC) // 22:00 in New York
+			fl := newProbeLive(t, first, "Q12")
+			fl.f.SetTransactionRules(byTradeDate)
+			fl.more = append(fl.more, "84000000105")
+			fill := func(changes ...string) string {
+				return fixtureRow(t, metaSale, append([]string{"activityId", "84000000105", "time", at2030, "tradeDate", `"2026-08-21T04:00:00+0000"`}, changes...)...)
+			}
+			fl.f.AddRows(secondAccount.Hash, fill())
+			if err := fl.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			st, err := openState(fl.r.stateFile, fl.r.keyFile, func(string) {})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// An earlier version, whose window ended at its run, reads this
+			// one's window as ending there too.
+			var earlier struct {
+				Accounts map[string]struct {
+					End time.Time `json:"end"`
+				} `json:"accounts"`
+			}
+			if _, err := st.get("Q12", &earlier); err != nil {
+				t.Fatal(err)
+			}
+			for _, a := range earlier.Accounts {
+				if a.End.Before(first) || a.End.After(fl.clock.Now()) {
+					t.Errorf("an earlier version reads the window as ending at %v, not during the run, from %v to %v", a.End, first, fl.clock.Now())
+				}
+			}
+			// The state as such a version kept it: without the window's end,
+			// and without the fill, which its window left out by its
+			// tradeDate.
+			var rs rowsState
+			if _, err := st.get("Q12", &rs); err != nil {
+				t.Fatal(err)
+			}
+			for k, a := range rs.Accounts {
+				delete(a.Rows, st.digest("activity id", "84000000105"))
+				a.End = time.Time{}
+				rs.Accounts[k] = a
+			}
+			if err := st.put("Q12", rs); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.save(); err != nil {
+				t.Fatal(err)
+			}
+			kept := "3 rows"
+			switch after {
+			case "changed":
+				fl.f.ReplaceRow(secondAccount.Hash, 84000000105, fill("netAmount", "603.37"))
+			case "went":
+				fl.f.RemoveRow(secondAccount.Hash, 84000000105)
+				kept = "2 rows"
+			}
+			later := fl.again(t, first.AddDate(0, 0, 12), true)
+			later.more = fl.more
+			if err := later.runClean(t); err != nil {
+				t.Fatal(err)
+			}
+			report := later.report(t)
+			wantVerdicts(t, report, map[string]string{"Q12": "inconclusive: no earlier run to compare with; this run's rows are kept for the next"})
+			wantEvidence(t, report, "Q12", "{account 2}: "+kept+", kept for the next run; no earlier run to compare with")
 		})
 	}
 	t.Run("an evening fill before the window's start, dated inside it", func(t *testing.T) {
@@ -2325,22 +2398,20 @@ func testChangesVerdictsOnTheFake(t *testing.T) {
 // two fills before the first run that its answer left out: one two minutes
 // before it, whose row may have posted in the ordinary course, which is not
 // shown late, and one five hours before it, whose row came late, from five
-// hours to four days after its time; and the same again of a state kept
-// before the run's time was kept, whose window's end, then the run's time,
-// gives it. Rows gone and rows that came late are compared too, so that the
-// verdict comes of every row of the state gone, and of a row that came late
-// to an account that had none. A row that posts while the second run's read
-// of its window waits out a 429 is bounded by when the answer came, not by
-// when the probe began; and a row whose time changes keeps its new time, by
-// which it is shown gone three weeks later. And two runs a day apart, where
-// the window of an account, or of two, fails in the second, which leaves
-// all that their rows did undecided, though a row of one went, while the
-// verdict speaks of the accounts compared alone, or says nothing when the
-// other's window failed in the first run, which left nothing of it to
-// compare with; and where an account's window fails in both runs, or in the
-// first alone, before a row of it comes late, which leaves what its rows
-// did undecided as well, since no earlier run read them. The first run says
-// nothing either way.
+// hours to four days after its time. Rows gone and rows that came late are
+// compared too, so that the verdict comes of every row of the state gone,
+// and of a row that came late to an account that had none. A row that
+// posts while the second run's read of its window waits out a 429 is
+// bounded by when the answer came, not by when the probe began; and a row
+// whose time changes keeps its new time, by which it is shown gone three
+// weeks later. And two runs a day apart, where the window of an account, or
+// of two, fails in the second, which leaves all that their rows did
+// undecided, though a row of one went, while the verdict speaks of the
+// accounts compared alone, or says nothing when the other's window failed
+// in the first run, which left nothing of it to compare with; and where an
+// account's window fails in both runs, or in the first alone, before a row
+// of it comes late, which leaves what its rows did undecided as well, since
+// no earlier run read them. The first run says nothing either way.
 func testChangesOnTheFake(t *testing.T) {
 	t.Run("rows changed, gone and late", func(t *testing.T) {
 		t.Parallel()
@@ -2411,55 +2482,27 @@ func testChangesOnTheFake(t *testing.T) {
 		wantVerdicts(t, report, map[string]string{"Q12": "rows went"})
 		wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 0 rows new to the state; 1 row gone")
 	})
-	for _, tc := range []struct {
-		name string
-		old  bool // with the state as a run kept it before it kept its time, when its window ended at it
-	}{
-		{"rows from the hours before the last run", false},
-		{"rows from the hours before the last run, of a state without its time", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			fl := newProbeLive(t, probeNow, "Q12")
-			if err := fl.runClean(t); err != nil {
-				t.Fatal(err)
-			}
-			if tc.old {
-				st, err := openState(fl.r.stateFile, fl.r.keyFile, func(string) {})
-				if err != nil {
-					t.Fatal(err)
-				}
-				var rs rowsState
-				if _, err := st.get("Q12", &rs); err != nil {
-					t.Fatal(err)
-				}
-				for k, a := range rs.Accounts {
-					a.End, a.At = a.At, time.Time{}
-					rs.Accounts[k] = a
-				}
-				if err := st.put("Q12", rs); err != nil {
-					t.Fatal(err)
-				}
-				if err := st.save(); err != nil {
-					t.Fatal(err)
-				}
-			}
-			midnight := strconv.Quote(schwabTime(time.Date(2026, 9, 1, 4, 0, 0, 0, time.UTC))) // the fills' day's, in New York
-			fl.more = append(fl.more, "84000000107", "84000000108")
-			fl.f.AddRows(secondAccount.Hash,
-				fixtureRow(t, metaSale, "activityId", "84000000107", "time", strconv.Quote(schwabTime(probeNow.Add(-2*time.Minute))), "tradeDate", midnight),
-				fixtureRow(t, metaSale, "activityId", "84000000108", "time", strconv.Quote(schwabTime(probeNow.Add(-5*time.Hour))), "tradeDate", midnight))
-			later := fl.again(t, probeNow.AddDate(0, 0, 3), false)
-			later.more = fl.more
-			if err := later.runClean(t); err != nil {
-				t.Fatal(err)
-			}
-			report := later.report(t)
-			wantVerdicts(t, report, map[string]string{"Q12": "rows came late"})
-			wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 2 rows new to the state; "+
-				"1 row came late, posted from 5 hours to 4 days after its time; 1 row from the hour before the last run, too near it to be shown late")
-		})
-	}
+	t.Run("rows from the hours before the last run", func(t *testing.T) {
+		t.Parallel()
+		fl := newProbeLive(t, probeNow, "Q12")
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		midnight := strconv.Quote(schwabTime(time.Date(2026, 9, 1, 4, 0, 0, 0, time.UTC))) // the fills' day's, in New York
+		fl.more = append(fl.more, "84000000107", "84000000108")
+		fl.f.AddRows(secondAccount.Hash,
+			fixtureRow(t, metaSale, "activityId", "84000000107", "time", strconv.Quote(schwabTime(probeNow.Add(-2*time.Minute))), "tradeDate", midnight),
+			fixtureRow(t, metaSale, "activityId", "84000000108", "time", strconv.Quote(schwabTime(probeNow.Add(-5*time.Hour))), "tradeDate", midnight))
+		later := fl.again(t, probeNow.AddDate(0, 0, 3), false)
+		later.more = fl.more
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "rows came late"})
+		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 2 rows new to the state; "+
+			"1 row came late, posted from 5 hours to 4 days after its time; 1 row from the hour before the last run, too near it to be shown late")
+	})
 	t.Run("every row of the state gone", func(t *testing.T) {
 		t.Parallel()
 		// Both of {account 2}'s rows go, and no row of the state is seen

@@ -413,11 +413,16 @@ type rowsState struct {
 
 // An accountRows is one account's window as the last run asked for it, when
 // that run's probe began, whether its answer was complete, under pageCap
-// rows, and its rows, by the digest of each one's activityId.
+// rows, and its rows, by the digest of each one's activityId. The state
+// keeps when the probe began as "end", where the versions of the probe
+// whose window ended then kept its end: they read the window as ending at
+// the run, narrower than it is, which leaves the rows that only the rest
+// of it held undecided, rather than shown late or gone. It keeps the
+// window's end as "until", which a state kept by such a version lacks.
 type accountRows struct {
 	Start    time.Time          `json:"start"`
-	End      time.Time          `json:"end"`
-	At       time.Time          `json:"at,omitzero"`
+	End      time.Time          `json:"until,omitzero"`
+	At       time.Time          `json:"end"`
 	Complete bool               `json:"complete"`
 	Rows     map[string]rowSeen `json:"rows"`
 }
@@ -500,7 +505,7 @@ func (r *liveRun) rowDigests(raw json.RawMessage) map[string]string {
 
 // What Q12 found of one account's rows against the last run's.
 type changesSeen struct {
-	compared         bool           // whether the last run asked for this account
+	compared         bool           // whether the last run read this account's rows, with a window that reached ahead
 	same, fresh      int            // rows as they were, and rows new to the state
 	changed          map[string]int // the key paths that changed, with how many rows each
 	changedRows      int
@@ -550,7 +555,10 @@ type changesSeen struct {
 // read, beside which it speaks of the accounts compared alone. With no row
 // compared, none of the state's seen again or shown gone and none of this
 // run's shown late, as for accounts without activity, it says nothing, nor
-// when the answers leave all three undecided.
+// when the answers leave all three undecided. Nor does it compare a state
+// kept by a version of the probe whose window ended at its run, which could
+// leave out such an evening fill: the account starts afresh, as if no
+// earlier run had read it.
 func probeChanges(ctx context.Context, r *liveRun) verdict {
 	var st rowsState
 	if _, err := r.state.get("Q12", &st); err != nil {
@@ -571,7 +579,13 @@ func probeChanges(ctx context.Context, r *liveRun) verdict {
 			continue
 		}
 		key := r.state.digest("account number", a.number)
-		cs, next := r.changesOf(ctx, a, st.Accounts[key], now)
+		prev := st.Accounts[key]
+		if prev.End.IsZero() {
+			// Kept by a version of the probe whose window ended at its run,
+			// which kept no other end: the account starts afresh.
+			prev = accountRows{}
+		}
+		cs, next := r.changesOf(ctx, a, prev, now)
 		if cs.failed {
 			v.evidence = append(v.evidence, reportLine{text: a.label() + ": the window of the last 60 days failed"})
 			if cs.compared {
@@ -725,12 +739,7 @@ func (r *liveRun) changesOf(ctx context.Context, a liveAccount, prev accountRows
 	next := accountRows{Start: w.start, End: w.end, At: now, Complete: cs.complete, Rows: map[string]rowSeen{}}
 	seen := map[string]bool{}
 	last := window{prev.Start, prev.End}
-	// When the last run's probe began: a state kept before At was kept holds
-	// it as its window's end, where windows then ended.
-	lastRun := prev.At
-	if lastRun.IsZero() {
-		lastRun = prev.End
-	}
+	lastRun := prev.At // when the last run's probe began
 	for _, row := range rows {
 		if row.ActivityID == 0 {
 			continue
