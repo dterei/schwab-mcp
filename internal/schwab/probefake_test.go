@@ -2017,8 +2017,12 @@ func testChangesCutOnTheFake(t *testing.T) {
 // tradeDate, the state keeps, which leaves nothing undecided either, and
 // one that posted after the last run, whose window held both its times,
 // came late, though this window's start leaves out its time; and such a
-// fill before the start of the last run's window, dated inside it, a run
-// an hour later finds new. The fill at 20:30, left out of the state
+// fill before the start of the last run's window, dated inside it, a run an
+// hour later finds new, beside one at 20:30 that evening, dated after the
+// last run, at 22:00, which it cannot show late either. Behind a cut answer
+// of a run at 22:00, the cut alone leaves it undecided whether such a fill
+// at 20:30, which posted after the run, came late, while one at 21:30 is
+// too near it to be shown late. The fill at 20:30, left out of the state
 // of an earlier version whose window ended at the run, which kept no other
 // end, 12 days later as it was, changed or gone, is not compared: the run
 // starts afresh. Such a version reads the state of this one as of a window
@@ -2307,29 +2311,64 @@ func testChangesByTradeDateOnTheFake(t *testing.T) {
 			wantEvidence(t, report, "Q12", "{account 2}: "+tc.line)
 		})
 	}
-	t.Run("an evening fill before the last window's start, dated inside it, new since", func(t *testing.T) {
+	t.Run("an evening fill before the last window's start, dated inside it, new since, beside one dated after the last run", func(t *testing.T) {
 		t.Parallel()
 		// The last run's window starts at 2026-07-03T02:00Z, between the
-		// fill's time and its tradeDate, and the fill comes after that run:
-		// a window by its time would not have held it.
+		// first fill's time and its tradeDate, and the fill comes after that
+		// run: a window by its time would not have held it. The second, at
+		// 20:30 in New York, before that run at 22:00, and dated the next
+		// midnight, comes after it too, and that run's answer held no row
+		// dated after it came.
 		first := time.Date(2026, 9, 1, 2, 0, 0, 0, time.UTC)
 		fl := newProbeLive(t, first, "Q12")
 		fl.f.SetTransactionRules(byTradeDate)
 		if err := fl.runClean(t); err != nil {
 			t.Fatal(err)
 		}
-		fl.more = append(fl.more, "84000000110")
-		fl.f.AddRows(secondAccount.Hash, fixtureRow(t, metaSale, "activityId", "84000000110",
-			"time", `"2026-07-03T00:30:00+0000"`, "tradeDate", `"2026-07-03T04:00:00+0000"`))
+		fl.more = append(fl.more, "84000000110", "84000000111")
+		fl.f.AddRows(secondAccount.Hash,
+			fixtureRow(t, metaSale, "activityId", "84000000110", "time", `"2026-07-03T00:30:00+0000"`, "tradeDate", `"2026-07-03T04:00:00+0000"`),
+			fixtureRow(t, metaSale, "activityId", "84000000111", "time", `"2026-09-01T00:30:00+0000"`, "tradeDate", `"2026-09-01T04:00:00+0000"`))
 		later := fl.again(t, first.Add(time.Hour), false)
 		later.more = fl.more
 		if err := later.runClean(t); err != nil {
 			t.Fatal(err)
 		}
 		report := later.report(t)
-		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or went since the last run; undecided: whether 1 row came late"})
-		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 1 row new to the state; "+
-			"1 row new to the state, with its time or tradeDate outside the last run's window, so not shown late")
+		wantVerdicts(t, report, map[string]string{"Q12": "no row changed or went since the last run; undecided: whether 2 rows came late"})
+		wantEvidence(t, report, "Q12", "{account 2}: 2 rows as they were; 2 rows new to the state; "+
+			"1 row new to the state, with its time or tradeDate outside the last run's window, so not shown late; "+unserved)
+	})
+	t.Run("evening fills before the last run, dated the next midnight, posted after its cut answer", func(t *testing.T) {
+		t.Parallel()
+		// The cap leaves the XYZ dividend out of the last run's answer: the
+		// cut alone leaves it undecided whether the dividend and the fill at
+		// 20:30 came late, and the fill at 21:30 is too near that run to be
+		// shown late.
+		first := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC) // 22:00 in New York
+		fl := newProbeLive(t, first, "Q12")
+		fl.f.SetTransactionRules(schwabtest.TransactionRules{FilterOn: schwabtest.FilterOnTradeDate, Cap: 1})
+		fl.r.pageCap = 1
+		if err := fl.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		fl.more = append(fl.more, "84000000105", "84000000117")
+		fl.f.AddRows(secondAccount.Hash,
+			fixtureRow(t, metaSale, "activityId", "84000000105", "time", at2030, "tradeDate", `"2026-08-21T04:00:00+0000"`),
+			fixtureRow(t, metaSale, "activityId", "84000000117", "time", at2130, "tradeDate", `"2026-08-21T04:00:00+0000"`))
+		fl.f.SetTransactionRules(byTradeDate)
+		later := fl.again(t, first.AddDate(0, 0, 12), true)
+		later.more = fl.more
+		later.r.pageCap = MaxTransactions
+		if err := later.runClean(t); err != nil {
+			t.Fatal(err)
+		}
+		report := later.report(t)
+		wantVerdicts(t, report, map[string]string{"Q12": "inconclusive: undecided since the last run: " +
+			"whether rows that the last run's cut answer left out changed or went, and whether 2 rows came late"})
+		wantEvidence(t, report, "Q12", "{account 2}: 1 row as they were; 3 rows new to the state; "+
+			"1 row from the hour before the last run, too near it to be shown late; "+
+			"the last run's answer may have been cut at the cap, so 2 rows new to the state cannot be shown late, nor rows that it left out shown changed or gone")
 	})
 }
 
