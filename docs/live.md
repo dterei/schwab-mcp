@@ -133,7 +133,7 @@ why; the question stays open until a run settles it.
 | Q11 | default | How kinds of event show up in transactions | Counts the shapes of the history's rows |
 | Q12 | default | Whether rows change after they post, and how long after | Keeps keyed digests of the last 60 days' rows; a later run names the keys that changed, the rows gone and the rows that came late. A row counts as gone or late only when both its time and its tradeDate lie in the windows that would show it, since which of the two a window goes by is not known, and only against an answer that the cap cannot have cut. A row counts as late only when its time was more than an hour before the last run, which left it out, since a row may take minutes to post; it posted between the two runs, so the report gives how long after its time that was as a span, such as from 5 hours to 4 days. A row missing from an answer but not shown gone, or a new row from over an hour before the last run but not shown late, leaves it undecided whether rows went or came late, and the verdict says so rather than that none did. With no row to compare, as for accounts without activity, it is inconclusive |
 | Q13 | `watch=fills` | How soon a fill's trade shows up | Polls the orders entered in the last day and their trades every minute for half an hour. Place a trade by hand, then start it. For a fill from 18:00 to 04:00 in New York, which may be dated the next trading day, after a holiday too, it asks for trades dated up to the fourth weekday after it, a window that ends after the poll. It bounds each time by when its reads were sent and answered, and a read whose window could not show a fill's row says nothing of it |
-| Q14 | `-live.rate` | How far under 120 a minute Schwab refuses requests, and whether a burst draws a refusal | Sends the account numbers at 20, 40, 60, 80 and 100 a minute, then a burst of 5, one try each, and stops at the first 429, 403 or 5xx. It starts only when nothing has used the key for two minutes, and stops if another process uses it, or if answers come so slowly that a step's requests fall more than 5 seconds behind its pace, or the burst's last would go more than 3 seconds after its first: the rate sent would not be the step's |
+| Q14 | `-live.rate` | How far under 120 a minute Schwab refuses requests, and whether a burst draws a refusal | Sends the account numbers at 20, 40, 60, 80 and 100 a minute, then a burst of 5, one try each, and stops at the first 429, 403 or 5xx. It starts only when nothing has used the key for two minutes, and stops if another process uses it, or if answers come so slowly that a step's request would go more than 5 seconds behind its pace, or a request of the burst more than 3 seconds after the burst's first, since the rate sent would then not be the one named |
 | Q15 | default | Whether a refresh ends older access tokens, or changes the refresh token | Refreshes once, with a control before, and tries the old and new tokens after, and the old again 30 seconds later: an old token that still works then has survived the refresh for 30 seconds, which is all a run shows, one refused both times was ended by it, and one refused at once but working 30 seconds later says nothing |
 | extras | default | Details milestone 2 relies on | About fifteen single requests: a window's bounds, inclusive or not, and whether Schwab keeps their milliseconds, drops them or rounds them, or keeps a row's time finer than it shows, which the four windows around a row cannot always tell apart; whether a window takes a row by its time or its tradeDate; windows of a year and a second, and of 366 days; no types; a date alone; a row by its id against the list; an unknown hash and id; the 401 for a bad token and for none |
 
@@ -171,11 +171,10 @@ messages, scrubbed. It never holds a record, an account number, a hash, an
 id, a balance, a quantity, a symbol of yours longer than a character, or a
 description: a transaction's description is printed only when it is
 Schwab's own wording for a kind of row, such as "Ordinary Dividend~SYM",
-with the symbol masked.
-A failure of the network is told by what failed, such as
-`read tcp: i/o timeout`, without the addresses that its error names, your
-computer's among them, or the query of the request's address; an address
-that an error quotes some other way shows as `{address}`.
+with the symbol masked. A failure of the network is told by what failed,
+such as `read tcp: i/o timeout`, without the addresses that its error
+names, your computer's among them, or the query of the request's address;
+an address that an error quotes some other way shows as `{address}`.
 
 A scrubber of the run's own replaces what the run has seen with labels:
 each account and its hash by its place in the account numbers, as
