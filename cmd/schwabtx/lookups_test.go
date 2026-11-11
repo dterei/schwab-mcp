@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -172,6 +173,8 @@ func TestLookupsMaskAccountNumbers(t *testing.T) {
 		{"balances", "-account", "...29470136"},
 		{"accounts", "-account", "Roth"},
 		{"accounts", "-json", "-account", "61803399"},
+		{"positions"},
+		{"positions", "-account", "61803399"},
 	} {
 		stdout, stderr, err := runTx(t, args...)
 		all := stdout + stderr
@@ -623,7 +626,7 @@ func TestMoneyString(t *testing.T) {
 
 // Text that Schwab or the user wrote cannot break a table or the terminal:
 // control and format characters, and line and paragraph separators, print
-// as ?, and a nickname has its white space collapsed.
+// as ?, and a nickname or a description has its white space collapsed.
 func TestCells(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"Joint\x1b[31m\tBrokerage", "Joint?[31m?Brokerage"},
@@ -636,10 +639,10 @@ func TestCells(t *testing.T) {
 			t.Errorf("plainCell(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
-	if got := nameCell("Joint\x1b[31m\t Brokerage\u2028Account"); got != "Joint?[31m Brokerage Account" {
-		t.Errorf("nameCell = %q", got)
+	if got := textCell("Joint\x1b[31m\t Brokerage\u2028Account", 30); got != "Joint?[31m Brokerage Account" {
+		t.Errorf("textCell = %q", got)
 	}
-	if got := nameCell(strings.Repeat("Ab", 20)); got != strings.Repeat("Ab", 13)+"A..." {
+	if got := textCell(strings.Repeat("Ab", 20), 30); got != strings.Repeat("Ab", 13)+"A..." {
 		t.Errorf("a long nickname: %q", got)
 	}
 	if got, want := accountCell("12345678", false), "...5678"; got != want {
@@ -859,7 +862,7 @@ func TestLookupsFail(t *testing.T) {
 	t.Run("no accounts", func(t *testing.T) {
 		setup(t)
 		doLogin(t)
-		for _, args := range [][]string{{"accounts"}, {"balances"}, {"balances", "-json"}} {
+		for _, args := range [][]string{{"accounts"}, {"balances"}, {"balances", "-json"}, {"positions"}} {
 			if stdout, _, err := runTx(t, args...); err == nil || err.Error() != noAccounts || stdout != "" {
 				t.Errorf("%q: %v, printed %q; want %q", args, err, stdout, noAccounts)
 			}
@@ -879,7 +882,7 @@ func TestLookupsFail(t *testing.T) {
 		f := setupFixtures(t)
 		f.EndLogin()
 		timeNow = func() time.Time { return testNow.Add(8 * 24 * time.Hour) }
-		for _, args := range [][]string{{"accounts"}, {"balances", "-json"}} {
+		for _, args := range [][]string{{"accounts"}, {"balances", "-json"}, {"positions"}} {
 			stdout, _, requests, err := runLookupOn(t, f, args...)
 			if !errors.Is(err, schwab.ErrLoginExpired) || !strings.HasPrefix(err.Error(), "fetching accounts: ") ||
 				!strings.Contains(err.Error(), "run `schwabtx login` again") || stdout != "" || len(requests) != 0 {
@@ -925,6 +928,7 @@ func TestLookupsArguments(t *testing.T) {
 	before := f.AllRequests()
 	for _, args := range [][]string{
 		{"balances", "extra"},
+		{"positions", "extra"},
 		{"balances", "-n", "5"},
 		{"accounts", "-account"},
 		{"accounts", "-json=maybe"},
@@ -954,7 +958,7 @@ func TestUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"schwabtx login ", "schwabtx [flags] ", "schwabtx accounts ", "schwabtx balances ",
+		"schwabtx login ", "schwabtx [flags] ", "schwabtx accounts ", "schwabtx positions ", "schwabtx balances ",
 		"schwabtx snapshot ", `"schwabtx <command> -h"`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -964,5 +968,416 @@ func TestUsage(t *testing.T) {
 	_, stderr, err := runTx(t, "acounts")
 	if err == nil || err.Error() != `unknown command "acounts"` || !strings.Contains(stderr, "schwabtx accounts ") {
 		t.Errorf("a command misspelled: %v, printed %q", err, stderr)
+	}
+}
+
+// positionsRequest is the request for the accounts with their positions,
+// as runLookupOn gives it.
+var positionsRequest = string(schwabtest.AccountsRoute) + "?fields=positions"
+
+// The positions of the fixtures' accounts: all of them, and the first
+// account's.
+const (
+	positionsOfThree = `ACCOUNT  SYMBOL                     QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
+...0135  00507V109                   10     81.50     0.00   815.00   -815.00
+...0135  AAPL                    2.1788    190.20   495.70   414.41     81.29
+...0135  SWVXX                  1220.89      1.00  1220.89  1220.89      0.00  SCHWAB VALUE ADVANTAGE MONEY FUND
+...0135  VTI                         12  251.3075  3748.92  3015.69    733.23  VANGUARD TOTAL STOCK MARKET ETF
+...3398  META                         1    512.00   603.40   512.00     91.40
+...3398  XYZ   260619P00045000       -2      1.60  -310.00  -320.00     10.00  XYZ 06/19/2026 45.00 P
+TOTAL                                              5758.91  5657.99    100.92
+`
+	positionsOf0135 = `ACCOUNT  SYMBOL         QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
+...0135  00507V109       10     81.50     0.00   815.00   -815.00
+...0135  AAPL        2.1788    190.20   495.70   414.41     81.29
+...0135  SWVXX      1220.89      1.00  1220.89  1220.89      0.00  SCHWAB VALUE ADVANTAGE MONEY FUND
+...0135  VTI             12  251.3075  3748.92  3015.69    733.23  VANGUARD TOTAL STOCK MARKET ETF
+TOTAL                                  5465.51  5465.99     -0.48
+`
+)
+
+// positions lists the fixtures' accounts' positions, account by account and
+// by symbol, from one request, for the accounts with their positions: the
+// table names accounts by their numbers alone. Each VALUE less its COST is
+// its OPEN P/L, the totals too, and the first account's VALUE and its cash
+// make its value, 6997.68.
+func TestPositionsOfTheFixtures(t *testing.T) {
+	f := setupFixtures(t)
+	for _, tc := range []struct {
+		args           []string
+		stdout, stderr string
+	}{
+		{[]string{"positions"}, positionsOfThree, "6 positions in 3 accounts, not counting cash (see schwabtx balances)\n"},
+		{[]string{"positions", "-account", "0135"}, positionsOf0135, "4 positions in 1 account, not counting cash (see schwabtx balances)\n"},
+	} {
+		stdout, stderr, requests, err := runLookupOn(t, f, tc.args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stdout != tc.stdout {
+			t.Errorf("%q printed\n%s\nwant\n%s", tc.args, stdout, tc.stdout)
+		}
+		if stderr != tc.stderr {
+			t.Errorf("%q warned %q, want %q", tc.args, stderr, tc.stderr)
+		}
+		if want := []string{positionsRequest}; !equal(requests, want) {
+			t.Errorf("%q made the requests %q, want %q", tc.args, requests, want)
+		}
+	}
+}
+
+// -account picks the positions of one account, by digits without the
+// preferences and by nickname with them. An account that holds nothing has
+// the header alone. An error lists the accounts with their nicknames,
+// which it reads for that.
+func TestPositionsOfAnAccount(t *testing.T) {
+	f := setupFixtures(t)
+	margin := `ACCOUNT  SYMBOL                 QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
+...3398  META                     1    512.00   603.40   512.00     91.40
+...3398  XYZ   260619P00045000   -2      1.60  -310.00  -320.00     10.00  XYZ 06/19/2026 45.00 P
+TOTAL                                           293.40   192.00    101.40
+`
+	for _, account := range []string{"3398", "...3398", "61803398", "options & margin"} {
+		stdout, stderr, requests, err := runLookupOn(t, f, "positions", "-account", account)
+		want := []string{positionsRequest}
+		if account == "options & margin" {
+			want = append(want, preferencesRequest)
+		}
+		if err != nil || stdout != margin || stderr != "2 positions in 1 account, not counting cash (see schwabtx balances)\n" ||
+			!equal(requests, want) {
+			t.Errorf("-account %s: %v, warned %q, after the requests %q, printed\n%s", account, err, stderr, requests, stdout)
+		}
+	}
+	stdout, stderr, requests, err := runLookupOn(t, f, "positions", "-account", "Contributory")
+	if want := "ACCOUNT  SYMBOL  QTY  AVG COST  VALUE  COST  OPEN P/L  DESCRIPTION\n"; err != nil || stdout != want ||
+		stderr != "0 positions in 1 account, not counting cash (see schwabtx balances)\n" ||
+		!equal(requests, []string{positionsRequest, preferencesRequest}) {
+		t.Errorf("-account Contributory: %v, warned %q, after the requests %q, printed\n%s", err, stderr, requests, stdout)
+	}
+	_, _, requests, err = runLookupOn(t, f, "positions", "-account", "9999")
+	if want := `no account matches -account "9999": the login shares ...0135 (Individual), ...3398 (Options & Margin), ` +
+		"...1783 (Contributory); to share another, run `schwabtx login` and tick it"; err == nil || err.Error() != want ||
+		!equal(requests, []string{positionsRequest, preferencesRequest}) {
+		t.Errorf("-account 9999: %v, after the requests %q", err, requests)
+	}
+}
+
+// -json prints each account as Schwab sent it, with its positions,
+// re-indented: "&", the line separator U+2028 and 250.0 as they came.
+func TestPositionsJSON(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 0, testNow, time.Hour)
+	doLogin(t)
+	stdout, stderr, err := runTx(t, "positions", "-json")
+	if err != nil || stderr != "" {
+		t.Fatalf("%v, warned %q", err, stderr)
+	}
+	var want bytes.Buffer
+	want.WriteString("[\n  ")
+	if err := json.Indent(&want, []byte(f.account("11112222").details), "  ", "  "); err != nil {
+		t.Fatal(err)
+	}
+	want.WriteString("\n]\n")
+	if stdout != want.String() {
+		t.Errorf("printed\n%s\nwant\n%s", stdout, want.String())
+	}
+	for _, kept := range []string{"AT&T\u2028INC", `"marketValue": 250.0`} {
+		if !strings.Contains(stdout, kept) {
+			t.Errorf("printed no %q", kept)
+		}
+	}
+}
+
+// position decodes js, a position as GET /accounts sends one.
+func position(t *testing.T, js string) schwab.Position {
+	t.Helper()
+	var p schwab.Position
+	if err := json.Unmarshal([]byte(js), &p); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A position's row: its quantity and value signed as the side it holds, its
+// average cost, its open profit or loss, positive for a gain, and its cost,
+// its value less its open profit or loss. A figure that could not be read,
+// or that its side lacks, is none, and so is what needs it.
+func TestHoldingOf(t *testing.T) {
+	const long = `"longQuantity":12,"shortQuantity":0,"averagePrice":251.3075,"marketValue":3748.92,"longOpenProfitLoss":733.23,` +
+		`"instrument":{"assetType":"COLLECTIVE_INVESTMENT","symbol":"VTI"}`
+	const short = `"longQuantity":0,"shortQuantity":100,"averagePrice":52.5,"marketValue":-5000,"shortOpenProfitLoss":250,` +
+		`"instrument":{"assetType":"EQUITY","symbol":"XYZ"}`
+	for _, tc := range []struct {
+		name, position string
+		want           string // quantity, average cost, value, cost and open profit or loss
+		missing        string // the problem of the side's figure that it lacks
+	}{
+		{"long", "{" + long + "}", "12 251.3075 3748.92 3015.69 733.23", ""},
+		{"short", "{" + short + "}", "-100 52.50 -5000.00 -5250.00 250.00", ""},
+		{
+			"a short put",
+			`{"longQuantity":0,"shortQuantity":2,"averagePrice":1.6,"marketValue":-310,"shortOpenProfitLoss":10,` +
+				`"instrument":{"assetType":"OPTION","symbol":"XYZ   260619P00045000"}}`,
+			"-2 1.60 -310.00 -320.00 10.00", "",
+		},
+		{
+			"a long call",
+			`{"longQuantity":3,"shortQuantity":0,"averagePrice":2.15,"marketValue":750,"longOpenProfitLoss":105,` +
+				`"instrument":{"assetType":"OPTION","symbol":"XYZ   260619C00050000"}}`,
+			"3 2.15 750.00 645.00 105.00", "",
+		},
+		{
+			"binary noise",
+			`{"longQuantity":0.30000000000000004,"shortQuantity":0,"averagePrice":1.23456789,"marketValue":-236.999999999999,` +
+				`"longOpenProfitLoss":81.29223999999999,"instrument":{"assetType":"EQUITY","symbol":"X"}}`,
+			"0.3 1.234568 -237.00 -318.29 81.29", "",
+		},
+		{
+			"a long position without its open profit or loss",
+			"{" + strings.Replace(long, `"longOpenProfitLoss":733.23,`, ``, 1) + "}",
+			"12 251.3075 3748.92 - -", "longOpenProfitLoss: missing, though Schwab sends it on every long position",
+		},
+		{
+			"a long position with the short side's",
+			"{" + strings.Replace(long, `"longOpenProfitLoss":733.23`, `"shortOpenProfitLoss":733.23`, 1) + "}",
+			"12 251.3075 3748.92 - -", "longOpenProfitLoss: missing, though Schwab sends it on every long position",
+		},
+		{
+			"a short position without its open profit or loss",
+			"{" + strings.Replace(short, `"shortOpenProfitLoss":250,`, ``, 1) + "}",
+			"-100 52.50 -5000.00 - -", "shortOpenProfitLoss: missing, though Schwab sends it on every short position",
+		},
+		{
+			"a short position's open profit or loss sent as null",
+			"{" + strings.Replace(short, `"shortOpenProfitLoss":250`, `"shortOpenProfitLoss":null`, 1) + "}",
+			"-100 52.50 -5000.00 - -", "shortOpenProfitLoss: missing, though Schwab sends it on every short position",
+		},
+		{
+			"a position of neither side",
+			`{"longQuantity":0,"shortQuantity":0,"averagePrice":0,"marketValue":0,"instrument":{"assetType":"EQUITY","symbol":"X"}}`,
+			"0 0.00 0.00 0.00 0.00", "",
+		},
+		{"an unreadable value", "{" + strings.Replace(long, `3748.92`, `"3748.92"`, 1) + "}", "12 251.3075 - - 733.23", ""},
+		{"no value", "{" + strings.Replace(long, `"marketValue":3748.92,`, ``, 1) + "}", "12 251.3075 - - 733.23", ""},
+		{"an unreadable average cost", "{" + strings.Replace(long, `251.3075`, `true`, 1) + "}", "12 - 3748.92 3015.69 733.23", ""},
+		{"no average cost", "{" + strings.Replace(long, `"averagePrice":251.3075,`, ``, 1) + "}", "12 - 3748.92 3015.69 733.23", ""},
+		{"an unreadable quantity", "{" + strings.Replace(long, `"longQuantity":12`, `"longQuantity":"12"`, 1) + "}", "- 251.3075 3748.92 - -", ""},
+		{
+			"an unreadable short quantity",
+			"{" + strings.Replace(short, `"shortQuantity":100`, `"shortQuantity":"100"`, 1) + "}",
+			"- 52.50 -5000.00 - -", "",
+		},
+		{
+			"an unreadable open profit or loss",
+			"{" + strings.Replace(long, `733.23`, `"733.23"`, 1) + "}",
+			"12 251.3075 3748.92 - -", "",
+		},
+		{"not an object", `null`, "- - - - -", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := position(t, tc.position)
+			h := holdingOf(p)
+			if got := fmt.Sprintf("%s %s %s %s %s", h.quantity, h.price, h.value, h.cost, h.gain); got != tc.want {
+				t.Errorf("got %q, want %q (problems %v)", got, tc.want, p.Problems)
+			}
+			_, missing := openPL(p)
+			got := ""
+			if len(missing) > 0 {
+				got = missing[0].String()
+			}
+			if got != tc.missing || len(missing) > 1 {
+				t.Errorf("missing %v, want %q", missing, tc.missing)
+			}
+		})
+	}
+}
+
+// holdingAccount returns account 11112222 with the given positions, the
+// elements of a list.
+func holdingAccount(positions string) string {
+	return `{"securitiesAccount":{"type":"MARGIN","accountNumber":"11112222","roundTrips":0,"isDayTrader":false,` +
+		`"isClosingOnlyRestricted":false,"pfcbFlag":false,"positions":[` + positions + `],` +
+		`"initialBalances":{},"currentBalances":{},"projectedBalances":{}}}`
+}
+
+// The table sorts each account's positions by symbol, in byte order, so
+// that an option comes after its stock and before the next symbol, and
+// keeps the order of equal symbols. An account whose positions could not
+// be read, or that is not an object, has a row of its own, and the totals
+// are none; so are those of a position whose figure could not be read.
+func TestPositionsTable(t *testing.T) {
+	pos := func(symbol string, value float64, description string) string {
+		instrument, _ := json.Marshal(map[string]string{"assetType": "EQUITY", "symbol": symbol, "description": description})
+		return fmt.Sprintf(`{"longQuantity":1,"shortQuantity":0,"averagePrice":1,"marketValue":%v,"longOpenProfitLoss":0,"instrument":%s}`,
+			value, instrument)
+	}
+	// More positions of one symbol than a sort that is not stable keeps in
+	// order, among others.
+	var manyOfOne []string
+	var manyRows strings.Builder
+	manyRows.WriteString("ACCOUNT  SYMBOL  QTY  AVG COST  VALUE   COST  OPEN P/L  DESCRIPTION\n")
+	for i := range 40 {
+		if i%3 == 0 {
+			manyOfOne = append(manyOfOne, pos("ZZZ", 1, ""))
+		}
+		manyOfOne = append(manyOfOne, pos("XYZ", 1, strconv.Itoa(40-i)))
+		fmt.Fprintf(&manyRows, "...2222  XYZ       1      1.00   1.00   1.00      0.00  %d\n", 40-i)
+	}
+	for range 14 {
+		manyRows.WriteString("...2222  ZZZ       1      1.00   1.00   1.00      0.00\n")
+	}
+	manyRows.WriteString("TOTAL                           54.00  54.00      0.00\n")
+	for _, tc := range []struct {
+		name     string
+		accounts []string
+		want     string
+	}{
+		{
+			"symbols",
+			[]string{holdingAccount(strings.Join([]string{
+				pos("XYZ   260619P00045000", 1, ""), pos("XYZA", 2, ""), pos("XYZ", 3, "first"), pos("AAPL", 4, ""), pos("XYZ", 5, "second"),
+			}, ","))},
+			`ACCOUNT  SYMBOL                 QTY  AVG COST  VALUE   COST  OPEN P/L  DESCRIPTION
+...2222  AAPL                     1      1.00   4.00   4.00      0.00
+...2222  XYZ                      1      1.00   3.00   3.00      0.00  first
+...2222  XYZ                      1      1.00   5.00   5.00      0.00  second
+...2222  XYZ   260619P00045000    1      1.00   1.00   1.00      0.00
+...2222  XYZA                     1      1.00   2.00   2.00      0.00
+TOTAL                                          15.00  15.00      0.00
+`,
+		},
+		{
+			"positions that are not a list",
+			[]string{
+				holdingAccount(pos("AAPL", 4, "")),
+				`{"securitiesAccount":{"type":"MARGIN","accountNumber":"33334444","positions":{"longQuantity":1}}}`,
+			},
+			`ACCOUNT  SYMBOL  QTY  AVG COST  VALUE  COST  OPEN P/L  DESCRIPTION
+...2222  AAPL      1      1.00   4.00  4.00      0.00
+...4444  ?         -         -      -     -         -
+TOTAL                               -     -         -
+`,
+		},
+		{
+			"an account that is not an object",
+			[]string{holdingAccount(pos("AAPL", 4, "")), `null`},
+			`ACCOUNT  SYMBOL  QTY  AVG COST  VALUE  COST  OPEN P/L  DESCRIPTION
+...2222  AAPL      1      1.00   4.00  4.00      0.00
+?        ?         -         -      -     -         -
+TOTAL                               -     -         -
+`,
+		},
+		{
+			"a position that is not an object",
+			[]string{holdingAccount(pos("AAPL", 4, "") + `,null`)},
+			`ACCOUNT  SYMBOL  QTY  AVG COST  VALUE  COST  OPEN P/L  DESCRIPTION
+...2222  ?         -         -      -     -         -
+...2222  AAPL      1      1.00   4.00  4.00      0.00
+TOTAL                               -     -         -
+`,
+		},
+		{
+			"a description with control characters",
+			[]string{holdingAccount(pos("AAPL", 4, "APPLE\u001b[2J\u2028INC "+strings.Repeat("x", 40)))},
+			`ACCOUNT  SYMBOL  QTY  AVG COST  VALUE  COST  OPEN P/L  DESCRIPTION
+...2222  AAPL      1      1.00   4.00  4.00      0.00  APPLE?[2J INC xxxxxxxxxxxxxxxxxxxxxxx...
+`,
+		},
+		{
+			"many of one symbol",
+			[]string{holdingAccount(strings.Join(manyOfOne, ","))},
+			"",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var as []namedAccount
+			for _, js := range tc.accounts {
+				as = append(as, namedAccount{account: account(t, js)})
+			}
+			cols, rows, warnings := positionsTable(as, false)
+			var b bytes.Buffer
+			if err := writeTable(&b, cols, rows); err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == "" {
+				tc.want = manyRows.String()
+			}
+			if b.String() != tc.want || warnings != nil {
+				t.Errorf("printed\n%s\nwant\n%s\nwarned %q", b.String(), tc.want, warnings)
+			}
+		})
+	}
+}
+
+// A position whose figure could not be read, or whose side's open profit or
+// loss is missing, is named in the warning, and its row has - where the
+// figure is needed, as do the totals.
+func TestPositionsWarnOfUnreadablePositions(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 0, testNow, time.Hour)
+	f.setPositionsJSON(strings.Replace(strings.Replace(fakePositions, `"marketValue":1300.5,`, `"marketValue":"1300.5",`, 1),
+		`"longOpenProfitLoss":75.0,`, ``, 1))
+	doLogin(t)
+	stdout, stderr, err := runTx(t, "positions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "warning: 1 account differed from what Schwab has sent before (securitiesAccount.positions.marketValue: " +
+		"Schwab sent a string where a number was expected; securitiesAccount.positions.longOpenProfitLoss: " +
+		"missing, though Schwab sends it on every long position); the table may not show those fields as Schwab sent them, " +
+		"and -json prints Schwab's own JSON\n2 positions in 1 account, not counting cash (see schwabtx balances)\n"; stderr != want {
+		t.Errorf("warned %q\nwant %q", stderr, want)
+	}
+	want := `ACCOUNT  SYMBOL  QTY  AVG COST   VALUE  COST  OPEN P/L  DESCRIPTION
+...2222  T        10     17.50  250.00     -         -  AT&T INC
+...2222  VTI       5    246.91       -     -     65.95  VANGUARD TOTAL STOCK MARKET ETF
+TOTAL                                -     -         -
+`
+	if stdout != want {
+		t.Errorf("printed\n%s\nwant\n%s", stdout, want)
+	}
+}
+
+// When the preferences cannot be read, positions print as before, since
+// they need none, but a nickname given to -account is an error.
+func TestPositionsWithoutPreferences(t *testing.T) {
+	f := setupFixtures(t)
+	f.Override(schwabtest.UserPreferenceRoute, schwabtest.Unavailable)
+	stdout, _, err := runTx(t, "positions")
+	if err != nil || stdout != positionsOfThree {
+		t.Errorf("%v, printed\n%s", err, stdout)
+	}
+	_, _, err = runTx(t, "positions", "-account", "Individual")
+	if want := `fetching the user preferences, to find the account named "Individual": HTTP 503 from Schwab after 4 tries`; err == nil ||
+		!strings.HasPrefix(err.Error(), want) {
+		t.Errorf("-account Individual: %v, want %q", err, want)
+	}
+}
+
+// Quantities print as many decimals as they have, up to 6, and prices at
+// least 2.
+func TestFormatQuantityAndPrice(t *testing.T) {
+	for _, tc := range []struct {
+		x               float64
+		quantity, price string
+	}{
+		{0, "0", "0.00"},
+		{math.Copysign(0, -1), "0", "0.00"},
+		{-0.0000004, "0", "0.00"},
+		{12, "12", "12.00"},
+		{-2, "-2", "-2.00"},
+		{2.1788, "2.1788", "2.1788"},
+		{81.5, "81.5", "81.50"},
+		{1.23456789, "1.234568", "1.234568"},
+		{0.30000000000000004, "0.3", "0.30"},
+		{-236.999999999999, "-237", "-237.00"},
+		{1e12, "-", "-"},
+	} {
+		if got := formatQuantity(tc.x); got != tc.quantity {
+			t.Errorf("formatQuantity(%v) = %q, want %q", tc.x, got, tc.quantity)
+		}
+		if got := formatPrice(tc.x); got != tc.price {
+			t.Errorf("formatPrice(%v) = %q, want %q", tc.x, got, tc.price)
+		}
 	}
 }

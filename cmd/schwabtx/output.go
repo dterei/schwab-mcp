@@ -226,9 +226,38 @@ func plainCell(s string) string {
 	}, s)
 }
 
-// nameCell returns a nickname for a table: with its white space collapsed
-// and cut to 30 runes, as truncate does, and made plain, as plainCell does.
-func nameCell(nickname string) string { return plainCell(truncate(nickname, 30)) }
+// textCell returns s for a table: with its white space collapsed and cut
+// to limit runes, as truncate does, and made plain, as plainCell does.
+func textCell(s string, limit int) string { return plainCell(truncate(s, limit)) }
+
+// formatQuantity returns x rounded to 6 decimals, as scaled rounds it,
+// without the zeros that end it: 12, 2.1788, -2; or - when it is too large
+// to be one.
+func formatQuantity(x float64) string {
+	n, ok := scaled(x, 6)
+	if !ok {
+		return "-"
+	}
+	return formatScaled(n, 6, 0)
+}
+
+// formatPrice returns x rounded to 6 decimals, as scaled rounds it, with
+// at least 2: 81.50, 251.3075; or - when it is too large to be one.
+func formatPrice(x float64) string {
+	n, ok := scaled(x, 6)
+	if !ok {
+		return "-"
+	}
+	return formatScaled(n, 6, 2)
+}
+
+// plural returns n and noun, which takes an s unless n is 1.
+func plural(n int, noun string) string {
+	if n != 1 {
+		noun += "s"
+	}
+	return strconv.Itoa(n) + " " + noun
+}
 
 // column is one column of a table: its head, and whether its cells are
 // numbers, which are aligned right.

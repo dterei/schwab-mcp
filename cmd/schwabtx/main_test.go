@@ -83,17 +83,18 @@ func newFakeSchwab(t *testing.T) *fakeSchwab {
 }
 
 // fakePositions are the positions of every fake account, with the keys
-// that Schwab sends on every position. The "&", the line separator U+2028
-// and the numbers such as 250.0 show whether a snapshot keeps Schwab's text
+// that Schwab sends on every position, and the open profit or loss that it
+// sends on every long one. The "&", the line separator U+2028 and the
+// numbers such as 250.0 show whether a snapshot keeps Schwab's text
 // exactly.
 const fakePositions = `{"shortQuantity":0,"averagePrice":246.91,"currentDayProfitLoss":0,"currentDayProfitLossPercentage":0,` +
 	`"longQuantity":5,"settledLongQuantity":5,"settledShortQuantity":0,` +
 	`"instrument":{"assetType":"COLLECTIVE_INVESTMENT","symbol":"VTI","description":"VANGUARD TOTAL STOCK MARKET ETF"},` +
-	`"marketValue":1300.5,"maintenanceRequirement":0,"currentDayCost":0},` +
+	`"marketValue":1300.5,"maintenanceRequirement":0,"longOpenProfitLoss":65.95,"currentDayCost":0},` +
 	`{"shortQuantity":0,"averagePrice":17.5,"currentDayProfitLoss":0.0,"currentDayProfitLossPercentage":0.0,` +
 	`"longQuantity":10,"settledLongQuantity":10,"settledShortQuantity":0,` +
 	`"instrument":{"assetType":"EQUITY","symbol":"T","description":"AT&T` + "\u2028" + `INC"},` +
-	`"marketValue":250.0,"maintenanceRequirement":0.0,"currentDayCost":0.0}`
+	`"marketValue":250.0,"maintenanceRequirement":0.0,"longOpenProfitLoss":75.0,"currentDayCost":0.0}`
 
 // details returns the element of GET /accounts for the account with the
 // given number: the keys that Schwab sends on every account, and its

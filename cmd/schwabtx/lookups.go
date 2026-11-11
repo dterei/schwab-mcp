@@ -16,16 +16,20 @@ import (
 // A lookup is one of the commands that print what Schwab reports of the
 // accounts as of the request.
 type lookup struct {
-	names bool // its table shows the accounts' nicknames
+	positions bool // it asks for the accounts' positions
+	names     bool // its table shows the accounts' nicknames
 	// table returns the table of the accounts as, with full account
 	// numbers if show, and a warning for each - in it that no problem of an
 	// account's explains.
 	table func(as []namedAccount, show bool) (cols []column, rows [][]string, warnings []string)
+	// summary returns a line for stderr before the table, or is nil.
+	summary func(as []namedAccount) string
 }
 
 var lookups = map[string]lookup{
-	"accounts": {names: true, table: accountsTable},
-	"balances": {names: true, table: balancesTable},
+	"accounts":  {names: true, table: accountsTable},
+	"balances":  {names: true, table: balancesTable},
+	"positions": {positions: true, table: positionsTable, summary: positionsSummary},
 }
 
 // namedAccount is an account from GET /accounts and its nickname from the
@@ -40,16 +44,17 @@ type namedAccount struct {
 // -show-accounts says, and its nickname when it is known.
 func (a namedAccount) label() string {
 	l := accountCell(a.account.SecuritiesAccount.AccountNumber, false)
-	if n := nameCell(a.nickname); n != "" {
+	if n := textCell(a.nickname, 30); n != "" {
 		l += " (" + n + ")"
 	}
 	return l
 }
 
-// runLookup runs the lookup of the given name: it reads the accounts, and
-// the user's preferences when the table shows the accounts' nicknames or
-// -account gives one, and prints the accounts that -account picks, as a
-// table or as Schwab's own JSON.
+// runLookup runs the lookup of the given name: it reads the accounts, with
+// their positions if the lookup shows them, and the user's preferences
+// when the table shows the accounts' nicknames or -account gives one, and
+// prints the accounts that -account picks, as a table or as Schwab's own
+// JSON.
 func runLookup(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error {
 	l := lookups[name]
 	fs := flag.NewFlagSet("schwabtx "+name, flag.ContinueOnError)
@@ -75,7 +80,11 @@ func runLookup(ctx context.Context, name string, args []string, stdout, stderr i
 	}
 	c := newClient(auth)
 
-	accounts, err := c.accounts(ctx)
+	var fields []schwab.AccountField
+	if l.positions {
+		fields = append(fields, schwab.AccountFieldPositions)
+	}
+	accounts, err := c.accounts(ctx, fields...)
 	if err != nil {
 		return fmt.Errorf("fetching accounts: %w", err)
 	}
@@ -87,7 +96,7 @@ func runLookup(ctx context.Context, name string, args []string, stdout, stderr i
 	problems := make([][]schwab.Problem, len(accounts))
 	for i, a := range accounts {
 		as[i].account = a
-		problems[i] = accountProblems(a)
+		problems[i] = lookupProblems(a)
 	}
 	if w := problemsWarning("account", problems); w != "" {
 		warn(w + "; the table may not show those fields as Schwab sent them, and -json prints Schwab's own JSON")
@@ -140,7 +149,25 @@ func runLookup(ctx context.Context, name string, args []string, stdout, stderr i
 	for _, w := range warnings {
 		warn(w)
 	}
+	if l.summary != nil {
+		fmt.Fprintln(stderr, l.summary(picked))
+	}
 	return writeTable(stdout, cols, rows)
+}
+
+// lookupProblems returns the problems of a and of its positions, as
+// accountProblems does, with one for each open profit or loss that a
+// position lacks of a side that it holds, which Schwab sends on every
+// position of that side.
+func lookupProblems(a schwab.Account) []schwab.Problem {
+	ps := accountProblems(a)
+	for _, p := range a.SecuritiesAccount.Positions {
+		_, missing := openPL(p)
+		for _, m := range missing {
+			ps = append(ps, schwab.Problem{Path: "securitiesAccount.positions." + m.Path, What: m.What})
+		}
+	}
+	return ps
 }
 
 // selector is the account that -account names: by the digits that its
@@ -409,7 +436,7 @@ func accountsTable(as []namedAccount, show bool) ([]column, [][]string, []string
 	for _, a := range as {
 		b := balanceOf(a.account)
 		rows = append(rows, []string{
-			accountCell(a.account.SecuritiesAccount.AccountNumber, show), nameCell(a.nickname),
+			accountCell(a.account.SecuritiesAccount.AccountNumber, show), textCell(a.nickname, 30),
 			plainCell(a.account.SecuritiesAccount.Type), b.value.String(),
 		})
 		total = total.plus(b.value)
@@ -442,7 +469,7 @@ func balancesTable(as []namedAccount, show bool) ([]column, [][]string, []string
 	for _, a := range as {
 		b := balanceOf(a.account)
 		rows = append(rows, []string{
-			accountCell(a.account.SecuritiesAccount.AccountNumber, show), nameCell(a.nickname),
+			accountCell(a.account.SecuritiesAccount.AccountNumber, show), textCell(a.nickname, 30),
 			plainCell(a.account.SecuritiesAccount.Type), b.value.String(), b.cash.String(), b.buyingPower.String(),
 		})
 		totalValue, totalCash = totalValue.plus(b.value), totalCash.plus(b.cash)
@@ -474,4 +501,131 @@ func orList(words []string) string {
 		return strings.Join(words, "")
 	}
 	return strings.Join(words[:len(words)-1], ", ") + " or " + words[len(words)-1]
+}
+
+// holding is what the positions table shows of a position.
+type holding struct {
+	symbol, description string
+	quantity, price     string // or - for none
+	value, cost, gain   money
+}
+
+// holdingOf returns what the positions table shows of p: its quantity and
+// market value, negative for a short position, the value with an option's
+// multiplier in it; its average price, the tax-lot average per share with
+// fees and adjustments in it, what a share cost or, short, brought in; its
+// open profit or loss, positive for a gain whether long or short; and its
+// cost, the value less the open profit or loss, which for a short position
+// is its proceeds, negative. Each is none when a figure that it needs
+// could not be read, or was not sent. The cost needs no multiplier, which
+// positions do not carry, and value - cost = open profit or loss to the
+// cent, since the value and the open profit or loss are rounded first.
+func holdingOf(p schwab.Position) holding {
+	ps := p.Problems
+	h := holding{symbol: p.Instrument.Symbol, description: p.Instrument.Description, quantity: "-", price: "-"}
+	if !unreadable(ps, "longQuantity") && !unreadable(ps, "shortQuantity") {
+		h.quantity = formatQuantity(p.LongQuantity - p.ShortQuantity)
+	}
+	if !unreadable(ps, "averagePrice") {
+		h.price = formatPrice(p.AveragePrice)
+	}
+	if !unreadable(ps, "marketValue") {
+		h.value = amount(p.MarketValue)
+	}
+	h.gain, _ = openPL(p)
+	h.cost = h.value.minus(h.gain)
+	return h
+}
+
+// openPL returns p's open profit or loss: longOpenProfitLoss plus
+// shortOpenProfitLoss, since a position carries only its own side's, and
+// the other's is absent, which reads as 0. It is none when either could
+// not be read, or a quantity, which says which sides p holds; or when p
+// lacks the figure of a side that it holds, which Schwab sends on every
+// position of that side. missing has a problem for each such figure, since
+// no problem of p's names it, with its path in p.
+func openPL(p schwab.Position) (gain money, missing []schwab.Problem) {
+	ps := p.Problems
+	for _, key := range []string{"longQuantity", "shortQuantity", "longOpenProfitLoss", "shortOpenProfitLoss"} {
+		if unreadable(ps, key) {
+			return money{}, nil
+		}
+	}
+	// Whether each figure was sent, which the record's 0 does not say;
+	// what could not be read of them is a problem of p's, above.
+	var sent struct {
+		Long  *float64 `json:"longOpenProfitLoss"`
+		Short *float64 `json:"shortOpenProfitLoss"`
+	}
+	_ = json.Unmarshal(p.Raw, &sent)
+	if p.LongQuantity != 0 && sent.Long == nil {
+		missing = append(missing, schwab.Problem{Path: "longOpenProfitLoss", What: "missing, though Schwab sends it on every long position"})
+	}
+	if p.ShortQuantity != 0 && sent.Short == nil {
+		missing = append(missing, schwab.Problem{Path: "shortOpenProfitLoss", What: "missing, though Schwab sends it on every short position"})
+	}
+	if missing != nil {
+		return money{}, missing
+	}
+	return amount(p.LongOpenProfitLoss).plus(amount(p.ShortOpenProfitLoss)), nil
+}
+
+// positionsTable returns the table of positions: each position's account,
+// symbol, quantity, average cost, value, cost, open profit or loss and
+// description, account by account in the order of Schwab's answer and by
+// symbol within an account, so that an option usually comes straight
+// after its stock; and the totals of the values, costs and open profit or
+// loss. An account whose positions could not be read has one row, with
+// the symbol ? and no figures, and so the totals have none.
+func positionsTable(as []namedAccount, show bool) ([]column, [][]string, []string) {
+	cols := []column{
+		{head: "ACCOUNT"},
+		{head: "SYMBOL"},
+		{head: "QTY", right: true},
+		{head: "AVG COST", right: true},
+		{head: "VALUE", right: true},
+		{head: "COST", right: true},
+		{head: "OPEN P/L", right: true},
+		{head: "DESCRIPTION"},
+	}
+	var rows [][]string
+	value, cost, gain := money{ok: true}, money{ok: true}, money{ok: true}
+	for _, a := range as {
+		number := accountCell(a.account.SecuritiesAccount.AccountNumber, show)
+		if unreadable(a.account.Problems, "securitiesAccount.positions") {
+			rows = append(rows, []string{number, "?", "-", "-", "-", "-", "-", ""})
+			value, cost, gain = money{}, money{}, money{}
+			continue
+		}
+		// Byte order, which puts an OCC symbol, its root padded to six
+		// characters, after its root's own; equal symbols keep their order.
+		ps := slices.Clone(a.account.SecuritiesAccount.Positions)
+		slices.SortStableFunc(ps, func(x, y schwab.Position) int { return strings.Compare(x.Instrument.Symbol, y.Instrument.Symbol) })
+		for _, p := range ps {
+			h := holdingOf(p)
+			symbol := plainCell(h.symbol)
+			if symbol == "" {
+				symbol = "?"
+			}
+			rows = append(rows, []string{
+				number, symbol, h.quantity, h.price, h.value.String(), h.cost.String(), h.gain.String(), textCell(h.description, 40),
+			})
+			value, cost, gain = value.plus(h.value), cost.plus(h.cost), gain.plus(h.gain)
+		}
+	}
+	if len(rows) > 1 {
+		rows = append(rows, []string{"TOTAL", "", "", "", value.String(), cost.String(), gain.String(), ""})
+	}
+	return cols, rows, nil
+}
+
+// positionsSummary returns the line before the positions table: how many
+// positions in how many accounts, and that cash, which is not a position,
+// is left out.
+func positionsSummary(as []namedAccount) string {
+	n := 0
+	for _, a := range as {
+		n += len(a.account.SecuritiesAccount.Positions)
+	}
+	return plural(n, "position") + " in " + plural(len(as), "account") + ", not counting cash (see schwabtx balances)"
 }
