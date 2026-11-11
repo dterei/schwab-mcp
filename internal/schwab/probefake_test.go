@@ -3762,24 +3762,25 @@ func watchFillsWith(t *testing.T, start time.Time, rules schwabtest.TransactionR
 // after the fill to hold; an evening fill whose reads of orders fail, so
 // that the reads of rows after it end at their polls and cannot show its
 // row; an order filled in two parts before the watch, each part with a row
-// that comes 270 seconds after it, which is timed from its first part; an
-// order filled three hours before the watch, whose row is there from the
-// start, and one filled at 12:30 the day before, whose row, there from the
-// start too and dated that day's midnight, the reads of rows must reach
-// back to, by its time or by its tradeDate, in windows that leave out a row
-// at their start; a fill whose row never comes, alone, beside one whose row
-// comes, and beside one whose row is there from the start; a fill whose
-// row comes beside one whose row is there from the start, 3 hours after its
-// fill, and beside that and another there within 2 minutes of its fill,
-// rounded up, as long as the least the row that came took, rounded down,
-// which the verdict's span then starts at 0 to take in; a watch whose every
-// read of rows fails; and a watch in which nothing fills. The Friday
-// evening's fill is watched beside another whose row never comes, which the
-// reads after it could show, as the first's row shows that Schwab serves a
-// window past the request; and, in windows served only up to the request,
-// beside a fill earlier that day whose row never comes, and beside one
-// whose row is there from the start, where the verdict says of it only that
-// no read could show its row.
+// that comes 270 seconds after it, which is timed from its first part;
+// orders filled three hours and 20 seconds before the watch, whose rows are
+// there from the start, and one filled at 12:30 the day before, whose row,
+// there from the start too and dated that day's midnight, the reads of rows
+// must reach back to, by its time or by its tradeDate, in windows that
+// leave out a row at their start; two fills whose rows never come, alone,
+// and beside two whose rows come, at different times after their fills; a
+// fill whose row never comes beside one whose row is there from the start;
+// a fill whose row comes beside one whose row is there from the start, 3
+// hours after its fill, and beside that and another there within 2 minutes
+// of its fill, rounded up, as long as the least the row that came took,
+// rounded down, which the verdict's span then starts at 0 to take in; a
+// watch whose every read of rows fails; and a watch in which nothing fills.
+// The Friday evening's fill is watched beside another whose row never
+// comes, which the reads after it could show, as the first's row shows that
+// Schwab serves a window past the request; and, in windows served only up
+// to the request, beside a fill earlier that day whose row never comes, and
+// beside one whose row is there from the start, where the verdict says of
+// it only that no read could show its row.
 func testFillsOnTheFake(t *testing.T) {
 	soon := probeNow.Add(5 * time.Minute) // 11:05 in New York, a Tuesday
 	t.Run("a fill", func(t *testing.T) {
@@ -3959,31 +3960,34 @@ func testFillsOnTheFake(t *testing.T) {
 		wantVerdicts(t, report, map[string]string{"Q13": "a fill's trade appears from 4 to 5 minutes after the fill"})
 		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "rows that came during the watch: 1, from 4 to 5 minutes after the fills")
 	})
-	t.Run("a fill hours before the watch", func(t *testing.T) {
+	t.Run("fills hours and seconds before the watch", func(t *testing.T) {
 		t.Parallel()
-		fl := watchFills(t, probeNow, schwabtest.TransactionRules{}, watchedFill{filled: probeNow.Add(-3 * time.Hour)})
+		fl := watchFills(t, probeNow, schwabtest.TransactionRules{}, watchedFill{filled: probeNow.Add(-3 * time.Hour)}, watchedFill{filled: probeNow.Add(-20 * time.Second)})
 		report := fl.report(t)
 		wantVerdicts(t, report, map[string]string{"Q13": "inconclusive: every fill's row was there at the first read that could show it, within 181 minutes of its fill; " +
 			"place a trade during the watch to measure it"})
-		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day", "rows there at the first read that could show them: 1, within 181 minutes of the fills")
+		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 2 orders filled in the last day", "rows there at the first read that could show them: 2, within 181 minutes of the fills")
 	})
-	t.Run("a fill whose row never comes", func(t *testing.T) {
+	t.Run("two fills whose rows never come", func(t *testing.T) {
 		t.Parallel()
-		fl := watchFills(t, probeNow, schwabtest.TransactionRules{}, watchedFill{filled: soon, after: -1})
+		fl := watchFills(t, probeNow, schwabtest.TransactionRules{}, watchedFill{filled: soon, after: -1}, watchedFill{filled: soon.Add(5 * time.Minute), after: -1})
 		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q13": "no fill's trade appeared by the watch's end, 24 minutes after the fills"})
-		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 1 order filled in the last day",
-			"filled orders without a row by the watch's end: 1, 24 minutes after the fills")
-	})
-	t.Run("a fill whose row comes, and one whose row never comes", func(t *testing.T) {
-		t.Parallel()
-		fl := watchFills(t, probeNow, schwabtest.TransactionRules{},
-			watchedFill{filled: soon, after: 150 * time.Second}, watchedFill{filled: soon.Add(time.Minute), after: -1})
-		report := fl.report(t)
-		wantVerdicts(t, report, map[string]string{"Q13": "a fill's trade appears from 2 to 3 minutes after the fill, " +
-			"though 1 other fill had none by the watch's end, 23 minutes or more after it"})
+		wantVerdicts(t, report, map[string]string{"Q13": "no fill's trade appeared by the watch's end, from 19 to 24 minutes after the fills"})
 		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 2 orders filled in the last day",
-			"rows that came during the watch: 1, from 2 to 3 minutes after the fills", "filled orders without a row by the watch's end: 1, 23 minutes after the fills")
+			"filled orders without a row by the watch's end: 2, from 19 to 24 minutes after the fills")
+	})
+	t.Run("two fills whose rows come, and two whose rows never come", func(t *testing.T) {
+		t.Parallel()
+		// Rows from 2 to 3 and from 4 to 5 minutes after their fills, and
+		// none 22 and 17 minutes after theirs.
+		fl := watchFills(t, probeNow, schwabtest.TransactionRules{},
+			watchedFill{filled: soon, after: 150 * time.Second}, watchedFill{filled: soon.Add(time.Minute), after: 270 * time.Second},
+			watchedFill{filled: soon.Add(2 * time.Minute), after: -1}, watchedFill{filled: soon.Add(7 * time.Minute), after: -1})
+		report := fl.report(t)
+		wantVerdicts(t, report, map[string]string{"Q13": "a fill's trade appears from 2 to 5 minutes after the fill, " +
+			"though 2 other fills had none by the watch's end, 17 minutes or more after them"})
+		wantEvidence(t, report, "Q13", "30 polls, a minute apart; 4 orders filled in the last day",
+			"rows that came during the watch: 2, from 2 to 5 minutes after the fills", "filled orders without a row by the watch's end: 2, from 17 to 22 minutes after the fills")
 	})
 	for _, tc := range []struct {
 		name  string

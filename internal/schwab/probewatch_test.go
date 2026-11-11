@@ -490,7 +490,8 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 		}
 		v.answer = fmt.Sprintf("a fill's trade appears %s after the fill", minutesSpan(lo, slices.Max(most)))
 		if len(waited) > 0 {
-			v.answer += fmt.Sprintf(", though %s had none by the watch's end, %d minutes or more after it", plural(len(waited), "other fill"), slices.Min(waited))
+			v.answer += fmt.Sprintf(", though %s had none by the watch's end, %d minutes or more after %s", plural(len(waited), "other fill"), slices.Min(waited),
+				map[bool]string{true: "it", false: "them"}[len(waited) == 1])
 		}
 	case unread > 0 && len(waited)+len(upTo) > 0:
 		// The verdicts below speak of every fill, but no read could show
