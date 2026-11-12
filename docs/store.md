@@ -1061,8 +1061,9 @@ entry, counted or not.
   `manifest.json`: when, the store's versions, the filters, each table's file
   and rows, the units, and each account's coverage by source.
 - **The summary** on stderr gives the rows written and each account's
-  coverage by source, and says what an export of counted rows leaves out:
-  file transactions that wait for you to resolve them.
+  coverage by source, and says what an export of counted rows (the ledger
+  and the legs, without `-all`) leaves out: file transactions that wait for
+  you to resolve them.
 - **One read.** An export reads every table it writes in one read
   transaction, so they agree with one another, into memory, and only then
   writes them, so that a slow reader of its output (`| less`) keeps no

@@ -122,14 +122,15 @@ func runExport(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	if err != nil {
 		return err
 	}
-	exportSummary(stderr, e, *out, *dir, *all)
+	exportSummary(stderr, path, e, *out, *dir)
 	return nil
 }
 
-// exportSummary says on w what an export wrote and where, each account's
-// coverage by source, which says which dates the rows are whole for, and
-// what it left out: unless all, the file transactions that wait for you.
-func exportSummary(w io.Writer, e *history.Export, out, dir string, all bool) {
+// exportSummary says on w what an export of the store at path wrote and
+// where, each account's coverage by source, which says which dates the rows
+// are whole for, and what it left out: the file transactions that wait for
+// you, when it holds a table of counted rows without -all.
+func exportSummary(w io.Writer, path string, e *history.Export, out, dir string) {
 	var parts []string
 	for _, t := range e.Tables {
 		parts = append(parts, fmt.Sprintf("%s %s", plural(t.Rows, "row"), t.Name))
@@ -158,8 +159,9 @@ func exportSummary(w io.Writer, e *history.Export, out, dir string, all bool) {
 		line = append(line, fmt.Sprintf("%s %s to %s", c.Source, c.From, c.To))
 	}
 	flush()
-	if e.Waiting > 0 && !all {
-		fmt.Fprintf(w, "%d file %s for you to resolve them (schwabtx status -review) and %s not in this export\n",
-			e.Waiting, pluralWord(e.Waiting, "transaction waits", "transactions wait"), pluralWord(e.Waiting, "is", "are"))
+	if e.Waiting > 0 {
+		fmt.Fprintf(w, "%d file %s for you to resolve %s (%s) and %s not in this export\n",
+			e.Waiting, pluralWord(e.Waiting, "transaction waits", "transactions wait"), pluralWord(e.Waiting, "it", "them"),
+			copyCommand(path, "status", "-review"), pluralWord(e.Waiting, "is", "are"))
 	}
 }

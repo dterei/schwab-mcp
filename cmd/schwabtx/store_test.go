@@ -251,8 +251,9 @@ func TestImportWhatSnapshotWrites(t *testing.T) {
 // strictly inside them (api_file); a History export of those days then
 // links the rows the file holds, holds out a row it lacks on an inner day
 // and counts one on an end day. status -review names the held-out row and
-// the command that settles it; edit -link none counts it from the file, and
-// the ledger then holds it.
+// the command that settles it; an export of the ledger says that it waits,
+// and one of the entries, which holds it, does not; edit -link none counts
+// it from the file, and the ledger then holds it.
 func TestImportHistoryAndResolve(t *testing.T) {
 	f, _ := setup(t)
 	const number = "61803398"
@@ -317,6 +318,15 @@ func TestImportHistoryAndResolve(t *testing.T) {
 		}
 	}
 
+	// The ledger leaves the held-out row out, and says so; the entries
+	// hold it, and say nothing of it.
+	if _, stderr := mustRun(t, "export"); !strings.Contains(stderr,
+		"\n1 file transaction waits for you to resolve it (schwabtx status -review) and is not in this export\n") {
+		t.Errorf("export of the ledger said %q", stderr)
+	}
+	if entries, stderr := mustRun(t, "export", "-what", "entries"); !strings.Contains(entries, held+",") || strings.Contains(stderr, "wait") {
+		t.Errorf("export -what entries wrote\n%s\nand said %q", entries, stderr)
+	}
 	out, _ = mustRun(t, "edit", held, "-link", "none", "-note", "no API row")
 	if want := held + ": not counted (held out: the API covers its dates) -> counted (your decision)\n"; !strings.Contains(out, want) {
 		t.Errorf("edit -link none printed %q, want %q", out, want)

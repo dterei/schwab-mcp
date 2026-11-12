@@ -184,7 +184,8 @@ type Export struct {
 	Coverage []ExportCoverage
 	// Waiting counts the file transactions inside the rows' days that wait
 	// for you to resolve them (held out, or uncertain which API
-	// transaction they are), which no export of counted rows holds.
+	// transaction they are), which a table of counted rows (the ledger, the
+	// legs) leaves out; 0 when no table is one, or with All.
 	Waiting int
 	// HoldsNumbers says that it holds full account numbers (-raw or
 	// -show-accounts).
@@ -286,6 +287,10 @@ func (s *Store) Export(ctx context.Context, o ExportOptions) (*Export, error) {
 		}
 		if e.Coverage, err = exportCoverage(r, account); err != nil {
 			return err
+		}
+		// Only a table of counted rows leaves out what waits for you.
+		if o.All || !slices.ContainsFunc(tables, func(t exportTable) bool { return t.counted || t.allView != "" }) {
+			return nil
 		}
 		where, args := exportFilter(exportTable{day: "day"}, o, account)
 		return r.queryRow(`SELECT count(*) FROM entries v WHERE v.source = 'file' AND v.counted_why IN ('held_out', 'uncertain')`+

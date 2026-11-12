@@ -258,7 +258,8 @@ func TestExport(t *testing.T) {
 		if got := refs(e); !slices.Equal(got, []string{"C52b4daba.2", "C52b4daba.3", "T1002", "Cfeb86276.1"}) {
 			t.Errorf("the entries from 2026-01-09 to 2026-02-11 are %q", got)
 		}
-		if e.account != "A1 ...398" || e.Waiting != 1 || len(e.Coverage) != 5 || e.Coverage[4].Source != "snapshot" {
+		// The entries hold what waits for you, and say none waits.
+		if e.account != "A1 ...398" || e.Waiting != 0 || len(e.Coverage) != 5 || e.Coverage[4].Source != "snapshot" {
 			t.Errorf("the export is of %q with %d waiting and the coverage %+v", e.account, e.Waiting, e.Coverage)
 		}
 		if e := exportOf(t, s, ExportOptions{From: "2026-02-12"}); e.Waiting != 1 || e.Tables[0].Rows != 3 {
@@ -266,6 +267,20 @@ func TestExport(t *testing.T) {
 		}
 		if got := refs(exportOf(t, s, ExportOptions{What: []string{"ledger"}, All: true, From: "2026-02-11", To: "2026-02-11"})); !slices.Equal(got, []string{"Cfeb86276.1"}) {
 			t.Errorf("the ledger with -all of 2026-02-11 is %q", got)
+		}
+		for _, o := range []ExportOptions{
+			{What: []string{"legs"}, Account: "...398"},
+			{What: []string{"snapshots", "legs"}, Account: "...398"},
+			{What: []string{"snapshots"}, Account: "...398"},
+			{What: []string{"ledger"}, Account: "...398", All: true},
+		} {
+			want := 2
+			if o.All || len(o.What) == 1 && o.What[0] == "snapshots" {
+				want = 0
+			}
+			if got := exportOf(t, s, o).Waiting; got != want {
+				t.Errorf("an export of %q (all %v) says %d wait, want %d", o.What, o.All, got, want)
+			}
 		}
 		if got := exportOf(t, s, ExportOptions{What: []string{"legs"}}).Tables[0].Rows; got != 8 {
 			t.Errorf("the counted legs are %d, want 8", got)
