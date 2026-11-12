@@ -464,8 +464,9 @@ func (s *Store) noJournal() bool {
 	return !exists(s.path+"-wal") && !exists(s.path+"-shm") && !exists(s.path+"-journal")
 }
 
-// probe reads the file's application ID and user_version and whether its
-// schema is empty, through a connection with the URI's params.
+// probe reads the file's application ID and user_version and, unless the
+// file is a store's, whether its schema is empty, through a connection
+// with the URI's params.
 func (s *Store) probe(ctx context.Context, params ...string) (id, version int64, empty bool, err error) {
 	db, err := sql.Open("sqlite", dsn(s.path, params...))
 	if err != nil {
@@ -486,9 +487,13 @@ func (s *Store) probe(ctx context.Context, params ...string) (id, version int64,
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return 0, 0, false, err
 	}
-	var some bool
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM sqlite_schema)").Scan(&some); err != nil {
-		return 0, 0, false, err
+	// Whether the schema is empty matters only to a file that is not a
+	// store's, and reading sqlite_schema parses a store's whole schema.
+	some := id == applicationID
+	if !some {
+		if err := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM sqlite_schema)").Scan(&some); err != nil {
+			return 0, 0, false, err
+		}
 	}
 	return id, version, !some, nil
 }
