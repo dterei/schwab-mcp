@@ -27,7 +27,9 @@ import (
 // them.
 func TestCounting(t *testing.T) {
 	t.Parallel()
-	s := newStore(t, Options{})
+	// A clock that moves, so that the late API row comes after your
+	// decision.
+	s := newStore(t, Options{Now: tickingNow()})
 	api := []string{
 		apiRaw(1001, at(time.January, 12), "DIVIDEND_OR_INTEREST", 3.21, "", 0, "Ordinary Dividend~ABCD"),
 		apiRaw(1002, at(time.January, 20), "TRADE", -50, "XYZ", 5, ""),

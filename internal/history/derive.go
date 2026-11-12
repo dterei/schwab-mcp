@@ -168,7 +168,7 @@ func loadAccount(w *wtx, id int64, g *globals) (accountInputs, error) {
 		var t txnInput
 		var latest, activity, order sql.NullInt64
 		var at, trade, day, typ, status, text, problems, sent sql.NullString
-		if err := rows.Scan(&t.id, &t.firstRead, &latest, &at, &trade, &day, &activity, &t.idSource, &typ, &status,
+		if err := rows.Scan(&t.id, &t.firstRead, &t.firstSeen, &latest, &at, &trade, &day, &activity, &t.idSource, &typ, &status,
 			&t.description, &text, &t.net, &problems, &sent, &order); err != nil {
 			return err
 		}
@@ -187,7 +187,7 @@ func loadAccount(w *wtx, id int64, g *globals) (accountInputs, error) {
 		byID[t.id] = len(in.txns)
 		in.txns = append(in.txns, t)
 		return nil
-	}, `SELECT t.txn_id, t.first_read_id, t.latest_list_read_id, x.time, x.trade_date, x.trade_day, t.activity_id,
+	}, `SELECT t.txn_id, t.first_read_id, t.first_seen_at, t.latest_list_read_id, x.time, x.trade_date, x.trade_day, t.activity_id,
 		t.id_source, x.type, x.status, x.description, `+rawIfMasked+`,
 		x.net_cents, x.problems, x.number_sent_masked, x.order_id
 		FROM api_txn t JOIN txn x ON x.txn_id = t.txn_id WHERE t.account_id = ?`, id)

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -55,6 +56,14 @@ func TestMain(m *testing.M) {
 var testNow = time.Date(2026, time.November, 12, 15, 4, 5, 678_000_000, time.UTC)
 
 func fixedNow() time.Time { return testNow }
+
+// tickingNow returns a clock that starts at testNow and moves a second on
+// each time it is read, for a test that needs what the store records in
+// one write to come after what it recorded in another.
+func tickingNow() func() time.Time {
+	var ticks atomic.Int64
+	return func() time.Time { return testNow.Add(time.Duration(ticks.Add(1)) * time.Second) }
+}
 
 // newStore opens a copy of the template store in a directory of its own,
 // with a fixed clock unless o says otherwise, and closes it when the test

@@ -109,7 +109,7 @@ func loadDecisions(w *wtx, where string, args ...any) ([]decisionInput, error) {
 	err := queryEach(w, func(rows *sql.Rows) error {
 		var d decisionInput
 		var basis sql.NullString
-		if err := rows.Scan(&d.id, &d.kind, &d.subject, &d.value, &basis); err != nil {
+		if err := rows.Scan(&d.id, &d.madeAt, &d.kind, &d.subject, &d.value, &basis); err != nil {
 			return err
 		}
 		if basis.Valid {
@@ -130,7 +130,7 @@ func loadDecisions(w *wtx, where string, args ...any) ([]decisionInput, error) {
 		}
 		ds = append(ds, d)
 		return nil
-	}, "SELECT decision_id, kind, subject, value, basis FROM decision WHERE "+where+" ORDER BY decision_id", args...)
+	}, "SELECT decision_id, made_at, kind, subject, value, basis FROM decision WHERE "+where+" ORDER BY decision_id", args...)
 	return ds, err
 }
 

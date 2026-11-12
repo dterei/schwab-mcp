@@ -67,6 +67,8 @@ func (e *ledgerEntry) key() entryKey { return entryKey{e.account, e.ref} }
 type decisionInput struct {
 	id                   int64
 	kind, subject, value string
+	// madeAt is when it was made, an instant as the store writes one.
+	madeAt string
 	// basisSeq is the revision of the transaction that the decision was
 	// made against, when basisValid.
 	basisSeq   int

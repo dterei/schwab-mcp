@@ -733,7 +733,10 @@ starts `TDA TRAN`) inside the coverage that matches nothing counts, flagged
 from the file, `-reject T…` keeps a pair from forming, `-count yes|no`
 overrides the rest, and `edit -action LABEL -policy count` counts every
 held-out row of an action, such as Bank Interest, that the API turns out not
-to show.
+to show. `-link none`, and `-count yes`, also say that the row is none of the
+API rows the store holds then: one that may be it and comes later, as a row
+the API serves late does, flags the file row `late_api_row`, and both count
+until you say which it is.
 
 An entry's `counted_why` says which rule decided:
 
@@ -825,7 +828,7 @@ need another export), and `-all` adds the `info` flags. The usual ones:
 | `uncertain_match` | `edit C… -link T…` the one it is, or `-link none` |
 | `held_out` | `edit C… -link T…` if an API row is it, else `-link none`; or `edit -action LABEL -policy count` for every such row of an action |
 | `linked_api_uncounted` | the API row it is linked to does not count; `edit C… -link none` counts it from the file |
-| `late_api_row` | `edit C… -link T…` if the API row that came is it (after `-count auto`, if you gave `-count yes`), else `edit C… -reject T…` |
+| `late_api_row` | `edit C… -link T…` if the API row that came is it (`-count auto`, if you gave `-count yes`), else `edit C… -reject T…`, one edit for each it names; only an API row first seen after your decision is flagged, since one the store held then is one you said it is not |
 | `symbol_unsure` | nothing if one security changed its ticker; else `edit K:… -differ K:…` |
 | `split_by_security` | nothing if they are different securities; else `edit K:… -same K:…` |
 | `near_duplicate` | `edit C… -count no` on the one Schwab corrected |

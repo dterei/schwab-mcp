@@ -40,7 +40,7 @@ func (w *matchWorld) addAPI(id int64, day, family, category string, amount int64
 	e.amount, e.fees = centsOf(amount), centsOf(0)
 	e.symbol = nullString(symbol)
 	e.counted, e.countedWhy = true, "api"
-	t := txnInput{id: id, activityID: id, tradeDay: nytime.Date(day)}
+	t := txnInput{id: id, activityID: id, tradeDay: nytime.Date(day), firstSeen: apiSeen}
 	if quantity != 0 {
 		e.quantity = centsOf(quantity * 1e6)
 		t.legs = []legInput{{assetType: "EQUITY", symbol: symbol, amountMicros: centsOf(quantity * 1e6)}}
@@ -48,6 +48,24 @@ func (w *matchWorld) addAPI(id int64, day, family, category string, amount int64
 	w.api = append(w.api, e)
 	w.txns = append(w.txns, t)
 	return &w.api[len(w.api)-1]
+}
+
+// apiSeen is when addAPI's transactions were first seen, unless the test
+// says otherwise (w.seen); beforeAPI and afterAPI are times of decisions
+// made before and after that.
+const (
+	beforeAPI = "2026-04-01T09:00:00.000Z"
+	apiSeen   = "2026-04-01T12:00:00.000Z"
+	afterAPI  = "2026-04-02T09:00:00.000Z"
+)
+
+// seen sets when API transaction id was first seen.
+func (w *matchWorld) seen(id int64, at string) {
+	for i := range w.txns {
+		if w.txns[i].id == id {
+			w.txns[i].firstSeen = at
+		}
+	}
 }
 
 // run derives the files' transactions and matches them, and returns the
@@ -228,6 +246,9 @@ func TestMatcher(t *testing.T) {
 		// codes; apiFlags each API transaction's flags among codes.
 		counts, apiFlags []string
 		codes            []string
+		// details are the file transactions' flags among codes, with
+		// their details, when not nil.
+		details []string
 	}{
 		{
 			name: "two identical trades and two identical fills stay two",
@@ -479,14 +500,15 @@ func TestMatcher(t *testing.T) {
 				w.addAPI(4, "2026-03-10", "income", "dividend", 800, "ABCD", 0)
 				gone := w.addAPI(5, "2026-03-10", "income", "dividend", 900, "ABCD", 0)
 				gone.counted, gone.countedWhy = false, "gone"
+				subject := func(n int) string { return "c:" + f.sha + ":" + strconv.Itoa(n) }
 				w.decisions = []decisionInput{
-					{id: 1, kind: "match", subject: "c:" + f.sha + ":1", value: "none"},
-					{id: 2, kind: "count", subject: "c:" + f.sha + ":2", value: "yes"},
+					{id: 1, madeAt: beforeAPI, kind: "match", subject: subject(1), value: "none"},
+					{id: 2, madeAt: beforeAPI, kind: "count", subject: subject(2), value: "yes"},
 					// You said the third is not T4, and the fourth's API row
 					// does not count.
-					{id: 3, kind: "match", subject: "c:" + f.sha + ":3", value: "none"},
-					{id: 4, kind: "reject", subject: "c:" + f.sha + ":3", value: "a:1:4"},
-					{id: 5, kind: "match", subject: "c:" + f.sha + ":4", value: "none"},
+					{id: 3, madeAt: beforeAPI, kind: "match", subject: subject(3), value: "none"},
+					{id: 4, madeAt: beforeAPI, kind: "reject", subject: subject(3), value: "a:1:4"},
+					{id: 5, madeAt: beforeAPI, kind: "match", subject: subject(4), value: "none"},
 				}
 				w.runs = cover
 				w.complete = []schwabfile.Coverage{{From: "2026-03-01", To: "2026-03-31"}}
@@ -494,6 +516,45 @@ func TestMatcher(t *testing.T) {
 			counts:   []string{"Ca.1 user late_api_row", "Ca.2 user late_api_row", "Ca.3 user", "Ca.4 user"},
 			codes:    []string{"late_api_row", "not_in_files"},
 			apiFlags: []string{"T4 not_in_files", "T5 not_in_files"},
+			details: []string{
+				"Ca.1 late_api_row it may be T2, which counts beside it; if it is: schwabtx edit Ca0000000.1 -link T2; if not: schwabtx edit Ca0000000.1 -reject T2",
+				"Ca.2 late_api_row it may be T3, which counts beside it; if it is: schwabtx edit Ca0000000.2 -count auto; if not: schwabtx edit Ca0000000.2 -reject T3",
+			},
+		},
+		{
+			name: "the API rows the store held when you said none is the row are not late, and a row it counts beside is one you said it is not",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-11", "Qualified Dividend", "ABCD", 500, 0) // uncertain: T1 or T2
+				addRow(f, "2026-03-10", "Buy", "XYZ", -5000, 5)               // exactly T5, then unlinked
+				addRow(f, "2026-03-10", "Qualified Dividend", "EFGH", 400, 0) // T6, though you said it counts no
+				w.files = []*fileInput{f}
+				w.addAPI(1, "2026-03-10", "income", "dividend", 500, "ABCD", 0)
+				w.addAPI(2, "2026-03-12", "income", "dividend", 500, "ABCD", 0)
+				w.addAPI(3, "2026-03-11", "income", "dividend", 500, "ABCD", 0)
+				w.addAPI(4, "2026-03-10", "income", "dividend", 500, "ABCD", 0)
+				w.addAPI(5, "2026-03-10", "buy", "buy", -5000, "XYZ", 5)
+				w.addAPI(6, "2026-03-09", "income", "dividend", 400, "EFGH", 0)
+				w.seen(3, "2026-04-03T09:00:00.000Z")
+				w.seen(4, "2026-04-03T09:00:00.000Z")
+				w.seen(6, "2026-04-03T09:00:00.000Z")
+				subject := func(n int) string { return "c:" + f.sha + ":" + strconv.Itoa(n) }
+				w.decisions = []decisionInput{
+					{id: 1, madeAt: afterAPI, kind: "match", subject: subject(1), value: "none"},
+					{id: 2, madeAt: afterAPI, kind: "match", subject: subject(2), value: "none"},
+					{id: 3, madeAt: beforeAPI, kind: "match", subject: subject(3), value: "none"},
+					{id: 4, madeAt: beforeAPI, kind: "count", subject: subject(3), value: "no"},
+				}
+				w.runs = cover
+				w.complete = []schwabfile.Coverage{{From: "2026-03-01", To: "2026-03-31"}}
+			},
+			counts:   []string{"Ca.1 user late_api_row", "Ca.2 user", "Ca.3 user"},
+			codes:    []string{"late_api_row", "not_in_files"},
+			apiFlags: []string{"T1 not_in_files", "T2 not_in_files", "T5 not_in_files", "T6 not_in_files"},
+			details: []string{
+				"Ca.1 late_api_row it may be T4 or T3, which count beside it; if one is: schwabtx edit Ca0000000.1 -link T4, or -link T3; " +
+					"if none is: schwabtx edit Ca0000000.1 -reject T4; schwabtx edit Ca0000000.1 -reject T3",
+			},
 		},
 		{
 			name: "a symbol changed: one security links them",
@@ -842,6 +903,19 @@ func TestMatcher(t *testing.T) {
 		if c.counts != nil {
 			if got := countsOf(files, c.codes...); !slices.Equal(got, c.counts) {
 				t.Errorf("%s: the file transactions count %q, want %q", c.name, got, c.counts)
+			}
+		}
+		if c.details != nil {
+			var got []string
+			for _, e := range files {
+				for _, f := range e.flags.sorted() {
+					if slices.Contains(c.codes, f.code) {
+						got = append(got, strings.TrimSpace(shortRef(e.ref)+" "+f.code+" "+f.detail))
+					}
+				}
+			}
+			if !slices.Equal(got, c.details) {
+				t.Errorf("%s: the file transactions are flagged %q, want %q", c.name, got, c.details)
 			}
 		}
 		var flags []string

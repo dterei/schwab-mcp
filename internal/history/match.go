@@ -144,7 +144,11 @@ type matchItem struct {
 	tda           bool
 	rule          matchRule
 	none, decided bool
-	rejected      map[string]bool
+	// since is when you first said that a file transaction counts from
+	// the file (-link none, or -count yes), and seen when an API
+	// transaction was first seen: lateRows compares them.
+	since, seen string
+	rejected    map[string]bool
 	// match is the index of its match, or -1.
 	match int
 }
@@ -174,8 +178,8 @@ type matchLeg struct {
 // (legs); and equal amounts in each other's window, each the other's
 // strictly best by score (unique). Your reject decisions keep their pairs
 // apart in all of these. A file transaction you decided counts from the
-// file, which an API transaction left over may be, is flagged
-// late_api_row: both count until you say which it is.
+// file, which an API transaction left over and first seen since may be,
+// is flagged late_api_row: both count until you say which it is.
 func matchAccount(in matchInput) ([]matchOutput, []candidateOutput) {
 	byTxn := map[int64]*txnInput{}
 	for i := range in.txns {
@@ -192,7 +196,7 @@ func matchAccount(in matchInput) ([]matchOutput, []candidateOutput) {
 			txn: e.txn.Int64, time: e.time.String, match: -1,
 		}
 		if t != nil {
-			it.order, it.activity = t.orderID, t.activityID
+			it.order, it.activity, it.seen = t.orderID, t.activityID, t.firstSeen
 			for _, l := range t.legs {
 				if l.isSecurity() {
 					it.legs = append(it.legs, matchLeg{symbolRef{l.symbol, l.security}, absNull(l.amountMicros)})
@@ -225,8 +229,19 @@ func matchAccount(in matchInput) ([]matchOutput, []candidateOutput) {
 		if i < len(in.decided) {
 			decided = in.decided[i]
 		}
-		_, it.decided = decided["count"]
+		var count decisionInput
+		count, it.decided = decided["count"]
 		it.none = decided["match"].value == "none"
+		var made []string
+		if it.none {
+			made = append(made, decided["match"].madeAt)
+		}
+		if it.decided && e.counted {
+			made = append(made, count.madeAt)
+		}
+		if len(made) > 0 {
+			it.since = slices.Min(made)
+		}
 		var all []decisionInput
 		if i < len(in.all) {
 			all = in.all[i]
@@ -743,18 +758,22 @@ func mayBe(f, a *matchItem) bool {
 
 // lateRows flags late_api_row each file transaction in no match that you
 // decided counts from the file (-link none, or -count yes) and that a
-// counted API transaction in no match may be (mayBe): one that came after
-// your decision, as a row the API serves late does, and that counts beside
-// it until you say which it is. It returns those API transactions.
+// counted API transaction in no match may be (mayBe), first seen after you
+// decided: one that came late, as a row the API serves late does, and
+// that counts beside it until you say which it is. An API transaction
+// that the store held when you decided is one you said it is not. It
+// returns those API transactions.
 func lateRows(files, apis []*matchItem) map[*matchItem]bool {
 	near := map[*matchItem]bool{}
 	for _, f := range files {
-		if f.match >= 0 || !f.none && (!f.decided || !f.e.counted) {
+		// fileEntry counted a row whose count you decided; one you said is
+		// none counts (countFiles, after this).
+		if f.match >= 0 || f.decided && !f.e.counted || !f.decided && !f.none {
 			continue
 		}
 		var refs []string
 		for _, a := range apis {
-			if a.match < 0 && a.e.counted && mayBe(f, a) {
+			if a.match < 0 && a.e.counted && a.seen > f.since && mayBe(f, a) {
 				refs = append(refs, a.e.ref)
 				near[a] = true
 			}
@@ -762,12 +781,23 @@ func lateRows(files, apis []*matchItem) map[*matchItem]bool {
 		if len(refs) == 0 {
 			continue
 		}
-		link := fmt.Sprintf("schwabtx edit %s -link %s", f.e.ref, refs[0])
-		if !f.none {
-			link = fmt.Sprintf("schwabtx edit %s -count auto", f.e.ref)
+		edit := "schwabtx edit " + f.e.ref
+		var rejects []string
+		for _, r := range refs {
+			rejects = append(rejects, edit+" -reject "+r)
 		}
-		f.e.flags.add("late_api_row", fmt.Sprintf("it may be %s, which counts beside it; if it is: %s; if not: schwabtx edit %s -reject %s",
-			joinOr(refs), link, f.e.ref, refs[0]))
+		var detail string
+		switch {
+		case f.decided:
+			detail = fmt.Sprintf("it may be %s, which %s beside it; if %s: %s -count auto; if not: %s",
+				joinOr(refs), plural(len(refs), "counts", "count"), plural(len(refs), "it is", "one is"), edit, strings.Join(rejects, "; "))
+		case len(refs) == 1:
+			detail = fmt.Sprintf("it may be %s, which counts beside it; if it is: %s -link %s; if not: %s", refs[0], edit, refs[0], rejects[0])
+		default:
+			detail = fmt.Sprintf("it may be %s, which count beside it; if one is: %s -link %s; if none is: %s",
+				joinOr(refs), edit, strings.Join(refs, ", or -link "), strings.Join(rejects, "; "))
+		}
+		f.e.flags.add("late_api_row", detail)
 	}
 	return near
 }

@@ -81,6 +81,9 @@ type txnInput struct {
 	// firstRead is the read that first returned it, and latestListRead the
 	// last read of the account's list that did, or 0.
 	firstRead, latestListRead int64
+	// firstSeen is when it was first seen, an instant as the store writes
+	// one.
+	firstSeen string
 	// time and tradeDate are as Schwab sent them, zero when it sent none,
 	// and tradeDay the day it was booked on.
 	time, tradeDate time.Time
