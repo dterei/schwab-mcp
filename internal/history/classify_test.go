@@ -150,6 +150,7 @@ func TestClassifyAPI(t *testing.T) {
 		{"a dividend", apiClass{typ: "DIVIDEND_OR_INTEREST", wording: "Qualified Dividend~SYM", legs: []legClass{cash}}, "doi.dividend", "dividend", "income", ""},
 		{"a foreign tax", apiClass{typ: "DIVIDEND_OR_INTEREST", wording: "Foreign Tax Withheld~SYM"}, "doi.foreign_tax", "tax", "tax", "unknown_wording Foreign Tax Withheld~SYM"},
 		{"an ADR fee", apiClass{typ: "DIVIDEND_OR_INTEREST", wording: "ADR Fee~SYM"}, "doi.adr_fee", "fee", "fee", "unknown_wording ADR Fee~SYM"},
+		{"a foreign tax without a symbol", apiClass{typ: "DIVIDEND_OR_INTEREST", wording: "Foreign Tax Paid"}, "doi.other", "interest", "income", "unknown_wording Foreign Tax Paid"},
 		{"interest", apiClass{typ: "DIVIDEND_OR_INTEREST", wording: "SCHWAB1 INT 03/16-04/15"}, "doi.interest", "interest", "income", ""},
 		{"other income of a symbol", apiClass{typ: "DIVIDEND_OR_INTEREST", wording: "Capital Gain~SYM"}, "doi.other_sym", "dividend", "income", "unknown_wording Capital Gain~SYM"},
 		{"other income", apiClass{typ: "DIVIDEND_OR_INTEREST", wording: "BANK INT 12345678 SCHWAB BANK"}, "doi.other", "interest", "income", "unknown_wording BANK INT ...678 SCHWAB BANK"},
@@ -373,6 +374,22 @@ func TestClassifyFile(t *testing.T) {
 				t.Errorf("%q is %+v, but %q is %+v", spelled, d, action, c)
 			}
 		}
+	}
+	// Of the actions that move proceeds or holdings, the two of a cash
+	// merger and the two of a full redemption are one event in two rows.
+	twoRows := []string{"Cash Merger", "Cash Merger Adj", "Full Redemption", "Full Redemption Adj"}
+	for action, family := range historyActions {
+		if family != "proceeds" && family != "holding" {
+			continue
+		}
+		c := classifyFile(fileClass{action: normalAction(action), hasQuantity: family == "holding", quantity: negative, amount: centsOf(0)})
+		if got, want := c.flags.has("two_row_event"), slices.Contains(twoRows, action); got != want {
+			t.Errorf("%s is flagged two_row_event: %v, want %v", action, got, want)
+		}
+	}
+	// Digits are part of an action: Auto S1 Fee is not Auto S Fee.
+	if a, b := normalAction("Auto S1 Fee"), normalAction("Auto S Fee"); a == b {
+		t.Errorf("Auto S1 Fee and Auto S Fee are one action, %q", a)
 	}
 	if len(fileActions) != len(historyActions)-1 { // the two spellings of Pr Yr Non-Qual Div are one
 		t.Errorf("the rules know %d actions, the research %d", len(fileActions), len(historyActions)-1)

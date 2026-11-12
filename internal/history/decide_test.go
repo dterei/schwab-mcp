@@ -248,6 +248,77 @@ func TestJournalPairsAndOverrides(t *testing.T) {
 	}
 }
 
+// A pair that your decision made across accounts, of entries that pairing
+// would not read by themselves (sweeps, a deposit and a withdrawal), is
+// undone on both sides when the decision is withdrawn or names another
+// entry, as a rebuild undoes it.
+func TestPairDecisionsAcrossAccounts(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	at := time.Date(2026, 10, 5, 15, 0, 0, 0, time.UTC)
+	start, end := at.Add(-72*time.Hour), at.Add(72*time.Hour)
+	const third = "40221783"
+	record(t, s, listRead(individual, start, end, end, decodeRow(t, journalRaw(1, individual, at, -500, "BANK SWEEP TO BROKERAGE"))))
+	record(t, s, listRead(options, start, end, end, decodeRow(t, journalRaw(2, options, at.Add(time.Hour), 500, "BANK SWEEP TO BROKERAGE"))))
+	record(t, s, listRead(third, start, end, end, decodeRow(t, journalRaw(3, third, at.Add(2*time.Hour), 500, "BANK SWEEP TO BROKERAGE"))))
+	pairs := func() string {
+		var out []string
+		for _, ref := range []string{"T1", "T2", "T3"} {
+			out = append(out, entryRowOf(t, s, ref, "pair_kind, pair_ref, flags"))
+		}
+		return strings.Join(out, " | ")
+	}
+	rebuilt := func(step string, pairs func() string) {
+		t.Helper()
+		before := pairs()
+		if err := s.withWrite(t.Context(), "rebuilding", rebuild); err != nil {
+			t.Fatal(err)
+		}
+		if after := pairs(); after != before {
+			t.Errorf("%s: recorded %q, rebuilt %q", step, before, after)
+		}
+	}
+	for _, step := range []struct {
+		value, want string
+		changes     []string // the refs whose booking changed
+	}{
+		{"a:2:2", "sweep T2  | sweep T1  |   unpaired_sweep", []string{"T1", "T2"}},
+		{"a:3:3", "sweep T3  |   unpaired_sweep | sweep T1 ", []string{"T1", "T2", "T3"}},
+		{"auto", "  unpaired_sweep |   unpaired_sweep |   unpaired_sweep", []string{"T1", "T3"}},
+	} {
+		d := decide(t, s, Decision{Kind: "pair", Subject: "a:1:1", Value: step.value})
+		if got := pairs(); got != step.want {
+			t.Errorf("paired with %s: %q, want %q", step.value, got, step.want)
+		}
+		var changed []string
+		for _, c := range d.Changes {
+			changed = append(changed, c.Ref)
+		}
+		if !slices.Equal(changed, step.changes) {
+			t.Errorf("paired with %s: the decision changed %q, want %q", step.value, changed, step.changes)
+		}
+		rebuilt("paired with "+step.value, pairs)
+	}
+	cash := func(id int64, number, typ string, amount float64) string {
+		return strings.Replace(journalRaw(id, number, at.Add(3*time.Hour), amount, "ACH"), `"type": "JOURNAL"`, `"type": "`+typ+`"`, 1)
+	}
+	record(t, s, listRead(individual, start, end, end.Add(time.Hour), decodeRow(t, cash(4, individual, "ACH_RECEIPT", 300))))
+	record(t, s, listRead(options, start, end, end.Add(time.Hour), decodeRow(t, cash(5, options, "ACH_DISBURSEMENT", -300))))
+	booked := func() string {
+		return entryRowOf(t, s, "T4", "category, pair_kind, pair_ref") + " | " + entryRowOf(t, s, "T5", "category, pair_kind, pair_ref")
+	}
+	for _, step := range []struct{ value, want string }{
+		{"a:2:5", "journal journal T5 | journal journal T4"},
+		{"auto", "deposit   | withdrawal  "},
+	} {
+		decide(t, s, Decision{Kind: "pair", Subject: "a:1:4", Value: step.value})
+		if got := booked(); got != step.want {
+			t.Errorf("the deposit paired with %s: %q, want %q", step.value, got, step.want)
+		}
+		rebuilt("the deposit paired with "+step.value, booked)
+	}
+}
+
 // Decide refuses, with a sentence, a kind it does not take, a subject the
 // store does not hold and a value the kind does not take, and records
 // nothing; it records the rest, with what each changed: whether an entry

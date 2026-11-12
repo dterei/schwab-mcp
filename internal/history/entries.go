@@ -108,9 +108,11 @@ type storedPair struct {
 }
 
 // loadPairCandidates reads the entries of the accounts not in outs that
-// pairing across accounts reads (journals, entries paired as journals, and
-// entries that your pair decisions name), with their pairs as the store
-// holds them.
+// pairing across accounts reads (journals, entries paired as journals or
+// with an entry of another account, and entries that your pair decisions
+// name), with their pairs as the store holds them. An entry paired across
+// accounts by a decision that has since been withdrawn, or that names
+// another entry now, is read so that its pair is undone too.
 func loadPairCandidates(w *wtx, g *globals, outs map[int64]*accountOutputs) ([]pairCandidate, map[entryKey]storedPair, error) {
 	decided, err := json.Marshal(slices.Sorted(maps.Keys(g.pairDecided)))
 	if err != nil {
@@ -151,7 +153,7 @@ func loadPairCandidates(w *wtx, g *globals, outs map[int64]*accountOutputs) ([]p
 		EXISTS (SELECT 1 FROM flag f WHERE f.entry_id = e.entry_id AND f.code = 'ambiguous_journal')
 		FROM entry e LEFT JOIN entry p ON p.entry_id = e.pair_entry_id LEFT JOIN api_txn t ON t.txn_id = e.txn_id
 		LEFT JOIN txn x ON x.txn_id = e.txn_id
-		WHERE e.family IN ('journal', 'shares') OR e.pair_kind = 'journal'
+		WHERE e.family IN ('journal', 'shares') OR e.pair_kind = 'journal' OR p.account_id <> e.account_id
 		OR e.subject IN (SELECT value FROM json_each(?))`, string(decided))
 	return cands, stored, err
 }

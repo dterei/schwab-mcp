@@ -2,6 +2,7 @@ package history
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"math/rand/v2"
 	"reflect"
@@ -61,6 +62,15 @@ func TestEntries(t *testing.T) {
 		}
 	}
 	noID := row(0, same)
+	trade := func(id int64, description, net, legs string) schwab.Transaction {
+		return decodeRow(t, fmt.Sprintf(`{"activityId": %d, "time": "2026-10-05T15:00:00+0000", "tradeDate": "2026-10-05T04:00:00+0000",
+			"accountNumber": %q, "type": "TRADE", "status": "VALID", "subAccount": "CASH", "description": %q, "netAmount": %s,
+			"transferItems": [%s]}`, id, individual, description, net, legs))
+	}
+	const fee = `{"instrument": {"assetType": "CURRENCY", "symbol": "CURRENCY_USD", "instrumentId": 1}, "amount": 0.65, "cost": -0.65, "feeType": "COMMISSION"}`
+	stock := func(symbol string, id int, amount, cost string) string {
+		return fmt.Sprintf(`{"instrument": {"assetType": "EQUITY", "symbol": %q, "instrumentId": %d}, "amount": %s, "cost": %s, "price": 100.0}`, symbol, id, amount, cost)
+	}
 	in := accountInputs{account: 3, txns: []txnInput{
 		recordInput(t, 1, row(1, same)),
 		recordInput(t, 2, row(2, swap(`"netAmount": 1.0`, `"netAmount": 2.0`))),
@@ -80,7 +90,26 @@ func TestEntries(t *testing.T) {
 		recordInput(t, 14, row(14, same)), // its ~XYZ resolved by name
 		recordInput(t, 15, row(15, same)), // your entry_security
 		recordInput(t, 16, row(16, same)), // decided against another revision
-		recordInput(t, 17, row(17, same)), // twice in an answer
+		recordInput(t, 17, row(17, same)), // twice in an answer; decided against a revision it never had
+		// A trade whose legs' costs are not its net amount.
+		recordInput(t, 30, trade(30, "", "-1000.0", stock("XYZ", 9, "10.0", "-1000.0")+", "+fee)),
+		// A trade whose leg's cost is off the grid: its legs cannot be summed.
+		recordInput(t, 31, trade(31, "", "-1000.65", stock("XYZ", 9, "10.0", "81.29223999999999")+", "+fee)),
+		// A spread: two legs, so no one quantity, price or symbol.
+		recordInput(t, 32, trade(32, "", "-100.0", `{"instrument": {"assetType": "OPTION", "symbol": "XYZ   261218C00050000", "instrumentId": 11},
+			"amount": 1.0, "cost": -200.0, "price": 2.0}, {"instrument": {"assetType": "OPTION", "symbol": "XYZ   261218C00060000",
+			"instrumentId": 12}, "amount": -1.0, "cost": 100.0, "price": 1.0}`)),
+		// A sale whose description names another symbol than its leg.
+		recordInput(t, 33, trade(33, "Sold~ABC", "500.0", stock("XYZ", 9, "-5.0", "500.0"))),
+		// A cash row whose cash leg has a cost: no fees, as it has no
+		// security leg.
+		recordInput(t, 34, row(34, swap(`"cost": 0.0`, `"cost": -0.5`))),
+		// A trade of an instrument that no key names.
+		recordInput(t, 35, trade(35, "", "-10.0", `{"instrument": {"assetType": "EQUITY", "symbol": "NOID"}, "amount": 1.0, "cost": -10.0}`)),
+		// A deposit type with a negative amount, that you booked.
+		recordInput(t, 36, row(36, func(s string) string {
+			return swap(`"DIVIDEND_OR_INTEREST"`, `"ACH_RECEIPT"`)(swap(`"netAmount": 1.0`, `"netAmount": -5.0`)(swap(`"amount": 1.0`, `"amount": -5.0`)(s)))
+		})),
 	}}
 	in.txns[16].duplicate = true
 	// The row names another account than the one read.
@@ -112,6 +141,8 @@ func TestEntries(t *testing.T) {
 		decide(8, "category", "a:3:16", "dividend", 2), // the latest holds
 		decide(9, "count", "a:3:16", "yes", 1),
 		decide(10, "account", "acct:3", "kind=ira 12345678", 0),
+		decide(11, "count", "a:3:17", "yes", 5),
+		decide(12, "category", "a:3:36", "withdrawal", 0),
 	}
 	out := deriveAccount(in)
 	type want struct {
@@ -138,7 +169,14 @@ func TestEntries(t *testing.T) {
 		"T14": {"dividend", "doi.dividend", "1 api", []string{unresolved}},
 		"T15": {"dividend", "doi.dividend", "1 api", nil},
 		"T16": {"dividend", "user", "1 user", []string{"stale_decision count decided against revision 1", unresolved}},
-		"T17": {"dividend", "doi.dividend", "1 api", []string{"duplicate_in_answer", unresolved}},
+		"T17": {"dividend", "doi.dividend", "1 user", []string{"duplicate_in_answer", "stale_decision count decided against revision 5", unresolved}},
+		"T30": {"buy", "trade.buy", "1 api", []string{"legs_mismatch the legs' cash is -1000.65, the net amount -1000.00"}},
+		"T31": {"buy", "trade.buy", "1 api", []string{"inexact transferItems[0].cost 81.29223999999999"}},
+		"T32": {"buy", "trade.mixed", "1 api", []string{"mixed_legs"}},
+		"T33": {"sell", "trade.sell", "1 api", nil},
+		"T34": {"dividend", "doi.dividend", "1 api", []string{unresolved}},
+		"T35": {"buy", "trade.buy", "1 api", []string{"unresolved_security NOID"}},
+		"T36": {"withdrawal", "user", "1 api", []string{unresolved}},
 	} {
 		e := entryOf(t, out.entries, ref)
 		got := want{e.category, e.rule, fmt.Sprintf("%d %s", map[bool]int{true: 1}[e.counted], e.countedWhy), flagsOf(e)}
@@ -148,6 +186,18 @@ func TestEntries(t *testing.T) {
 	}
 	if e := entryOf(t, out.entries, "T4"); e.amount.Valid || e.gross.Valid {
 		t.Errorf("T4, off the grid, has amount %v and gross %v", e.amount, e.gross)
+	}
+	for ref, want := range map[string]string{
+		"T30": "fees 65 quantity 10000000 price 100 symbol XYZ",
+		"T32": "fees 0 quantity <nil> price <nil> symbol <nil>",
+		"T33": "fees 0 quantity -5000000 price 100 symbol XYZ",
+		"T34": "fees 0 quantity <nil> price <nil> symbol XYZ",
+	} {
+		e := entryOf(t, out.entries, ref)
+		v := func(n driverValuer) any { x, _ := n.Value(); return x }
+		if got := fmt.Sprintf("fees %v quantity %v price %v symbol %v", v(e.fees), v(e.quantity), v(e.price), v(e.symbol)); got != want {
+			t.Errorf("%s: %s, want %s", ref, got, want)
+		}
 	}
 	if e := entryOf(t, out.entries, "T15"); e.security != centsOf(71) {
 		t.Errorf("T15's security is %v, want your decision's 71", e.security)
@@ -161,7 +211,8 @@ func TestEntries(t *testing.T) {
 	// The two rows without an activity ID take refs of their own, and
 	// are flagged.
 	refs := txnRefs(3, in.txns)
-	if a, b := refs[8], refs[9]; !strings.HasPrefix(a.ref, "T~20261005T150000.") || b.ref != a.ref+".2" || b.subject != "a:3:"+b.ref[1:] {
+	if a, b := refs[8], refs[9]; !strings.HasPrefix(a.ref, "T~20261005T150000.") || len(a.ref) != len("T~20261005T150000.")+12 ||
+		b.ref != a.ref+".2" || b.subject != "a:3:"+b.ref[1:] {
 		t.Errorf("the rows without an activity ID have refs %+v and %+v", a, b)
 	}
 	if e := entryOf(t, out.entries, refs[9].ref); !slices.Contains(flagsOf(e), "no_activity_id") {
@@ -192,6 +243,9 @@ func TestEntries(t *testing.T) {
 	}
 }
 
+// A driverValuer is a column's value as database/sql reads it.
+type driverValuer interface{ Value() (driver.Value, error) }
+
 // pairEntry returns an entry of account 1 for the tests of pairs.
 func pairEntry(ref, family, category, day string, amount int64) ledgerEntry {
 	e := ledgerEntry{account: 1}
@@ -212,12 +266,14 @@ func pairsOf(entries []ledgerEntry) map[string]string {
 	return out
 }
 
-// Pairs within an account (13.5 of the design): sweeps of opposite amounts
-// a day apart at most, and a cancel with the trade it cancels, posted up
-// to 5 days before with equal amounts and opposite quantities; the cancel
-// takes the trade's category, and both are flagged when their amounts
-// have one sign. What is left unpaired is flagged, unless your decision
-// says it has no pair; an entry your decision names is left to it.
+// Pairs within an account (13.5 of the design): sweeps of opposite amounts,
+// not 0.00, a day apart at most, and a cancel with the trade of its symbol
+// that it cancels, the nearest posted up to 5 days before, with equal
+// amounts and opposite quantities, not none; the cancel takes the trade's
+// category unless you set its own, and both are flagged when their
+// amounts, not 0.00, have one sign. What is left unpaired is flagged,
+// unless your decision says it has no pair; an entry your decision names
+// is left to it.
 func TestPairWithin(t *testing.T) {
 	t.Parallel()
 	qty := func(e ledgerEntry, q int64, sym string) ledgerEntry {
@@ -241,31 +297,64 @@ func TestPairWithin(t *testing.T) {
 		qty(pairEntry("C3", "reversal", "buy", "2026-10-07", 1000), -10, "QQQ"), // 6 days after
 		qty(pairEntry("C4", "reversal", "buy", "2026-10-07", 1000), -10, "QQQ"), // yours: none
 		qty(pairEntry("B5", "buy", "buy", "2026-09-28", -1000), 10, "XYZ"),      // 6 days before C1
+		pairEntry("S8", "sweep", "other", "2026-10-04", 0),                      // two sweeps of 0.00 do not pair
+		qty(pairEntry("C6", "reversal", "buy", "2026-10-10", 1000), -10, "AFT"), // its trade is posted after it
+		qty(pairEntry("B6", "buy", "buy", "2026-10-12", -1000), 10, "AFT"),
+		qty(pairEntry("B7", "buy", "buy", "2026-10-13", -1000), 10, "ONE"), // another symbol
+		qty(pairEntry("C7", "reversal", "buy", "2026-10-14", 1000), -10, "TWO"),
+		qty(pairEntry("B8", "buy", "buy", "2026-10-13", -1000), 0, "ZER"), // no shares either way
+		qty(pairEntry("C8", "reversal", "buy", "2026-10-14", 1000), 0, "ZER"),
+		qty(pairEntry("B9", "buy", "buy", "2026-10-15", -1000), 10, "NEA"), // the nearer of two trades
+		qty(pairEntry("B10", "buy", "buy", "2026-10-17", -1000), 10, "NEA"),
+		qty(pairEntry("C9", "reversal", "buy", "2026-10-18", 1000), -10, "NEA"),
+		qty(pairEntry("B11", "buy", "buy", "2026-10-20", -1000), 10, "USR"), // the cancel you booked keeps your category
+		qty(pairEntry("C11", "reversal", "fee", "2026-10-21", 1000), -10, "USR"),
+		qty(pairEntry("B12", "buy", "buy", "2026-10-23", 0), 10, "NIL"), // amounts of 0.00 have no sign
+		qty(pairEntry("C12", "reversal", "buy", "2026-10-24", 0), -10, "NIL"),
 	}
 	for i := range entries {
 		entries[i].pairDecided = entries[i].ref == "C4" || entries[i].ref == "S6"
+		entries[i].userCategory = entries[i].ref == "C11"
 	}
 	pairWithin(entries)
 	finishPairs(entries, map[entryKey]pairResult{{1, "C4"}: {decided: true, none: true}, {1, "S6"}: {decided: true, none: true}})
 	want := map[string]string{
-		"1:S1": "other sweep 1:S2",
-		"1:S2": "other sweep 1:S1",
-		"1:S3": "other  0: unpaired_sweep",
-		"1:S4": "other  0: unpaired_sweep",
-		"1:S5": "other  0: unpaired_sweep",
-		"1:S6": "other  0:",
-		"1:S7": "other  0: unpaired_sweep",
-		"1:B1": "dividend reversal 1:C1",
-		"1:C1": "dividend reversal 1:B1",
-		"1:B2": "sell reversal 1:C2 reversal_signs",
-		"1:C2": "sell reversal 1:B2 reversal_signs",
-		"1:B3": "buy  0:",
-		"1:C3": "buy  0: unpaired_reversal",
-		"1:C4": "buy  0:",
-		"1:B5": "buy  0:",
+		"1:S1":  "other sweep 1:S2",
+		"1:S2":  "other sweep 1:S1",
+		"1:S3":  "other  0: unpaired_sweep",
+		"1:S4":  "other  0: unpaired_sweep",
+		"1:S5":  "other  0: unpaired_sweep",
+		"1:S6":  "other  0:",
+		"1:S7":  "other  0: unpaired_sweep",
+		"1:B1":  "dividend reversal 1:C1",
+		"1:C1":  "dividend reversal 1:B1",
+		"1:B2":  "sell reversal 1:C2 reversal_signs",
+		"1:C2":  "sell reversal 1:B2 reversal_signs",
+		"1:B3":  "buy  0:",
+		"1:C3":  "buy  0: unpaired_reversal",
+		"1:C4":  "buy  0:",
+		"1:B5":  "buy  0:",
+		"1:S8":  "other  0: unpaired_sweep",
+		"1:C6":  "buy  0: unpaired_reversal",
+		"1:B6":  "buy  0:",
+		"1:B7":  "buy  0:",
+		"1:C7":  "buy  0: unpaired_reversal",
+		"1:B8":  "buy  0:",
+		"1:C8":  "buy  0: unpaired_reversal",
+		"1:B9":  "buy  0:",
+		"1:B10": "buy reversal 1:C9",
+		"1:C9":  "buy reversal 1:B10",
+		"1:B11": "buy reversal 1:C11",
+		"1:C11": "fee reversal 1:B11",
+		"1:B12": "buy reversal 1:C12",
+		"1:C12": "buy reversal 1:B12",
 	}
 	if got := pairsOf(entries); !reflect.DeepEqual(got, want) {
-		t.Errorf("pairs:\n%v\nwant\n%v", got, want)
+		for k, w := range want {
+			if got[k] != w {
+				t.Errorf("%s: %q, want %q", k, got[k], w)
+			}
+		}
 	}
 }
 
@@ -281,10 +370,12 @@ func candidate(account int64, ref, day string, amount int64, text string) pairCa
 // other's only candidate: another account's journal of the same kind, a
 // day apart at most, with the opposite amount, or the opposite quantity of
 // the same security; among several, the one a description names by its
-// account's last three digits. Your category keeps a journal out; your pair
-// decisions come first, the newer before the older, and "none" keeps an
-// entry unpaired. The result does not depend on the order of the
-// candidates.
+// account's last three digits, in either description. Your category keeps
+// a journal out; your pair decisions come first, the newer before the
+// older, an entry that a newer one pairs being out of the older's reach,
+// and "none" keeps an entry unpaired; a pair you make of two sweeps, or of
+// a cancel, is of that kind. The result does not depend on the order of
+// the candidates.
 func TestPairAccounts(t *testing.T) {
 	t.Parallel()
 	shares := func(c pairCandidate, q, sec int64) pairCandidate {
@@ -334,8 +425,34 @@ func TestPairAccounts(t *testing.T) {
 		candidate(2, "R2", "2026-10-24", -2, ""),
 		candidate(3, "R3", "2026-10-24", -3, ""),
 		candidate(1, "V1", "2026-10-26", -5, ""),
+		// Your pairs of two sweeps, and of a cancel and a trade, are of
+		// their kind.
+		candidate(1, "W1", "2026-10-28", -7, ""),
+		candidate(2, "W2", "2026-10-28", 7, ""),
+		candidate(1, "X1", "2026-10-28", 8, ""),
+		candidate(2, "X2", "2026-10-28", -8, ""),
+		// Y3's newer decision pairs it with Y1, which Y1's older decision
+		// would pair with Y2.
+		candidate(1, "Y1", "2026-10-30", -9, ""),
+		candidate(2, "Y2", "2026-10-30", 9, ""),
+		candidate(3, "Y3", "2026-10-30", 9, ""),
+		// G6 names G5's account, though G5 names none: G5 and G6 pair, and
+		// G7, its other candidate, is left.
+		candidate(5, "G5", "2026-11-01", -200, ""),
+		candidate(6, "G6", "2026-11-01", 200, "JOURNAL FRM ...555"),
+		candidate(7, "G7", "2026-11-01", 200, ""),
 	}
 	cands[21].family = "sweep" // P3: an explicit pair of another kind is a journal all the same
+	for i := range cands {
+		switch cands[i].key.ref {
+		case "W1", "W2":
+			cands[i].family = "sweep"
+		case "X1":
+			cands[i].family = "reversal"
+		case "X2":
+			cands[i].family = "buy"
+		}
+	}
 	decisions := []decisionInput{
 		{id: 1, kind: "pair", subject: "a:1:P1", value: "a:3:P3"},
 		{id: 2, kind: "pair", subject: "a:1:Q1", value: "none"},
@@ -345,6 +462,10 @@ func TestPairAccounts(t *testing.T) {
 		{id: 6, kind: "pair", subject: "a:2:U2", value: "a:1:U1"},
 		{id: 7, kind: "pair", subject: "a:2:U2", value: "auto"}, // withdrawn
 		{id: 8, kind: "category", subject: "a:2:Q2", value: "fee"},
+		{id: 9, kind: "pair", subject: "a:1:W1", value: "a:2:W2"},
+		{id: 10, kind: "pair", subject: "a:1:X1", value: "a:2:X2"},
+		{id: 11, kind: "pair", subject: "a:1:Y1", value: "a:2:Y2"},
+		{id: 12, kind: "pair", subject: "a:3:Y3", value: "a:1:Y1"},
 	}
 	type got struct {
 		kind, with, flag string
@@ -379,6 +500,12 @@ func TestPairAccounts(t *testing.T) {
 		"1:R1": {"", "", "unpaired_journal", true, false}, "2:R2": {"journal", "3:R3", "", true, false},
 		"3:R3": {"journal", "2:R2", "", true, false},
 		"1:V1": {"", "", "unpaired_journal", true, false},
+		"1:W1": {"sweep", "2:W2", "", true, false}, "2:W2": {"sweep", "1:W1", "", true, false},
+		"1:X1": {"reversal", "2:X2", "", true, false}, "2:X2": {"reversal", "1:X1", "", true, false},
+		"1:Y1": {"journal", "3:Y3", "", true, false}, "3:Y3": {"journal", "1:Y1", "", true, false},
+		"2:Y2": {"", "", "unpaired_journal", true, false},
+		"5:G5": {"journal", "6:G6", "", false, false}, "6:G6": {"journal", "5:G5", "", false, false},
+		"7:G7": {"", "", "ambiguous_journal", false, false},
 	}
 	if res := summary(pairAccounts(slices.Clone(cands), decisions)); !reflect.DeepEqual(res, want) {
 		for k, w := range want {
@@ -404,14 +531,17 @@ func TestPairAccounts(t *testing.T) {
 		pairEntry("U1", "journal", "deposit", "2026-10-18", -600),
 		pairEntry("P1", "journal", "deposit", "2026-10-20", -800),
 		pairEntry("M1", "journal", "withdrawal", "2026-10-10", -300),
+		pairEntry("W1", "sweep", "other", "2026-10-28", -7),
 	}
 	entries[1].userCategory, entries[2].userCategory = true, true
+	entries[4].pairDecided = true
 	finishPairs(entries, pairAccounts(slices.Clone(cands), decisions))
 	if got, want := pairsOf(entries), map[string]string{
 		"1:J1": "journal journal 2:J2",
 		"1:U1": "deposit  0:",
 		"1:P1": "deposit journal 3:P3",
 		"1:M1": "withdrawal  0: unpaired_journal",
+		"1:W1": "other sweep 2:W2",
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("finished:\n%v\nwant\n%v", got, want)
 	}
