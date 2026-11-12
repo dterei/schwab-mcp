@@ -159,7 +159,11 @@ func keep(d schwabfile.Decimal, convert func(schwabfile.Decimal) (int64, bool)) 
 }
 
 // readHistoryRow derives the history_row of a row of History file id,
-// exported on day, and observes its keys and names as of seen.
+// exported on day, and observes its keys and names as of seen. Its Action
+// is kept through mask.Text, as its Description is: an action that the
+// rules know holds no digits, so only one they do not, which the views
+// show, could hold an account number. The coarse identity is of the
+// Action as written.
 func readHistoryRow(w *wtx, id int64, r schwabfile.HistoryRow, day nytime.Date, seen time.Time) error {
 	notes := make([]rowProblem, 0, len(r.Problems))
 	for _, p := range r.Problems {
@@ -187,7 +191,7 @@ func readHistoryRow(w *wtx, id int64, r schwabfile.HistoryRow, day nytime.Date, 
 	if _, err := w.exec(`INSERT INTO history_row (file_id, ordinal, line, raw, posted_date, asof_date, action, symbol,
 		description, quantity_micros, quantity_text, price, price_text, fees_cents, amount_cents, item_issue_id,
 		acctg_rule_cd, coarse, problems) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, r.Ordinal, r.Line, r.Raw, nullString(string(r.Posted)), nullString(string(r.AsOf)), r.Action, r.Symbol,
+		id, r.Ordinal, r.Line, r.Raw, nullString(string(r.Posted)), nullString(string(r.AsOf)), mask.Text(r.Action), r.Symbol,
 		mask.Text(r.Description), quantity, r.Quantity.Canon(), price, r.Price.Canon(), keep(r.Fees, centsOfCell),
 		keep(r.Amount, centsOfCell), nullString(r.ItemIssueID), nullString(r.AcctgRuleCd), coarse[:], string(problems)); err != nil {
 		return err

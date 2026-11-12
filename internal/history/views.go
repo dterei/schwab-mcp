@@ -31,21 +31,27 @@ type viewColumn struct {
 // design), in the views' and their columns' order: the contract with what
 // reads the store, which TestViewsHoldNoAccountNumber holds every view to
 // and docs/store.md lists. A column of free text is marked with a *; a
-// security name's value is free text only when it is a description.
+// security name's value is free text only when it is a description, and an
+// entry's kind only when it is a file's Action, which may be one that no
+// rule knows (an API transaction's type is a code).
 var viewColumns = func() []viewColumn {
-	when := map[string]string{"security_names.value": "kind = 'description'"}
+	when := map[string]string{
+		"security_names.value": "kind = 'description'",
+		"entries.kind":         "source = 'file'",
+		"ledger.kind":          "source = 'file'",
+	}
 	var cs []viewColumn
 	for _, v := range []struct{ view, columns string }{
 		{"accounts", "account_id ref account nickname* account_type kind* primary_account lot_method hash first_seen_at last_seen_at not_shared_since used"},
 		{"securities", "security_key definite asset_type type symbol cusip description* put_call strike expiration_day multiplier underlying_symbol underlying_key first_seen_at last_seen_at"},
 		{"security_names", "security_key key kind value* seen_in first_seen_at last_seen_at"},
 		{"security_keys", "key security_key"},
-		{"entries", "ref account_id account source day posted_date time kind description* amount_cents fees_cents gross_cents quantity_micros quantity_as_of price symbol security_key category category_rule pair_kind pair_ref pair_account_id counted counted_why flags matched_with"},
-		{"ledger", "ref account_id account source day time kind description* amount_cents fees_cents gross_cents quantity_micros quantity_as_of price symbol security_key category pair_kind pair_ref pair_account_id flags"},
+		{"entries", "ref account_id account source day posted_date time kind* description* amount_cents fees_cents gross_cents quantity_micros quantity_as_of price symbol security_key category category_rule pair_kind pair_ref pair_account_id counted counted_why flags matched_with"},
+		{"ledger", "ref account_id account source day time kind* description* amount_cents fees_cents gross_cents quantity_micros quantity_as_of price symbol security_key category pair_kind pair_ref pair_account_id flags"},
 		{"transactions", "ref account_id account activity_id time trade_day settlement_day type status sub_account description* net_cents order_id position_id qualified_dividend category category_rule symbol security_key quantity_micros price gross_cents fees_cents revisions gone_since first_seen_at first_seen_by latest_seen_at counted counted_why flags"},
 		{"revisions", "ref account_id seq first_seen_at last_seen_at first_seen_by changed"},
 		{"legs", "ref account_id account day time source leg asset_type symbol security_key instrument_id item_issue_id quantity_micros cash_cents cost_cents price fee_type position_effect put_call strike expiration_day multiplier underlying_symbol txn_symbol txn_security_key quantity_as_of category counted"},
-		{"file_transactions", "ref account_id account posted_date asof_date event_date action symbol description* quantity_micros quantity_as_of price fees_cents amount_cents item_issue_id acctg_rule_cd files security_key category category_rule counted counted_why flags"},
+		{"file_transactions", "ref account_id account posted_date asof_date event_date action* symbol description* quantity_micros quantity_as_of price fees_cents amount_cents item_issue_id acctg_rule_cd files security_key category category_rule counted counted_why flags"},
 		{"matches", "file_ref api_ref account_id account method score"},
 		{"snapshots", "snapshot_id ref account_id account fetched_at market_date in_session_date source account_type current_liquidation_cents initial_liquidation_cents aggregated_liquidation_cents cash_cents positions flags"},
 		{"balances", "snapshot_id account_id account fetched_at market_date in_session_date balance_set figure value_as_sent value_cents"},

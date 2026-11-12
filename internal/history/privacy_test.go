@@ -94,6 +94,7 @@ func fillEverySource(t *testing.T, s *Store) {
 		{"02/02/2026", "Journal", "", "JOURNAL TO " + plantedB, "", "", "", "-$10.00"},
 		{"02/03/2026", "Wire Sent", "", "WIRE TO 4821-3907", "", "", "", "-$20.00"},
 		{"02/04/2026", "Buy", "XYZ", "XYZ CORP " + individual, "5", "$10.00", "", "-$50.00"},
+		{"02/04/2026", "Journal " + plantedA, "", "MISC", "", "", "", "$1.00"}, // an action no rule knows
 	}
 	js := []csvRow{
 		{"02/05/2026", "Qualified Dividend", "QRS", "QRS FUND 5730 2618", "", "", "", "$3.00"},
