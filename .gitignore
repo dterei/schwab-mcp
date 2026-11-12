@@ -17,4 +17,5 @@ coverage.out
 !.env.example
 token.json
 snapshots*.jsonl
+!internal/history/schwabfile/testdata/snapshots*.jsonl
 history.db*
