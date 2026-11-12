@@ -251,11 +251,12 @@ its `fetched_at`.
 `schwabtx` keeps your history in a store: one SQLite file, `history.db`, in
 your user config directory under `schwabtx/` (on Windows in
 `%LocalAppData%\schwabtx\`, which does not roam). Choose another file with
-`-store` or `SCHWAB_STORE_FILE`. It holds the snapshots, the files you
-export from schwab.com, and your decisions about them, and keeps all of
-them; what it derives from them, such as each transaction's category and
-whether it counts, it can derive again. None of these commands logs in or
-reaches the network.
+`-store` or `SCHWAB_STORE_FILE`. It holds the snapshots, Schwab's API rows,
+the files you export from schwab.com, and your decisions about them, and
+keeps all of them; what it derives from them, such as each transaction's
+category and whether it counts, it can derive again. None of these commands
+logs in or reaches the network. [docs/store.md](../../docs/store.md) is the
+reference, with a walk-through of what each command prints.
 
 ```sh
 schwabtx import                    # the snapshot file that schwabtx snapshot writes
@@ -268,42 +269,175 @@ schwabtx export > ledger.csv       # the counted transactions, as a calculator r
 schwabtx store backup ~/history-backup.db
 ```
 
-- **`import [FILE...]`** imports snapshot files, History exports of
-  schwab.com in CSV or JSON, Realized Gain/Loss exports' Lot Details, and the
-  output of `schwabtx transactions -json`, each known by its content; any
-  other file is refused, and then nothing is imported. A transaction that
-  several exports hold, or that Schwab's API rows hold, counts once. With no
-  FILE it imports the snapshot file. `-account` says which account the
-  exports are for when their names do not; `-from` and `-to` give the dates
-  of an export that states none; `-all-types` says you exported every type
-  and no symbol, `-filtered` that you did not; `-dry-run` reports and saves
-  nothing; `-forget F…` sets an export aside, and `-undo` brings it back.
-- **`status`** prints what each account's API rows, exports and snapshots
-  cover, and what waits for you; `-review` lists it, each with the command
-  that settles it (`-all` adds what is flagged for information); a ref
-  prints one thing in full. Refs are `A3` (an account), `T73508261941` (an
-  API transaction), `C3a9e21b0.17` (a transaction of an export), `F3a9e21b0`
-  (a file), `L5c1d2e3f.4` (a closed lot), `S812` (a snapshot) and
-  `K:i:1973757747` (a security's key); any start of the hex that names one
-  thing will do.
-- **`edit REF OPTION...`** records your decisions, which the store applies
-  after its own rules: a transaction's `-category`, `-count`, `-pair` and
-  `-security`; which API transaction an export's transaction is, `-link` or
-  `-reject`; a file's `-completeness`, `-account` and `-from`/`-to`; that two
-  keys are the same security, or not (`-same`, `-differ`); an account's
-  `-kind`; and with `-action LABEL -policy count|hold|auto` whether an
-  export's rows of that action that the API lacks count. `auto` withdraws a
-  decision; `-note` says why.
-- **`export`** writes the ledger, or with `-what` another view of the store
-  (`schwabtx export -h` lists them), as CSV or, with `-format jsonl`, JSON
-  Lines: to stdout, to a file with `-o`, or each to a file of its own in a
-  folder with `-dir`. Files it writes are readable only by you.
-- **`store check|rebuild|backup FILE|restore BACKUP`** checks the store,
-  derives everything again from what it holds, copies it to a new file, or
-  puts a backup back.
+The workflow: import your snapshots, which the store can take as often as
+you like; import `schwabtx transactions -json` output, which gives the store
+Schwab's own rows until `schwabtx sync` exists; export History from
+schwab.com as JSON, every type and no symbol, in ranges of under a year
+([Schwab's exports](../../docs/schwab-exports.md) says how), and import it;
+then `schwabtx status -review`, and settle what it lists with
+`schwabtx edit`. A transaction that several exports hold, or that Schwab's
+API rows hold, counts once; one that only a file holds, on days the API's
+rows cover, waits for you to say what it is.
+
+Flags may come before or after the arguments
+(`schwabtx edit T73508261949 -category fee` and
+`schwabtx edit -category fee T73508261949` are one). Every command takes
+`-store PATH`. Refs name what the store holds: `A3` an account,
+`T73508261941` an API transaction, `C3a9e21b0.17` a transaction of History
+files, `F3a9e21b0` an imported file, `L5c1d2e3f.4` a closed lot, `S812` a
+snapshot, `K:i:1973757747` a security's key; any start of the hex that names
+one thing will do. `-account` takes `A3`, the last digits of the number, or
+the nickname.
+
+### schwabtx import
+
+```
+schwabtx import [-store PATH] [-account ACCOUNT] [-from DATE] [-to DATE]
+                [-all-types | -filtered] [-dry-run] [-force] [FILE...]
+schwabtx import [-store PATH] -forget FREF [-undo]
+```
+
+Imports each FILE, all of them or none: a snapshot file, a History export of
+schwab.com in CSV or JSON, a Realized Gain/Loss export's Lot Details, or the
+output of `schwabtx transactions -json`, each known by its content. Any other
+file is refused, and then nothing is imported; so is one of the store's own
+files, before any file is read. With no FILE it imports the snapshot file.
+It makes the store if there is none.
+
+```
+-store PATH       the store's file (default: $SCHWAB_STORE_FILE, else history.db in
+                  schwabtx's folder of your config directory)
+-account ACCOUNT  the account the exports are for, when their names do not say
+-from DATE        the first day the History exports cover, for those that state none
+-to DATE          the last day they cover (DATE is YYYY-MM-DD or MM/DD/YYYY)
+-all-types        the History exports hold every type and no symbol: they are complete
+-filtered         the History exports were filtered by type or symbol
+-dry-run          report what the import would do, and save nothing
+-force            import an export whose name's digits are not its account's (a renamed file)
+-forget FREF      set aside an imported file: its transactions that no other file
+                  holds leave the ledger
+-undo             with -forget, bring the file back
+```
+
+### schwabtx status
+
+```
+schwabtx status [-store PATH] [-account ACCOUNT] [-show-accounts]
+schwabtx status [-store PATH] [-account ACCOUNT] -review [-all]
+schwabtx status [-store PATH] [-account ACCOUNT] REF
+```
+
+Prints what each account's API rows, exports and snapshots cover, and what
+waits for you; with `-review`, what waits for you, grouped, each with the
+command that settles it; with a REF, that one thing in full. It is a report,
+and exits 0 whatever it finds.
+
+```
+-store PATH       the store's file
+-account ACCOUNT  only this account
+-review           list what waits for you, each with the command that settles it
+-all              with -review, list what is flagged for information too
+-show-accounts    full account numbers instead of the last 3 digits
+```
+
+### schwabtx edit
+
+```
+schwabtx edit [-store PATH] [-account ACCOUNT] [-note TEXT] REF OPTION...
+schwabtx edit [-store PATH] [-note TEXT] -action LABEL -policy count|hold|auto
+```
+
+Records your decisions about REF, which the store applies after its own
+rules, and prints what each changed. Each option's value `auto` withdraws
+your decision.
+
+```
+-store PATH          the store's file
+-account ACCOUNT     the account REF is of, when two share it; with a file (F…),
+                     the account the file is for, or auto
+-note TEXT           why, kept with the decision
+-category C          a transaction's category: deposit, withdrawal, transfer_in,
+                     transfer_out, journal, buy, sell, dividend, interest, fee, tax, other
+-count yes|no        whether a transaction counts
+-pair REF2|none      the transaction it is paired with: a journal between your
+                     accounts, a sweep, a reversal
+-security K:…        a transaction's security
+-link T…[,T…]|none   the API transactions a file transaction (C…) is, or none
+                     (count it from the file)
+-reject T…           an API transaction a file transaction is not
+-completeness complete|filtered
+                     whether a file (F…) holds every type and symbol
+-from DATE           with -to, the first day a file covers
+-to DATE             with -from, the last day a file covers
+-range auto          give a file back the range it states, or its import gave
+-same K:…            another key of the same security (REF is a key, K:…)
+-differ K:…          another key of a different security
+-auto                withdraw your -same and -differ decisions on a key
+-kind TEXT           an account's kind (taxable, ira, roth, ...)
+-action LABEL        a History action, such as "Bank Interest", for -policy
+-policy count|hold   whether the action's held-out file rows count
+```
+
+### schwabtx export
+
+```
+schwabtx export [-store PATH] [-what WHAT] [-format csv|jsonl] [-account ACCOUNT]
+                [-from DATE] [-to DATE] [-all] [-raw] [-show-accounts] [-o FILE | -dir DIR]
+```
+
+Writes the ledger, the counted transactions from the API and from files,
+which is what a calculator reads, or another table of the store, as CSV or
+JSON Lines: to stdout, to a file with `-o`, or each to a file of its own in a
+folder with `-dir`, with a `manifest.json`. Files it writes are readable only
+by you. A summary of what it wrote, and of what each account's sources
+cover, goes to stderr. The tables (`-what`): `ledger`, `entries`,
+`transactions`, `legs`, `file-transactions`, `imports`, `snapshots`,
+`positions`, `balances`, `lots`, `gaps`, `flags`, `coverage` and
+`securities`; [docs/store.md](../../docs/store.md#exports) has their columns.
+
+```
+-store PATH       the store's file
+-what WHAT        a table, a comma-separated list of tables, or all (a list or
+                  all needs -dir); default ledger
+-format FORMAT    csv (the default), or jsonl for JSON Lines
+-account ACCOUNT  only this account
+-from DATE        only rows of this day or later
+-to DATE          only rows of this day or earlier
+-all              every entry and leg, counted or not
+-raw              add each row's raw bytes as Schwab or the file had them
+                  (includes full account numbers)
+-show-accounts    add each row's full account number
+-o FILE           write to FILE instead of stdout
+-dir DIR          write each table to a file of its own in DIR, with manifest.json
+```
+
+### schwabtx store
+
+```
+schwabtx store [-store PATH] check
+schwabtx store [-store PATH] rebuild
+schwabtx store [-store PATH] backup FILE
+schwabtx store [-store PATH] restore [-dry-run] BACKUP
+```
+
+`check` checks the store, SQLite's integrity and foreign keys and what the
+derived data must hold, and exits 1 on any problem; `rebuild` derives
+everything again from what the store holds; `backup` copies the store, as
+of now, to a new file readable only by you, while others go on using it;
+`restore` replaces what the store holds with what a backup holds, through
+SQLite, and makes the store if there is none.
+
+```
+-store PATH       the store's file
+-dry-run          with restore, say what the store and the backup hold, and
+                  change nothing
+```
+
+### Privacy and the store's files
 
 Account numbers show as `...` and their last three digits everywhere, as
-Schwab shows them. Only `status -show-accounts`, `export -show-accounts` and
+Schwab shows them, and so does any run of 8 digits or more in the text the
+store keeps. Only `status -show-accounts`, `export -show-accounts` and
 `export -raw` (which adds Schwab's JSON and the files' rows as they were)
 show full numbers, and `export` says so when it does.
 
@@ -311,7 +445,7 @@ The store is its file, `history.db-wal` and `history.db-shm` together: never
 copy, move or delete one of them without the others, and never copy them
 while `schwabtx` runs. Copy the store with `store backup`, and put a copy
 back with `store restore`. Keep the store on a local disk, not in a synced
-folder.
+folder: a store on a network file system is refused.
 
 ## How it fetches
 

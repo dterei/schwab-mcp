@@ -11,8 +11,11 @@ performance dashboards can read. The longer-term goal is a full
 [MCP](https://modelcontextprotocol.io) server for Schwab retail accounts that
 lets an AI assistant look up your accounts, positions, transactions and market
 data. Today it is a small CLI that logs in, prints your recent transactions,
-looks up your accounts, positions and balances, and saves snapshots of your
-positions and balances.
+looks up your accounts, positions and balances, saves snapshots of your
+positions and balances, and keeps your history in a local store, from those
+snapshots, Schwab's own transactions and the files you export from
+schwab.com, each transaction counted once, which it exports for your
+calculators.
 
 This project is not affiliated with, endorsed by or supported by Charles
 Schwab & Co.
@@ -24,12 +27,16 @@ Schwab & Co.
 | [`schwabtx`](cmd/schwabtx): log in and print recent transactions across all accounts | Works |
 | [`schwabtx accounts`, `positions` and `balances`](cmd/schwabtx/README.md#accounts-positions-and-balances): look up your accounts, holdings, cash and buying power, account numbers masked | Works |
 | [`schwabtx snapshot`](cmd/schwabtx/README.md#snapshots): save your current positions and balances; [run it daily](cmd/schwabtx/schedule) with launchd, cron or Task Scheduler | Works |
+| [The store](docs/store.md) (milestone 2): `schwabtx import` of snapshots, of `schwabtx transactions -json` and of [schwab.com's History and Realized Gain/Loss exports](docs/schwab-exports.md), each transaction counted once and classified; `status`, `edit` to settle what it flags; `export` as CSV or JSON Lines; backups | Works |
+| `schwabtx sync`: your whole history from Schwab's API into the store, kept current (milestone 2) | Waits for the live probes |
+| Export formats for Portfolio Performance and Ghostfolio (milestone 2) | Planned |
 | Go client for Schwab's API (milestone 1): the login, retries under a shared rate limit, and the account records | In progress, internal for now |
-| Full transaction history, stored locally and exported for your calculators (milestone 2) | Planned |
 | MCP server, read-only first (milestone 3) | Planned |
 
 The [roadmap](docs/ROADMAP.md) has the plan and the full feature list,
-[docs/schwab-api.md](docs/schwab-api.md) has notes on the API itself, and
+[docs/store.md](docs/store.md) describes the store and its commands,
+[docs/schwab-api.md](docs/schwab-api.md) has notes on the API itself,
+[docs/schwab-exports.md](docs/schwab-exports.md) on schwab.com's exports, and
 [docs/prior-art.md](docs/prior-art.md) surveys existing Schwab MCP servers and
 client libraries.
 
@@ -95,6 +102,21 @@ go run ./cmd/schwabtx positions  # what your accounts hold now
 go run ./cmd/schwabtx snapshot   # save today's positions and balances
 ```
 
+Then build your history in the store, which needs no login:
+
+```sh
+go run ./cmd/schwabtx transactions -json -n 100000 -lookback 3650 > transactions.json
+go run ./cmd/schwabtx import                     # the snapshots saved so far
+go run ./cmd/schwabtx import transactions.json   # Schwab's own rows, until sync exists
+go run ./cmd/schwabtx import ~/Downloads/*_Transactions_*.json   # schwab.com's History exports
+go run ./cmd/schwabtx status -review             # what waits for you, and how to settle it
+go run ./cmd/schwabtx export -o ledger.csv       # each transaction once, for your calculator
+```
+
+[docs/schwab-exports.md](docs/schwab-exports.md) says how to export History
+from schwab.com, and [docs/store.md](docs/store.md) walks through what each
+command prints.
+
 On Windows, where `chmod` does not apply, keep the clone inside your user
 profile, which other users cannot read, and load `.env` in PowerShell
 instead:
@@ -116,6 +138,13 @@ See [cmd/schwabtx](cmd/schwabtx/README.md) for flags and troubleshooting.
   account numbers; the tables show the last 3 digits unless you ask for
   more with `-show-accounts`. `schwabtx snapshot` saves the same kind of
   data, in a file readable only by you.
+- The store, `history.db` beside the token file (on Windows in
+  `%LocalAppData%\schwabtx`), holds your account numbers and whole history,
+  readable only by you, and so are its exports and backups. What its
+  commands print and export shows account numbers as `...` and their last
+  3 digits, and masks any run of 8 digits in the text it keeps, unless you
+  ask for them with `-show-accounts` or `-raw`. See
+  [docs/store.md](docs/store.md#privacy).
 - Once the MCP server exists, what its tools return also goes to your AI
   assistant's model, which for most assistants runs on the provider's
   servers rather than your machine. The server will mask account numbers in
@@ -167,8 +196,18 @@ internal/filelock/
                 file locks across processes, which keep two processes from
                 refreshing the login at once, or from going over the rate
                 limit together
-docs/           roadmap, notes on the Schwab API, the live mode and a survey
-                of prior art
+internal/history/
+                the store: one SQLite file that keeps what Schwab, schwab.com's
+                exports and you gave it, and derives from it each
+                transaction once, classified, and the views that exports
+                and, later, the MCP server read
+internal/history/schwabfile/
+                the readers of schwab.com's exports and of schwabtx's own files
+internal/nyse/, internal/nytime/
+                the NYSE's sessions since 2000, and New York's time zone
+internal/mask/  account numbers and free text masked to the last 3 digits
+docs/           roadmap, the store, notes on the Schwab API and schwab.com's
+                exports, the live mode and a survey of prior art
 .github/        CI and Dependabot
 ```
 
