@@ -16,7 +16,7 @@ import (
 
 // runStoreCommand looks after the store itself: it checks it, derives
 // everything again from the evidence, backs it up, or restores a backup.
-func runStoreCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+func runStoreCommand(ctx context.Context, args []string, stdout, stderr io.Writer) (err error) {
 	fl := flag.NewFlagSet("schwabtx store", flag.ContinueOnError)
 	fl.SetOutput(stderr)
 	store := storeFlag(fl)
@@ -62,6 +62,8 @@ file alone can damage.
 	if err != nil {
 		return err
 	}
+	// The commands in what the store says name it.
+	defer func() { err = errorWithStore(path, err) }()
 	if sub == "restore" {
 		return restoreStore(ctx, path, rest[0], *dryRun, stdout, stderr)
 	}

@@ -532,6 +532,32 @@ func TestPrintedCommandsNameTheStore(t *testing.T) {
 		t.Errorf("status of the store after %s:\n%s", command, out)
 	}
 
+	// The commands that the store composes name it too: the import's
+	// completeness hint, review's commands, and the refusal of a file set
+	// aside, whose command brings it back.
+	export := writeFile(t, dir, "export.csv", historyCSV(historyRow{"09/01/2026", "Qualified Dividend", "ABCD", "ABCD INC", "", "", "", "$3.21"}))
+	out, _ = mustRun(t, "import", "-store", store, "-account", "A1", export)
+	f := refIn(t, out, `F[0-9a-f]{8,}`)
+	named := "schwabtx edit -store " + quoteArg(store) + " " + f + " -completeness complete"
+	if !strings.Contains(out, named) {
+		t.Errorf("the import printed %q, want %q in it", out, named)
+	}
+	if out, _ := mustRun(t, "status", "-store", store, "-review", "-all"); !strings.Contains(out, named) ||
+		strings.Contains(strings.ReplaceAll(out, "schwabtx edit -store "+quoteArg(store), ""), "schwabtx edit") {
+		t.Errorf("status -review printed\n%s\nwant every command naming the store", out)
+	}
+	mustRun(t, "import", "-store", store, "-forget", f)
+	_, _, err := runTx(t, "import", "-store", store, "-account", "A1", export)
+	_, command, ok = strings.Cut(fmt.Sprint(err), "bring it back with: ")
+	command, _, _ = strings.Cut(command, ";")
+	if words := shellWords(t, command); !ok || !slices.Equal(words, []string{"schwabtx", "import", "-store", store, "-forget", f, "-undo"}) {
+		t.Fatalf("importing a file set aside: %v", err)
+	}
+	mustRun(t, shellWords(t, command)[1:]...)
+	if out, _ := mustRun(t, "status", "-store", store, f); !regexp.MustCompile(`\n  forgotten +0\n`).MatchString(out) {
+		t.Errorf("after %s, %s reads\n%s", command, f, out)
+	}
+
 	t.Setenv("SCHWAB_STORE_FILE", store)
 	out, _ = mustRun(t, "store", "backup", filepath.Join(dir, "default.db"))
 	if want := "; schwabtx store restore " + quoteArg(filepath.Join(dir, "default.db")) + " puts it back\n"; !strings.HasSuffix(out, want) {
@@ -837,6 +863,36 @@ func TestImportRefusesAndSelects(t *testing.T) {
 	if _, _, err := runTx(t, "import", "-account", "A1", "-force", renamed); err == nil || err.Error() != filepath.Base(renamed)+" was set aside as "+f+
 		"; bring it back with: schwabtx import -forget "+f+" -undo; nothing was imported" {
 		t.Errorf("importing a file set aside: %v", err)
+	}
+}
+
+// withStore puts -store after the first word of each command of schwabtx
+// that acts on a store, in any message, and only when the store is not
+// the default one.
+func TestWithStore(t *testing.T) {
+	dir := t.TempDir()
+	def, other := filepath.Join(dir, "default.db"), filepath.Join(dir, "other.db")
+	t.Setenv("SCHWAB_STORE_FILE", def)
+	flag := "-store " + quoteArg(other)
+	for _, c := range [][2]string{
+		{"say so: schwabtx edit F1 -completeness complete", "say so: schwabtx edit " + flag + " F1 -completeness complete"},
+		{
+			"if it is: schwabtx edit 'C1.2' -link T3; if not: schwabtx edit C1.2 -reject T3",
+			"if it is: schwabtx edit " + flag + " 'C1.2' -link T3; if not: schwabtx edit " + flag + " C1.2 -reject T3",
+		},
+		{"bring it back with: schwabtx import -forget F1 -undo", "bring it back with: schwabtx import " + flag + " -forget F1 -undo"},
+		{"then schwabtx store restore BACKUP", "then schwabtx store " + flag + " restore BACKUP"},
+		{"(schwabtx status -review)", "(schwabtx status " + flag + " -review)"},
+		{"schwabtx export -store x.db -what ledger", "schwabtx export -store x.db -what ledger"},
+		{"no store at x yet; schwabtx import makes one", "no store at x yet; schwabtx import makes one"},
+		{"those of a schwabtx transactions -json file; schwabtx snapshot takes one", "those of a schwabtx transactions -json file; schwabtx snapshot takes one"},
+	} {
+		if got := withStore(other, c[0]); got != c[1] {
+			t.Errorf("withStore(%q) = %q, want %q", c[0], got, c[1])
+		}
+		if got := withStore(def, c[0]); got != c[0] {
+			t.Errorf("withStore of the default store changed %q to %q", c[0], got)
+		}
 	}
 }
 

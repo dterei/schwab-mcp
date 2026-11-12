@@ -16,7 +16,7 @@ import (
 // runStatus reports on the store: its state, what waits for you (-review),
 // or one thing in full (a REF). It is a report, and fails only when it
 // cannot read the store.
-func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) (err error) {
 	fl := flag.NewFlagSet("schwabtx status", flag.ContinueOnError)
 	fl.SetOutput(stderr)
 	store := storeFlag(fl)
@@ -58,6 +58,8 @@ that one thing in full.
 	if err != nil {
 		return err
 	}
+	// The commands in what the store says name it.
+	defer func() { err = errorWithStore(path, err) }()
 	s, err := openStore(ctx, path, stderr)
 	if err != nil {
 		return err
@@ -69,13 +71,13 @@ that one thing in full.
 		if err != nil {
 			return err
 		}
-		return printDetail(stdout, d)
+		return printDetail(stdout, path, d)
 	case *review:
 		groups, err := s.Review(ctx, history.ReviewOptions{Account: *account, All: *all, Quote: quoteArg})
 		if err != nil {
 			return err
 		}
-		return printReview(stdout, groups)
+		return printReview(stdout, path, groups)
 	}
 	st, err := s.Status(ctx, history.StatusOptions{Account: *account, ShowAccounts: *show})
 	if err != nil {
@@ -87,7 +89,7 @@ that one thing in full.
 // printStatus writes the state of the store at path.
 func printStatus(stdout, stderr io.Writer, path string, st history.Status) error {
 	for _, w := range st.Warnings {
-		fmt.Fprintln(stderr, "warning:", w)
+		fmt.Fprintln(stderr, "warning:", withStore(path, w))
 	}
 	size := ""
 	if info, err := os.Stat(path); err == nil {
@@ -177,8 +179,9 @@ func thousands(n int) string {
 	return s
 }
 
-// printReview writes what waits for you, group by group.
-func printReview(w io.Writer, groups []history.ReviewGroup) error {
+// printReview writes what waits for you in the store at path, group by
+// group, its commands naming the store (withStore).
+func printReview(w io.Writer, path string, groups []history.ReviewGroup) error {
 	if len(groups) == 0 {
 		_, err := fmt.Fprintln(w, "nothing waits for you")
 		return err
@@ -217,12 +220,13 @@ func printReview(w io.Writer, groups []history.ReviewGroup) error {
 			fmt.Fprintf(&b, "  %s\n", c)
 		}
 	}
-	_, err := io.WriteString(w, b.String())
+	_, err := io.WriteString(w, withStore(path, b.String()))
 	return err
 }
 
-// printDetail writes one thing in full.
-func printDetail(w io.Writer, d history.Detail) error {
+// printDetail writes one thing of the store at path in full, the commands
+// in its flags naming the store (withStore).
+func printDetail(w io.Writer, path string, d history.Detail) error {
 	var b strings.Builder
 	head := d.Target.Ref + ": " + d.Target.Kind
 	switch {
@@ -245,6 +249,6 @@ func printDetail(w io.Writer, d history.Detail) error {
 			fmt.Fprintf(&b, "  %s\n", plainCell(l))
 		}
 	}
-	_, err := io.WriteString(w, b.String())
+	_, err := io.WriteString(w, withStore(path, b.String()))
 	return err
 }

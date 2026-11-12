@@ -25,7 +25,7 @@ import (
 // no input is the store or one of its files, before it reads any; reads
 // every input whole; and only then opens the store. The store never opens
 // an input by its path.
-func runImport(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+func runImport(ctx context.Context, args []string, stdout, stderr io.Writer) (err error) {
 	fl := flag.NewFlagSet("schwabtx import", flag.ContinueOnError)
 	fl.SetOutput(stderr)
 	store := storeFlag(fl)
@@ -62,6 +62,8 @@ file that schwabtx snapshot writes. Importing a file again adds nothing.
 	if err != nil {
 		return err
 	}
+	// The commands in what the store says name it.
+	defer func() { err = errorWithStore(path, err) }()
 	if *forget != "" {
 		if len(files) > 0 {
 			return errors.New("-forget takes no files: it sets aside a file the store holds")
@@ -142,9 +144,11 @@ file that schwabtx snapshot writes. Importing a file again adds nothing.
 	if err != nil {
 		return err
 	}
+	var b strings.Builder
 	for _, r := range report.Files {
-		printFileReport(stdout, r)
+		printFileReport(&b, r)
 	}
+	fmt.Fprint(stdout, withStore(path, b.String()))
 	if *dryRun {
 		fmt.Fprintln(stdout, "nothing was saved (-dry-run)")
 		return nil

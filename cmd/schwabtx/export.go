@@ -22,7 +22,7 @@ import (
 // row it writes in one read transaction, which ends before anything is
 // written, so that a slow reader of stdout holds nothing open; and only
 // then writes.
-func runExport(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+func runExport(ctx context.Context, args []string, stdout, stderr io.Writer) (err error) {
 	kinds := history.ExportKinds()
 	fl := flag.NewFlagSet("schwabtx export", flag.ContinueOnError)
 	fl.SetOutput(stderr)
@@ -78,6 +78,8 @@ func runExport(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	if err != nil {
 		return err
 	}
+	// The commands in what the store says name it.
+	defer func() { err = errorWithStore(path, err) }()
 	// No output may be the store or one of its files, by its name too, since
 	// an output need not exist yet.
 	if *out != "" {

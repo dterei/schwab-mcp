@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -67,6 +68,62 @@ func copyCommand(path string, words ...string) string {
 	return strings.Join(append(cmd, words[1:]...), " ")
 }
 
+// storeCommand finds, in a message that the history package or a command
+// composed, the start of a command of schwabtx that acts on a store: a
+// subcommand of the store followed by a flag, a ref (or a quoted one), or
+// for store, restore or backup.
+var storeCommand = regexp.MustCompile(`\bschwabtx (edit|export|import|status)( [-A-Z'"]|$)|\bschwabtx store (restore|backup)\b`)
+
+// withStore returns text with -store and path put after the first word of
+// each command of schwabtx in it that acts on a store, as copyCommand puts
+// them, when path is not the store that a command opens without -store:
+// the commands in the store's messages, flags and refusals, copied as they
+// are printed, then act on the same store. A command that names a store
+// already is left as it is.
+func withStore(path, text string) string {
+	if def, err := storePath(""); err == nil && sameStore(def, path) {
+		return text
+	}
+	flag := " -store " + quoteArg(path)
+	var b strings.Builder
+	last := 0
+	for _, m := range storeCommand.FindAllStringSubmatchIndex(text, -1) {
+		end := m[3] // after the subcommand's name
+		if end < 0 {
+			end = m[6] - 1 // after "store"
+		}
+		if strings.HasPrefix(text[end:], " -store ") {
+			continue
+		}
+		b.WriteString(text[last:end])
+		b.WriteString(flag)
+		last = end
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}
+
+// errWithStore is an error whose message withStore rewrote.
+type errWithStore struct {
+	msg string
+	err error
+}
+
+func (e *errWithStore) Error() string { return e.msg }
+func (e *errWithStore) Unwrap() error { return e.err }
+
+// errorWithStore returns err with its message rewritten by withStore,
+// when that changes it.
+func errorWithStore(path string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if msg := withStore(path, err.Error()); msg != err.Error() {
+		return &errWithStore{msg: msg, err: err}
+	}
+	return err
+}
+
 // sameStore reports whether a and b, absolute paths, name one store file:
 // one path, or, when both exist, one file.
 func sameStore(a, b string) bool {
@@ -87,7 +144,7 @@ func storeOptions(path string, mustExist bool, stderr io.Writer) history.Options
 		Path:      path,
 		MustExist: mustExist,
 		Now:       func() time.Time { return timeNow() },
-		Warn:      func(msg string) { fmt.Fprintln(stderr, "warning:", msg) },
+		Warn:      func(msg string) { fmt.Fprintln(stderr, "warning:", withStore(path, msg)) },
 		Waiting: func(string) {
 			once.Do(func() { fmt.Fprintln(stderr, "waiting for another schwabtx process that is writing to the store...") })
 		},

@@ -45,7 +45,7 @@ var editOptions = []editOption{
 
 // runEdit records your decisions about something in the store (16 of the
 // design), and says what each changed.
-func runEdit(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+func runEdit(ctx context.Context, args []string, stdout, stderr io.Writer) (err error) {
 	fl := flag.NewFlagSet("schwabtx edit", flag.ContinueOnError)
 	fl.SetOutput(stderr)
 	store := storeFlag(fl)
@@ -98,6 +98,8 @@ account (A…) -kind. The value auto withdraws a decision.
 	if err != nil {
 		return err
 	}
+	// The commands in what the store says name it.
+	defer func() { err = errorWithStore(path, err) }()
 
 	if set["action"] || set["policy"] {
 		if len(rest) > 0 || !set["action"] || !set["policy"] {

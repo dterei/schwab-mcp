@@ -554,8 +554,10 @@ with both sides in one account, pairs that agree), and exits 1 on any
 problem. `store rebuild` derives everything again from the evidence: what
 the derivation at the end of each write gives, so it changes nothing unless
 something is wrong. A command that schwabtx prints for you to copy, such as
-the restore after a backup, names the store with `-store` when it is not the
-one a command opens without it. `-forget` sets an imported file aside, and `-undo` brings
+the restore after a backup, or one in a flag's detail, a review item, a
+warning or a refusal, names the store with `-store` when it is not the one a
+command opens without it (an export, which is data, keeps a flag's detail as
+the store holds it). `-forget` sets an imported file aside, and `-undo` brings
 it back:
 
 ```
