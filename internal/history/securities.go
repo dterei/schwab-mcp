@@ -561,8 +561,9 @@ func underlyingOf(groups []securityGroup, i int, namesOf map[string][]nameInfo) 
 // derivation), when a write has added or changed a key, a name or a
 // decision about securities: it keeps a security's row while its canonical
 // key leads a group, adds one for a new group and removes one whose group
-// is gone, points each key and each leg of a transaction at its security,
-// and marks the accounts whose legs moved, so that they are derived again.
+// is gone, points each key, each leg of a transaction and each position of
+// a snapshot at its security, and marks the accounts whose legs moved, so
+// that they are derived again.
 // Only rows that change are written.
 func groupSecurities(w *wtx) error {
 	var keys []keyInfo
@@ -662,6 +663,9 @@ func groupSecurities(w *wtx) error {
 		}
 	}
 	if err := pointLegs(w); err != nil {
+		return err
+	}
+	if err := pointPositions(w); err != nil {
 		return err
 	}
 	for _, id := range slices.Sorted(maps.Values(ids)) {

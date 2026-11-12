@@ -86,6 +86,10 @@ type wtx struct {
 	// name, a transaction's legs or a decision about securities, so that
 	// the end of the write groups the keys into securities again.
 	regroup bool
+	// sessions says that the write added or derived a snapshot, so that
+	// the end of the write brings the market sessions to the snapshots'
+	// span again.
+	sessions bool
 	// deferred says that foreign keys are checked at the commit.
 	deferred bool
 }

@@ -42,15 +42,18 @@
 // # Derivation
 //
 // What one piece of evidence gives by itself, such as a transaction's
-// columns and legs from its latest raw JSON, is derived when the evidence
-// arrives. What relates the evidence of an account, such as which
-// transactions a complete read shows gone and which days the API covers,
-// is derived again from scratch, for each account whose evidence a write
-// changed, at the end of that write; so is which instruments' keys name one
-// security, when a write added or changed a key or a name. Only rows that
-// change are written. No derived value shares a row with raw JSON or a file's bytes,
-// so deriving never rewrites them. A rebuild derives everything again from
-// the evidence alone.
+// columns and legs from its latest raw JSON, or a snapshot's balances,
+// positions and the market date it stands for, is derived when the
+// evidence arrives. What relates the evidence of an account, such as which
+// transactions a complete read shows gone and which days the API and the
+// snapshots cover, is derived again from scratch, for each account whose
+// evidence a write changed, at the end of that write; so is which
+// instruments' keys name one security, when a write added or changed a key
+// or a name, and which market sessions the snapshots span, when a write
+// added a snapshot. Only rows that change are written. No derived value
+// shares a row with raw JSON or a file's bytes, so deriving never rewrites
+// them. A rebuild derives everything again from the evidence alone, and a
+// newer NYSE calendar every market date and what depends on it.
 package history
 
 import (

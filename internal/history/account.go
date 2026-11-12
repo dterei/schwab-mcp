@@ -20,6 +20,8 @@ type accountInputs struct {
 	reads []readInput
 	// absences are which transactions each complete read did not return.
 	absences []absence
+	// snapshots are the account's snapshots.
+	snapshots []snapshotInput
 	// margin is how far inside a read's window a time must be for the read
 	// to count it in: a second, unless a test asks for another.
 	margin time.Duration
@@ -49,6 +51,19 @@ type readInput struct {
 // An absence is a transaction that a complete read did not return.
 type absence struct{ read, txn int64 }
 
+// A snapshotInput is what the derivation reads of a snapshot of the
+// account.
+type snapshotInput struct {
+	id        int64
+	fetchedAt time.Time
+	// accountType is the account's type that the snapshot gives, or "".
+	accountType string
+	// market is the market date that the snapshot stands for, or "" before
+	// the calendar; inSession the date of the session under way when it
+	// was taken, or "".
+	market, inSession nytime.Date
+}
+
 // accountOutputs are what the derivation of one account gives, in a fixed
 // order whatever the order of its inputs.
 type accountOutputs struct {
@@ -56,6 +71,9 @@ type accountOutputs struct {
 	txns []txnOutput
 	// coverage is the account's runs of covered days, by source and start.
 	coverage []coverageRun
+	// accountType is the account's type as its latest snapshot that gives
+	// one gives it, or "".
+	accountType string
 }
 
 // A txnOutput is what the derivation gives an API transaction.
@@ -76,9 +94,9 @@ type coverageRun struct {
 }
 
 // deriveAccount derives what one account's evidence gives: each API
-// transaction's count of revisions and the read that shows it gone, and
-// the account's coverage by the API. It is a function of its inputs alone,
-// whatever their order.
+// transaction's count of revisions and the read that shows it gone, the
+// account's coverage by the API and by its snapshots, and its type. It is
+// a function of its inputs alone, whatever their order.
 func deriveAccount(in accountInputs) accountOutputs {
 	if in.margin == 0 {
 		in.margin = time.Second
@@ -98,8 +116,55 @@ func deriveAccount(in accountInputs) accountOutputs {
 		out.txns = append(out.txns, txnOutput{id: t.id, revisions: revisions(t.digests), goneRead: goneRead(t, absent[t.id], reads, in.margin)})
 	}
 	slices.SortFunc(out.txns, func(a, b txnOutput) int { return cmp.Compare(a.id, b.id) })
-	out.coverage = apiCoverage(in.txns, in.reads, in.margin)
+	out.coverage = append(apiCoverage(in.txns, in.reads, in.margin), snapshotCoverage(in.snapshots)...)
+	slices.SortFunc(out.coverage, func(a, b coverageRun) int {
+		return cmp.Or(cmp.Compare(a.source, b.source), cmp.Compare(a.from, b.from))
+	})
+	out.accountType = latestType(in.snapshots)
 	return out
+}
+
+// snapshotCoverage returns the run of market dates from the first to the
+// last that a snapshot of the account taken outside a session stands for.
+// A snapshot taken during a session stands for no close, and one before
+// the calendar for none at all; the sessions in the run that no snapshot
+// stands for are the account's gaps (the snapshot_gaps view).
+func snapshotCoverage(snaps []snapshotInput) []coverageRun {
+	var c coverageRun
+	for _, s := range snaps {
+		if s.market == "" || s.inSession != "" {
+			continue
+		}
+		if c.from == "" || s.market < c.from {
+			c.from = s.market
+		}
+		if s.market > c.to {
+			c.to = s.market
+		}
+	}
+	if c.from == "" {
+		return nil
+	}
+	c.source = "snapshot"
+	return []coverageRun{c}
+}
+
+// latestType returns the account's type that its latest snapshot to give
+// one gives, by when it was taken and then by id, or "".
+func latestType(snaps []snapshotInput) string {
+	var latest *snapshotInput
+	for i, s := range snaps {
+		if s.accountType == "" {
+			continue
+		}
+		if latest == nil || cmp.Or(s.fetchedAt.Compare(latest.fetchedAt), cmp.Compare(s.id, latest.id)) > 0 {
+			latest = &snaps[i]
+		}
+	}
+	if latest == nil {
+		return ""
+	}
+	return latest.accountType
 }
 
 // revisions counts the runs of a transaction's cut form that differ from

@@ -21,15 +21,16 @@ var derivedTables = []string{
 // derive brings what the write changed up to date. When it added or
 // changed a key, a name or a transaction's legs, it groups the keys into
 // securities again (layer 3), which may touch the accounts whose legs
-// moved. Then it derives again, from scratch, each account that the write
-// has touched (layer 2): it loads the account's evidence, derives it with
-// deriveAccount, and writes what changed. Derived tables refer to one
-// another, so their foreign keys are checked at the commit, where a
-// dangling reference still fails it. What is derived is no longer marked,
-// so a write that needs the derivation's results can derive early, and the
-// end of the write does nothing more.
+// moved; when it added or derived a snapshot, it brings the market
+// sessions to the snapshots' span (layer 3). Then it derives again, from
+// scratch, each account that the write has touched (layer 2): it loads the
+// account's evidence, derives it with deriveAccount, and writes what
+// changed. Derived tables refer to one another, so their foreign keys are
+// checked at the commit, where a dangling reference still fails it. What
+// is derived is no longer marked, so a write that needs the derivation's
+// results can derive early, and the end of the write does nothing more.
 func (w *wtx) derive() error {
-	if len(w.touched) == 0 && !w.regroup {
+	if len(w.touched) == 0 && !w.regroup && !w.sessions {
 		return nil
 	}
 	if err := w.deferForeignKeys(); err != nil {
@@ -40,6 +41,12 @@ func (w *wtx) derive() error {
 			return err
 		}
 		w.regroup = false
+	}
+	if w.sessions {
+		if err := deriveSessions(w); err != nil {
+			return err
+		}
+		w.sessions = false
 	}
 	for _, id := range slices.Sorted(maps.Keys(w.touched)) {
 		in, err := loadAccount(w, id)
@@ -123,6 +130,22 @@ func loadAccount(w *wtx, id int64) (accountInputs, error) {
 		in.absences = append(in.absences, a)
 		return nil
 	}, `SELECT a.read_id, a.txn_id FROM api_absent a JOIN api_txn t ON t.txn_id = a.txn_id WHERE t.account_id = ?`, id)
+	if err != nil {
+		return in, err
+	}
+	err = queryEach(w, func(rows *sql.Rows) error {
+		var sn snapshotInput
+		var at string
+		var typ, market, session sql.NullString
+		if err := rows.Scan(&sn.id, &at, &typ, &market, &session); err != nil {
+			return err
+		}
+		sn.accountType, sn.market, sn.inSession = typ.String, nytime.Date(market.String), nytime.Date(session.String)
+		var err error
+		sn.fetchedAt, err = parseInstant(at)
+		in.snapshots = append(in.snapshots, sn)
+		return err
+	}, "SELECT snapshot_id, fetched_at, account_type, market_date, in_session_date FROM snapshot_fields WHERE account_id = ?", id)
 	return in, err
 }
 
@@ -137,6 +160,10 @@ func writeAccount(w *wtx, id int64, out accountOutputs) error {
 			t.revisions, gone, t.id, t.revisions, gone); err != nil {
 			return err
 		}
+	}
+	if _, err := w.exec("UPDATE account SET account_type = ?1 WHERE account_id = ?2 AND account_type IS NOT ?1",
+		nullString(out.accountType), id); err != nil {
+		return err
 	}
 	var have []coverageRun
 	err := queryEach(w, func(rows *sql.Rows) error {
@@ -190,8 +217,8 @@ func parseNullInstant(s sql.NullString) (time.Time, error) {
 // rebuild derives the store again under this build's rules and calendar.
 // It empties every derived table, writing no page of evidence, and fills
 // them again: first what each piece of evidence gives by itself (layer 1),
-// then the securities (layer 3) and each account (layer 2), and records the
-// versions it derived with.
+// then the securities and the market sessions (layer 3) and each account
+// (layer 2), and records the versions it derived with.
 // Derived tables refer to one another, so foreign keys are checked at the
 // commit, where a dangling reference still fails it.
 func rebuild(w *wtx) error {
@@ -207,6 +234,9 @@ func rebuild(w *wtx) error {
 		return err
 	}
 	if err := rebuildTxns(w); err != nil {
+		return err
+	}
+	if err := rebuildSnapshots(w); err != nil {
 		return err
 	}
 	if err := queryEach(w, func(rows *sql.Rows) error {
@@ -312,12 +342,4 @@ func rebuildCuts(w *wtx, txn int64) error {
 		}
 	}
 	return nil
-}
-
-// recalendar recomputes what depends on the NYSE calendar under this
-// build's. So far nothing stored does, so it records the calendar's
-// version.
-func recalendar(w *wtx) error {
-	_, err := w.exec("UPDATE store SET calendar_version = ? WHERE id = 1", buildVersions().calendar)
-	return err
 }

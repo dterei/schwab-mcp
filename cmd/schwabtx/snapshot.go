@@ -13,24 +13,11 @@ import (
 	"runtime"
 	"slices"
 	"strings"
-	"time"
 
+	"github.com/dterei/schwab-mcp/internal/history/schwabfile"
 	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
-
-// snapshotVersion identifies the format of a snapshot line. Change it if the
-// fields of snapshot change.
-const snapshotVersion = 1
-
-// snapshot is one line of the snapshot file. Accounts is Schwab's response to
-// GET /accounts?fields=positions as it was received, full account numbers
-// included.
-type snapshot struct {
-	Version   int             `json:"version"`
-	FetchedAt time.Time       `json:"fetched_at"`
-	Accounts  json.RawMessage `json:"accounts"`
-}
 
 // runSnapshot appends the current positions and balances of every account
 // to the snapshot file. Schwab only reports them as of now. Past holdings can
@@ -65,13 +52,13 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if err != nil {
 		return fmt.Errorf("fetching accounts: %w", err)
 	}
-	fetchedAt := timeNow().UTC().Truncate(time.Second)
 	if len(accounts) == 0 {
 		return errors.New("Schwab returned no accounts; run `schwabtx login` again and tick the accounts to share")
 	}
+	fetchedAt := timeNow()
 	positions := 0
 	current := map[string]bool{}
-	raws := make([][]byte, len(accounts))
+	raws := make([]json.RawMessage, len(accounts))
 	problems := make([][]schwab.Problem, len(accounts))
 	for i, a := range accounts {
 		positions += len(a.SecuritiesAccount.Positions)
@@ -93,19 +80,13 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 		}
 	}
 
-	// Schwab's answer is the list of the accounts' JSON as received, joined
-	// and put on one line by hand, since json.Marshal would escape "&" and
-	// the like, and a json.Encoder on Go 1.27 still escapes U+2028 and
-	// U+2029. json.Compact escapes nothing, so the line is the same whatever
-	// Go built the tool.
-	body := slices.Concat([]byte("["), bytes.Join(raws, []byte(",")), []byte("]"))
-	var line bytes.Buffer
-	fmt.Fprintf(&line, `{"version":%d,"fetched_at":%q,"accounts":`, snapshotVersion, fetchedAt.Format(time.RFC3339))
-	if err := json.Compact(&line, body); err != nil {
+	// The line keeps Schwab's answer as received, on one line, and the
+	// time in UTC to the second, as the store keeps a snapshot.
+	line, err := schwabfile.SnapshotLine(fetchedAt, raws)
+	if err != nil {
 		return fmt.Errorf("encoding the snapshot: %w", err)
 	}
-	line.WriteString("}\n")
-	if err := appendLine(path, line.Bytes(), warn); err != nil {
+	if err := appendLine(path, line, warn); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Saved a snapshot of %d accounts with %d positions to %s\n", len(accounts), positions, path)
@@ -238,18 +219,18 @@ func lastLine(path string) []byte {
 // missingAccounts returns the account numbers in the snapshot line prev that
 // are not in current.
 func missingAccounts(prev []byte, current map[string]bool) []string {
-	var s snapshot
-	if prev == nil || json.Unmarshal(prev, &s) != nil {
+	if prev == nil {
 		return nil
 	}
-	var accounts []schwab.Account
-	if json.Unmarshal(s.Accounts, &accounts) != nil {
-		return nil
-	}
+	lines, _ := schwabfile.ReadSnapshotLines(append(prev, '\n'))
 	var missing []string
-	for _, a := range accounts {
-		if n := a.SecuritiesAccount.AccountNumber; n != "" && !current[n] {
-			missing = append(missing, n)
+	for _, l := range lines {
+		for _, raw := range l.Accounts {
+			var a schwab.Account
+			_ = json.Unmarshal(raw, &a) // lenient: it never fails
+			if n := a.SecuritiesAccount.AccountNumber; n != "" && !current[n] {
+				missing = append(missing, n)
+			}
 		}
 	}
 	return missing
