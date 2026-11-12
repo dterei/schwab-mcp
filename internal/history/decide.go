@@ -255,8 +255,7 @@ func checkDecision(w *wtx, d Decision) (sql.NullString, error) {
 		if d.Value == "none" || d.Value == "auto" {
 			break
 		}
-		var other int64
-		err := w.tx.QueryRowContext(w.ctx, "SELECT account_id FROM entry WHERE subject = ?", d.Value).Scan(&other)
+		other, err := partnerAccount(w, d.Value)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			return refuse("no transaction %s in the store to pair %s with", d.Value, ref)
@@ -283,6 +282,23 @@ func checkDecision(w *wtx, d Decision) (sql.NullString, error) {
 		basis = sql.NullString{String: `{"seq":` + strconv.Itoa(seq) + `}`, Valid: true}
 	}
 	return basis, nil
+}
+
+// partnerAccount returns the account of the transaction that a pair
+// decision's value names: an entry's subject, or a row of a History file,
+// c:<sha256 hex>:<ordinal>, whose transaction the decision follows (13.7
+// of the design); sql.ErrNoRows when the store holds neither.
+func partnerAccount(w *wtx, value string) (int64, error) {
+	var acct sql.NullInt64
+	err := w.tx.QueryRowContext(w.ctx, `SELECT account_id FROM entry WHERE subject = ?1
+		UNION ALL SELECT d.account_id FROM import_file f JOIN file_fields d ON d.file_id = f.file_id
+		JOIN history_row r ON r.file_id = f.file_id
+		WHERE substr(?1, 1, 2) = 'c:' AND substr(?1, 3, 64) = lower(hex(f.sha256)) AND ?1 = 'c:' || lower(hex(f.sha256)) || ':' || r.ordinal
+		LIMIT 1`, value).Scan(&acct)
+	if err == nil && !acct.Valid {
+		err = sql.ErrNoRows
+	}
+	return acct.Int64, err
 }
 
 // keyExists reports whether the store holds key.
@@ -445,8 +461,8 @@ func checkRowDecision(w *wtx, d Decision) (sql.NullString, error) {
 		}
 	case "pair":
 		if d.Value != "none" && d.Value != "auto" {
-			var other int64
-			if err := w.tx.QueryRowContext(w.ctx, "SELECT account_id FROM entry WHERE subject = ?", d.Value).Scan(&other); err != nil {
+			other, err := partnerAccount(w, d.Value)
+			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
 					return basis, fmt.Errorf("no transaction %s in the store to pair it with", mask.Text(d.Value))
 				}

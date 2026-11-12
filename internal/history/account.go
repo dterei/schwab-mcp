@@ -3,6 +3,7 @@ package history
 import (
 	"cmp"
 	"database/sql"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,9 +33,12 @@ type accountInputs struct {
 	// decisions are your decisions on the account's entries and on the
 	// account, but for pairs, which pairAccounts reads.
 	decisions []decisionInput
-	// pairDecided holds the subjects of entries that your pair decisions
-	// name, which pairWithin leaves to pairAccounts.
-	pairDecided map[string]bool
+	// pairDecisions are your pair decisions, which pairAccounts applies, and
+	// pairRows the file transaction that holds each row of a History file
+	// that one of them names, as the store holds it: pairWithin leaves the
+	// entries they reach to pairAccounts.
+	pairDecisions []decisionInput
+	pairRows      map[string]string
 	// keySecurities are the securities of the keys that your entry_security
 	// decisions name, and names the symbols that securities have held, by
 	// which a dividend's symbol finds its security.
@@ -164,6 +168,11 @@ type accountOutputs struct {
 	// candidates what each uncertain one may be.
 	matches    []matchOutput
 	candidates []candidateOutput
+	// rowSubjects are the file transactions that hold the rows of the
+	// account's files that your pair decisions name, by the row,
+	// c:<sha256 hex>:<ordinal>: the subject of each, or "" for a row that
+	// no transaction holds now (13.7 of the design).
+	rowSubjects map[string]string
 }
 
 // A txnOutput is what the derivation gives an API transaction.
@@ -228,6 +237,13 @@ func deriveAccount(in accountInputs) accountOutputs {
 	})
 	out.entries = append(out.entries, fl.entries...)
 	slices.SortFunc(out.entries, func(a, b ledgerEntry) int { return cmp.Compare(a.ref, b.ref) })
+	out.rowSubjects = fl.rowSubjects
+	rows := maps.Clone(in.pairRows)
+	maps.Copy(rows, fl.rowSubjects)
+	decided := pairsDecided(pairsReaching(in.pairDecisions, rows))
+	for i := range out.entries {
+		out.entries[i].pairDecided = decided[out.entries[i].subject]
+	}
 	out.coverage = append(append(apiRuns, snapshotCoverage(in.snapshots)...), fl.coverage...)
 	slices.SortFunc(out.coverage, func(a, b coverageRun) int {
 		return cmp.Or(cmp.Compare(a.source, b.source), cmp.Compare(a.from, b.from))

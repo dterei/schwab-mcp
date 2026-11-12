@@ -38,6 +38,56 @@ type pairResult struct {
 	decided, none bool
 }
 
+// rowsNamed returns the rows of History files, c:<sha256 hex>:<ordinal>,
+// that a pair decision names, as its subject or as its value.
+func rowsNamed(d decisionInput) []string {
+	var rows []string
+	for _, s := range []string{d.subject, d.value} {
+		if strings.HasPrefix(s, "c:") {
+			rows = append(rows, s)
+		}
+	}
+	return rows
+}
+
+// pairsReaching returns your pair decisions ds as they reach transactions
+// (13.7 of the design): each row of a History file that one names, as its
+// subject or its value, is replaced by the subject of the file transaction
+// that holds the row now, as rows gives it, so that a decision follows its
+// transaction whichever file opened it. A decision naming a row that rows
+// maps to "", which no transaction holds (its file is set aside and no
+// other file has the transaction), waits: it is left out. Subjects of API
+// transactions, and rows that rows does not know, stay as they are.
+func pairsReaching(ds []decisionInput, rows map[string]string) []decisionInput {
+	out := make([]decisionInput, 0, len(ds))
+	for _, d := range ds {
+		waits := false
+		for _, s := range []*string{&d.subject, &d.value} {
+			if to, ok := rows[*s]; ok && strings.HasPrefix(*s, "c:") {
+				*s, waits = to, waits || to == ""
+			}
+		}
+		if !waits {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// pairsDecided returns the subjects of the entries that the latest of
+// your pair decisions ds, as they reach transactions (pairsReaching), name:
+// automatic pairing leaves them to your decisions.
+func pairsDecided(ds []decisionInput) map[string]bool {
+	decided := map[string]bool{}
+	for _, d := range latestDecisions(ds) {
+		decided[d.subject] = true
+		if d.value != "none" {
+			decided[d.value] = true
+		}
+	}
+	return decided
+}
+
 // pairAccounts pairs entries across accounts (13.5 of the design), a
 // function of the candidates and your decisions whatever their order.
 // Your pair decisions come first, the latest of each entry's holding, the

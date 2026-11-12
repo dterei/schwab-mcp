@@ -71,6 +71,9 @@ type fileLedger struct {
 	decided  []map[string]decisionInput
 	all      [][]decisionInput
 	complete []schwabfile.Coverage
+	// rowSubjects are the transactions that hold the rows that your pair
+	// decisions name (accountOutputs).
+	rowSubjects map[string]string
 }
 
 // holdsFamilies are the families of file transactions that move holdings,
@@ -151,7 +154,20 @@ func deriveFiles(in accountInputs, api []ledgerEntry, apiRuns []coverageRun) fil
 		t.files = len(files)
 		out.txns[i] = t
 	}
-	out.decided, out.all = fileDecisions(in, clusters, byRow, secs)
+	reach := newRowReach(in, byRow, secs)
+	out.decided, out.all = fileDecisions(in, reach, len(clusters))
+	out.rowSubjects = map[string]string{}
+	for _, d := range in.pairDecisions {
+		for _, row := range rowsNamed(d) {
+			i, ok := reach.of(row)
+			switch {
+			case ok:
+				out.rowSubjects[row] = out.txns[i].subject
+			case reach.holds(row):
+				out.rowSubjects[row] = ""
+			}
+		}
+	}
 	for i, c := range clusters {
 		out.entries = append(out.entries, fileEntry(in, out.txns[i], c, out.decided[i], refs, secs, familyOf))
 	}
@@ -492,71 +508,101 @@ func joinAnd(words []string) string {
 	return strings.Join(words[:len(words)-1], ", ") + " and " + words[len(words)-1]
 }
 
-// fileDecisions returns, for each cluster, the latest of your decisions of
-// each kind on an entry (category, count, pair, entry_security, match)
-// that reach it, and every one that does, rejects among them, in the order
-// they were made (13.7 of the design): a decision names a row, and reaches
-// the cluster that holds that row now. A row of a file set aside reaches
-// the cluster that holds the other rows of the cluster it would be in were
-// every file taken part, when exactly one does; else the decision waits.
-func fileDecisions(in accountInputs, clusters []*cluster[*historyRowInput], byRow map[*historyRowInput]int, secs *securities) ([]map[string]decisionInput, [][]decisionInput) {
-	out := make([]map[string]decisionInput, len(clusters))
-	all := make([][]decisionInput, len(clusters))
-	if len(in.fileDecisions) == 0 {
-		return out, all
-	}
-	rowOf := map[string]*historyRowInput{}
-	for _, f := range in.files {
-		for _, r := range f.rows {
-			rowOf[f.sha+":"+strconv.Itoa(r.ordinal)] = r
-		}
-	}
+// A rowReach finds the cluster of the account's that holds a row of its
+// files now (13.7 of the design): the cluster the row is in; for a row of a
+// file set aside, the cluster that holds the other rows of the cluster it
+// would be in were every file taken part, when exactly one does.
+type rowReach struct {
+	in    accountInputs
+	secs  *securities
+	byRow map[*historyRowInput]int
+	// rowOf maps each row's <sha256 hex>:<ordinal> to it; it is made only
+	// when needed.
+	rowOf map[string]*historyRowInput
 	// whole maps each row, those of files set aside included, to its
 	// cluster were every file taken part; it is made only when needed.
-	var whole map[*historyRowInput]*cluster[*historyRowInput]
-	reach := func(subject string) (int, bool) {
-		r := rowOf[strings.TrimPrefix(subject, "c:")]
-		if r == nil {
-			return 0, false
-		}
-		if i, ok := byRow[r]; ok {
-			return i, true
-		}
-		if !r.file.forgotten || r.posted == "" {
-			return 0, false
-		}
-		if whole == nil {
-			var all []*historyRowInput
-			for _, f := range in.files {
-				for _, x := range f.rows {
-					if x.posted != "" {
-						all = append(all, x)
-					}
-				}
-			}
-			whole = map[*historyRowInput]*cluster[*historyRowInput]{}
-			for _, c := range clusterRows(all, secs, historyScore) {
-				for _, x := range c.rows {
-					whole[x] = c
-				}
+	whole map[*historyRowInput]*cluster[*historyRowInput]
+}
+
+// newRowReach returns the rowReach of the account's files, whose rows
+// byRow maps to the clusters they are in.
+func newRowReach(in accountInputs, byRow map[*historyRowInput]int, secs *securities) *rowReach {
+	return &rowReach{in: in, secs: secs, byRow: byRow}
+}
+
+// row returns the row of the account's files that subject,
+// c:<sha256 hex>:<ordinal>, names, or nil.
+func (rr *rowReach) row(subject string) *historyRowInput {
+	if rr.rowOf == nil {
+		rr.rowOf = map[string]*historyRowInput{}
+		for _, f := range rr.in.files {
+			for _, r := range f.rows {
+				rr.rowOf[f.sha+":"+strconv.Itoa(r.ordinal)] = r
 			}
 		}
-		found := map[int]bool{}
-		for _, x := range whole[r].rows {
-			if i, ok := byRow[x]; ok {
-				found[i] = true
-			}
-		}
-		if len(found) != 1 {
-			return 0, false
-		}
-		for i := range found {
-			return i, true
-		}
+	}
+	return rr.rowOf[strings.TrimPrefix(subject, "c:")]
+}
+
+// holds reports whether subject names a row of the account's files.
+func (rr *rowReach) holds(subject string) bool { return rr.row(subject) != nil }
+
+// of returns the cluster that holds the row that subject names, or false
+// when none does: the row is not the account's, is undated, or is of a
+// file set aside whose transaction no other file has, or two now hold.
+func (rr *rowReach) of(subject string) (int, bool) {
+	r := rr.row(subject)
+	if r == nil {
 		return 0, false
 	}
+	if i, ok := rr.byRow[r]; ok {
+		return i, true
+	}
+	if !r.file.forgotten || r.posted == "" {
+		return 0, false
+	}
+	if rr.whole == nil {
+		var all []*historyRowInput
+		for _, f := range rr.in.files {
+			for _, x := range f.rows {
+				if x.posted != "" {
+					all = append(all, x)
+				}
+			}
+		}
+		rr.whole = map[*historyRowInput]*cluster[*historyRowInput]{}
+		for _, c := range clusterRows(all, rr.secs, historyScore) {
+			for _, x := range c.rows {
+				rr.whole[x] = c
+			}
+		}
+	}
+	found := map[int]bool{}
+	for _, x := range rr.whole[r].rows {
+		if i, ok := rr.byRow[x]; ok {
+			found[i] = true
+		}
+	}
+	if len(found) != 1 {
+		return 0, false
+	}
+	for i := range found {
+		return i, true
+	}
+	return 0, false
+}
+
+// fileDecisions returns, for each of the n clusters, the latest of your
+// decisions of each kind on an entry (category, count, pair,
+// entry_security, match) that reach it, and every one that does, rejects
+// among them, in the order they were made (13.7 of the design): a decision
+// names a row, and reaches the cluster that holds that row now
+// (rowReach); else it waits.
+func fileDecisions(in accountInputs, reach *rowReach, n int) ([]map[string]decisionInput, [][]decisionInput) {
+	out := make([]map[string]decisionInput, n)
+	all := make([][]decisionInput, n)
 	for _, d := range in.fileDecisions {
-		i, ok := reach(d.subject)
+		i, ok := reach.of(d.subject)
 		if !ok {
 			continue
 		}
@@ -620,7 +666,6 @@ func fileEntry(in accountInputs, t csvTxnOutput, c *cluster[*historyRowInput], d
 		e.category, e.rule, e.userCategory = d.value, "user", true
 		e.flags.drop(answeredByCategory...)
 	}
-	_, e.pairDecided = in.pairDecided[e.subject]
 	if strings.HasPrefix(s.description, "TDA TRAN -") {
 		e.flags.add("tda_history", "")
 	}

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"reflect"
 	"slices"
@@ -556,5 +557,32 @@ func TestPairAccounts(t *testing.T) {
 		if names(text, number) {
 			t.Errorf("%q names %s", text, number)
 		}
+	}
+}
+
+// Your pair decisions reach transactions (13.7 of the design): a row of a
+// file named as subject or value becomes the subject of the transaction
+// that holds it now; a decision naming a row that no transaction holds
+// waits, and decides nothing, not even its other side; API transactions'
+// subjects, and rows not known, stay.
+func TestPairsReaching(t *testing.T) {
+	t.Parallel()
+	rows := map[string]string{"c:aa:2": "c:bb:1", "c:aa:3": "", "c:bb:1": "c:bb:1"}
+	ds := []decisionInput{
+		{id: 1, kind: "pair", subject: "c:aa:2", value: "a:1:7"},
+		{id: 2, kind: "pair", subject: "a:2:8", value: "c:aa:3"},
+		{id: 3, kind: "pair", subject: "c:cc:1", value: "none"},
+		{id: 4, kind: "pair", subject: "a:2:9", value: "c:bb:1"},
+	}
+	var got []string
+	for _, d := range pairsReaching(ds, rows) {
+		got = append(got, fmt.Sprintf("%d %s %s", d.id, d.subject, d.value))
+	}
+	if want := []string{"1 c:bb:1 a:1:7", "3 c:cc:1 none", "4 a:2:9 c:bb:1"}; !slices.Equal(got, want) {
+		t.Errorf("the decisions reach %q, want %q", got, want)
+	}
+	decided := pairsDecided(pairsReaching(ds, rows))
+	if got := slices.Sorted(maps.Keys(decided)); !slices.Equal(got, []string{"a:1:7", "a:2:9", "c:bb:1", "c:cc:1"}) {
+		t.Errorf("the decided subjects are %q", got)
 	}
 }

@@ -692,3 +692,61 @@ func TestSymbolFilteredExports(t *testing.T) {
 		t.Errorf("the legs are %q, want %q", legs, want)
 	}
 }
+
+// Your pair decision follows its transaction (13.7 of the design), as your
+// other decisions on file transactions do: made on a row whose file is
+// then set aside, it holds for the transaction that another file's row
+// opens now, and one naming that row as its value pairs that transaction;
+// a rebuild derives the same.
+func TestPairFollowsTransaction(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	journal := csvRow{"02/05/2026", "Journal", "", "JOURNAL TO ...456", "", "", "", "-$500.00"}
+	first := historyCSV(journal)
+	second := historyCSV(journal, csvRow{"02/09/2026", "Credit Interest", "", "SCHWAB1 INT", "", "", "", "$0.07"})
+	importFiles(t, s, ImportOptions{Account: fileAccount},
+		exportName("20260210-090000", "csv"), first, exportName("20260215-090000", "csv"), second)
+	importFiles(t, s, ImportOptions{Account: "22220456"}, "other.csv",
+		historyCSV(csvRow{"02/05/2026", "Journal", "", "JOURNAL FRM ...398", "", "", "", "$500.00"}))
+	other := storeStrings(t, s, "SELECT subject FROM entry WHERE account_id = 2")[0]
+	pairs := func() []string {
+		t.Helper()
+		return storeStrings(t, s, `SELECT e.ref || ' ' || e.category || ' ' || coalesce(e.pair_kind, '-') || ' ' || coalesce(p.ref, '-')
+			FROM entry e LEFT JOIN entry p ON p.entry_id = e.pair_entry_id WHERE e.family = 'journal' ORDER BY e.account_id`)
+	}
+	step := func(name string, want ...string) {
+		t.Helper()
+		got := pairs()
+		var shape []string
+		for _, g := range got {
+			_, rest, _ := strings.Cut(g, " ")
+			shape = append(shape, rest)
+		}
+		if !slices.Equal(shape, want) {
+			t.Errorf("%s: the journals are %q, want %q", name, got, want)
+		}
+	}
+	firstRef := storeStrings(t, s, "SELECT ref FROM file_fields WHERE file_id = 1")[0]
+	firstTxn := storeStrings(t, s, "SELECT ref FROM entry WHERE account_id = 1 AND kind = 'Journal'")[0]
+	otherTxn := storeStrings(t, s, "SELECT ref FROM entry WHERE account_id = 2")[0]
+	step("paired by the rules", "journal journal "+otherTxn, "journal journal "+firstTxn)
+
+	decide(t, s, Decision{Kind: "pair", Subject: subjectOf(first, 1), Value: "none"})
+	step("your none", "withdrawal - -", "deposit - -")
+	r, err := s.Forget(t.Context(), firstRef, false)
+	if err != nil || r.Waiting != 0 {
+		t.Fatalf("setting the first file aside: %+v, %v", r, err)
+	}
+	step("your none, its row's file set aside", "withdrawal - -", "deposit - -")
+
+	decide(t, s, Decision{Kind: "pair", Subject: other, Value: subjectOf(first, 1)})
+	secondTxn := storeStrings(t, s, "SELECT ref FROM entry WHERE account_id = 1 AND kind = 'Journal'")[0]
+	step("paired with the set-aside row's transaction", "journal journal "+otherTxn, "journal journal "+secondTxn)
+	before := pairs()
+	if err := s.withWrite(t.Context(), "rebuilding", rebuild); err != nil {
+		t.Fatal(err)
+	}
+	if after := pairs(); !slices.Equal(after, before) {
+		t.Errorf("recorded %q, rebuilt %q", before, after)
+	}
+}

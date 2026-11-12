@@ -19,10 +19,11 @@ type globals struct {
 	// keySecurities are the securities of the keys that your entry_security
 	// decisions name, without their k:.
 	keySecurities map[string]int64
-	// pairDecisions are your pair decisions, and pairDecided the subjects
-	// of the entries that the latest of them name.
+	// pairDecisions are your pair decisions, and pairRows the file
+	// transaction that holds each row of a History file that one of them
+	// names, as the store holds it (loadPairRows).
 	pairDecisions []decisionInput
-	pairDecided   map[string]bool
+	pairRows      map[string]string
 	// numbers are the accounts' numbers, by id.
 	numbers map[int64]string
 	// secs is what the counting of files' rows reads of the securities,
@@ -34,7 +35,7 @@ type globals struct {
 
 // loadGlobals reads what every account's derivation reads.
 func loadGlobals(w *wtx) (*globals, error) {
-	g := &globals{keySecurities: map[string]int64{}, pairDecided: map[string]bool{}, numbers: map[int64]string{}}
+	g := &globals{keySecurities: map[string]int64{}, numbers: map[int64]string{}}
 	var err error
 	if g.names, err = loadSymbolNames(w); err != nil {
 		return nil, err
@@ -52,11 +53,8 @@ func loadGlobals(w *wtx) (*globals, error) {
 	if g.pairDecisions, err = loadDecisions(w, "kind = 'pair'"); err != nil {
 		return nil, err
 	}
-	for _, d := range latestDecisions(g.pairDecisions) {
-		g.pairDecided[d.subject] = true
-		if d.value != "none" {
-			g.pairDecided[d.value] = true
-		}
+	if g.pairRows, err = loadPairRows(w, g.pairDecisions); err != nil {
+		return nil, err
 	}
 	err = queryEach(w, func(rows *sql.Rows) error {
 		var id int64
@@ -74,6 +72,34 @@ func loadGlobals(w *wtx) (*globals, error) {
 		g.policies[strings.TrimPrefix(d.subject, "action:")] = d.value
 	}
 	return g, err
+}
+
+// loadPairRows reads which file transaction holds each row of a History
+// file, c:<sha256 hex>:<ordinal>, that your pair decisions ds name, as the
+// store holds it: the subject of the transaction. A row of a file set
+// aside is in none.
+func loadPairRows(w *wtx, ds []decisionInput) (map[string]string, error) {
+	var named []string
+	for _, d := range ds {
+		named = append(named, rowsNamed(d)...)
+	}
+	rows := map[string]string{}
+	if len(named) == 0 {
+		return rows, nil
+	}
+	list, err := json.Marshal(named)
+	if err != nil {
+		return nil, err
+	}
+	err = queryEach(w, func(r *sql.Rows) error {
+		var row, subject string
+		err := r.Scan(&row, &subject)
+		rows[row] = subject
+		return err
+	}, `SELECT n.value, c.subject FROM json_each(?) n JOIN import_file f ON substr(n.value, 3, 64) = lower(hex(f.sha256))
+		JOIN history_row r ON r.file_id = f.file_id AND n.value = 'c:' || lower(hex(f.sha256)) || ':' || r.ordinal
+		JOIN csv_member m ON m.row_id = r.row_id JOIN csv_txn c ON c.csv_txn_id = m.csv_txn_id`, string(list))
+	return rows, err
 }
 
 // loadDecisions reads the decisions that where selects, in the order they
@@ -128,12 +154,12 @@ type storedPair struct {
 
 // loadPairCandidates reads the entries of the accounts not in outs that
 // pairing across accounts reads (journals, entries paired as journals or
-// with an entry of another account, and entries that your pair decisions
-// name), with their pairs as the store holds them. An entry paired across
+// with an entry of another account, and named, the entries that your pair
+// decisions name), with their pairs as the store holds them. An entry paired across
 // accounts by a decision that has since been withdrawn, or that names
 // another entry now, is read so that its pair is undone too.
-func loadPairCandidates(w *wtx, g *globals, outs map[int64]*accountOutputs) ([]pairCandidate, map[entryKey]storedPair, error) {
-	decided, err := json.Marshal(slices.Sorted(maps.Keys(g.pairDecided)))
+func loadPairCandidates(w *wtx, g *globals, named map[string]bool, outs map[int64]*accountOutputs) ([]pairCandidate, map[entryKey]storedPair, error) {
+	decided, err := json.Marshal(slices.Sorted(maps.Keys(named)))
 	if err != nil {
 		return nil, nil, err
 	}

@@ -175,7 +175,6 @@ func apiEntries(in accountInputs, gone map[int64]int64, revisions map[int64]int,
 			e.category, e.rule, e.userCategory = d.value, "user", true
 			e.flags.drop(answeredByCategory...)
 		}
-		_, e.pairDecided = in.pairDecided[e.subject]
 
 		legsCheck(&e.flags, t)
 		for _, p := range t.problems {

@@ -101,7 +101,14 @@ func (w *wtx) derive() error {
 			out := deriveAccount(in)
 			outs[id] = &out
 		}
-		cands, stored, err := loadPairCandidates(w, g, outs)
+		// Your pair decisions follow their transactions: rows are mapped as
+		// the accounts derived now hold them, else as the store does.
+		rows := maps.Clone(g.pairRows)
+		for _, id := range slices.Sorted(maps.Keys(outs)) {
+			maps.Copy(rows, outs[id].rowSubjects)
+		}
+		decisions := pairsReaching(g.pairDecisions, rows)
+		cands, stored, err := loadPairCandidates(w, g, pairsDecided(decisions), outs)
 		if err != nil {
 			return err
 		}
@@ -112,7 +119,7 @@ func (w *wtx) derive() error {
 				}
 			}
 		}
-		pairs = pairAccounts(cands, g.pairDecisions)
+		pairs = pairAccounts(cands, decisions)
 		// An account not derived whose pairs this changes is derived too.
 		more := false
 		for k, was := range stored {
@@ -151,7 +158,7 @@ func (w *wtx) derive() error {
 func loadAccount(w *wtx, id int64, g *globals) (accountInputs, error) {
 	in := accountInputs{
 		account: id, margin: w.s.o.margin, number: g.numbers[id],
-		pairDecided: g.pairDecided, keySecurities: g.keySecurities, names: g.names, policies: g.policies,
+		pairDecisions: g.pairDecisions, pairRows: g.pairRows, keySecurities: g.keySecurities, names: g.names, policies: g.policies,
 	}
 	if err := loadFiles(w, &in, g); err != nil {
 		return in, err
