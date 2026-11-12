@@ -33,8 +33,9 @@ build: ## Build the commands into bin/
 test: ## Run the tests with the race detector
 	go test $(RACE) -shuffle=on ./...
 
-volume: ## Run the store's property test with many more seeds and operations than CI
+volume: ## Run the store's property test with many more seeds and operations than CI, and its test of volume
 	go test ./internal/history -run '^TestIncrementalEqualsRebuild$$' -history.seeds=50 -history.ops=30
+	go test ./internal/history -run '^TestVolume$$' -history.volume -v -timeout 30m
 
 # Needs Go 1.27. On Go 1.26, a FAIL whose only message is "context deadline
 # exceeded" comes from the fuzzing engine at the -fuzztime deadline

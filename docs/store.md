@@ -1678,4 +1678,6 @@ A test that grows past 3 s under `-race` is cut down, but for
 `TestIncrementalEqualsRebuild`, the only check that each write derives what a
 rebuild does, which runs in CI with 4 seeds of 8 operations under `-race`
 (30 without). `make volume` runs it with 50 seeds of 30 operations, by
-hand.
+hand, and `TestVolume` (behind `-history.volume`): a year of History exports
+of 3,000 rows a quarter and five years of snapshots, imported, rebuilt,
+checked and exported (about 50 s, without `-race`).
