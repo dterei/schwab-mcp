@@ -1,0 +1,57 @@
+{
+  "Kind": "history_json",
+  "Layout": "history-json",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": false,
+  "LazyQuotes": false,
+  "AccountHint": "456",
+  "NameDigits": "456",
+  "ExportedAt": "2024-06-05T16:00:00Z",
+  "StatedFrom": "2024-05-30",
+  "StatedTo": "2024-06-05",
+  "StatedTotal": "-$57.50 => -57.5",
+  "History": [
+    {
+      "Ordinal": 1,
+      "Line": 6,
+      "Raw": "{\n      \"Date\": \"06/03/2024\",\n      \"Action\": \"Buy\",\n      \"Symbol\": \"XYZ\",\n      \"Description\": \"XYZ CORP\",\n      \"Quantity\": \"2\",\n      \"Price\": \"$30.00\",\n      \"Fees & Comm\": \"\",\n      \"Amount\": \"-$60.00\"\n    }",
+      "Posted": "2024-06-03",
+      "AsOf": "",
+      "Action": "Buy",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "2 => 2",
+      "Price": "$30.00 => 30",
+      "Fees": "",
+      "Amount": "-$60.00 => -60"
+    },
+    {
+      "Ordinal": 2,
+      "Line": 16,
+      "Raw": "{\n      \"Date\": \"05/31/2024 as of 05/30/2024\",\n      \"Action\": \"Cash Dividend\",\n      \"Symbol\": \"ABCD\",\n      \"Description\": \"ABCD INC\",\n      \"Quantity\": \"\",\n      \"Price\": \"\",\n      \"Fees & Comm\": \"\",\n      \"Amount\": \"$2.50\"\n    }",
+      "Posted": "2024-05-31",
+      "AsOf": "2024-05-30",
+      "Action": "Cash Dividend",
+      "Symbol": "ABCD",
+      "Description": "ABCD INC",
+      "Quantity": "",
+      "Price": "",
+      "Fees": "",
+      "Amount": "$2.50 => 2.5"
+    }
+  ],
+  "Coverage": {
+    "RangeFrom": "2024-05-30",
+    "RangeTo": "2024-06-05",
+    "Source": "stated",
+    "From": "2024-05-30",
+    "To": "2024-06-04",
+    "Warnings": [
+      {
+        "Code": "coverage_clipped",
+        "Detail": "exported on 2024-06-05: it ends on 2024-06-04, the day before"
+      }
+    ]
+  }
+}

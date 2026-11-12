@@ -1,0 +1,6 @@
+"Transactions  for account Joint ...456 as of 05/03/2022 02:21:05 PM ET"
+"Date","Action","Symbol","Description","Quantity","Price","Fees & Comm","Amount"
+"05/02/2022","Buy","XYZ","XYZ CORP","100","$25.00","","-$2500.00"
+"04/29/2022","Qualified Dividend","XYZ","XYZ CORP","","","","$15.00"
+"04/18/2022 as of 04/15/2022","Bank Interest","","BANK INT 031622-041522 SCHWAB BANK","","","","$0.08"
+"Transactions Total","","","","","","","-$2,484.92",

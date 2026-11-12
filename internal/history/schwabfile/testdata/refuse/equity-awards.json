@@ -1,0 +1,26 @@
+{
+  "FromDate": "01/01/2026",
+  "ToDate": "10/31/2026",
+  "Transactions": [
+    {
+      "Date": "03/15/2026",
+      "Action": "Deposit",
+      "Symbol": "XYZ",
+      "Quantity": "10",
+      "Description": "RS",
+      "FeesAndCommissions": null,
+      "DisbursementElection": null,
+      "Amount": null,
+      "TransactionDetails": [
+        {
+          "Details": {
+            "AwardDate": "03/15/2025",
+            "AwardId": "1",
+            "VestDate": "03/15/2026",
+            "VestFairMarketValue": "$20.00"
+          }
+        }
+      ]
+    }
+  ]
+}

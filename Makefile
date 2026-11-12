@@ -14,7 +14,7 @@ RACE ?= -race
 # How long make fuzz fuzzes each target, and the packages whose targets it
 # fuzzes.
 FUZZTIME ?= 30s
-FUZZPKGS := ./internal/schwab ./internal/mask
+FUZZPKGS := ./internal/schwab ./internal/mask ./internal/history/schwabfile
 
 .PHONY: all check build test fuzz cover lint libc fmt tidy vuln clean help
 
@@ -39,7 +39,7 @@ test: ## Run the tests with the race detector
 # -list, whose own failure, as when the tests do not build, ends the run, as
 # does the first target that fails. A failing input is saved under the
 # package's testdata/fuzz, to commit with the fix.
-fuzz: ## Fuzz each target in internal/schwab and internal/mask in turn
+fuzz: ## Fuzz each target in internal/schwab, internal/mask and schwabfile in turn
 	@for p in $(FUZZPKGS); do \
 		targets=$$(go test -list '^Fuzz' $$p) || { echo "$$targets"; exit 1; }; \
 		targets=$$(echo "$$targets" | grep '^Fuzz') || { echo "no fuzz targets in $$p"; exit 1; }; \

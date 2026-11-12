@@ -1,0 +1,57 @@
+{
+  "Kind": "history_csv",
+  "Layout": "history-current",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": false,
+  "LazyQuotes": false,
+  "AccountHint": "123",
+  "NameDigits": "123",
+  "ExportedAt": "2023-11-01T12:00:00Z",
+  "StatedFrom": "",
+  "StatedTo": "",
+  "StatedTotal": "$200.11 => 200.11",
+  "History": [
+    {
+      "Ordinal": 1,
+      "Line": 2,
+      "Raw": "\"10/20/2023\",\"Sell\",\"ABCD\",\"ABCD INC\",\"4\",\"$50.00\",\"\",\"$200.00\"",
+      "Posted": "2023-10-20",
+      "AsOf": "",
+      "Action": "Sell",
+      "Symbol": "ABCD",
+      "Description": "ABCD INC",
+      "Quantity": "4 => 4",
+      "Price": "$50.00 => 50",
+      "Fees": "",
+      "Amount": "$200.00 => 200"
+    },
+    {
+      "Ordinal": 2,
+      "Line": 3,
+      "Raw": "\"10/02/2023\",\"Credit Interest\",\"\",\"SCHWAB1 INT 08/30-09/28\",\"\",\"\",\"\",\"$0.11\"",
+      "Posted": "2023-10-02",
+      "AsOf": "",
+      "Action": "Credit Interest",
+      "Symbol": "",
+      "Description": "SCHWAB1 INT 08/30-09/28",
+      "Quantity": "",
+      "Price": "",
+      "Fees": "",
+      "Amount": "$0.11 => 0.11"
+    }
+  ],
+  "Coverage": {
+    "RangeFrom": "2023-10-02",
+    "RangeTo": "2023-10-20",
+    "Source": "rows",
+    "From": "2023-10-02",
+    "To": "2023-10-20",
+    "Warnings": [
+      {
+        "Code": "coverage_from_rows",
+        "Detail": "it states no range, and none was given: its range is its rows', 2023-10-02 to 2023-10-20"
+      }
+    ]
+  }
+}

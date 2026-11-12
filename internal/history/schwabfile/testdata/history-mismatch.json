@@ -1,0 +1,67 @@
+{
+  "FromDate": "01/01/2026",
+  "ToDate": "03/31/2026",
+  "TotalTransactionsAmount": "$2,500.00",
+  "BrokerageTransactions": [
+    {
+      "Date": "03/31/2026",
+      "Action": "Sell",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "1,500",
+      "Price": "$10.00",
+      "Fees & Comm": "$0.07",
+      "Amount": "$14,999.93",
+      "ItemIssueId": "71234567",
+      "AcctgRuleCd": "2"
+    },
+    {
+      "Date": "03/16/2026 as of 03/13/2026",
+      "Action": "Bank Interest",
+      "Symbol": "",
+      "Description": "BANK INT ...123 SCHWAB BANK",
+      "Quantity": "",
+      "Price": "",
+      "Fees & Comm": "",
+      "Amount": "$1.23",
+      "ItemIssueId": "0",
+      "AcctgRuleCd": "1"
+    },
+    {
+      "Date": "03/02/2026",
+      "Action": "Buy",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "1,500",
+      "Price": "$9.00",
+      "Fees & Comm": "",
+      "Amount": "-$13,500.00",
+      "ItemIssueId": "71234567",
+      "AcctgRuleCd": "2"
+    },
+    {
+      "Date": "02/17/2026 as of 02/13/2026",
+      "Action": "Qualified Dividend",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "",
+      "Price": "",
+      "Fees & Comm": "",
+      "Amount": "$4.56",
+      "ItemIssueId": "71234567",
+      "AcctgRuleCd": "2"
+    },
+    {
+      "Date": "01/05/2026",
+      "Action": "MoneyLink Transfer",
+      "Symbol": "",
+      "Description": "Tfr EXAMPLE BANK, N, HOLDER NAME",
+      "Quantity": "",
+      "Price": "",
+      "Fees & Comm": "",
+      "Amount": "$1,000.00",
+      "ItemIssueId": "0",
+      "AcctgRuleCd": "1"
+    }
+  ]
+}

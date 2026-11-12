@@ -1,0 +1,275 @@
+[
+  {
+    "file": "history-2014.csv",
+    "name": "Brokerage_Transactions_20141220-211649.CSV",
+    "source": "hand-made: the 2014 layout of the sample in fengb/nvst's spec: banner with a 24-hour time, trailing commas, an action padded to 20 characters, an unquoted footer, CRLF",
+    "cr": 6,
+    "bom": false
+  },
+  {
+    "file": "history-2020-range.csv",
+    "name": "Brokerage_Transactions_20201115-180021.CSV",
+    "source": "hand-made: the 2020 layout of jbms/beancount-import's test files: a nickname in the banner, From and to, an unquoted footer, CRLF",
+    "cr": 6,
+    "bom": false
+  },
+  {
+    "file": "history-2020-empty.csv",
+    "name": "Brokerage_Transactions_20201130-180000.CSV",
+    "source": "hand-made: the 2020 layout's empty export: banner, header and one record of an empty cell",
+    "cr": 3,
+    "bom": false
+  },
+  {
+    "file": "history-2022.csv",
+    "name": "Joint_XXX456_Transactions_20220503-142105.csv",
+    "source": "hand-made: the 2022 layout of the samples of rlan/convert-csv-schwab2pp and redstreet/beancount_reds_importers: a 12-hour time, ...456, no trailing comma on the rows, a quoted footer with a separator and a trailing comma, CRLF",
+    "cr": 6,
+    "bom": false
+  },
+  {
+    "file": "history-2023-footer-only.csv",
+    "name": "Individual_XXX123_Transactions_20231101-080000.csv",
+    "source": "hand-made: the late-2023 transition: the header first, and still a footer",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history-2024-price-first.csv",
+    "name": "Individual_XXX123_Transactions_20240118-120000.csv",
+    "source": "hand-made: an export of January 2024 with Price before Quantity, as cgt-calc/capital-gains-calculator's issue 464 reports",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history-current.csv",
+    "name": "Individual_XXX123_Transactions_20261102-091500.csv",
+    "source": "hand-made: the current layout, as real exports of 2025 have it: quoted header and cells, LF, no BOM, newest first; every action of the research's tables at least once",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history-current-bom-crlf.csv",
+    "name": "Individual_XXX123_Transactions_20261102-091500.csv",
+    "source": "hand-made: history-current.csv with a UTF-8 BOM and CRLF, as Excel writes a CSV",
+    "cr": 115,
+    "bom": true
+  },
+  {
+    "file": "history-current-cp1252.csv",
+    "name": "Individual_XXX123_Transactions_20260306-100000.csv",
+    "source": "hand-made: the current layout in Windows-1252: an É (0xC9), as rlan/convert-csv-schwab2pp's issue 11 reports, and an ellipsis (0x85)",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history-current-parens.csv",
+    "name": "Individual_XXX123_Transactions_20260211-100000.csv",
+    "source": "hand-made: Amounts in parentheses, as cgt-calc/capital-gains-calculator says Schwab writes an option's debit",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history-current-empty.csv",
+    "name": "Individual_XXX123_Transactions_20261101-100000.csv",
+    "source": "hand-made: the current layout's header alone",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history-overlap-a.csv",
+    "name": "Individual_XXX123_Transactions_20260215-093000.csv",
+    "source": "hand-made: January to mid-February: two identical buys, a dividend that the later export lacks",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history-overlap-a.json",
+    "name": "Individual_XXX123_Transactions_20260215-093000.json",
+    "source": "hand-made: the JSON twin of history-overlap-a.csv, exported with it, with separators in the amounts",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history-overlap-b.csv",
+    "name": "Individual_XXX123_Transactions_20260401-093000.csv",
+    "source": "hand-made: February to March, overlapping history-overlap-a.csv by two weeks",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history.json",
+    "name": "Individual_XXX123_Transactions_20260401-120000.json",
+    "source": "hand-made: the JSON as real exports of 2025 have it, with ItemIssueId and AcctgRuleCd, and TotalFeesAndCommAmount as samples of 2026 have it",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history-mismatch.json",
+    "name": "Individual_XXX123_Transactions_20260401-120001.json",
+    "source": "hand-made: history.json with a TotalTransactionsAmount that is not the rows' sum",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history-2024.json",
+    "name": "Individual_XXX456_Transactions_20240605-120000.json",
+    "source": "hand-made: the JSON of 2024 as vroonhof/opensteuerauszug's documentation shows it, without ItemIssueId and AcctgRuleCd",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "history-empty.json",
+    "name": "Individual_XXX123_Transactions_20261101-120000.json",
+    "source": "hand-made: an empty JSON export with a stated range",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "realized-2026.csv",
+    "name": "XXXX1234_GainLoss_Realized_Details_20260706-104711.csv",
+    "source": "hand-made: Lot Details as a real file of July 2026 has it (as redbean87/expo-trading-journal describes it): a title of 25 cells with two spaces before the time, Cost Basis (CB), LF; wash sales of both conventions, an option, placeholders, a lot whose Gain/Loss is neither, and an Opened Date that is not a date",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "realized-2018.csv",
+    "name": "XXXX1234_GainLoss_Realized_Details_20180411-091502.csv",
+    "source": "hand-made: Lot Details of 2018: Cost Basis, and a Total line",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "realized-empty.csv",
+    "name": "XXXX0456_GainLoss_Realized_Details_20261030-160245.csv",
+    "source": "hand-made: Lot Details' title and header alone",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "snapshots.jsonl",
+    "name": "snapshots.jsonl",
+    "source": "hand-made: a snapshot file with a line of each writer of version 1, json.Encoder's and json.Compact's, and a line of version 2",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "transactions-cli.json",
+    "name": "transactions.json",
+    "source": "hand-made: `schwabtx transactions -json` output: two rows, indented by printRaw",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "transactions-cli-empty.json",
+    "name": "transactions.json",
+    "source": "hand-made: `schwabtx transactions -json` output without rows",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/bank.json",
+    "refused": "a Schwab Bank export",
+    "source": "hand-made: Schwab Bank's JSON, with PostedTransactions",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/bank-checking-2020.csv",
+    "refused": "a Schwab Bank export",
+    "source": "hand-made: Schwab Bank's checking CSV of 2020, under a banner",
+    "cr": 3,
+    "bom": false
+  },
+  {
+    "file": "refuse/bank-checking-2022.csv",
+    "refused": "a Schwab Bank export",
+    "source": "hand-made: Schwab Bank's checking CSV of 2022",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/equity-awards.json",
+    "refused": "a Schwab Equity Awards export",
+    "source": "hand-made: Equity Awards' JSON, with TransactionDetails",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/equity-awards.csv",
+    "refused": "a Schwab Equity Awards export",
+    "source": "hand-made: Equity Awards' CSV, with FairMarketValuePrice",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/positions.csv",
+    "refused": "a Positions export",
+    "source": "hand-made: the Positions export",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/lot-details-open.csv",
+    "refused": "the Lot Details of an open position",
+    "source": "hand-made: the Lot Details of an open position",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/realized-summary.csv",
+    "refused": "the Realized Gain/Loss summary",
+    "source": "hand-made: Realized Gain/Loss's older summary of 22 columns",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/export.xml",
+    "refused": "an XML export",
+    "source": "hand-made: an XML export, whose shape is unknown",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/not-cli.json",
+    "refused": "a JSON array that is not `schwabtx transactions -json` output",
+    "source": "hand-made: a JSON array of numbers",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/other.json",
+    "refused": "a JSON file that is not a History export",
+    "source": "hand-made: a JSON object of another program",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/empty.csv",
+    "refused": "is empty",
+    "source": "hand-made: an empty file",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/notes.txt",
+    "refused": "not a file schwabtx knows how to import",
+    "source": "hand-made: notes in plain text",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/history-no-amount.csv",
+    "refused": "has no \"Amount\" column",
+    "source": "hand-made: a History header without Amount",
+    "cr": 0,
+    "bom": false
+  },
+  {
+    "file": "refuse/realized-no-term.csv",
+    "refused": "has no \"Term\" column",
+    "source": "hand-made: a Lot Details header without Term",
+    "cr": 0,
+    "bom": false
+  }
+]

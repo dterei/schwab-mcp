@@ -1,7 +1,3 @@
-// Package schwabfile reads the files that the store imports, taking their
-// contents, never their paths. It knows nothing of SQLite or of the store's
-// tables. So far it reads the snapshot files that `schwabtx snapshot`
-// writes, and writes their lines.
 package schwabfile
 
 import (

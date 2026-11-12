@@ -1,0 +1,16 @@
+{
+  "FromDate": "10/01/2026",
+  "ToDate": "10/31/2026",
+  "PendingTransactions": [],
+  "PostedTransactions": [
+    {
+      "CheckNumber": null,
+      "Description": "SAMPLE STORE",
+      "Date": "10/02/2026",
+      "RunningBalance": "$1,000.00",
+      "Withdrawal": "$12.34",
+      "Deposit": "",
+      "Type": "DEBIT"
+    }
+  ]
+}

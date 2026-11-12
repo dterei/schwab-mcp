@@ -198,11 +198,11 @@ What runs where:
   `modernc.org/sqlite`. Actions are referenced by major version (`@v7`), so
   their minor and patch releases arrive without Dependabot and without the
   wait.
-- **Fuzzing**, by hand: `make fuzz` fuzzes each target in `internal/schwab`
-  and `internal/mask` in turn, 30 seconds each unless `FUZZTIME` says
-  otherwise, and stops at the first that fails. It needs Go 1.27. A failing
-  input is saved under the package's `testdata/fuzz`, to commit with the
-  fix.
+- **Fuzzing**, by hand: `make fuzz` fuzzes each target in `internal/schwab`,
+  `internal/mask` and `internal/history/schwabfile` in turn, 30 seconds each
+  unless `FUZZTIME` says otherwise, and stops at the first that fails. It
+  needs Go 1.27. A failing input is saved under the package's
+  `testdata/fuzz`, to commit with the fix.
 - **The live mode** ([docs/live.md](docs/live.md)), by hand and never in CI:
   `go test ./internal/schwab -run '^TestLive$' -live -v` probes Schwab's real
   API with your saved login, checks each answer against the records, and

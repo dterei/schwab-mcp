@@ -1,0 +1,70 @@
+{
+  "Kind": "history_csv",
+  "Layout": "history-current",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": false,
+  "LazyQuotes": false,
+  "AccountHint": "123",
+  "NameDigits": "123",
+  "ExportedAt": "2026-02-11T15:00:00Z",
+  "StatedFrom": "",
+  "StatedTo": "",
+  "History": [
+    {
+      "Ordinal": 1,
+      "Line": 2,
+      "Raw": "\"02/10/2026\",\"Buy to Open\",\"XYZ 03/20/2026 11.00 C\",\"CALL XYZ CORP $11 EXP 03/20/26\",\"1\",\"$0.10\",\"$0.65\",\"(10.65)\"",
+      "Posted": "2026-02-10",
+      "AsOf": "",
+      "Action": "Buy to Open",
+      "Symbol": "XYZ 03/20/2026 11.00 C",
+      "Description": "CALL XYZ CORP $11 EXP 03/20/26",
+      "Quantity": "1 => 1",
+      "Price": "$0.10 => 0.1",
+      "Fees": "$0.65 => 0.65",
+      "Amount": "(10.65) => -10.65"
+    },
+    {
+      "Ordinal": 2,
+      "Line": 3,
+      "Raw": "\"02/09/2026\",\"Buy to Open\",\"XYZ 03/20/2026 12.00 C\",\"CALL XYZ CORP $12 EXP 03/20/26\",\"1\",\"$0.10\",\"$0.65\",\"($10.65)\"",
+      "Posted": "2026-02-09",
+      "AsOf": "",
+      "Action": "Buy to Open",
+      "Symbol": "XYZ 03/20/2026 12.00 C",
+      "Description": "CALL XYZ CORP $12 EXP 03/20/26",
+      "Quantity": "1 => 1",
+      "Price": "$0.10 => 0.1",
+      "Fees": "$0.65 => 0.65",
+      "Amount": "($10.65) => -10.65"
+    },
+    {
+      "Ordinal": 3,
+      "Line": 4,
+      "Raw": "\"02/06/2026\",\"Sell\",\"XYZ\",\"XYZ CORP\",\"1\",\"$12.00\",\"\",\"$12.00\"",
+      "Posted": "2026-02-06",
+      "AsOf": "",
+      "Action": "Sell",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "1 => 1",
+      "Price": "$12.00 => 12",
+      "Fees": "",
+      "Amount": "$12.00 => 12"
+    }
+  ],
+  "Coverage": {
+    "RangeFrom": "2026-02-06",
+    "RangeTo": "2026-02-10",
+    "Source": "rows",
+    "From": "2026-02-06",
+    "To": "2026-02-10",
+    "Warnings": [
+      {
+        "Code": "coverage_from_rows",
+        "Detail": "it states no range, and none was given: its range is its rows', 2026-02-06 to 2026-02-10"
+      }
+    ]
+  }
+}
