@@ -825,26 +825,37 @@ func (s *Store) Forget(ctx context.Context, fileRef string, undo bool) (ForgetRe
 }
 
 // findFile returns the file that given names, F and the start of its
-// SHA-256 in hex, or that start alone, and the file's ref.
+// SHA-256 in hex, or that start alone, and the file's ref. A start of a
+// digest that begins with f is also F and the rest: both are looked for.
 func findFile(w *wtx, given string) (id int64, sha, kind, ref string, err error) {
-	prefix := strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(given, "F"), "f"))
-	if prefix == "" || strings.Trim(prefix, "0123456789abcdef") != "" {
+	lower := strings.ToLower(given)
+	isHex := func(p string) bool { return p != "" && strings.Trim(p, "0123456789abcdef") == "" }
+	var prefixes []string
+	if p, ok := strings.CutPrefix(lower, "f"); ok && isHex(p) {
+		prefixes = append(prefixes, p)
+	}
+	if isHex(lower) {
+		prefixes = append(prefixes, lower)
+	}
+	if len(prefixes) == 0 {
 		return 0, "", "", "", fmt.Errorf("%q is not a file's ref, such as F3a9e21b0", mask.Text(given))
 	}
+	prefixes = append(prefixes, prefixes[0]) // the query takes two
 	var refs []string
 	err = queryEach(w, func(rows *sql.Rows) error {
 		err := rows.Scan(&id, &sha, &kind, &ref)
 		refs = append(refs, ref)
 		return err
 	}, `SELECT f.file_id, lower(hex(f.sha256)), f.kind, d.ref FROM import_file f JOIN file_fields d ON d.file_id = f.file_id
-		WHERE substr(lower(hex(f.sha256)), 1, ?) = ? ORDER BY d.ref`, len(prefix), prefix)
+		WHERE substr(lower(hex(f.sha256)), 1, ?) = ? OR substr(lower(hex(f.sha256)), 1, ?) = ? ORDER BY d.ref`,
+		len(prefixes[0]), prefixes[0], len(prefixes[1]), prefixes[1])
 	switch {
 	case err != nil:
 		return 0, "", "", "", err
 	case len(refs) == 0:
-		return 0, "", "", "", fmt.Errorf("no file F%s in the store", prefix)
+		return 0, "", "", "", fmt.Errorf("no file F%s in the store", prefixes[0])
 	case len(refs) > 1:
-		return 0, "", "", "", fmt.Errorf("the ref F%s fits several files, %s; give more of it", prefix, joinAnd(refs))
+		return 0, "", "", "", fmt.Errorf("the ref F%s fits several files, %s; give more of it", prefixes[0], joinAnd(refs))
 	}
 	return id, sha, kind, ref, nil
 }

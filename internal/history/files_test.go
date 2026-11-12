@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -438,6 +439,32 @@ func TestRealizedLots(t *testing.T) {
 // content is content: c:<sha256 hex>:<ordinal>.
 func subjectOf(content string, ordinal int) string {
 	return fmt.Sprintf("c:%s:%d", fileHex([]byte(content)), ordinal)
+}
+
+// A file is named by its ref, F and the start of its SHA-256 in hex, in
+// either case, or by that start alone, even when the digest starts with
+// f, as one in sixteen does.
+func TestForgetByRef(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	var content, hex string
+	for i := 0; !strings.HasPrefix(hex, "f"); i++ {
+		content = historyCSV(csvRow{"02/02/2026", "Qualified Dividend", "ABCD", "ABCD INC " + strconv.Itoa(i), "", "", "", "$1.00"})
+		hex = fileHex([]byte(content))
+	}
+	ref := importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260210-090000", "csv"), content).Files[0].Ref
+	if ref != "F"+hex[:8] {
+		t.Fatalf("the file's ref is %s, want F%s", ref, hex[:8])
+	}
+	for _, given := range []string{ref, strings.ToLower(ref), "F" + hex[:12], hex[:9]} {
+		r, err := s.Forget(t.Context(), given, given != ref)
+		if err != nil || r.Ref != ref {
+			t.Errorf("Forget(%s): %+v, %v", given, r, err)
+		}
+	}
+	if _, err := s.Forget(t.Context(), "F00000000", false); err == nil || !strings.Contains(err.Error(), "no file F00000000 in the store") {
+		t.Errorf("a ref of no file: %v", err)
+	}
 }
 
 // A file set aside takes no part in the derivation (14.7 of the design):
