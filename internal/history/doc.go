@@ -95,12 +95,14 @@
 // Where the API covers, it is the record. A file transaction that is an
 // API transaction, by rules of families, days, amounts and symbols or by
 // your decision, is linked to it, and the API's record counts in its
-// place. Inside the API's coverage, a file transaction that no API
-// transaction is, or that several could be, is held out and flagged until
-// you say, so that nothing counts twice whichever way the matching errs;
-// outside it, the files are the record. The matching is a function of the
-// account's transactions and your decisions, never of what an earlier
-// derivation linked.
+// place. A file transaction that several API transactions could be is
+// held out and flagged until you say, wherever it falls. Inside the API's
+// coverage, one that no API transaction is is held out too, unless it is
+// of TD Ameritrade's history (which the API probably does not serve) or
+// your policy for its action counts it, so that nothing counts twice
+// whichever way the matching errs. Outside the coverage, the files are
+// the record. The matching is a function of the account's transactions
+// and your decisions, never of what an earlier derivation linked.
 //
 // # What the views show
 //

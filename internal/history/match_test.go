@@ -626,6 +626,183 @@ func TestMatcher(t *testing.T) {
 			codes:    []string{"awaits_probe", "category_disagrees"},
 			apiFlags: []string{"T1 awaits_probe in; the file calls it Stock Plan Activity"},
 		},
+		{
+			name: "a row whose only API row a better row took counts from the file, outside the coverage",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-11", "Qualified Dividend", "ABCD", 500, 0)
+				addRow(f, "2026-03-12", "Qualified Dividend", "ABCD", 500, 0)
+				w.files = []*fileInput{f}
+				w.addAPI(1, "2026-03-10", "income", "dividend", 500, "ABCD", 0)
+			},
+			want:   []string{"unique Ca.1 = T1"},
+			counts: []string{"Ca.1 linked", "Ca.2 file"},
+			codes:  []string{"uncertain_match"},
+		},
+		{
+			name: "unique links again once a link leaves a row one choice",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-12", "Qualified Dividend", "ABCD", 500, 0)
+				addRow(f, "2026-03-13", "Qualified Dividend", "ABCD", 500, 0)
+				w.files = []*fileInput{f}
+				w.addAPI(1, "2026-03-10", "income", "dividend", 500, "ABCD", 0)
+				w.addAPI(2, "2026-03-11", "income", "dividend", 500, "ABCD", 0)
+			},
+			want:   []string{"unique Ca.1 = T2", "unique Ca.2 = T1"},
+			counts: []string{"Ca.1 linked", "Ca.2 linked"},
+		},
+		{
+			name: "trades without an order ID are no order's fills",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-10", "Buy", "XYZ", -10000, 10)
+				w.files = []*fileInput{f}
+				w.addAPI(1, "2026-03-10", "buy", "buy", -5000, "XYZ", 5)
+				w.addAPI(2, "2026-03-10", "buy", "buy", -5000, "XYZ", 5)
+			},
+			counts: []string{"Ca.1 file"},
+		},
+		{
+			name: "fills outside the row's window, of another symbol, or one you rejected, are not its fills",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-17", "Buy", "XYZ", -10000, 10) // a week after order 7's fills
+				addRow(f, "2026-03-20", "Buy", "XYZ", -20000, 10) // order 8's are of ABC
+				addRow(f, "2026-03-24", "Buy", "XYZ", -30000, 10) // you rejected one of order 9's
+				w.files = []*fileInput{f}
+				for i, o := range []struct {
+					order  int64
+					day    string
+					amount int64
+					symbol string
+				}{
+					{7, "2026-03-10", -5000, "XYZ"},
+					{7, "2026-03-10", -5000, "XYZ"},
+					{8, "2026-03-20", -10000, "ABC"},
+					{8, "2026-03-20", -10000, "ABC"},
+					{9, "2026-03-24", -15000, "XYZ"},
+					{9, "2026-03-24", -15000, "XYZ"},
+				} {
+					w.addAPI(int64(i+1), o.day, "buy", "buy", o.amount, o.symbol, 5)
+					w.txns[i].orderID = o.order
+				}
+				w.decisions = []decisionInput{{id: 1, kind: "reject", subject: "c:" + f.sha + ":3", value: "a:1:6"}}
+			},
+			counts: []string{"Ca.1 file", "Ca.2 file", "Ca.3 file"},
+		},
+		{
+			name: "legs outside a buy's window, or of an API row you rejected, are not its legs",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-14", "Buy to Open", "XYZ 09/18/2026 50.00 C", -30000, 1) // 4 days after T1
+				addRow(f, "2026-03-14", "Sell to Open", "XYZ 09/18/2026 55.00 C", 10000, 1)
+				addRow(f, "2026-03-20", "Cash Merger", "ABC", 150000, 0) // you rejected T2
+				addRow(f, "2026-03-20", "Cash Merger Adj", "ABC", 0, -100)
+				w.files = []*fileInput{f}
+				w.addAPI(1, "2026-03-10", "buy", "buy", -20000, "", 0)
+				w.txns[0].legs = []legInput{
+					{assetType: "OPTION", symbol: "XYZ   260918C00050000", amountMicros: centsOf(1e6)},
+					{assetType: "OPTION", symbol: "XYZ   260918C00055000", amountMicros: centsOf(-1e6)},
+				}
+				w.addAPI(2, "2026-03-20", "holding", "other", 150000, "ABC", -100)
+				w.decisions = []decisionInput{
+					{id: 1, kind: "reject", subject: "c:" + f.sha + ":3", value: "a:1:2"},
+					{id: 2, kind: "reject", subject: "c:" + f.sha + ":4", value: "a:1:2"},
+				}
+			},
+			counts: []string{"Ca.1 file", "Ca.2 file", "Ca.3 file", "Ca.4 file"},
+		},
+		{
+			name: "a holding's legs two days before the API row, and seven after",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-08", "Cash Merger", "ABC", 150000, 0)
+				addRow(f, "2026-03-08", "Cash Merger Adj", "ABC", 0, -100)
+				addRow(f, "2026-03-27", "Cash Merger", "DEF", 70000, 0)
+				addRow(f, "2026-03-27", "Cash Merger Adj", "DEF", 0, -100)
+				w.files = []*fileInput{f}
+				w.addAPI(1, "2026-03-10", "holding", "other", 150000, "ABC", -100)
+				w.addAPI(2, "2026-03-20", "holding", "other", 70000, "DEF", -100)
+			},
+			want: []string{"legs Ca.1+Ca.2 = T1", "legs Ca.3+Ca.4 = T2"},
+		},
+		{
+			name: "fees a cent apart, and prices beyond a hundredth of a percent, differ",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-10", "Buy", "XYZ", -5000, 5)
+				addRow(f, "2026-03-11", "Buy", "XYZ", -6000, 5)
+				addRow(f, "2026-03-12", "Buy", "XYZ", -7000, 5)
+				f.rows[0].fees, f.rows[0].feesBlank = centsOf(1), false
+				f.rows[1].price = sql.NullFloat64{Float64: 12.0024, Valid: true}
+				f.rows[2].price = sql.NullFloat64{Float64: 14.0007, Valid: true}
+				w.files = []*fileInput{f}
+				w.addAPI(1, "2026-03-10", "buy", "buy", -5000, "XYZ", 5)
+				w.addAPI(2, "2026-03-11", "buy", "buy", -6000, "XYZ", 5).price = sql.NullFloat64{Float64: 12, Valid: true}
+				w.addAPI(3, "2026-03-12", "buy", "buy", -7000, "XYZ", 5).price = sql.NullFloat64{Float64: 14, Valid: true}
+			},
+			want:   []string{"exact Ca.1 = T1", "exact Ca.2 = T2", "exact Ca.3 = T3"},
+			counts: []string{"Ca.1 linked differs_from_api", "Ca.2 linked differs_from_api", "Ca.3 linked"},
+			codes:  []string{"differs_from_api"},
+		},
+		{
+			name: "fees and prices are compared one to one only",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-10", "Buy to Open", "XYZ 09/18/2026 50.00 C", -30000, 1)
+				addRow(f, "2026-03-10", "Sell to Open", "XYZ 09/18/2026 55.00 C", 10000, 1)
+				addRow(f, "2026-03-11", "Buy", "XYZ", -10000, 10)
+				f.rows[2].price = sql.NullFloat64{Float64: 10, Valid: true}
+				w.files = []*fileInput{f}
+				e := w.addAPI(1, "2026-03-10", "buy", "buy", -20000, "", 0)
+				e.fees = centsOf(65)
+				w.txns[0].legs = []legInput{
+					{assetType: "OPTION", symbol: "XYZ   260918C00050000", amountMicros: centsOf(1e6)},
+					{assetType: "OPTION", symbol: "XYZ   260918C00055000", amountMicros: centsOf(-1e6)},
+				}
+				for i, p := range []float64{9.5, 10.5} {
+					w.addAPI(int64(i+2), "2026-03-11", "buy", "buy", -5000, "XYZ", 5).price = sql.NullFloat64{Float64: p, Valid: true}
+					w.txns[i+1].orderID = 77
+				}
+			},
+			want:   []string{"fills Ca.3 = T2+T3", "legs Ca.1+Ca.2 = T1"},
+			counts: []string{"Ca.1 linked", "Ca.2 linked", "Ca.3 linked"},
+			codes:  []string{"differs_from_api"},
+		},
+		{
+			name: "an API row your category booked does not disagree",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-15", "Bank Interest", "", 42, 0)
+				w.files = []*fileInput{f}
+				w.addAPI(1, "2026-03-15", "income", "dividend", 42, "", 0).rule = "user"
+			},
+			want:  []string{"exact Ca.1 = T1"},
+			codes: []string{"category_disagrees"},
+		},
+		{
+			name: "an equal description breaks a tie",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-11", "Qualified Dividend", "ABCD", 500, 0)
+				f.rows[0].description = "ABCD INC"
+				w.files = []*fileInput{f}
+				w.addAPI(1, "2026-03-10", "income", "dividend", 500, "ABCD", 0).text = "Abcd  Inc"
+				w.addAPI(2, "2026-03-12", "income", "dividend", 500, "ABCD", 0).text = "OTHER"
+			},
+			want: []string{"unique Ca.1 = T1"},
+		},
+		{
+			name: "a row with a symbol links an API row without one",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-11", "Qualified Dividend", "XYZ", 500, 0)
+				w.files = []*fileInput{f}
+				w.addAPI(1, "2026-03-10", "income", "dividend", 500, "", 0)
+			},
+			want: []string{"unique Ca.1 = T1"},
+		},
 	} {
 		var w matchWorld
 		c.make(&w)
