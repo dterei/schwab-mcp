@@ -18,19 +18,28 @@ var derivedTables = []string{
 	"revision_cut", "txn", "key_name", "instrument_key", "security",
 }
 
-// derive derives again, from scratch, each account that the write has
-// touched (layer 2 of the derivation): it loads the account's evidence,
-// derives it with deriveAccount, and writes what changed. Derived tables
-// refer to one another, so their foreign keys are checked at the commit,
-// where a dangling reference still fails it. The accounts derived are no
-// longer touched, so a write that needs the derivation's results can
-// derive early, and the end of the write does nothing more.
+// derive brings what the write changed up to date. When it added or
+// changed a key, a name or a transaction's legs, it groups the keys into
+// securities again (layer 3), which may touch the accounts whose legs
+// moved. Then it derives again, from scratch, each account that the write
+// has touched (layer 2): it loads the account's evidence, derives it with
+// deriveAccount, and writes what changed. Derived tables refer to one
+// another, so their foreign keys are checked at the commit, where a
+// dangling reference still fails it. What is derived is no longer marked,
+// so a write that needs the derivation's results can derive early, and the
+// end of the write does nothing more.
 func (w *wtx) derive() error {
-	if len(w.touched) == 0 {
+	if len(w.touched) == 0 && !w.regroup {
 		return nil
 	}
-	if _, err := w.exec("PRAGMA defer_foreign_keys = ON"); err != nil {
+	if err := w.deferForeignKeys(); err != nil {
 		return err
+	}
+	if w.regroup {
+		if err := groupSecurities(w); err != nil {
+			return err
+		}
+		w.regroup = false
 	}
 	for _, id := range slices.Sorted(maps.Keys(w.touched)) {
 		in, err := loadAccount(w, id)
@@ -181,11 +190,12 @@ func parseNullInstant(s sql.NullString) (time.Time, error) {
 // rebuild derives the store again under this build's rules and calendar.
 // It empties every derived table, writing no page of evidence, and fills
 // them again: first what each piece of evidence gives by itself (layer 1),
-// then each account (layer 2), and records the versions it derived with.
+// then the securities (layer 3) and each account (layer 2), and records the
+// versions it derived with.
 // Derived tables refer to one another, so foreign keys are checked at the
 // commit, where a dangling reference still fails it.
 func rebuild(w *wtx) error {
-	if _, err := w.exec("PRAGMA defer_foreign_keys = ON"); err != nil {
+	if err := w.deferForeignKeys(); err != nil {
 		return err
 	}
 	for _, t := range derivedTables {
@@ -221,29 +231,40 @@ const rebuildBatch = 100
 
 // rebuildTxns derives each API transaction's columns and legs from its
 // latest raw JSON, and each of its revisions' cut digests and changed key
-// paths from their raw JSON, in the order of their ids.
+// paths from their raw JSON, in the order of their ids; and the keys and
+// names of their instruments from the raw JSON the store keeps, each
+// revision's as of when it was first seen and the latest as of when it
+// was seen.
 func rebuildTxns(w *wtx) error {
 	type stored struct {
-		id, account int64
-		number, raw string
+		id, account       int64
+		number, raw, seen string
 	}
 	for after := int64(0); ; {
 		var batch []stored
 		err := queryEach(w, func(rows *sql.Rows) error {
 			var t stored
-			err := rows.Scan(&t.id, &t.account, &t.number, &t.raw)
+			err := rows.Scan(&t.id, &t.account, &t.number, &t.raw, &t.seen)
 			batch = append(batch, t)
 			return err
-		}, `SELECT t.txn_id, t.account_id, a.number, t.latest_raw FROM api_txn t JOIN account a ON a.account_id = t.account_id
-			WHERE t.txn_id > ? ORDER BY t.txn_id LIMIT ?`, after, rebuildBatch)
+		}, `SELECT t.txn_id, t.account_id, a.number, t.latest_raw, t.latest_seen_at FROM api_txn t
+			JOIN account a ON a.account_id = t.account_id WHERE t.txn_id > ? ORDER BY t.txn_id LIMIT ?`, after, rebuildBatch)
 		if err != nil || len(batch) == 0 {
 			return err
 		}
 		for _, t := range batch {
-			if err := deriveTxn(w, t.id, t.account, t.number, []byte(t.raw)); err != nil {
+			latest := decodeTxn(t.raw)
+			if err := deriveTxn(w, t.id, t.account, t.number, latest); err != nil {
 				return err
 			}
 			if err := rebuildCuts(w, t.id); err != nil {
+				return err
+			}
+			seen, err := parseInstant(t.seen)
+			if err != nil {
+				return err
+			}
+			if err := observeTxn(w, latest, seen); err != nil {
 				return err
 			}
 		}
@@ -252,24 +273,32 @@ func rebuildTxns(w *wtx) error {
 }
 
 // rebuildCuts derives the cut digest of each of transaction txn's
-// revisions, and the key paths that changed from the one before.
+// revisions, the key paths that changed from the one before, and the keys
+// and names of its instruments as of when it was first seen.
 func rebuildCuts(w *wtx, txn int64) error {
 	type revision struct {
-		id  int64
-		raw string
+		id        int64
+		raw, seen string
 	}
 	var revs []revision
 	if err := queryEach(w, func(rows *sql.Rows) error {
 		var r revision
-		err := rows.Scan(&r.id, &r.raw)
+		err := rows.Scan(&r.id, &r.raw, &r.seen)
 		revs = append(revs, r)
 		return err
-	}, "SELECT revision_id, raw FROM api_revision WHERE txn_id = ? ORDER BY seq", txn); err != nil {
+	}, "SELECT revision_id, raw, first_seen_at FROM api_revision WHERE txn_id = ? ORDER BY seq", txn); err != nil {
 		return err
 	}
 	for i, r := range revs {
 		d, err := cutDigest([]byte(r.raw))
 		if err != nil {
+			return err
+		}
+		seen, err := parseInstant(r.seen)
+		if err != nil {
+			return err
+		}
+		if err := observeTxn(w, decodeTxn(r.raw), seen); err != nil {
 			return err
 		}
 		var changed []string

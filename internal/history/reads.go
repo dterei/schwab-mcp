@@ -413,10 +413,10 @@ func recordRow(w *wtx, acct int64, number string, readID int64, list bool, seen 
 		if err := insertRevision(w, id, 1, raw, readID, at, p.digest, nil); err != nil {
 			return rowResult{}, err
 		}
-		if err := deriveTxn(w, id, acct, number, p.row.Raw); err != nil {
+		if err := deriveTxn(w, id, acct, number, p.row); err != nil {
 			return rowResult{}, err
 		}
-		return rowResult{kind: rowNew}, nil
+		return rowResult{kind: rowNew}, observeTxn(w, p.row, seen)
 	}
 	taken[cur.id] = true
 	res := rowResult{kind: rowSame, back: list && cur.gone}
@@ -440,11 +440,11 @@ func recordRow(w *wtx, acct int64, number string, readID int64, list bool, seen 
 		return rowResult{}, err
 	}
 	if cur.latestRaw != raw {
-		if err := deriveTxn(w, cur.id, acct, number, p.row.Raw); err != nil {
+		if err := deriveTxn(w, cur.id, acct, number, p.row); err != nil {
 			return rowResult{}, err
 		}
 	}
-	return res, nil
+	return res, observeTxn(w, p.row, seen)
 }
 
 // A storedTxn is what recordRow needs of a transaction the store holds.
@@ -619,12 +619,11 @@ type txnProblem struct {
 	Value string `json:"value,omitempty"`
 }
 
-// txnFields returns the columns of a transaction of the account whose
-// number is number, and its legs, from its raw JSON. The record's
-// decoding never fails; what it could not read is in its problems.
-func txnFields(raw []byte, number string) (txnRow, []legRow) {
-	var t schwab.Transaction
-	_ = json.Unmarshal(raw, &t) // lenient: it never fails
+// txnFields returns the columns of t, a transaction of the account whose
+// number is number, and its legs, as the record reads its raw JSON. The
+// record's decoding never fails; what it could not read is in its
+// problems.
+func txnFields(t schwab.Transaction, number string) (txnRow, []legRow) {
 	var ps []txnProblem
 	for _, p := range t.Problems {
 		ps = append(ps, txnProblem{Path: p.Path, What: p.What})
@@ -672,7 +671,7 @@ func txnFields(raw []byte, number string) (txnRow, []legRow) {
 			Price json.RawMessage `json:"price"`
 		} `json:"transferItems"`
 	}
-	_ = json.Unmarshal(raw, &priced) // what does not read has no price
+	_ = json.Unmarshal(t.Raw, &priced) // what does not read has no price
 	legs := make([]legRow, len(t.TransferItems))
 	for i, it := range t.TransferItems {
 		in := it.Instrument
@@ -706,6 +705,14 @@ func exact(f float64, how func(float64) (int64, Conversion)) (sql.NullInt64, Con
 	return sql.NullInt64{Int64: v, Valid: c != Off}, c
 }
 
+// decodeTxn reads raw JSON that the store keeps as the client reads a
+// transaction.
+func decodeTxn(raw string) schwab.Transaction {
+	var t schwab.Transaction
+	_ = json.Unmarshal([]byte(raw), &t) // lenient: it never fails
+	return t
+}
+
 // nullInstant returns t as an instant column, NULL for the zero time.
 func nullInstant(t time.Time) sql.NullString {
 	if t.IsZero() {
@@ -715,11 +722,11 @@ func nullInstant(t time.Time) sql.NullString {
 }
 
 // deriveTxn writes the columns of transaction id, of account acct whose
-// number is number, that its latest raw JSON raw gives (layer 1 of the
-// derivation): its txn row, which keeps its revisions and gone read, and
-// its legs.
-func deriveTxn(w *wtx, id, acct int64, number string, raw []byte) error {
-	r, legs := txnFields(raw, number)
+// number is number, that its latest raw JSON, as the record t reads it,
+// gives (layer 1 of the derivation): its txn row, which keeps its
+// revisions and gone read, and its legs.
+func deriveTxn(w *wtx, id, acct int64, number string, t schwab.Transaction) error {
+	r, legs := txnFields(t, number)
 	var activity sql.NullInt64
 	if err := w.tx.QueryRowContext(w.ctx, "SELECT activity_id FROM api_txn WHERE txn_id = ?", id).Scan(&activity); err != nil {
 		return err
@@ -740,6 +747,9 @@ func deriveTxn(w *wtx, id, acct int64, number string, raw []byte) error {
 		r.numberSent, r.problems); err != nil {
 		return err
 	}
+	// The legs are written again without their securities, which the
+	// grouping at the end of the write gives them.
+	w.regroup = true
 	if _, err := w.exec("DELETE FROM api_leg WHERE txn_id = ?", id); err != nil {
 		return err
 	}

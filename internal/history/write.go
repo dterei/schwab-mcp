@@ -82,11 +82,42 @@ type wtx struct {
 	// touched are the accounts whose evidence the write changed, which the
 	// end of the write derives again.
 	touched map[int64]bool
+	// regroup says that the write added or changed an instrument's key or
+	// name, a transaction's legs or a decision about securities, so that
+	// the end of the write groups the keys into securities again.
+	regroup bool
+	// deferred says that foreign keys are checked at the commit.
+	deferred bool
 }
 
 // touch marks account as one whose evidence the write changed.
 func (w *wtx) touch(account int64) {
 	w.touched[account] = true
+}
+
+// deferForeignKeys has foreign keys checked at the commit rather than at
+// each statement, so that derived rows that refer to one another can be
+// written in any order; a dangling reference still fails the commit.
+func (w *wtx) deferForeignKeys() error {
+	if w.deferred {
+		return nil
+	}
+	_, err := w.exec("PRAGMA defer_foreign_keys = ON")
+	w.deferred = err == nil
+	return err
+}
+
+// noteKeys marks the write for grouping when a statement that observed a
+// key or a name changed a row.
+func (w *wtx) noteKeys(res sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if n > 0 {
+		w.regroup = true
+	}
+	return err
 }
 
 // exec runs a statement in the transaction.

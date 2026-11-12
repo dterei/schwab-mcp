@@ -46,8 +46,9 @@
 // arrives. What relates the evidence of an account, such as which
 // transactions a complete read shows gone and which days the API covers,
 // is derived again from scratch, for each account whose evidence a write
-// changed, at the end of that write, and only rows that change are
-// written. No derived value shares a row with raw JSON or a file's bytes,
+// changed, at the end of that write; so is which instruments' keys name one
+// security, when a write added or changed a key or a name. Only rows that
+// change are written. No derived value shares a row with raw JSON or a file's bytes,
 // so deriving never rewrites them. A rebuild derives everything again from
 // the evidence alone.
 package history

@@ -553,7 +553,7 @@ func TestTxnFields(t *testing.T) {
 		 "cost": 81.29223999999999, "price": 0.0},
 		{"instrument": {"assetType": "CURRENCY", "symbol": "CURRENCY_USD", "instrumentId": 1}, "amount": 0.0012,
 		 "cost": -0.65, "feeType": "COMMISSION"}]}`
-	r, legs := txnFields([]byte(raw), individual)
+	r, legs := txnFields(decodeRow(t, raw), individual)
 	if r.net != (sql.NullInt64{Int64: 30, Valid: true}) || r.description.String != "JOURNAL TO ...678" ||
 		r.numberSent.String != "...783" || r.tradeDay.String != "2026-10-03" || r.settlementDay.Valid {
 		t.Errorf("the columns: %+v", r)
@@ -578,7 +578,7 @@ func TestTxnFields(t *testing.T) {
 	if r.problems != want {
 		t.Errorf("the problems:\n%s\nwant\n%s", r.problems, want)
 	}
-	r, _ = txnFields([]byte(strings.Replace(raw, `"netAmount": 0.30000000000000004,`, "", 1)), "40221783")
+	r, _ = txnFields(decodeRow(t, strings.Replace(raw, `"netAmount": 0.30000000000000004,`, "", 1)), "40221783")
 	if r.net.Valid || r.numberSent.Valid || !strings.Contains(r.problems, `"path":"netAmount","what":`) {
 		t.Errorf("without a netAmount: net %+v, number %+v, problems %s", r.net, r.numberSent, r.problems)
 	}
