@@ -484,11 +484,11 @@ func TestRestoreCommand(t *testing.T) {
 
 	out, _ = mustRun(t, "store", "restore", "-dry-run", backup)
 	if want := "the store held 2 accounts, 0 API transactions, 3 snapshots, 0 imported files, 0 decisions\n" +
-		"the backup holds 1 accounts, 0 API transactions, 1 snapshots, 0 imported files, 0 decisions\nnothing was changed (-dry-run)\n"; out != want {
+		"the backup holds 1 account, 0 API transactions, 1 snapshot, 0 imported files, 0 decisions\nnothing was changed (-dry-run)\n"; out != want {
 		t.Errorf("restore -dry-run printed %q, want %q", out, want)
 	}
 	out, stderr := mustRun(t, "store", "restore", backup)
-	if !strings.Contains(out, "it now holds 1 accounts, 0 API transactions, 1 snapshots") ||
+	if !strings.Contains(out, "it now holds 1 account, 0 API transactions, 1 snapshot,") ||
 		!strings.Contains(stderr, "warning: restored the store from "+backup) {
 		t.Errorf("restore printed %q, warned %q", out, stderr)
 	}

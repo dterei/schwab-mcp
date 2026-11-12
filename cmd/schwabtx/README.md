@@ -306,7 +306,8 @@ It makes the store if there is none.
 
 ```
 -store PATH       the store's file (default: $SCHWAB_STORE_FILE, else history.db in
-                  schwabtx's folder of your config directory)
+                  schwabtx's folder of your config directory, %LocalAppData% on
+                  Windows)
 -account ACCOUNT  the account the exports are for, when their names do not say
 -from DATE        the first day the History exports cover, for those that state none
 -to DATE          the last day they cover (DATE is YYYY-MM-DD or MM/DD/YYYY)

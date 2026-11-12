@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -1327,6 +1328,17 @@ func TestUsage(t *testing.T) {
 	for _, args := range [][]string{{"-h"}, {"accounts", "-h"}, {"positions", "-h"}, {"balances", "-h"}} {
 		if _, stderr, _ := runTx(t, args...); !strings.Contains(stderr, "instead of the last 3 digits") {
 			t.Errorf("%q printed %q, which does not say how the tables mask a number", args, stderr)
+		}
+	}
+	// -store names where the store is by default on this system: on
+	// Windows %LocalAppData%, not the config directory, which roams.
+	where := "your config directory"
+	if runtime.GOOS == "windows" {
+		where = "%LocalAppData%"
+	}
+	for _, cmd := range []string{"import", "status", "edit", "export", "store"} {
+		if _, stderr, _ := runTx(t, cmd, "-h"); !strings.Contains(stderr, "history.db in schwabtx's folder of "+where+")") {
+			t.Errorf("%s -h does not say the store is in %s:\n%s", cmd, where, stderr)
 		}
 	}
 	// export -h lists what -what takes, from the store's own table.

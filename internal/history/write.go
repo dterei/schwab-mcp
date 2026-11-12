@@ -271,7 +271,9 @@ var testHookRetry func()
 // waiter can lose to other writers for longer than any one transaction
 // lasts; trying again is what makes every write land. It gives up when
 // Options.LockWait has passed, with ErrBusy, or when ctx ends, with ctx's
-// error, and calls Options.Waiting once when it has waited 2 s.
+// error, and calls Options.Waiting once when it has waited 2 s, which it
+// sees between attempts: at the earliest when the first attempt's own wait
+// in SQLite (Options.BusyTimeout) ends.
 func (s *Store) retry(ctx context.Context, op string, attempt func() error) error {
 	start := time.Now()
 	pause := 25 * time.Millisecond

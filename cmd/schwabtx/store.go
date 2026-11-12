@@ -23,7 +23,17 @@ var storeLockWait, storeBusyTimeout time.Duration
 
 // storeFlag adds -store to fs.
 func storeFlag(fs *flag.FlagSet) *string {
-	return fs.String("store", "", "the store's file (default: $SCHWAB_STORE_FILE, else history.db in schwabtx's folder of your config directory)")
+	return fs.String("store", "", "the store's file (default: $SCHWAB_STORE_FILE, else history.db in schwabtx's folder of "+storeDirName()+")")
+}
+
+// storeDirName names the folder that holds schwabtx's folder of the store
+// by default (history.DefaultPath): on Windows %LocalAppData%, which does
+// not roam, and elsewhere the user config directory.
+func storeDirName() string {
+	if runtime.GOOS == "windows" {
+		return "%LocalAppData%"
+	}
+	return "your config directory"
 }
 
 // storePath returns the store's file: the -store flag, else

@@ -36,7 +36,9 @@ type Options struct {
 	// it brought up to date. Nil drops the warnings.
 	Warn func(string)
 	// Waiting is called once when a write has waited for another process
-	// for 2 seconds, with what the write was doing. Nil means nothing is.
+	// for 2 seconds or more, with what the write was doing. A write learns
+	// that it waits only when SQLite's own wait (BusyTimeout) ends, so with
+	// the default that is after about 5 seconds. Nil means nothing is.
 	Waiting func(op string)
 	// BusyTimeout is how long SQLite itself waits for a lock before it
 	// reports the store busy. Zero means 5 seconds.

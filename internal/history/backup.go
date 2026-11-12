@@ -74,8 +74,10 @@ func countEvidence(ctx context.Context, q querier) (Counts, error) {
 
 // String says what c counts, as a restore reports it.
 func (c Counts) String() string {
-	return fmt.Sprintf("%d accounts, %d API transactions, %d snapshots, %d imported files, %d decisions",
-		c.Accounts, c.Transactions, c.Snapshots, c.Files, c.Decisions)
+	return fmt.Sprintf("%d %s, %d %s, %d %s, %d %s, %d %s",
+		c.Accounts, plural(c.Accounts, "account", "accounts"), c.Transactions, plural(c.Transactions, "API transaction", "API transactions"),
+		c.Snapshots, plural(c.Snapshots, "snapshot", "snapshots"), c.Files, plural(c.Files, "imported file", "imported files"),
+		c.Decisions, plural(c.Decisions, "decision", "decisions"))
 }
 
 // Restored says what Restore did, or, on a dry run, would do.

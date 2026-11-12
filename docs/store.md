@@ -149,7 +149,8 @@ files saves all of them or none, and a refused file leaves the store as it
 was. A write takes the store's write lock as it starts, so that it never
 reads and then fails to write. SQLite does not queue processes that wait for
 the lock, so a write that finds it taken is rolled back and tried again,
-after a pause that grows, for up to two minutes. After two seconds it says
+after a pause that grows, for up to two minutes. Once it has waited a few
+seconds (SQLite's own wait for the lock, five seconds, comes first) it says
 so:
 
 ```
