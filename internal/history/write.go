@@ -11,6 +11,7 @@ import (
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 
+	"github.com/dterei/schwab-mcp/internal/filelock"
 	"github.com/dterei/schwab-mcp/internal/nyse"
 )
 
@@ -219,6 +220,23 @@ func (s *Store) withRead(ctx context.Context, fn func(*rtx) error) error {
 		return fn(r)
 	})
 	return s.mapError(op, err)
+}
+
+// LockSync takes the sync's lock, on the file beside the store whose name
+// adds .sync.lock, so that one sync runs at a time. While another process
+// holds it, it waits, for at most wait, and then gives up with ErrBusy, or
+// with ctx's error when ctx ends first. release lets the lock go; so does
+// the end of the process.
+func (s *Store) LockSync(ctx context.Context, wait time.Duration) (release func(), err error) {
+	l, err := filelock.Acquire(ctx, s.path+".sync.lock", wait)
+	switch {
+	case errors.Is(err, filelock.ErrTimeout):
+		return nil, &storeError{kind: ErrBusy, err: err, msg: fmt.Sprintf("another process kept the sync's lock of the store at %s for %v; "+
+			"is a sync running?", s.path, wait)}
+	case err != nil:
+		return nil, fmt.Errorf("taking the sync's lock of the store at %s: %w", s.path, err)
+	}
+	return l.Release, nil
 }
 
 // testNoRetry, set in a test's child process, makes retry give up at the

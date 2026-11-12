@@ -14,8 +14,9 @@
 // The store is its database and the database's -wal and -shm, which are one
 // thing: a store whose last writer was killed may keep committed changes
 // only in its -wal, so the three are moved, copied or removed together or
-// not at all. Beside them are lock files and the backups made before a
-// schema changed (Companions). Open refuses a -wal or -shm without its
+// not at all. Beside them are lock files, the one a change of schema takes
+// and the one a sync takes (LockSync), and the backups made before a schema
+// changed (Companions). Open refuses a -wal or -shm without its
 // database, or beside an empty one, rather than adopt another store's
 // journal.
 //

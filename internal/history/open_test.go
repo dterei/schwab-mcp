@@ -747,3 +747,42 @@ func TestDanglingReferenceFails(t *testing.T) {
 		t.Errorf("the store holds %d accounts, want none", n)
 	}
 }
+
+// One sync runs at a time: while one handle holds the sync's lock, beside
+// the store and readable only by you, another waits for it and gives up
+// with ErrBusy, or when its context ends; once it is let go, the other
+// takes it.
+func TestLockSync(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	other, err := Open(t.Context(), Options{Path: s.Path(), Now: fixedNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	release, err := s.LockSync(t.Context(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = other.LockSync(t.Context(), 20*time.Millisecond)
+	want := "another process kept the sync's lock of the store at " + s.Path() + " for 20ms; is a sync running?"
+	if !errors.Is(err, ErrBusy) || err.Error() != want {
+		t.Errorf("a second LockSync: %v, want %q", err, want)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := other.LockSync(ctx, time.Minute); !errors.Is(err, context.Canceled) {
+		t.Errorf("a second LockSync whose context ended: %v, want context.Canceled", err)
+	}
+	if runtime.GOOS != "windows" {
+		if m := mode(t, s.Path()+".sync.lock"); m != 0o600 {
+			t.Errorf("the lock file has mode %v, want 0600", m)
+		}
+	}
+	release()
+	release, err = other.LockSync(t.Context(), 0)
+	if err != nil {
+		t.Fatalf("LockSync once the first let go: %v", err)
+	}
+	release()
+}
