@@ -729,6 +729,35 @@ func TestAcrossFiles(t *testing.T) {
 	if got := completenessOf(accountInputs{files: []*fileInput{xyz}}, api, runs); !slices.Equal(got, []string{"filtered lacks_rows"}) {
 		t.Errorf("an XYZ-only file beside the API's ABCD dividend: %q", got)
 	}
+	// What it lacks names another symbol, or is of a family it has none
+	// of, with no symbol: the detail says so of each.
+	lacks := func(api ...ledgerEntry) string {
+		for _, f := range deriveFiles(accountInputs{files: []*fileInput{xyz}}, api, runs).files[0].flags.sorted() {
+			if f.code == "lacks_rows" {
+				return f.detail
+			}
+		}
+		return ""
+	}
+	wire := ledgerEntry{entryRow: entryRow{
+		day: nullString("2026-02-06"), amount: sql.NullInt64{Int64: -500, Valid: true},
+		family: "cash", txn: sql.NullInt64{Int64: 2, Valid: true},
+	}}
+	for _, c := range []struct {
+		api  []ledgerEntry
+		want string
+	}{
+		{api, "lacks 1 row that Schwab's API holds between 2026-02-04 and 2026-02-04, " +
+			"every one naming another symbol than the one this file's rows name: an export filtered by symbol?"},
+		{[]ledgerEntry{wire}, "lacks 1 row that Schwab's API holds between 2026-02-06 and 2026-02-06, " +
+			"every one of a family this file has none of: an export filtered by type?"},
+		{append(slices.Clone(api), wire), "lacks 2 rows that Schwab's API holds between 2026-02-04 and 2026-02-06, " +
+			"each of a family this file has none of, or naming another symbol than the one its rows name: an export filtered by type or symbol?"},
+	} {
+		if got := lacks(c.api...); got != c.want {
+			t.Errorf("lacks_rows says %q, want %q", got, c.want)
+		}
+	}
 
 	a := testFile(1, "a", "2026-03-01", "2026-02-01", "2026-02-28")
 	b := testFile(2, "b", "2026-03-02", "2026-02-01", "2026-02-28")

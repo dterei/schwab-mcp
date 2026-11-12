@@ -298,6 +298,10 @@ func TestImportHistoryAndResolve(t *testing.T) {
 		}
 	}
 
+	// status counts the file transactions linked, not their rows.
+	if state, _ := mustRun(t, "status"); !strings.Contains(state, "; 4 file transactions linked to API rows\n") {
+		t.Errorf("status printed\n%s", state)
+	}
 	review, _ := mustRun(t, "status", "-review")
 	held := refIn(t, review, `C[0-9a-f]{8,}\.[0-9]+`)
 	for _, want := range []string{

@@ -322,7 +322,7 @@ ACCOUNT    API DATES                 FILE DATES                SNAPSHOTS        
 A1 ...135  2023-06-13 to 2025-06-01  2023-02-01 to 2024-05-31  2026-11-02 to 2026-11-10  1, and 1 session since
 A2 ...398  2025-01-15 to 2026-08-03  -                         2026-11-02 to 2026-11-10  1, and 1 session since
 A3 ...783  -                         -                         2026-11-02 to 2026-11-10  1, and 1 session since
-ledger: 14 from the API, 2 from files only; 8 file rows linked to API rows
+ledger: 14 from the API, 2 from files only; 8 file transactions linked to API rows
 to review: 1 held out
   (schwabtx status -review)
 ```

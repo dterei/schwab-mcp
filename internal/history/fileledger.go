@@ -493,7 +493,7 @@ func shapeCheck(rows []*historyRowInput, familyOf func(*historyRowInput) string)
 func lacksDetail(ls []lack, rs []*historyRowInput, familyOf func(*historyRowInput) string) string {
 	var sources []string
 	from, to := ls[0].day, ls[0].day
-	byType := true
+	byType, bySymbol := true, true
 	for _, l := range ls {
 		s := cmp.Or(l.source, "Schwab's API")
 		if !slices.Contains(sources, s) {
@@ -501,11 +501,18 @@ func lacksDetail(ls []lack, rs []*historyRowInput, familyOf func(*historyRowInpu
 		}
 		from, to = min(from, l.day), max(to, l.day)
 		byType = byType && typeShaped(l, rs, familyOf)
+		bySymbol = bySymbol && symbolShaped(l, rs)
 	}
 	slices.Sort(sources)
-	shape := "every one of a family this file has none of: an export filtered by type?"
-	if !byType {
+	var shape string
+	switch {
+	case byType:
+		shape = "every one of a family this file has none of: an export filtered by type?"
+	case bySymbol:
 		shape = "every one naming another symbol than the one this file's rows name: an export filtered by symbol?"
+	default:
+		shape = "each of a family this file has none of, or naming another symbol than the one its rows name: " +
+			"an export filtered by type or symbol?"
 	}
 	return fmt.Sprintf("lacks %d %s that %s %s between %s and %s, %s", len(ls), plural(len(ls), "row", "rows"),
 		joinAnd(sources), plural(len(sources), "holds", "hold"), from, to, shape)

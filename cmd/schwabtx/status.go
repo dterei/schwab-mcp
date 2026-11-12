@@ -115,7 +115,7 @@ func printStatus(stdout, stderr io.Writer, path string, st history.Status) error
 		return err
 	}
 	fmt.Fprintf(stdout, "ledger: %s from the API, %s from files only; %s linked to API rows\n",
-		thousands(st.FromAPI), thousands(st.FromFiles), plural(st.Linked, "file row"))
+		thousands(st.FromAPI), thousands(st.FromFiles), plural(st.Linked, "file transaction"))
 	if st.ItemIssueBoth > 0 {
 		fmt.Fprintf(stdout, "ItemIssueId equals instrumentId for %d of %d %s that have both\n", st.ItemIssueAgree, st.ItemIssueBoth,
 			pluralWord(st.ItemIssueBoth, "security", "securities"))
