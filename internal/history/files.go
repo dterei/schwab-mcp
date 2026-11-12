@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/dterei/schwab-mcp/internal/history/schwabfile"
 	"github.com/dterei/schwab-mcp/internal/mask"
@@ -486,14 +485,8 @@ func selectAccount(w *wtx, sel string, add bool) (int64, error) {
 		}
 		return id, nil
 	}
-	digits := strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) || unicode.Is(unicode.Pd, r) {
-			return -1
-		}
-		return r
-	}, strings.TrimPrefix(sel, "..."))
 	var ids []int64
-	if digits != "" && strings.Trim(digits, "0123456789") == "" {
+	if digits, ok := SelectorDigits(sel); ok {
 		var err error
 		if ids, err = accountsEnding(w, digits); err != nil {
 			return 0, err
@@ -508,7 +501,7 @@ func selectAccount(w *wtx, sel string, add bool) (int64, error) {
 			if err := rows.Scan(&id, &nickname); err != nil {
 				return err
 			}
-			if strings.EqualFold(strings.Join(strings.Fields(nickname.String), " "), strings.Join(strings.Fields(sel), " ")) {
+			if SameNickname(nickname.String, sel) {
 				ids = append(ids, id)
 			}
 			return nil

@@ -2,8 +2,11 @@
 
 A small CLI that logs in to the Charles Schwab Trader API, prints your most
 recent transactions across every account you share with it, looks up those
-accounts' positions and balances, and saves snapshots of them. It uses only
-the Go standard library, and golang.org/x/sys for file locks on Windows.
+accounts' positions and balances, and saves snapshots of them. It keeps a
+store of your history from those snapshots and the exports of schwab.com,
+and exports it for a calculator. It uses the Go standard library,
+golang.org/x/sys for file locks on Windows, and modernc.org/sqlite, SQLite
+in pure Go, for the store.
 
 Before the first run, set up a Schwab developer app as described in the
 [top-level README](../../README.md#one-time-setup).
@@ -243,6 +246,73 @@ about to lapse or has, and when a run fails. Even so, check now and then that
 the newest snapshot is recent: the last line of the snapshot file starts with
 its `fetched_at`.
 
+## The store
+
+`schwabtx` keeps your history in a store: one SQLite file, `history.db`, in
+your user config directory under `schwabtx/` (on Windows in
+`%LocalAppData%\schwabtx\`, which does not roam). Choose another file with
+`-store` or `SCHWAB_STORE_FILE`. It holds the snapshots, the files you
+export from schwab.com, and your decisions about them, and keeps all of
+them; what it derives from them, such as each transaction's category and
+whether it counts, it can derive again. None of these commands logs in or
+reaches the network.
+
+```sh
+schwabtx import                    # the snapshot file that schwabtx snapshot writes
+schwabtx import ~/Downloads/Individual_XXX398_Transactions_20261111-120000.json
+schwabtx status                    # what each account's sources cover, and what waits for you
+schwabtx status -review            # what waits for you, each with the command that settles it
+schwabtx status C3a9e21b0.17       # one thing in full
+schwabtx edit T73508261949 -category fee
+schwabtx export > ledger.csv       # the counted transactions, as a calculator reads them
+schwabtx store backup ~/history-backup.db
+```
+
+- **`import [FILE...]`** imports snapshot files, History exports of
+  schwab.com in CSV or JSON, Realized Gain/Loss exports' Lot Details, and the
+  output of `schwabtx transactions -json`, each known by its content; any
+  other file is refused, and then nothing is imported. A transaction that
+  several exports hold, or that Schwab's API rows hold, counts once. With no
+  FILE it imports the snapshot file. `-account` says which account the
+  exports are for when their names do not; `-from` and `-to` give the dates
+  of an export that states none; `-all-types` says you exported every type
+  and no symbol, `-filtered` that you did not; `-dry-run` reports and saves
+  nothing; `-forget F…` sets an export aside, and `-undo` brings it back.
+- **`status`** prints what each account's API rows, exports and snapshots
+  cover, and what waits for you; `-review` lists it, each with the command
+  that settles it (`-all` adds what is flagged for information); a ref
+  prints one thing in full. Refs are `A3` (an account), `T73508261941` (an
+  API transaction), `C3a9e21b0.17` (a transaction of an export), `F3a9e21b0`
+  (a file), `L5c1d2e3f.4` (a closed lot), `S812` (a snapshot) and
+  `K:i:1973757747` (a security's key); any start of the hex that names one
+  thing will do.
+- **`edit REF OPTION...`** records your decisions, which the store applies
+  after its own rules: a transaction's `-category`, `-count`, `-pair` and
+  `-security`; which API transaction an export's transaction is, `-link` or
+  `-reject`; a file's `-completeness`, `-account` and `-from`/`-to`; that two
+  keys are the same security, or not (`-same`, `-differ`); an account's
+  `-kind`; and with `-action LABEL -policy count|hold|auto` whether an
+  export's rows of that action that the API lacks count. `auto` withdraws a
+  decision; `-note` says why.
+- **`export`** writes the ledger, or with `-what` another view of the store
+  (`schwabtx export -h` lists them), as CSV or, with `-format jsonl`, JSON
+  Lines: to stdout, to a file with `-o`, or each to a file of its own in a
+  folder with `-dir`. Files it writes are readable only by you.
+- **`store check|rebuild|backup FILE|restore BACKUP`** checks the store,
+  derives everything again from what it holds, copies it to a new file, or
+  puts a backup back.
+
+Account numbers show as `...` and their last three digits everywhere, as
+Schwab shows them. Only `status -show-accounts`, `export -show-accounts` and
+`export -raw` (which adds Schwab's JSON and the files' rows as they were)
+show full numbers, and `export` says so when it does.
+
+The store is its file, `history.db-wal` and `history.db-shm` together: never
+copy, move or delete one of them without the others, and never copy them
+while `schwabtx` runs. Copy the store with `store backup`, and put a copy
+back with `store restore`. Keep the store on a local disk, not in a synced
+folder.
+
 ## How it fetches
 
 - It covers **brokerage accounts**, not Schwab Bank checking or savings.
@@ -282,7 +352,11 @@ refresh, paging backwards through windows, windows older than an account's
 history answered with an empty list, as Schwab was seen to answer them,
 merging accounts, splitting truncated responses however the fake caps them,
 Schwab's own error answers, rate-limit retries, snapshots, and the lookups'
-tables and JSON of the fixtures' accounts. They also run the scheduler
+tables and JSON of the fixtures' accounts, and the store's commands on
+stores copied from a new one: imports of snapshots, `-json` output and
+History exports, what status reviews and edit settles, exports, backups and
+restores, the store's own files refused as inputs and outputs, and no full
+account number in their output. They also run the scheduler
 scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
 `snapshot.ps1` with each PowerShell on Windows.
 

@@ -1290,7 +1290,8 @@ func TestUsage(t *testing.T) {
 	}
 	for _, want := range []string{
 		"schwabtx login ", "schwabtx [flags] ", "schwabtx accounts ", "schwabtx positions ", "schwabtx balances ",
-		"schwabtx snapshot ", `"schwabtx <command> -h"`,
+		"schwabtx snapshot ", "schwabtx import ", "schwabtx status ", "schwabtx edit ", "schwabtx export ", "schwabtx store ",
+		`"schwabtx <command> -h"`, "SCHWAB_STORE_FILE",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the usage has no %q:\n%s", want, stdout)
@@ -1302,7 +1303,20 @@ func TestUsage(t *testing.T) {
 	}
 
 	// Each command's -h prints its usage, which main takes for no error.
-	for _, args := range [][]string{{"-h"}, {"login", "-h"}, {"accounts", "-h"}, {"positions", "-h"}, {"balances", "-h"}, {"snapshot", "-h"}} {
+	for _, args := range [][]string{
+		{"-h"},
+		{"login", "-h"},
+		{"accounts", "-h"},
+		{"positions", "-h"},
+		{"balances", "-h"},
+		{"snapshot", "-h"},
+		{"import", "-h"},
+		{"status", "-h"},
+		{"edit", "-h"},
+		{"export", "-h"},
+		{"store", "-h"},
+		{"store", "check", "-h"},
+	} {
 		stdout, stderr, err := runTx(t, args...)
 		if want := "Usage of schwabtx"; !errors.Is(err, flag.ErrHelp) || stdout != "" || !strings.HasPrefix(stderr, want) {
 			t.Errorf("%q: %v, printed %q, warned %q; want flag.ErrHelp and %q", args, err, stdout, stderr, want)
@@ -1314,6 +1328,11 @@ func TestUsage(t *testing.T) {
 		if _, stderr, _ := runTx(t, args...); !strings.Contains(stderr, "instead of the last 3 digits") {
 			t.Errorf("%q printed %q, which does not say how the tables mask a number", args, stderr)
 		}
+	}
+	// export -h lists what -what takes, from the store's own table.
+	if _, stderr, _ := runTx(t, "export", "-h"); !strings.Contains(stderr, "  ledger ") || !strings.Contains(stderr, "  securities ") ||
+		!strings.Contains(stderr, "(takes -raw)") {
+		t.Errorf("export -h does not list what -what takes:\n%s", stderr)
 	}
 	if _, stderr, err := runTx(t, "login", "-h"); !strings.Contains(stderr, "no flags") {
 		t.Errorf("login -h: %v, printed %q", err, stderr)

@@ -125,6 +125,16 @@
 // connections would read a file replaced under them. A backup of an older
 // schema or rules is brought up to this schwabtx's first, in a copy.
 //
+// # Reports
+//
+// Find reads a ref, the short name by which the views and the commands
+// name an account, a transaction, a file, a lot, a snapshot or a key, and
+// returns what it names with the subject your decisions take. Status,
+// Review and Lookup report what the store holds, what waits for you with
+// the commands that settle it, and one thing in full, for `schwabtx
+// status`. Like the views, they read no account number unless asked, and
+// show free text only as it was masked when stored.
+//
 // # Exports
 //
 // Export reads the views that milestones 3 and 4 read, in one read

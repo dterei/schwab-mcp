@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/dterei/schwab-mcp/internal/history"
 	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
@@ -177,7 +178,8 @@ func lookupProblems(a schwab.Account) []schwab.Problem {
 // none.
 type selector struct{ given, digits, nickname string }
 
-// parseSelector reads -account's value. Digits, with or without a leading
+// parseSelector reads -account's value as every command reads it
+// (history.SelectorDigits). Digits, with or without a leading
 // "...", as the tables and Schwab mask numbers, and with dashes or spaces of
 // any kind among them, as schwab.com writes a number, name the account
 // whose number ends in them; a whole number names its account too.
@@ -187,13 +189,7 @@ type selector struct{ given, digits, nickname string }
 func parseSelector(v string) selector {
 	v = strings.TrimSpace(v)
 	s := selector{given: v}
-	digits := strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) || unicode.Is(unicode.Pd, r) {
-			return -1
-		}
-		return r
-	}, strings.TrimPrefix(v, "..."))
-	if digits != "" && strings.Trim(digits, "0123456789") == "" {
+	if digits, ok := history.SelectorDigits(v); ok {
 		s.digits = digits
 	} else {
 		s.nickname = v
@@ -294,11 +290,10 @@ func nicknamed(as []namedAccount) bool {
 }
 
 // sameName reports whether two nicknames are the same as -account compares
-// them: as the tables and the errors show a nickname, with no white space
-// at its ends and a run of it within as one space, and whatever their case.
-func sameName(a, b string) bool {
-	return strings.EqualFold(strings.Join(strings.Fields(a), " "), strings.Join(strings.Fields(b), " "))
-}
+// them in every command (history.SameNickname): as the tables and the
+// errors show a nickname, with no white space at its ends and a run of it
+// within as one space, and whatever their case.
+func sameName(a, b string) bool { return history.SameNickname(a, b) }
 
 // nameAccounts gives each of as the nickName of the first account of prefs
 // with its number. The preferences may list accounts that were not shared

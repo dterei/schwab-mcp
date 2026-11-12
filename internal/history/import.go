@@ -54,6 +54,9 @@ type ImportOptions struct {
 // files were given.
 type ImportReport struct {
 	Files []FileReport
+	// Waiting counts what waits for you in the store once the import is
+	// done, as Status.Waiting does.
+	Waiting int
 }
 
 // A FileReport says what an import made of one file.
@@ -182,6 +185,11 @@ func (s *Store) Import(ctx context.Context, files []FileInput, o ImportOptions) 
 				return err
 			}
 		}
+		var st Status
+		if err := countWaiting(w, sql.NullInt64{}, &st); err != nil {
+			return err
+		}
+		report.Waiting = st.Waiting()
 		if o.DryRun {
 			return errDryRun
 		}

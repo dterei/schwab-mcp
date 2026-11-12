@@ -1,7 +1,9 @@
 // Command schwabtx connects to the Charles Schwab Trader API. It prints the
 // accounts linked to the login, their positions and balances, and the most
 // recent transactions across them, and saves snapshots of their positions
-// and balances.
+// and balances. It keeps a store of your history, from those snapshots and
+// from the exports of schwab.com, which it imports, reports on and exports
+// without a login.
 //
 // Usage:
 //
@@ -11,6 +13,11 @@
 //	schwabtx positions       print each account's positions
 //	schwabtx balances        print each account's value, cash and buying power
 //	schwabtx snapshot        append today's positions and balances to a file
+//	schwabtx import          import snapshots and schwab.com's exports into the store
+//	schwabtx status          what the store holds, and what waits for you
+//	schwabtx edit            record your decisions about the store's transactions and files
+//	schwabtx export          write the store's ledger and views as CSV or JSON Lines
+//	schwabtx store           check, rebuild, back up or restore the store
 package main
 
 import (
@@ -122,6 +129,16 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return runSnapshot(ctx, args, stdout, stderr)
 	case "accounts", "balances", "positions":
 		return runLookup(ctx, cmd, args, stdout, stderr)
+	case "import":
+		return runImport(ctx, args, stdout, stderr)
+	case "status":
+		return runStatus(ctx, args, stdout, stderr)
+	case "edit":
+		return runEdit(ctx, args, stdout, stderr)
+	case "export":
+		return runExport(ctx, args, stdout, stderr)
+	case "store":
+		return runStoreCommand(ctx, args, stdout, stderr)
 	case "help":
 		usage(stdout)
 		return nil
@@ -142,8 +159,18 @@ recent transactions, and saves snapshots of your positions and balances.
   schwabtx balances     print each account's value, cash and buying power
   schwabtx snapshot     save today's positions and balances of all accounts to a file
 
+It keeps your history in a store, a file on this computer, which these
+commands use without a login:
+
+  schwabtx import       import snapshot files and schwab.com's History and Realized exports
+  schwabtx status       what the store holds, what waits for you (-review), or one thing (REF)
+  schwabtx edit         record your decisions: a category, a match, a file's account
+  schwabtx export       write the ledger and the store's other views as CSV or JSON Lines
+  schwabtx store        check, rebuild, back up or restore the store
+
 Run "schwabtx -h" or "schwabtx <command> -h" for flags. Credentials come from
-SCHWAB_APP_KEY and SCHWAB_APP_SECRET; see README.md.
+SCHWAB_APP_KEY and SCHWAB_APP_SECRET, and the store is SCHWAB_STORE_FILE or
+-store; see README.md.
 `)
 }
 
