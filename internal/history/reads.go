@@ -509,10 +509,10 @@ type storedTxn struct {
 // findTxn returns the transaction that a row of a read of account acct
 // is, or nil for a new one. A row with an activity ID is the account's
 // transaction of that ID. A row without one is the oldest of the
-// account's transactions without an ID, at the same time and with the
-// same cut form now, that no earlier row of the read is (taken): such
-// rows are never keyed by their bytes, which change from day to day with
-// their instruments' closing prices.
+// account's transactions without an ID, at the same time, or likewise
+// without one, and with the same cut form now, that no earlier row of the
+// read is (taken): such rows are never keyed by their bytes, which change
+// from day to day with their instruments' closing prices.
 func findTxn(w *wtx, acct int64, p preparedRow, taken map[int64]bool) (*storedTxn, error) {
 	const cols = `SELECT t.txn_id, t.latest_raw, x.gone_read_id IS NOT NULL, v.revision_id, v.seq, v.raw, c.digest
 		FROM api_txn t JOIN txn x ON x.txn_id = t.txn_id
@@ -523,11 +523,8 @@ func findTxn(w *wtx, acct int64, p preparedRow, taken map[int64]bool) (*storedTx
 	if p.id != 0 {
 		rows, err = w.tx.QueryContext(w.ctx, cols+"WHERE t.account_id = ? AND t.activity_id = ?", acct, p.id)
 	} else {
-		if p.row.Time.IsZero() {
-			return nil, nil // a row without a time is new each time it comes
-		}
-		rows, err = w.tx.QueryContext(w.ctx, cols+"WHERE t.account_id = ? AND t.activity_id IS NULL AND x.time = ? AND c.digest = ? ORDER BY t.txn_id",
-			acct, instant(p.row.Time), p.digest[:])
+		rows, err = w.tx.QueryContext(w.ctx, cols+"WHERE t.account_id = ? AND t.activity_id IS NULL AND x.time IS ? AND c.digest = ? ORDER BY t.txn_id",
+			acct, nullInstant(p.row.Time), p.digest[:])
 	}
 	if err != nil {
 		return nil, err

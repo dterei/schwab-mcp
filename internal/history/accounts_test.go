@@ -19,10 +19,12 @@ func readAt(at time.Time) Read {
 
 // The accounts shared at login are added with their hashes, each hash
 // kept with when it was first and last seen, so that one that comes back
-// is the account's latest again. The preferences give the accounts the
-// store holds their nicknames, masked as free text is, and add no account.
-// A refused read is recorded and changes nothing. An account recorded as
-// not shared says since when, until it is shared again.
+// is the account's latest again; a read answered earlier, recorded late,
+// moves neither time back. The preferences give the accounts the store
+// holds their nicknames, masked as free text is, and the masked numbers
+// Schwab shows, and add no account. A refused read (a 4xx) is recorded and
+// changes nothing, and so is a failed one (a 5xx, or no answer). An account
+// recorded as not shared says since when, until it is shared again.
 func TestAccounts(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -48,6 +50,13 @@ func TestAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.RecordAccountNumbers(ctx, readAt(t1.Add(2*time.Hour)), numbers[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordAccountNumbers(ctx, readAt(t1.Add(30*time.Minute)), numbers); err != nil {
+		t.Fatal(err)
+	}
+	unavailable := Read{SentAt: t1.Add(95 * time.Minute), AnsweredAt: t1.Add(95 * time.Minute), Err: &schwab.Error{Status: 503, CorrelID: "c-2"}}
+	if err := s.RecordAccountNumbers(ctx, unavailable, nil); err != nil {
 		t.Fatal(err)
 	}
 	var prefs schwab.UserPreference
@@ -84,8 +93,11 @@ func TestAccounts(t *testing.T) {
 	}; !slices.Equal(hashes, want) {
 		t.Errorf("account 1's hashes: %q, want %q", hashes, want)
 	}
-	if got := storeStrings(t, s, "SELECT outcome || ' ' || http_status || ' ' || correlation_id || ' ' || row_count FROM api_read WHERE outcome <> 'answered'"); !slices.Equal(got, []string{"refused 401 c-1 0"}) {
-		t.Errorf("the refused read is recorded as %q", got)
+	if got := storeStrings(t, s, "SELECT outcome || ' ' || http_status || ' ' || correlation_id || ' ' || row_count FROM api_read WHERE outcome <> 'answered' ORDER BY read_id"); !slices.Equal(got, []string{"refused 401 c-1 0", "failed 503 c-2 0"}) {
+		t.Errorf("the refused and failed reads are recorded as %q", got)
+	}
+	if got := storeStrings(t, s, "SELECT display_id FROM account ORDER BY account_id"); !slices.Equal(got, []string{"...135", "...398", "...783"}) {
+		t.Errorf("the accounts' numbers as Schwab shows them are %q", got)
 	}
 	if err := s.SetNotShared(ctx, numbers[2].AccountNumber, time.Time{}); err != nil {
 		t.Fatal(err)
@@ -100,8 +112,8 @@ func TestAccounts(t *testing.T) {
 	if err := s.RecordPreferences(ctx, failed, prefs); err != nil {
 		t.Fatal(err)
 	}
-	if got := storeStrings(t, s, "SELECT outcome || ': ' || error FROM api_read WHERE outcome = 'failed'"); !slices.Equal(got,
-		[]string{"failed: dial tcp: connection refused to ...678"}) {
+	if got := storeStrings(t, s, "SELECT outcome || ': ' || error FROM api_read WHERE outcome = 'failed' ORDER BY read_id"); !slices.Equal(got,
+		[]string{"failed: HTTP 503 from Schwab (correlation ID c-2)", "failed: dial tcp: connection refused to ...678"}) {
 		t.Errorf("the failed read is recorded as %q, want its error masked", got)
 	}
 }

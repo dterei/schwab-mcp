@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -297,9 +298,31 @@ func TestRevisions(t *testing.T) {
 	if got := storeInt(t, s, "SELECT revisions FROM txn"); got != 5 {
 		t.Errorf("after a by-id read that changed its status, txn.revisions is %d, want 5", got)
 	}
-	if got := storeStrings(t, s, "SELECT first_seen_at || ' ' || last_seen_at FROM api_revision WHERE seq = 3"); len(got) != 1 ||
-		got[0] != instant(sent.Add(2*time.Hour+time.Second))+" "+instant(sent.Add(4*time.Hour+time.Second)) {
+	if got := storeStrings(t, s, "SELECT first_seen_at || ' ' || last_seen_at || ' ' || first_read_id || ' ' || last_read_id FROM api_revision WHERE seq = 3"); len(got) != 1 ||
+		got[0] != instant(sent.Add(2*time.Hour+time.Second))+" "+instant(sent.Add(4*time.Hour+time.Second))+" 3 5" {
 		t.Errorf("revision 3 was seen %q, want from read 3 to read 5", got)
+	}
+}
+
+// An answer that holds one activity ID twice records the ID among the
+// read's duplicates, and the transaction, one, is flagged for it.
+func TestDuplicateInAnswer(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	start := time.Date(2026, 10, 1, 4, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 10, 8, 4, 0, 0, 0, time.UTC)
+	row := cashRow(t, 1001, time.Date(2026, 10, 3, 15, 0, 0, 0, time.UTC))
+	other := cashRow(t, 1002, time.Date(2026, 10, 4, 15, 0, 0, 0, time.UTC))
+	rec := record(t, s, listRead(individual, start, end, end.Add(time.Hour), row, other, row))
+	if rec.New != 2 || rec.Same != 1 {
+		t.Errorf("the answer: %+v, want 2 new and the repeat the same", rec)
+	}
+	if got := storeStrings(t, s, "SELECT duplicates FROM api_read"); !slices.Equal(got, []string{"[1001]"}) {
+		t.Errorf("the read's duplicates are %q, want [1001]", got)
+	}
+	if got := storeStrings(t, s, "SELECT activity_id || ' ' || coalesce(flags, '') FROM transactions ORDER BY activity_id"); len(got) != 2 ||
+		!strings.Contains(got[0], "duplicate_in_answer") || strings.Contains(got[1], "duplicate_in_answer") {
+		t.Errorf("the transactions are flagged %q, want only 1001 duplicate_in_answer", got)
 	}
 }
 
@@ -323,19 +346,21 @@ func countedOf(t *testing.T, s *Store, id int64) string {
 
 // A complete read that leaves out a transaction whose time and trade date
 // lie inside its window records the absence and shows it gone, flagged and
-// not counted. A capped
-// read, a read for one symbol, a window that holds the time but not the
-// trade date, a time in the window's last second and a read older than
-// the last that returned the row show nothing gone. A by-id read of a gone
-// transaction moves its latest raw JSON but leaves it gone; a later list
-// read that returns it brings it back, counted again.
+// not counted; one that lists every type, in any order, is complete. A
+// capped read, a read for one symbol or for some of the types, a window
+// that holds the time but not the trade date, a time in the window's last
+// second and a read older than the last that returned the row show nothing
+// gone. Absences are recorded for a day beyond the window, which ends when
+// the read was sent if that came first, by time or by trade date. A by-id
+// read of a gone transaction moves its latest raw JSON but leaves it gone;
+// a later list read that returns it brings it back, counted again.
 func TestGoneAndBack(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{maxRows: 4})
 	start := time.Date(2026, 10, 1, 4, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 10, 8, 4, 0, 0, 0, time.UTC)
 	sent := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
-	const a, b, c, d = 1001, 1002, 1003, 1004
+	const a, b, c, d, e, f, g = 1001, 1002, 1003, 1004, 1005, 1006, 1007
 	rowA := cashRow(t, a, time.Date(2026, 10, 3, 15, 0, 0, 0, time.UTC))
 	// B's time is inside the window, its trade date the day before it.
 	rowB := decodeRow(t, strings.Replace(cashRaw(b, time.Date(2026, 10, 1, 14, 0, 0, 0, time.UTC)),
@@ -346,19 +371,32 @@ func TestGoneAndBack(t *testing.T) {
 	// D is 12 hours before the window: a complete read of it records its
 	// absence, for a wider rule, but cannot show it gone.
 	rowD := cashRow(t, d, start.Add(-12*time.Hour))
+	// E is 12 hours after it, booked the day after, and F three days after,
+	// but booked on a day inside it: a complete read of it records both
+	// absent.
+	rowE := decodeRow(t, strings.Replace(cashRaw(e, end.Add(12*time.Hour)),
+		`"tradeDate": "2026-10-08T04:00:00+0000"`, `"tradeDate": "2026-10-09T04:00:00+0000"`, 1))
+	rowF := decodeRow(t, strings.Replace(cashRaw(f, end.Add(72*time.Hour)),
+		`"tradeDate": "2026-10-11T04:00:00+0000"`, `"tradeDate": "2026-10-07T04:00:00+0000"`, 1))
+	// G is three and a half days after the window: no read of it records
+	// it absent, though the last's window, sent before its end, holds G.
+	rowG := cashRow(t, g, end.Add(84*time.Hour))
 	var fillers []schwab.Transaction
 	for i := range 4 {
 		fillers = append(fillers, cashRow(t, int64(2001+i), start.Add(time.Duration(i+1)*time.Hour)))
 	}
 	at := func(i int) time.Time { return sent.Add(time.Duration(i) * time.Hour) }
 
-	record(t, s, listRead(individual, start, end, at(1), rowA, rowB, rowC, rowD))
+	record(t, s, listRead(individual, start, end, at(1), rowA, rowB, rowC, rowD, rowE, rowF, rowG))
 	capped := record(t, s, listRead(individual, start, end, at(2), fillers...))
 	symbol := listRead(individual, start, end, at(3))
 	symbol.Query.Symbol = "XYZ"
 	record(t, s, symbol)
+	typed := listRead(individual, start, end, at(3).Add(time.Minute))
+	typed.Query.Types = []schwab.TransactionType{schwab.TransactionDividendOrInterest}
+	record(t, s, typed)
 	if n := storeInt(t, s, "SELECT count(*) FROM api_absent"); n != 0 {
-		t.Errorf("a capped read and a read for one symbol recorded %d absences, want none", n)
+		t.Errorf("a capped read and reads for one symbol and for one type recorded %d absences, want none", n)
 	}
 	if n := storeInt(t, s, "SELECT capped FROM api_read WHERE read_id = ?", capped.ReadID); n != 1 {
 		t.Errorf("the read of %d rows is not capped", len(fillers))
@@ -369,7 +407,13 @@ func TestGoneAndBack(t *testing.T) {
 		}
 	}
 
-	r4 := record(t, s, listRead(individual, start, end, at(4)))
+	every := listRead(individual, start, end, at(4))
+	every.Query.Types = slices.Clone(schwab.AllTransactionTypes())
+	slices.Reverse(every.Query.Types)
+	r4 := record(t, s, every)
+	if n := storeInt(t, s, "SELECT complete FROM api_read WHERE read_id = ?", r4.ReadID); n != 1 {
+		t.Errorf("a read that lists every type, in another order, is not complete")
+	}
 	// The fillers' trade dates are the window's start, which it does not
 	// hold with a second to spare.
 	if r4.Gone != 1 {
@@ -384,7 +428,7 @@ func TestGoneAndBack(t *testing.T) {
 	if got := storeStrings(t, s, fmt.Sprintf("SELECT flags FROM transactions WHERE activity_id = %d", a)); len(got) != 1 || !strings.Contains(got[0], "gone") {
 		t.Errorf("A, gone, is flagged %q", got)
 	}
-	for _, id := range []int64{b, c, d} {
+	for _, id := range []int64{b, c, d, e, f} {
 		if g := goneOf(t, s, id); g != -1 {
 			t.Errorf("%d is gone by read %d, though the window does not hold it with a second to spare", id, g)
 		}
@@ -423,6 +467,13 @@ func TestGoneAndBack(t *testing.T) {
 	// A last.
 	if n := storeInt(t, s, "SELECT count(*) FROM api_absent a JOIN txn x USING (txn_id) WHERE x.activity_id = ? AND read_id = ?", a, r4.ReadID); n != 1 {
 		t.Errorf("A's absence from read 4 is gone")
+	}
+	// A read sent before its window ends: its absences end a day after it
+	// was sent, before G.
+	early := listRead(individual, start, at(7).Add(72*time.Hour), at(7))
+	record(t, s, early)
+	if n := storeInt(t, s, "SELECT count(*) FROM api_absent a JOIN txn x USING (txn_id) WHERE x.activity_id = ?", g); n != 0 {
+		t.Errorf("G has %d absences, want none: no read was sent a day before it", n)
 	}
 }
 
@@ -477,8 +528,10 @@ func TestGoneRecomputable(t *testing.T) {
 // Two identical rows without an activity ID in one answer are two
 // transactions, and the next answer's two are the same two; when one of
 // them changes it is a new transaction, since such rows are paired by
-// their time and cut form. A row whose activityId is a string of digits is
-// taken by it.
+// their time and cut form, the oldest first. A row without a time pairs
+// by its cut form alone, and is one transaction however often it comes. A
+// row whose activityId is a string of digits is taken by it, and flagged;
+// a string that names no ID, such as "0", is none.
 func TestRowsWithoutID(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -494,11 +547,43 @@ func TestRowsWithoutID(t *testing.T) {
 		t.Errorf("the second answer: %+v, want the same 2", rec)
 	}
 	changed := decodeRow(t, strings.Replace(cashRaw(0, at), `"VALID"`, `"PENDING"`, 1))
-	if rec := record(t, s, listRead(individual, start, end, sent.Add(2*time.Hour), same, changed)); rec.Same != 1 || rec.New != 1 {
-		t.Errorf("the third answer: %+v, want 1 the same and 1 new", rec)
+	third := record(t, s, listRead(individual, start, end, sent.Add(2*time.Hour), same, changed))
+	if third.Same != 1 || third.New != 1 {
+		t.Errorf("the third answer: %+v, want 1 the same and 1 new", third)
+	}
+	if got := storeStrings(t, s, "SELECT latest_read_id FROM api_txn ORDER BY txn_id"); !slices.Equal(got,
+		[]string{strconv.FormatInt(third.ReadID, 10), strconv.FormatInt(third.ReadID-1, 10), strconv.FormatInt(third.ReadID, 10)}) {
+		t.Errorf("the transactions were last read by %q, want the older of the two by the third answer", got)
 	}
 	if n := storeInt(t, s, "SELECT count(*) FROM api_txn WHERE activity_id IS NULL AND id_source = 'none'"); n != 3 {
 		t.Errorf("the store holds %d transactions without an ID, want 3", n)
+	}
+	timeless := decodeRow(t, strings.Replace(cashRaw(0, at), `"time": "2026-10-03T15:00:00+0000", `, "", 1))
+	if !timeless.Time.IsZero() {
+		t.Fatalf("the row without a time has time %v", timeless.Time)
+	}
+	// A window away from the others, so that leaving them out shows none
+	// gone.
+	later, laterEnd := start.AddDate(0, 1, 0), end.AddDate(0, 1, 0)
+	for i := range 3 {
+		want := Recorded{Same: 1}
+		if i == 0 {
+			want = Recorded{New: 1, Flagged: 1} // no_activity_id
+		}
+		rec := record(t, s, listRead(individual, later, laterEnd, sent.AddDate(0, 1, 0).Add(time.Duration(i)*time.Hour), timeless))
+		if want.ReadID = rec.ReadID; rec != want {
+			t.Errorf("answer %d with the row without a time: %+v, want %+v", i+1, rec, want)
+		}
+	}
+	if got := storeStrings(t, s, "SELECT ref || ' ' || counted FROM transactions WHERE time IS NULL"); len(got) != 1 || !strings.HasSuffix(got[0], " 1") {
+		t.Errorf("the transactions view holds %q of the row without a time, want it once, counted", got)
+	}
+	zero := decodeRow(t, strings.Replace(cashRaw(0, at.Add(time.Hour)), `{"time"`, `{"activityId": "0", "time"`, 1))
+	if rec := record(t, s, listRead(individual, later, laterEnd, sent.AddDate(0, 1, 0).Add(5*time.Hour), zero)); rec.New != 1 {
+		t.Errorf("the row whose activityId is \"0\": %+v, want new", rec)
+	}
+	if n := storeInt(t, s, "SELECT count(*) FROM api_txn WHERE activity_id IS NULL AND id_source = 'none'"); n != 5 {
+		t.Errorf("the store holds %d transactions without an ID, want 5 with the one whose activityId is \"0\"", n)
 	}
 	text := decodeRow(t, strings.Replace(cashRaw(0, at), `{"time"`, `{"activityId": "73508261999", "time"`, 1))
 	if text.ActivityID != 0 {
@@ -513,10 +598,13 @@ func TestRowsWithoutID(t *testing.T) {
 	if got := storeStrings(t, s, "SELECT id_source FROM api_txn WHERE activity_id = 73508261999"); !slices.Equal(got, []string{"string"}) {
 		t.Errorf("the row with a string ID is kept as %q, want one with id_source string", got)
 	}
+	if got := storeStrings(t, s, "SELECT flags FROM transactions WHERE activity_id = 73508261999"); len(got) != 1 || !strings.Contains(got[0], "activity_id_text") {
+		t.Errorf("the row with a string ID is flagged %q, want activity_id_text", got)
+	}
 }
 
 // The API covers the days that lie, with a second to spare, inside one
-// window of the complete reads, merged where they overlap, each ending at
+// window of the complete reads, merged where they overlap or touch, each ending at
 // when it was sent if that came first, and only from the day of the
 // account's oldest transaction: an empty window before it covers nothing,
 // nor does a read for one symbol.
@@ -547,6 +635,12 @@ func TestAPICoverage(t *testing.T) {
 			listRead(individual, day(15, 3, 59, 59), day(18, 4, 0, 0), at.Add(3*time.Hour)),
 			[]string{"2026-10-02..2026-10-11", "2026-10-15..2026-10-16"},
 		},
+		// Starting at midnight, where the one before ends: merged with it,
+		// so the days on each side of the join are covered too.
+		{
+			listRead(individual, day(18, 4, 0, 0), day(22, 4, 0, 0), at.Add(4*time.Hour)),
+			[]string{"2026-10-02..2026-10-11", "2026-10-15..2026-10-20"},
+		},
 	}
 	for i, st := range steps {
 		record(t, s, st.read)
@@ -554,7 +648,7 @@ func TestAPICoverage(t *testing.T) {
 			t.Errorf("after read %d, the API covers %q, want %q", i+1, got, st.want)
 		}
 	}
-	wide := listRead(individual, day(1, 0, 0, 0), day(31, 0, 0, 0), at.Add(4*time.Hour))
+	wide := listRead(individual, day(1, 0, 0, 0), day(31, 0, 0, 0), at.Add(5*time.Hour))
 	wide.Query.Symbol = "XYZ"
 	record(t, s, wide)
 	if got := coverage(); len(got) != 2 {
@@ -565,7 +659,8 @@ func TestAPICoverage(t *testing.T) {
 // A transaction's columns from its raw JSON: money in cents and quantities
 // in millionths, a value rounded from noise kept and noted, one off the
 // grid left NULL and noted, a netAmount that is absent left NULL, the
-// description masked, and another account's number noted, masked.
+// description masked, and another account's number noted, masked, but not
+// an empty one.
 func TestTxnFields(t *testing.T) {
 	t.Parallel()
 	raw := `{"activityId": 7, "time": "2026-10-03T15:00:00+0000", "tradeDate": "2026-10-03T04:00:00+0000",
@@ -604,5 +699,10 @@ func TestTxnFields(t *testing.T) {
 	r, _ = txnFields(decodeRow(t, strings.Replace(raw, `"netAmount": 0.30000000000000004,`, "", 1)), "40221783")
 	if r.net.Valid || r.numberSent.Valid || !strings.Contains(r.problems, `"path":"netAmount","what":`) {
 		t.Errorf("without a netAmount: net %+v, number %+v, problems %s", r.net, r.numberSent, r.problems)
+	}
+	// A row that names no account names no other account.
+	r, _ = txnFields(decodeRow(t, strings.Replace(raw, `"accountNumber": "40221783",`, `"accountNumber": "",`, 1)), individual)
+	if r.numberSent.Valid {
+		t.Errorf("with an empty accountNumber: number %+v, want none", r.numberSent)
 	}
 }

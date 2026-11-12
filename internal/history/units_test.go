@@ -33,6 +33,7 @@ func TestCentsAndMicros(t *testing.T) {
 		{0.30000000000000004, "cents", 30, Rounded},
 		{81.29223999999999, "cents", 0, Off},
 		{71.42857, "cents", 0, Off},
+		{1.000005, "cents", 0, Off}, // 5e-4 of a cent from the grid: more than noise
 		{math.NaN(), "cents", 0, Off},
 		{math.Inf(1), "cents", 0, Off},
 		{math.Inf(-1), "cents", 0, Off},
@@ -41,6 +42,7 @@ func TestCentsAndMicros(t *testing.T) {
 		{100, "micros", 100000000, Exact},
 		{0.123456, "micros", 123456, Exact},
 		{0.1234567, "micros", 0, Off},
+		{1e-10, "micros", 0, Rounded}, // 1e-4 of a millionth, the most that is noise
 		{2251799813.68, "micros", 2251799813680000, Exact},
 		{2251799813.69, "micros", 0, Off}, // past 2^51/10^6
 	}
