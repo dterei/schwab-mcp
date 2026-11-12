@@ -83,7 +83,8 @@ current as of October 2026.
 ## Architecture
 
 ```
-cmd/schwabtx/            CLI: login, snapshot, sync, export, quick lookups
+cmd/schwabtx/            CLI: login, snapshot, import, sync, status, edit,
+                         export, quick lookups
 cmd/schwab-mcp/          MCP server (stdio; streamable HTTP later)
 
 internal/filelock/       file locks across processes, for the token file
@@ -95,6 +96,8 @@ internal/schwab/schwabtest/
                          and its fixtures
 internal/history/        local SQLite store, sync, cash-flow classification,
                          CSV import, export
+internal/nyse/           the NYSE's sessions, for the market date of each
+                         snapshot
 internal/perf/           valuations, TWR, MWR/IRR, income
 internal/mcpserver/      MCP tools, resources and prompts over the above
 ```
@@ -223,27 +226,39 @@ and HTTP code into `internal/schwab` with what the history store needs.
 
 The data your return calculators need, kept complete and current.
 
-- [ ] SQLite store, through modernc.org/sqlite (pure Go, so cross-compiling
+- [x] SQLite store, through modernc.org/sqlite (pure Go, so cross-compiling
       stays easy, and it runs SQLite's own file locking on every system),
-      holding transactions with their raw JSON, transfer items, sync state
-      per account, and snapshots of positions and balances, in STRICT
-      tables. Every process shares the one store, in WAL mode: a writer takes
-      the write lock as its transaction starts and others wait their turn,
-      one sync runs at a time, and no transaction stays open across a
-      request to Schwab. Two-decimal money
-      (balances, transaction amounts) as integer cents and quantities in
-      millionths, from the records' float64s, which is exact while the value
-      times its scale stays under 2^51; prices, averages and positions'
-      profit/loss figures, which carry fractions of a cent, stay REAL.
-      Accounts keyed by account number behind a local id, never by hash,
-      which may change between logins: the hashes are looked up again on
-      each run. The masked number has a column of its own, so that no view
-      the model sees reads the full one. A 400 "Invalid account number"
-      (`schwab.ErrInvalidAccount`)
-      means Schwab refused the account in the path: seen for a plain account
-      number, and possible for a changed hash or an account no longer
-      shared. Look the hashes up again and retry once if the account is
-      still listed, else record it as no longer shared; never take it for a
+      in STRICT tables (see [the store](store.md)). It keeps the evidence,
+      what Schwab and your files gave and your decisions, and never deletes
+      it: each API read, transactions with their first and latest raw JSON,
+      snapshots, imported files' bytes. Beside it, in tables of their own,
+      it keeps what versioned rules derive, so that new rules derive it all
+      again (`schwabtx store rebuild`). Every process shares the one store,
+      in WAL mode: a writer takes the write lock as its transaction starts,
+      and one that finds it taken is tried again, for up to two minutes; no
+      transaction stays open across a request to Schwab, and a newer
+      `schwabtx`'s store stops an older one. The store, its `-wal` and its
+      `-shm` are one thing: it is refused on a network file system, copied
+      only by `store backup` and put back only by `store restore`, through
+      SQLite. Two-decimal money (balances, transaction amounts) as integer
+      cents and quantities in millionths, from the records' float64s, which
+      is exact while the value times its scale stays under 2^51, with binary
+      noise rounded and flagged and anything else left empty and flagged;
+      prices, averages and positions' profit/loss figures, which carry
+      fractions of a cent, stay REAL. Accounts keyed by account number
+      behind a local id, never by hash, which may change between logins:
+      hashes are kept with their times. The masked number has a column of
+      its own, Schwab's own form, `...` and the last three digits, which the
+      CLI's tables use too; free text is masked by pattern as it is stored,
+      every run of 8 digits or more becoming `...` and its last three, so
+      that no view, which is what the model will see, reads a full number,
+      raw JSON or a file's bytes. What the sync adds: its own state per
+      account, and its handling of a 400 "Invalid account number"
+      (`schwab.ErrInvalidAccount`), which means Schwab refused the account
+      in the path: seen for a plain account number, and possible for a
+      changed hash or an account no longer shared. Look the hashes up again
+      and retry once if the account is still listed, else record it as no
+      longer shared (the store's `SetNotShared`); never take it for a
       refused window
 - [ ] `schwabtx sync`: first a backfill that walks back in windows of at most
       365 days (see [the API notes](schwab-api.md#transactions)), splitting
@@ -252,57 +267,94 @@ The data your return calculators need, kept complete and current.
       after several empty years in a row, and records the range it covered
       and why it stopped: an empty window does not prove there is no older
       history. Afterwards incremental syncs re-read a trailing overlap to
-      catch transactions that change status
-- [ ] Idempotent upserts by account and Schwab's activity ID, with status
+      catch transactions that change status. Each sync also takes a
+      snapshot, and the daily scheduled run becomes `schwabtx sync`. What is
+      left is the command itself: the store already takes everything it
+      will hand over (`RecordTransactions`, `RecordAccounts`,
+      `RecordAccountNumbers`, `RecordPreferences`, and the sync's lock), and
+      each is tested without it. It waits for the live probes: how far back
+      Schwab serves (Q1), whether and how long rows change (Q12) and how a
+      window's bounds work decide its stop, its overlap and its gone rule.
+      Until then, `schwabtx transactions -json` output imports into the store
+      as Schwab's own rows
+- [x] Idempotent upserts by account and Schwab's activity ID, with status
       changes and cancellations recorded rather than lost. An instrument in
       a transaction is Schwab's reference data as of the request, not the
       trade's: `closingPrice` is a price as of the request, at the leg and in
       an option's deliverable, and a delisted equity comes back under its
       CUSIP. So a re-read row is a revision only if it differs once each
       instrument is cut to its asset type and `instrumentId`; the first raw
-      JSON seen is kept beside the latest, and instruments go in a table of
+      JSON seen is kept beside the latest, each revision keeps its first and
+      the key paths that changed, and instruments go in a table of
       securities with the symbols and CUSIPs each has had. A row without an
       activity ID is kept and flagged, never keyed by its bytes, and a row
       missing from a later complete re-read (every type, no symbol, fewer
-      than 3000 rows) is recorded as gone, never deleted
-- [ ] A snapshot on every sync, and the files from `schwabtx snapshot`
-      imported, each kept with its time and the market date it stands for;
-      days without one are recorded as gaps. A snapshot taken after a close
-      stands for the last session that closed at or before its time, from a
-      trading calendar with the early closes, not for the New York date of
-      its time: the scheduled 9:05 PM run is past midnight in New York for a
-      user in Pacific time. Its initial balances are the start of the
-      session, while its current ones keep moving in the evening and on
-      Sunday, so both liquidation values are kept. Snapshots are Schwab's own
-      record of each day's holdings and values: a check on what milestone 4
-      rebuilds from transactions, and for mutual funds, options and bonds,
-      which price history does not cover, the only source of past values.
-      The daily scheduled run becomes `schwabtx sync`
-- [ ] Every transaction classified (deposit or withdrawal, in-kind transfer in
+      than 3000 rows) is recorded as gone, never deleted, from what each
+      complete read did not return, which is kept, so that the rule can
+      change. The sync will call them; `-json` imports call them today
+- [x] Snapshots imported from the files of `schwabtx snapshot` (and, from
+      the sync, each answer), each kept once with its time and the market
+      date it stands for; days without one are recorded as gaps. A snapshot
+      taken after a close stands for the last session that closed at or
+      before its time, from an NYSE calendar from 2000 with the early
+      closes, checked against NYSE's published dates through 2028, not for
+      the New York date of its time: the scheduled 9:05 PM run is past
+      midnight in New York for a user in Pacific time. One taken during a
+      session is marked and fills no gap. Its initial balances are the start
+      of the session, while its current ones keep moving in the evening and
+      on Sunday, so both liquidation values are kept, and every balance
+      figure. Snapshots are Schwab's own record of each day's holdings and
+      values: a check on what milestone 4 rebuilds from transactions, and
+      for mutual funds, options and bonds, which price history does not
+      cover, the only source of past values
+- [x] Every transaction classified (deposit or withdrawal, in-kind transfer in
       or out, journal between your own accounts, buy, sell, dividend,
-      interest, fee, tax, other), with overrides you can edit, by the
-      conventions in [the API notes](schwab-api.md#transactions): a trade's
-      fees are all its CURRENCY legs, named or not; a cash row carries its
-      cash in the leg's amount; a dividend's or withholding's security is
-      after the `~` in its description; and sweep journals are not
-      deposits. A row whose legs' cash does not add up to `netAmount`, or
-      that has problems, is flagged
-- [ ] CSV import of the History and Realized Gain/Loss exports you download
+      interest, fee, tax, other), with overrides you can edit
+      (`schwabtx edit`), by the conventions in
+      [the API notes](schwab-api.md#transactions): a trade's fees are all its
+      CURRENCY legs, named or not; a cash row carries its cash in the leg's
+      amount; a dividend's or withholding's security is after the `~` in
+      its description; and sweep journals are not deposits. A row whose
+      legs' cash does not add up to `netAmount`, or that has problems, is
+      flagged, and so is a kind of row the probes have not settled, which is
+      `other` until you set a category. Your category is applied after
+      every rule and pair, and flagged stale when what the rules read of the
+      row changes
+- [x] CSV import of the History and Realized Gain/Loss exports you download
       from schwab.com, for history the API does not serve (schwab.com shows
-      four years) and for the cost basis of each closed lot. An account's
-      history can take several files, since exports may be capped (third
-      parties report 1,500 or 10,000 rows, or two years, per file; Schwab
-      states no limit), so the import lists the dates each file covers and
-      warns about a file that is empty or stops at exactly a reported cap
-- [ ] Each transaction counted once. Re-importing a file, or importing exports
-      whose dates overlap, adds nothing twice. A CSV row that matches an API
-      transaction is linked to it, and calculations use the API's record.
-      Rows pair one to one, so two identical trades on the same day stay two,
-      and an uncertain match is flagged for you to resolve
-- [ ] `schwabtx export`: normalized CSV and JSON Lines, one row per
-      transaction or per leg with its category, plus the snapshots, with raw
-      JSON optional
-- [ ] Export formats for existing tools: Portfolio Performance and Ghostfolio
+      four years) and for the cost basis of each closed lot: History in
+      every CSV layout since 2014 and in JSON, which states its range and a
+      total, and the Realized Gain/Loss Lot Details (see
+      [Schwab's exports](schwab-exports.md)). Each file is known by its
+      content, Schwab's other exports are refused as what they are, and an import of
+      several files saves all or none. An account's history can take several
+      files, since exports may be capped (third parties report 1,500 or
+      10,000 rows, or two years, per file; Schwab states no limit), so the
+      import lists the dates each file covers and warns about a file that is
+      empty or stops at exactly a reported cap, which then covers less.
+      Nothing in an export says it was filtered by type or symbol, so a
+      file's completeness is established, by you or by its agreeing with the
+      API's rows or a complete file, never assumed
+- [x] Each transaction counted once. Re-importing a file, or importing exports
+      whose dates overlap, or the JSON and CSV of one export, adds nothing
+      twice, and a later export that restates a ticker or a quantity adds
+      nothing either. A History row that matches an API transaction is
+      linked to it, and calculations use the API's record. Rows pair one to
+      one, so two identical trades on the same day stay two, and an
+      uncertain match is flagged for you to resolve. Inside the API's dates,
+      a file row that no API row matches is held out until you say, so
+      that a miss never counts a transaction twice
+- [x] `schwabtx export`: normalized CSV and JSON Lines, one row per
+      transaction or per leg with its category, plus the snapshots, their
+      positions and balances, closed lots, coverage, gaps and flags, with
+      raw JSON optional. Each account's coverage by source is printed with
+      it, and an export of an unchanged store is the same bytes
+- [ ] Export formats for existing tools: Portfolio Performance and Ghostfolio.
+      What is left is the two formats: the ledger already holds what both
+      need (the type from the category, the security by symbol or CUSIP,
+      shares, gross, fees, net, date; journal pairs mark moves between your
+      accounts), so they will be `schwabtx export -format pp` and
+      `-format ghostfolio` over the same rows
 - [x] `schwabtx accounts`, `positions` and `balances` for quick lookups:
       each account's nickname, type and value; its positions, with
       quantity, average cost, value, cost basis and open profit or loss,
@@ -548,9 +600,11 @@ Everything planned, by area.
 | History | Position and balance snapshots (`schwabtx snapshot`) | done |
 | History | Snapshots on a daily schedule, with sample scheduler entries | done |
 | History | Full backfill as far as Schwab serves, then incremental sync | M2 |
-| History | Every transaction classified, with overrides | M2 |
-| History | Import of schwab.com History and Realized Gain/Loss CSVs, each transaction counted once | M2 |
-| History | CSV, JSON Lines, Portfolio Performance and Ghostfolio export | M2 |
+| History | Every transaction classified, with overrides | done |
+| History | Local store of transactions, snapshots and schwab.com's files, with backups | done |
+| History | Import of schwab.com History and Realized Gain/Loss CSVs, each transaction counted once | done |
+| History | CSV and JSON Lines export | done |
+| History | Portfolio Performance and Ghostfolio export | M2 |
 | Lookups | Accounts, positions and balances at a glance (`schwabtx accounts`, `positions`, `balances`) | done |
 | MCP | Read-only tools for accounts, positions, history, orders, market data | M3 |
 | MCP | Resources, prompts, structured output, tool annotations, masked account numbers | M3 |
@@ -592,7 +646,9 @@ it.
   needs such a fill in your history.
 - **When do initial balances move to the new session**, and do they then
   hold the close? A snapshot taken after that could stand for the close.
-  Probe: Q3, a watch of balances (`-live.watch=balances`) from 15:45 in New
+  The store keeps every snapshot, with both liquidation values and every
+  balance figure, and the session each stands for, so which one stands for
+  a close is a choice that milestone 4 makes when it reads them. Probe: Q3, a watch of balances (`-live.watch=balances`) from 15:45 in New
   York to 10:00 the next day, which needs holdings with prices.
 - **Does the transactions `symbol` filter keep dividends and withholdings**,
   which name their security only in their description? Probe: Q4, in the
@@ -635,12 +691,19 @@ it.
   transactions?** No public sample shows an expiration, an assignment, a
   transfer in kind or a corporate action; those are probably
   RECEIVE_AND_DELIVER rows. This decides the classification rules in
-  milestone 2. Probe: Q11, in the default run, which counts the shapes of
+  milestone 2. Until then the store books such rows `other`, flagged
+  `awaits_probe` for you to set a category, and links them to History rows,
+  whose actions say what they were; an answer is new rules and a rebuild.
+  Probe: Q11, in the default run, which counts the shapes of
   the rows in your history, and so shows only the kinds of event your
   accounts have had.
 - **Do transactions change after they post (pending to valid,
   cancellations), and how long after?** This decides the overlap for
-  incremental syncs. Probe: Q12, over two default runs or more.
+  incremental syncs. The store records a changed row as a revision, with
+  its raw JSON and the key paths that changed, a row that a complete read
+  leaves out as gone, never deleted, and when each row was first seen, so
+  whichever way the answer falls, nothing has been lost. Probe: Q12, over
+  two default runs or more.
 - **How soon after a fill does the trade appear in transactions?** This
   decides whether a sync triggered by a stream event needs a delayed
   re-check. Probe: Q13, a watch of fills (`-live.watch=fills`) for half an
