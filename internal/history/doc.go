@@ -102,6 +102,14 @@
 // account's transactions and your decisions, never of what an earlier
 // derivation linked.
 //
+// # What the views show
+//
+// The views are what other code reads of the store, and none of them reads
+// an account number, raw JSON, or an imported file's name or bytes. Each
+// of their columns is either free text, masked by pattern when it was
+// stored, or an identifier, an amount, a date or a code, which cannot hold
+// an account number (viewColumns).
+//
 // # Upkeep
 //
 // Rebuild derives everything again from the evidence alone, which gives
