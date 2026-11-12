@@ -49,6 +49,9 @@ type Options struct {
 	disk func(path string) (fsInfo, error)
 	// maxRows, if set, stands in for schwab.MaxTransactions in tests.
 	maxRows int
+	// journalMode, if set, is the journal mode that Open asks a new store
+	// for in place of WAL, so that a test can see it refused.
+	journalMode string
 	// margin, if set, stands in for the second by which a time must lie
 	// inside a read's window for the read to count it in (deriveAccount),
 	// so that a test can derive under a narrower rule.
@@ -188,12 +191,20 @@ func Open(ctx context.Context, o Options) (*Store, error) {
 			return nil, err
 		}
 	}
+	if testHookBeforeUpdate != nil {
+		testHookBeforeUpdate()
+	}
 	if err := s.update(ctx); err != nil {
 		s.Close()
 		return nil, err
 	}
 	return s, nil
 }
+
+// testHookBeforeUpdate, if set in a test's child process, runs once Open has
+// read the store's versions and before it brings its derived data up to
+// date.
+var testHookBeforeUpdate func()
 
 // Close closes the store's connections.
 func (s *Store) Close() error {
@@ -360,7 +371,11 @@ func (s *Store) connect(ctx context.Context) error {
 		// The pragma returns the mode in force rather than failing when the
 		// file system cannot give WAL what it needs. The mode persists in
 		// the file, so this happens once, to a new store.
-		if err := s.w.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&mode); err != nil {
+		want := "WAL"
+		if s.o.journalMode != "" {
+			want = s.o.journalMode
+		}
+		if err := s.w.QueryRowContext(ctx, "PRAGMA journal_mode="+want).Scan(&mode); err != nil {
 			return err
 		}
 		if !strings.EqualFold(mode, "wal") {

@@ -129,6 +129,11 @@ func countAccounts(t *testing.T, db *sql.DB) int {
 //     at its first retry and how many retries its first write needed;
 //   - "migrate" opens HISTORY_TEST_STORE as a build with one more schema and
 //     newer rules would, saying each warning;
+//   - "update" opens HISTORY_TEST_STORE as a build with newer rules or a
+//     newer calendar would, as HISTORY_TEST_RAISE says ("rules" or
+//     "calendar"), saying "read" once it has read the store's versions and
+//     then waiting for the barrier before it brings its derived data up to
+//     date, and saying each warning;
 //   - "hold" opens HISTORY_TEST_STORE, adds an account inside a write, says
 //     "inside", and waits there to be killed;
 //   - "journal" makes HISTORY_TEST_STORE another program's SQLite file in
@@ -197,6 +202,26 @@ func child(mode string) int {
 		o.Warn = func(m string) { fmt.Println("warn:", m) }
 		fmt.Println("ready")
 		waitBarrier()
+		s, err := Open(ctx, o)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Println("opened")
+		if err := s.Close(); err != nil {
+			return fail(err)
+		}
+		return 0
+	case "update":
+		if os.Getenv("HISTORY_TEST_RAISE") == "rules" {
+			deriveVersion++
+		} else {
+			calendarVersion++
+		}
+		o.Warn = func(m string) { fmt.Println("warn:", m) }
+		testHookBeforeUpdate = func() {
+			fmt.Println("read")
+			waitBarrier()
+		}
 		s, err := Open(ctx, o)
 		if err != nil {
 			return fail(err)

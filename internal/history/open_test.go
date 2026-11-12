@@ -2,8 +2,10 @@ package history
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -277,6 +279,18 @@ func TestOpenRefuses(t *testing.T) {
 		}
 		if got := readFile(t, journal); !slices.Equal(got, j) {
 			t.Error("the journal changed")
+		}
+	})
+	t.Run("WAL refused", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "history.db")
+		_, err := Open(t.Context(), Options{Path: path, journalMode: "TRUNCATE"})
+		if !errors.Is(err, ErrNotWAL) {
+			t.Fatalf("Open: %v, want ErrNotWAL", err)
+		}
+		want := "the store at " + path + " needs WAL mode, which its file system refused (journal mode truncate); keep it on a local disk"
+		if err.Error() != want {
+			t.Errorf("Open: %q, want %q", err, want)
 		}
 	})
 	t.Run("damaged", func(t *testing.T) {
@@ -561,13 +575,14 @@ func holdWriteLock(t *testing.T, path string) {
 }
 
 // A write behind a lock that another connection holds ends with its
-// context, at the deadline: neither SQLite's wait nor the retries outlast
-// it.
+// context, at the deadline: neither SQLite's wait nor the pauses between
+// retries outlast it. SQLite waits 1 ms, so after a second of retries the
+// deadline falls in a pause, which lasts half a second or more by then.
 func TestWaitEndsWithContext(t *testing.T) {
 	t.Parallel()
-	s := newStore(t, Options{})
+	s := newStore(t, Options{BusyTimeout: time.Millisecond})
 	holdWriteLock(t, s.Path())
-	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 1500*time.Millisecond)
 	defer cancel()
 	deadline, _ := ctx.Deadline()
 	err := s.withWrite(ctx, "adding an account", func(w *wtx) error { return insertAccount(w, "12345678") })
@@ -640,4 +655,95 @@ func TestNestedWritePanics(t *testing.T) {
 	_ = s.withWrite(t.Context(), "outer", func(w *wtx) error {
 		return s.withWrite(w.ctx, "inner", func(*wtx) error { return nil })
 	})
+}
+
+// Each connection has the settings that keep the store whole: commits and
+// checkpoints flushed to the drive (fullfsync matters on macOS), foreign
+// keys checked, no function of the schema trusted, a bounded -wal on the
+// writer, and readers that cannot write.
+func TestConnectionSettings(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	pragmas := func(db *sql.DB, names ...string) map[string]int {
+		t.Helper()
+		conn, err := db.Conn(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		got := map[string]int{}
+		for _, name := range names {
+			var v int
+			if err := conn.QueryRowContext(t.Context(), "PRAGMA "+name).Scan(&v); err != nil {
+				t.Fatalf("PRAGMA %s: %v", name, err)
+			}
+			got[name] = v
+		}
+		return got
+	}
+	common := map[string]int{"busy_timeout": 5000, "fullfsync": 1, "checkpoint_fullfsync": 1, "synchronous": 2, "foreign_keys": 1, "trusted_schema": 0}
+	writer := maps.Clone(common)
+	writer["journal_size_limit"] = 64 << 20
+	writer["query_only"] = 0
+	reader := maps.Clone(common)
+	reader["query_only"] = 1
+	for name, c := range map[string]struct {
+		db   *sql.DB
+		want map[string]int
+	}{"writer": {s.w, writer}, "reader": {s.r, reader}} {
+		if got := pragmas(c.db, slices.Collect(maps.Keys(c.want))...); !maps.Equal(got, c.want) {
+			t.Errorf("the %s's settings are %v, want %v", name, got, c.want)
+		}
+	}
+}
+
+// A write holds the store's write lock from its start, before fn reads
+// anything: another connection cannot start a write meanwhile.
+func TestWriteLocksFirst(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	other, err := sql.Open("sqlite", dsn(s.Path(), "_pragma=busy_timeout(0)"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	var begin error
+	if err := s.withWrite(t.Context(), "adding nothing", func(*wtx) error {
+		conn, err := other.Conn(t.Context())
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		_, begin = conn.ExecContext(t.Context(), "BEGIN IMMEDIATE")
+		_, _ = conn.ExecContext(t.Context(), "ROLLBACK")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if code(begin) != 5 {
+		t.Errorf("another connection's BEGIN IMMEDIATE during a write: %v, want SQLITE_BUSY (5)", begin)
+	}
+}
+
+// A write that leaves a derived row referring to nothing fails at its
+// commit, though it deferred the foreign keys, and saves nothing.
+func TestDanglingReferenceFails(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	err := s.withWrite(t.Context(), "adding a transaction's columns", func(w *wtx) error {
+		if err := w.deferForeignKeys(); err != nil {
+			return err
+		}
+		if err := insertAccount(w, "12345678"); err != nil {
+			return err
+		}
+		_, err := w.exec("INSERT INTO txn (txn_id, account_id) VALUES (99, (SELECT account_id FROM account))")
+		return err
+	})
+	if code(err) != 787 {
+		t.Errorf("the write: %v, want a foreign key's refusal (787) at the commit", err)
+	}
+	if n := countAccounts(t, s.r); n != 0 {
+		t.Errorf("the store holds %d accounts, want none", n)
+	}
 }

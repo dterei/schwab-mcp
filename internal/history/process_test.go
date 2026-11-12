@@ -1,6 +1,7 @@
 package history
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -166,6 +167,50 @@ func TestMigrateOnceWithBackup(t *testing.T) {
 		if got := queryInt(t, backups[0], q); got != want {
 			t.Errorf("the backup: %s = %d, want %d", q, got, want)
 		}
+	}
+}
+
+// Two processes that open a store of older rules, or of an older calendar,
+// at once, and have both read its versions before either writes, derive it
+// again, or recompute its market dates, once: the second reads the versions
+// again inside its write, and finds the work done.
+func TestUpdateOnce(t *testing.T) {
+	t.Parallel()
+	for raise, warning := range map[string]string{
+		"rules":    "warn: updated the store's derived data for this schwabtx (rules " + strconv.Itoa(deriveVersion) + " -> " + strconv.Itoa(deriveVersion+1) + ")",
+		"calendar": "warn: recomputed market dates for calendar " + strconv.Itoa(calendarVersion+1),
+	} {
+		t.Run(raise, func(t *testing.T) {
+			t.Parallel()
+			path := copyTemplate(t)
+			var children []*childProcess
+			var barriers []string
+			for i := range 2 {
+				barriers = append(barriers, filepath.Join(filepath.Dir(path), "go"+strconv.Itoa(i)))
+				children = append(children, startChild(t, "update", "HISTORY_TEST_STORE="+path, "HISTORY_TEST_BARRIER="+barriers[i],
+					"HISTORY_TEST_RAISE="+raise))
+			}
+			for _, c := range children {
+				c.expect(t, "read")
+			}
+			said := map[string]int{}
+			for i, c := range children {
+				release(t, barriers[i])
+				for _, line := range c.rest(t) {
+					said[line]++
+				}
+			}
+			if want := map[string]int{"opened": 2, warning: 1}; !maps.Equal(said, want) {
+				t.Errorf("the children said %v, want %v", said, want)
+			}
+			q, want := "SELECT calendar_version FROM store", calendarVersion+1
+			if raise == "rules" {
+				q, want = "SELECT derived_with FROM store", deriveVersion+1
+			}
+			if got := queryInt(t, path, q); got != want {
+				t.Errorf("the store: %s = %d, want %d", q, got, want)
+			}
+		})
 	}
 }
 
