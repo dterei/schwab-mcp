@@ -44,6 +44,14 @@ func (v versions) newer() bool {
 	return v.schema > b.schema || v.derive > b.derive || v.calendar > b.calendar
 }
 
+// older reports whether v is behind this build in its schema, its rules or
+// its calendar, which a store of v is brought up to before this build
+// derives anything in it.
+func (v versions) older() bool {
+	b := buildVersions()
+	return v.schema < b.schema || v.derive < b.derive || v.calendar < b.calendar
+}
+
 // A querier is a connection pool or a transaction.
 type querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row

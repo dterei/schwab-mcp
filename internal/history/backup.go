@@ -108,7 +108,9 @@ type Restored struct {
 // opened as Open opens it, created if it is missing; while it is restored,
 // no sync and no change of schema can start. Restore warns, through
 // o.Warn, that what was recorded since the backup is gone. dryRun reports
-// the counts and changes nothing, nor creates a missing store.
+// the counts and changes nothing: it reads the store without opening it as
+// Open does, so it neither creates a missing store, nor makes an existing
+// one private, nor brings an older one up to date.
 func Restore(ctx context.Context, o Options, backup string, dryRun bool) (Restored, error) {
 	var r Restored
 	path, err := storePath(o)
@@ -133,20 +135,14 @@ func Restore(ctx context.Context, o Options, backup string, dryRun bool) (Restor
 	}
 	r.After = after
 	if dryRun {
-		o.MustExist = true
+		r.Before, err = dryCounts(ctx, o, path)
+		return r, err
 	}
 	s, err := Open(ctx, o)
-	if dryRun && errors.Is(err, ErrNoStore) {
-		return r, nil
-	}
 	if err != nil {
 		return r, err
 	}
 	defer s.Close()
-	if dryRun {
-		r.Before, err = s.counts(ctx)
-		return r, err
-	}
 	// The sync's lock first, as a sync takes it before it opens the store.
 	releaseSync, err := s.lock(ctx, ".sync.lock", "restoring the store")
 	if err != nil {
@@ -162,8 +158,7 @@ func Restore(ctx context.Context, o Options, backup string, dryRun bool) (Restor
 		return r, err
 	}
 	src := backup
-	b := buildVersions()
-	if v.schema < b.schema || v.derive < b.derive || v.calendar < b.calendar {
+	if v.older() {
 		dir, err := os.MkdirTemp(filepath.Dir(path), ".restore-")
 		if err != nil {
 			return r, fmt.Errorf("restoring the store: %w", err)
@@ -183,6 +178,55 @@ func Restore(ctx context.Context, o Options, backup string, dryRun bool) (Restor
 	}
 	s.o.Warn(fmt.Sprintf("restored the store from %s (taken %s); what was recorded since is gone", backup, instant(r.Taken)))
 	return r, nil
+}
+
+// dryCounts counts the evidence of the store at path for a dry run of
+// Restore, changing nothing: the path is checked as Open checks it, and the
+// store identified and read through connections that cannot change it
+// (a WAL that a killed writer left is recovered, as Open's probe recovers
+// it). A missing store holds nothing; a newer schwabtx's is refused.
+func dryCounts(ctx context.Context, o Options, path string) (Counts, error) {
+	o.MustExist = true
+	if o.Warn == nil {
+		o.Warn = func(string) {}
+	}
+	if o.disk == nil {
+		o.disk = localDisk
+	}
+	s := &Store{path: path, o: o}
+	err := s.checkPath()
+	if err == nil {
+		err = s.identify(ctx)
+	}
+	switch {
+	case errors.Is(err, ErrNoStore):
+		return Counts{}, nil
+	case err != nil:
+		return Counts{}, err
+	}
+	db, err := sql.Open("sqlite", dsn(path, "mode=ro"))
+	if err != nil {
+		return Counts{}, err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return Counts{}, s.mapError("reading the store", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // a read: nothing to undo
+	v, err := readVersions(ctx, tx)
+	switch {
+	case err != nil:
+		return Counts{}, s.mapError("reading the store", err)
+	case v.newer():
+		return Counts{}, s.newerError(v, true)
+	}
+	c, err := countEvidence(ctx, tx)
+	if err != nil {
+		return Counts{}, s.mapError("reading the store", err)
+	}
+	return c, nil
 }
 
 // lock takes the lock on the file beside the store whose name adds suffix,

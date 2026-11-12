@@ -11,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/dterei/schwab-mcp/internal/filelock"
 )
 
 // addAccounts adds an account for each number to the store, in one write.
@@ -199,9 +202,19 @@ func TestRestoreRefuses(t *testing.T) {
 	if exists(missing.Path) {
 		t.Error("a dry run made a store")
 	}
+	// A dry run changes nothing, not even a store that others could read.
+	if err := os.Chmod(s.Path(), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	r, err := Restore(ctx, o, backup, true)
 	if err != nil || r.Before.Accounts != 3 || r.After.Accounts != 1 || r.Updated || len(warned) > 0 {
 		t.Errorf("a dry run: %+v, %v, warned %q", r, err, warned)
+	}
+	if runtime.GOOS != "windows" && mode(t, s.Path()) != 0o644 {
+		t.Errorf("a dry run made the store %v", mode(t, s.Path()))
+	}
+	if err := os.Chmod(s.Path(), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	if n := storeInt(t, s, "SELECT count(*) FROM account"); n != 3 {
 		t.Errorf("after a dry run the store holds %d accounts, want 3", n)
@@ -286,5 +299,89 @@ func TestRestoreRefuses(t *testing.T) {
 	}
 	if len(warned) != 1 {
 		t.Errorf("the refusals warned %q", warned[1:])
+	}
+}
+
+// Restore waits for what it must (19.4 of the design): a sync's lock, or a
+// migration's, held all along makes it busy and changes nothing; another
+// process's write it outlasts, retrying. A backup that fails leaves no
+// file behind.
+func TestRestoreWaits(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s := newStore(t, Options{})
+	addAccounts(t, s, "30000001")
+	dir := t.TempDir()
+	backup := filepath.Join(dir, "backup.db")
+	if err := s.Backup(ctx, backup); err != nil {
+		t.Fatal(err)
+	}
+	addAccounts(t, s, "30000002")
+	o := Options{Path: s.Path(), Now: fixedNow, BusyTimeout: time.Millisecond, LockWait: 50 * time.Millisecond}
+	for _, suffix := range []string{".sync.lock", ".migrate.lock"} {
+		l, err := filelock.Acquire(ctx, s.Path()+suffix, time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Restore(ctx, o, backup, false); !errors.Is(err, ErrBusy) {
+			t.Errorf("a restore while %s is held: %v, want ErrBusy", suffix, err)
+		}
+		l.Release()
+	}
+	if n := storeInt(t, s, "SELECT count(*) FROM account"); n != 2 {
+		t.Errorf("after the busy restores the store holds %d accounts, want 2", n)
+	}
+
+	// Another connection's write, held for a while: the restore retries
+	// until it ends.
+	conn, err := rawDB(t, s.Path()).Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	ended := make(chan error, 1)
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		_, err := conn.ExecContext(context.Background(), "ROLLBACK")
+		ended <- errors.Join(err, conn.Close())
+	}()
+	o.LockWait = 10 * time.Second
+	r, err := Restore(ctx, o, backup, false)
+	if err := <-ended; err != nil {
+		t.Fatal(err)
+	}
+	if err != nil || r.After.Accounts != 1 {
+		t.Errorf("a restore outlasting another write: %+v, %v", r, err)
+	}
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	failed := filepath.Join(dir, "failed.db")
+	if err := s.Backup(cancelled, failed); err == nil || exists(failed) {
+		t.Errorf("a backup that failed: %v, and its file is there %v", err, exists(failed))
+	}
+}
+
+// A backup is brought up to this build before it is restored when any of
+// its schema, rules and calendar is older than this build's, the calendar
+// alone too; a newer one is refused.
+func TestVersionsOlder(t *testing.T) {
+	t.Parallel()
+	b := buildVersions()
+	for _, c := range []struct {
+		v            versions
+		older, newer bool
+	}{
+		{b, false, false},
+		{versions{b.schema - 1, b.derive, b.calendar}, true, false},
+		{versions{b.schema, b.derive - 1, b.calendar}, true, false},
+		{versions{b.schema, b.derive, b.calendar - 1}, true, false},
+		{versions{b.schema, b.derive, b.calendar + 1}, false, true},
+	} {
+		if c.v.older() != c.older || c.v.newer() != c.newer {
+			t.Errorf("%+v beside this build's %+v: older %v, newer %v", c.v, b, c.v.older(), c.v.newer())
+		}
 	}
 }
