@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/dterei/schwab-mcp/internal/mask"
 )
 
 // A Decision is one of yours, which the store adds to its log of them and
@@ -75,7 +77,7 @@ var decisionKinds = []string{"category", "count", "pair", "entry_security", "sec
 // stale_decision when what the rules read of the transaction changes.
 func (s *Store) Decide(ctx context.Context, d Decision) (Decided, error) {
 	if !slices.Contains(decisionKinds, d.Kind) {
-		return Decided{}, fmt.Errorf("schwabtx takes no decision of kind %q; it takes %s", d.Kind, strings.Join(decisionKinds, ", "))
+		return Decided{}, fmt.Errorf("schwabtx takes no decision of kind %q; it takes %s", mask.Text(d.Kind), strings.Join(decisionKinds, ", "))
 	}
 	var out Decided
 	err := s.withWrite(ctx, "recording your decision", func(w *wtx) error {
@@ -157,7 +159,7 @@ func checkDecision(w *wtx, d Decision) (sql.NullString, error) {
 			how, other, _ := strings.Cut(d.Value, " ")
 			okey, isKey := strings.CutPrefix(other, "k:")
 			if how != "same" && how != "differ" {
-				return refuse("a security decision is same K…, differ K… or auto, not %q", d.Value)
+				return refuse("a security decision is same K…, differ K… or auto, not %q", mask.Text(d.Value))
 			}
 			if ok, err := keyExists(w, okey); err != nil || !ok || !isKey {
 				return refuseOr(err, "no instrument key %s in the store", keyRef(other))
@@ -177,7 +179,7 @@ func checkDecision(w *wtx, d Decision) (sql.NullString, error) {
 			return refuseOr(err, "no account %s in the store", d.Subject)
 		}
 		if kind, ok := strings.CutPrefix(d.Value, "kind="); d.Value != "auto" && (!ok || strings.TrimSpace(kind) == "") {
-			return refuse("an account decision is kind=TEXT or auto, not %q", d.Value)
+			return refuse("an account decision is kind=TEXT or auto, not %q", mask.Text(d.Value))
 		}
 		w.touch(id)
 		return basis, nil
@@ -199,11 +201,11 @@ func checkDecision(w *wtx, d Decision) (sql.NullString, error) {
 	switch d.Kind {
 	case "category":
 		if d.Value != "auto" && !slices.Contains(categories, d.Value) {
-			return refuse("unknown category %q; one of %s, or auto", d.Value, strings.Join(categories, ", "))
+			return refuse("unknown category %q; one of %s, or auto", mask.Text(d.Value), strings.Join(categories, ", "))
 		}
 	case "count":
 		if !slices.Contains([]string{"yes", "no", "auto"}, d.Value) {
-			return refuse("a count decision is yes, no or auto, not %q", d.Value)
+			return refuse("a count decision is yes, no or auto, not %q", mask.Text(d.Value))
 		}
 	case "pair":
 		if d.Value == "none" || d.Value == "auto" {

@@ -320,8 +320,8 @@ func TestPairDecisionsAcrossAccounts(t *testing.T) {
 }
 
 // Decide refuses, with a sentence, a kind it does not take, a subject the
-// store does not hold and a value the kind does not take, and records
-// nothing; it records the rest, with what each changed: whether an entry
+// store does not hold and a value the kind does not take, the value and the
+// kind masked as free text is, and records nothing; it records the rest, with what each changed: whether an entry
 // counts, its security, an account's kind (masked), and that two keys are
 // one security.
 func TestDecide(t *testing.T) {
@@ -345,6 +345,13 @@ func TestDecide(t *testing.T) {
 		{Decision{Kind: "security", Subject: "k:i:4417302", Value: "same k:i:4417302"}, "K:i:4417302 cannot be decided same itself"},
 		{Decision{Kind: "account", Subject: "acct:9", Value: "auto"}, "no account acct:9 in the store"},
 		{Decision{Kind: "account", Subject: "acct:1", Value: "kind="}, `an account decision is kind=TEXT or auto, not "kind="`},
+		// A value typed in the wrong place may hold an account number,
+		// which a refusal masks.
+		{Decision{Kind: "category", Subject: "a:1:73508261946", Value: "12345678"}, `unknown category "...678"; one of`},
+		{Decision{Kind: "count", Subject: "a:1:73508261946", Value: "12345678"}, `a count decision is yes, no or auto, not "...678"`},
+		{Decision{Kind: "security", Subject: "k:i:4417302", Value: "12345678"}, `a security decision is same K…, differ K… or auto, not "...678"`},
+		{Decision{Kind: "account", Subject: "acct:1", Value: "12345678"}, `an account decision is kind=TEXT or auto, not "...678"`},
+		{Decision{Kind: "12345678", Subject: "acct:1", Value: "auto"}, `schwabtx takes no decision of kind "...678"`},
 	} {
 		if _, err := s.Decide(t.Context(), c.d); err == nil || !strings.HasPrefix(err.Error(), c.want) {
 			t.Errorf("%+v: %v, want %q", c.d, err, c.want)
