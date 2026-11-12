@@ -470,8 +470,8 @@ func TestForgetByRef(t *testing.T) {
 // A file set aside takes no part in the derivation (14.7 of the design):
 // the transactions only it held leave the ledger, and those another file
 // holds stay, your decision on its row following the transaction; your
-// decision on a transaction no other file holds waits, and is applied
-// again when the file comes back.
+// decisions on a transaction no other file holds (a category, a link, but
+// not one withdrawn) wait, and are applied again when the file comes back.
 func TestForget(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -482,6 +482,8 @@ func TestForget(t *testing.T) {
 	first, second := historyCSV(a, b, c), historyCSV(b, c, d)
 	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260210-090000", "csv"), first)
 	decide(t, s, Decision{Kind: "category", Subject: subjectOf(first, 1), Value: "interest"})
+	decide(t, s, Decision{Kind: "match", Subject: subjectOf(first, 1), Value: "none"})
+	decide(t, s, Decision{Kind: "count", Subject: subjectOf(first, 1), Value: "auto"}) // withdraws nothing, waits for nothing
 	decide(t, s, Decision{Kind: "category", Subject: subjectOf(first, 2), Value: "transfer_out"})
 	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260215-090000", "csv"), second)
 	ref := storeStrings(t, s, "SELECT ref FROM files ORDER BY imported_at, ref")
@@ -494,7 +496,7 @@ func TestForget(t *testing.T) {
 		t.Fatal(err)
 	}
 	secondRef := storeStrings(t, s, "SELECT ref FROM file_fields WHERE file_id = 2")[0]
-	if r.Ref != firstRef || r.Left != 1 || r.Stayed != 2 || !slices.Equal(r.StayIn, []string{secondRef}) || r.Waiting != 1 {
+	if r.Ref != firstRef || r.Left != 1 || r.Stayed != 2 || !slices.Equal(r.StayIn, []string{secondRef}) || r.Waiting != 2 {
 		t.Errorf("setting the first file aside reports %+v", r)
 	}
 	got := storeStrings(t, s, "SELECT posted_date || ' ' || category || ' ' || category_rule FROM file_transactions ORDER BY posted_date")

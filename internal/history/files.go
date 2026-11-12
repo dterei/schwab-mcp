@@ -891,9 +891,14 @@ func forgetCounts(w *wtx, id int64, r *ForgetReport) error {
 		return err
 	}
 	slices.Sort(r.StayIn)
+	// The latest decision of each kind on each row, and every reject since
+	// the last that withdrew them all (rejects accumulate).
 	return w.tx.QueryRowContext(w.ctx, `WITH latest AS (
 			SELECT kind, subject, value, max(decision_id) FROM decision
-			WHERE kind IN ('category', 'count', 'pair', 'entry_security') AND subject LIKE 'c:%' GROUP BY kind, subject)
+			WHERE kind IN ('category', 'count', 'pair', 'entry_security', 'match') AND subject LIKE 'c:%' GROUP BY kind, subject
+			UNION SELECT DISTINCT 'reject', d.subject, d.value, 0 FROM decision d
+			WHERE d.kind = 'reject' AND d.subject LIKE 'c:%' AND NOT EXISTS (SELECT 1 FROM decision a
+				WHERE a.kind = 'reject' AND a.subject = d.subject AND a.value = 'auto' AND a.decision_id >= d.decision_id))
 		SELECT count(*) FROM latest l JOIN history_row r ON l.subject = 'c:' || (SELECT lower(hex(sha256)) FROM import_file
 			WHERE file_id = r.file_id) || ':' || r.ordinal
 		WHERE r.file_id = ? AND l.value <> 'auto' AND NOT EXISTS (
