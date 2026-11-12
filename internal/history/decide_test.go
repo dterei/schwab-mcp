@@ -321,9 +321,10 @@ func TestPairDecisionsAcrossAccounts(t *testing.T) {
 
 // Decide refuses, with a sentence, a kind it does not take, a subject the
 // store does not hold and a value the kind does not take, the value and the
-// kind masked as free text is, and records nothing; it records the rest, with what each changed: whether an entry
-// counts, its security, an account's kind (masked), and that two keys are
-// one security.
+// kind masked as free text is, and records nothing; DecideAll, given a
+// decision it refuses after one it takes, records neither. They record the
+// rest, with what each changed: whether an entry counts, its category, its
+// security, an account's kind (masked), and that two keys are one security.
 func TestDecide(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -361,8 +362,18 @@ func TestDecide(t *testing.T) {
 			t.Errorf("%+v: %v, want %q", c.d, err, c.want)
 		}
 	}
+	// Of several decisions, one refused leaves out the ones before it too.
+	if _, err := s.DecideAll(t.Context(), []Decision{
+		{Kind: "category", Subject: "a:1:73508261950", Value: "fee"},
+		{Kind: "count", Subject: "a:1:73508261950", Value: "maybe"},
+	}); err == nil || err.Error() != `a count decision is yes, no or auto, not "maybe"` {
+		t.Errorf("a good decision and a refused one: %v", err)
+	}
 	if n := storeInt(t, s, "SELECT count(*) FROM decision"); n != 0 {
 		t.Errorf("refused decisions left %d in the log", n)
+	}
+	if got := entryRowOf(t, s, "T73508261950", "category, category_rule"); got != "dividend doi.dividend" {
+		t.Errorf("after a refused decision, the dividend is booked %q", got)
 	}
 
 	d := decide(t, s, Decision{Kind: "count", Subject: "a:1:73508261949", Value: "no"})
@@ -379,6 +390,17 @@ func TestDecide(t *testing.T) {
 	if got := entryRowOf(t, s, "T73508261948", "security_key, flags"); got != "i:219834765 " {
 		t.Errorf("the dividend of XYZ, given a security: %q", got)
 	}
+	// Decisions recorded together each say what they changed after the
+	// ones before them.
+	all, err := s.DecideAll(t.Context(), []Decision{
+		{Kind: "category", Subject: "a:1:73508261950", Value: "fee"},
+		{Kind: "count", Subject: "a:1:73508261950", Value: "no"},
+	})
+	if err != nil || len(all) != 2 || len(all[0].Changes) != 1 || len(all[1].Changes) != 1 ||
+		all[0].Changes[0].After.Category != "fee" || !all[0].Changes[0].After.Counted ||
+		all[1].Changes[0].Before.Category != "fee" || all[1].Changes[0].After.Counted || all[0].DecisionID+1 != all[1].DecisionID {
+		t.Errorf("two decisions together: %+v, %v", all, err)
+	}
 	decide(t, s, Decision{Kind: "account", Subject: "acct:1", Value: "kind=ira 12345678"})
 	if got := storeStrings(t, s, "SELECT kind FROM accounts WHERE account_id = 1"); !slices.Equal(got, []string{"ira ...678"}) {
 		t.Errorf("the account's kind is %q", got)
@@ -391,8 +413,8 @@ func TestDecide(t *testing.T) {
 	if got := storeStrings(t, s, "SELECT coalesce(kind, 'none') FROM accounts WHERE account_id = 1"); !slices.Equal(got, []string{"none"}) {
 		t.Errorf("the account's kind, withdrawn, is %q", got)
 	}
-	if n := storeInt(t, s, "SELECT count(*) FROM decision"); n != 5 {
-		t.Errorf("the log holds %d decisions, want 5", n)
+	if n := storeInt(t, s, "SELECT count(*) FROM decision"); n != 7 {
+		t.Errorf("the log holds %d decisions, want 7", n)
 	}
 }
 

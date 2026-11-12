@@ -495,7 +495,8 @@ func TestRestoreCommand(t *testing.T) {
 
 // edit -category sets a transaction's category, which the export then shows
 // as yours, flags after the ref included; -category auto gives it back to
-// the rule.
+// the rule. An edit with an option that is refused records none of its
+// options.
 func TestClassifyOverride(t *testing.T) {
 	offline(t)
 	newStoreFile(t)
@@ -532,10 +533,16 @@ func TestClassifyOverride(t *testing.T) {
 	for _, tc := range []struct{ args, err string }{
 		{"T73508261949 -link none", "T73508261949 is an API transaction; -link takes a file transaction (C…)"},
 		{"T1 -count no", "no transaction T1 in the store"},
+		// An edit refused for one of its options records none of them.
+		{"T73508261949 -category fee -count maybe", `a count decision is yes, no or auto, not "maybe"`},
+		{"T73508261949 -category fee -pair T1", "no transaction T1 in the store"},
 	} {
 		if _, _, err := runTx(t, append([]string{"edit"}, strings.Fields(tc.args)...)...); err == nil || !strings.HasPrefix(err.Error(), tc.err) {
 			t.Errorf("edit %s: %v, want %s", tc.args, err, tc.err)
 		}
+	}
+	if got := entry(); got != before {
+		t.Errorf("after edits that were refused, the entry is %s, want %s", got, before)
 	}
 }
 

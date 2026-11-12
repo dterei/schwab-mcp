@@ -99,52 +99,87 @@ var decisionKinds = []string{
 // the transaction it was made against, so that the entry is flagged
 // stale_decision when what the rules read of the transaction changes.
 func (s *Store) Decide(ctx context.Context, d Decision) (Decided, error) {
-	if !slices.Contains(decisionKinds, d.Kind) {
-		return Decided{}, fmt.Errorf("schwabtx takes no decision of kind %q; it takes %s", mask.Text(d.Kind), strings.Join(decisionKinds, ", "))
+	out, err := s.DecideAll(ctx, []Decision{d})
+	if err != nil {
+		return Decided{}, err
 	}
-	if label, ok := strings.CutPrefix(d.Subject, "action:"); ok && d.Kind == "action" {
-		d.Subject = "action:" + normalAction(label)
-	}
-	if d.Kind == "match" {
-		subjects := strings.Split(d.Value, ",")
-		for i, s := range subjects {
-			subjects[i] = strings.TrimSpace(s)
+	return out[0], nil
+}
+
+// DecideAll records your decisions ds in one write, in their order, each
+// as Decide records it: checked against the store as the ones before it
+// left it, and derived before the next is checked. When one is refused,
+// none is recorded. Each Decided says what its decision changed after the
+// ones before it.
+func (s *Store) DecideAll(ctx context.Context, ds []Decision) ([]Decided, error) {
+	ds = slices.Clone(ds)
+	for i, d := range ds {
+		if !slices.Contains(decisionKinds, d.Kind) {
+			return nil, fmt.Errorf("schwabtx takes no decision of kind %q; it takes %s", mask.Text(d.Kind), strings.Join(decisionKinds, ", "))
 		}
-		d.Value = strings.Join(subjects, ",")
+		if label, ok := strings.CutPrefix(d.Subject, "action:"); ok && d.Kind == "action" {
+			ds[i].Subject = "action:" + normalAction(label)
+		}
+		if d.Kind == "match" {
+			subjects := strings.Split(d.Value, ",")
+			for j, s := range subjects {
+				subjects[j] = strings.TrimSpace(s)
+			}
+			ds[i].Value = strings.Join(subjects, ",")
+		}
 	}
-	var out Decided
-	err := s.withWrite(ctx, "recording your decision", func(w *wtx) error {
-		out = Decided{}
+	op := "recording your decision"
+	if len(ds) > 1 {
+		op += "s"
+	}
+	var out []Decided
+	err := s.withWrite(ctx, op, func(w *wtx) error {
+		out = make([]Decided, len(ds))
 		before, err := entryStates(w)
 		if err != nil {
 			return err
 		}
-		basis, err := checkDecision(w, d)
-		if err != nil {
-			return err
-		}
-		if err := w.tx.QueryRowContext(w.ctx, `INSERT INTO decision (made_at, kind, subject, value, basis, note)
-			VALUES (?, ?, ?, ?, ?, ?) RETURNING decision_id`,
-			instant(w.now), d.Kind, d.Subject, d.Value, basis, free(d.Note)).Scan(&out.DecisionID); err != nil {
-			return err
-		}
-		if err := w.derive(); err != nil {
-			return err
-		}
-		after, err := entryStates(w)
-		if err != nil {
-			return err
-		}
-		for _, k := range slices.SortedFunc(maps.Keys(after), func(a, b entryKey) int {
-			return cmp.Or(cmp.Compare(a.account, b.account), cmp.Compare(a.ref, b.ref))
-		}) {
-			if b, ok := before[k]; ok && b != after[k] {
-				out.Changes = append(out.Changes, EntryChange{AccountID: k.account, Ref: k.ref, Before: b, After: after[k]})
+		for i, d := range ds {
+			if before, err = decideOne(w, d, before, &out[i]); err != nil {
+				return err
 			}
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// decideOne checks and records d, derives again what it bears on, and
+// says in out what it changed of before, how every entry was booked;
+// it returns how they are booked after.
+func decideOne(w *wtx, d Decision, before map[entryKey]EntryState, out *Decided) (map[entryKey]EntryState, error) {
+	basis, err := checkDecision(w, d)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.tx.QueryRowContext(w.ctx, `INSERT INTO decision (made_at, kind, subject, value, basis, note)
+		VALUES (?, ?, ?, ?, ?, ?) RETURNING decision_id`,
+		instant(w.now), d.Kind, d.Subject, d.Value, basis, free(d.Note)).Scan(&out.DecisionID); err != nil {
+		return nil, err
+	}
+	if err := w.derive(); err != nil {
+		return nil, err
+	}
+	after, err := entryStates(w)
+	if err != nil {
+		return nil, err
+	}
+	for _, k := range slices.SortedFunc(maps.Keys(after), func(a, b entryKey) int {
+		return cmp.Or(cmp.Compare(a.account, b.account), cmp.Compare(a.ref, b.ref))
+	}) {
+		if b, ok := before[k]; ok && b != after[k] {
+			out.Changes = append(out.Changes, EntryChange{AccountID: k.account, Ref: k.ref, Before: b, After: after[k]})
+		}
+	}
+	return after, nil
 }
 
 // entryStates reads how every entry is booked.

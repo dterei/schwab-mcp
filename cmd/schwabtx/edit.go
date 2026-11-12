@@ -171,12 +171,19 @@ account (A…) -kind. The value auto withdraws a decision.
 		}
 		return ""
 	}
+	// Every option is read and its refs found before anything is recorded,
+	// and the decisions are recorded in one write: all of them, or, when
+	// the store refuses one, none.
+	type step struct {
+		flag, shown string
+		d           history.Decision
+	}
+	var steps []step
 	for _, o := range given {
 		d := history.Decision{Subject: t.Subject, Value: val(o.flag), Note: *note}
 		// shown is the value as edit says it back: free text masked, refs
 		// as the store has them.
 		shown := textCell(mask.Text(d.Value), 60)
-		var err error
 		switch o.flag {
 		case "category", "count", "completeness":
 			d.Kind, d.Value = o.flag, strings.ToLower(d.Value)
@@ -254,17 +261,24 @@ account (A…) -kind. The value auto withdraws a decision.
 				d.Value = "kind=" + d.Value
 			}
 		}
-		decided, err := s.Decide(ctx, d)
-		if err != nil {
-			return err
-		}
-		what := fmt.Sprintf("%s -%s %s", quoteArg(t.Ref), o.flag, shown)
+		steps = append(steps, step{flag: o.flag, shown: shown, d: d})
+	}
+	ds := make([]history.Decision, len(steps))
+	for i, st := range steps {
+		ds[i] = st.d
+	}
+	decided, err := s.DecideAll(ctx, ds)
+	if err != nil {
+		return err
+	}
+	for i, st := range steps {
+		what := fmt.Sprintf("%s -%s %s", quoteArg(t.Ref), st.flag, st.shown)
 		quiet := true
-		switch o.flag {
+		switch st.flag {
 		case "auto":
 			what = t.Ref + " -auto"
 		case "from":
-			what = fmt.Sprintf("%s covers %s", t.Ref, strings.ReplaceAll(d.Value, "..", " to "))
+			what = fmt.Sprintf("%s covers %s", t.Ref, strings.ReplaceAll(st.d.Value, "..", " to "))
 		case "account":
 			after, err := s.Find(ctx, t.Ref, "")
 			if err != nil {
@@ -273,7 +287,7 @@ account (A…) -kind. The value auto withdraws a decision.
 			what = fmt.Sprintf("%s is now for %s (was %s); both accounts were derived again", t.Ref, orUnknown(after.Account), orUnknown(t.Account))
 			t, quiet = after, false
 		}
-		if err := printDecided(stdout, what, decided, quiet); err != nil {
+		if err := printDecided(stdout, what, decided[i], quiet); err != nil {
 			return err
 		}
 	}
