@@ -219,10 +219,45 @@ func TestImportCLIJSON(t *testing.T) {
 		t.Errorf("T1003, which the later read returned: %q", got)
 	}
 
-	// Your word that the file was filtered withdraws its coverage.
-	decide(t, s, Decision{Kind: "completeness", Subject: "f:" + fileHex([]byte(cliJSON(t, changed, b, c, d, nameless))), Value: "filtered"})
+	// Your word that the file was filtered withdraws its coverage; auto
+	// gives it back.
+	subject := "f:" + fileHex([]byte(cliJSON(t, changed, b, c, d, nameless)))
+	decide(t, s, Decision{Kind: "completeness", Subject: subject, Value: "filtered"})
 	if n := storeInt(t, s, "SELECT count(*) FROM coverages WHERE source = 'api_file'"); n != 0 {
 		t.Errorf("a filtered -json file still covers %d runs", n)
+	}
+	decide(t, s, Decision{Kind: "completeness", Subject: subject, Value: "auto"})
+	if n := storeInt(t, s, "SELECT count(*) FROM coverages WHERE source = 'api_file'"); n != 1 {
+		t.Errorf("your filtered withdrawn, the -json file covers %d runs, want 1", n)
+	}
+}
+
+// A row that a -json file brings to the store is absent from each earlier
+// complete read whose window, a day wider on each side and ending no
+// later than when the read was sent, holds its time or its trade date
+// (9.8 of the design). With -account, the rows of every number are one
+// read of the account.
+func TestImportCLIJSONAbsences(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	record(t, s, listRead(fileAccount, at(time.January, 1), at(time.February, 1), at(time.February, 1)))
+	record(t, s, listRead(fileAccount, at(time.February, 5), at(time.February, 28), at(time.February, 6)))
+	ny := func(m time.Month, d, h int) time.Time { return time.Date(2026, m, d, h, 0, 0, 0, nytime.NewYork()) }
+	early := apiRaw(3001, ny(time.December, 31, 20).AddDate(-1, 0, 0), "DIVIDEND_OR_INTEREST", 1, "", 0, "Ordinary Dividend~ABCD")
+	late := apiRaw(3002, ny(time.February, 2, 10), "DIVIDEND_OR_INTEREST", 2, "", 0, "Ordinary Dividend~ABCD")
+	byTrade := strings.Replace(apiRaw(3003, ny(time.February, 4, 12), "DIVIDEND_OR_INTEREST", 3, "", 0, "Ordinary Dividend~ABCD"),
+		`"tradeDate": "`+schwabTime(midnight("2026-02-04"))+`"`, `"tradeDate": "`+schwabTime(midnight("2026-01-30"))+`"`, 1)
+	afterSent := apiRaw(3004, ny(time.February, 12, 10), "DIVIDEND_OR_INTEREST", 4, "", 0, "Ordinary Dividend~ABCD")
+	elsewhere := strings.Replace(apiRaw(3005, ny(time.March, 2, 10), "DIVIDEND_OR_INTEREST", 5, "", 0, "x"),
+		`"accountNumber": "`+fileAccount+`"`, `"accountNumber": "22220456"`, 1)
+	importFiles(t, s, ImportOptions{Account: fileAccount}, "transactions.json", cliJSON(t, early, late, byTrade, afterSent, elsewhere))
+	got := storeStrings(t, s, `SELECT t.activity_id || ' ' || a.read_id FROM api_absent a JOIN api_txn t ON t.txn_id = a.txn_id
+		ORDER BY t.activity_id, a.read_id`)
+	if want := []string{"3001 1", "3002 1", "3003 1"}; !slices.Equal(got, want) {
+		t.Errorf("the absences are %q, want %q", got, want)
+	}
+	if got := storeStrings(t, s, "SELECT account_id || ' ' || row_count FROM api_read WHERE endpoint = 'file'"); !slices.Equal(got, []string{"1 5"}) {
+		t.Errorf("the -json file's reads are %q, want one of the account's 5 rows", got)
 	}
 }
 
@@ -410,7 +445,9 @@ func realizedCSV(asOf, from, to string, lots ...[9]string) string {
 // Closed lots count once across overlapping Realized exports (14.5 of the
 // design): a lot that a later export re-adjusts for a wash sale is one lot
 // in two versions, flagged lot_revised and shown as the newer export has
-// it.
+// it. A lot with a placeholder in place of a number is flagged
+// placeholder, and one whose Gain/Loss is neither convention's,
+// columns_disagree (14.4).
 func TestRealizedLots(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -419,14 +456,20 @@ func TestRealizedLots(t *testing.T) {
 	adjusted := b
 	adjusted[5], adjusted[6], adjusted[8] = "$165.00", "-$15.00", "$15.00"
 	c := [9]string{"XYZ", "07/20/2026", "02/01/2026", "3", "$40.00", "$30.00", "$10.00", "No", ""}
+	placeholder := [9]string{"QRS", "07/21/2026", "Various", "2", "--", "$30.00", "--", "No", ""}
+	disagree := [9]string{"QRS", "07/22/2026", "02/03/2026", "4", "$50.00", "$40.00", "$5.00", "No", ""}
 	r := importFiles(t, s, ImportOptions{Account: fileAccount},
 		"XXXX0398_GainLoss_Realized_Details_20260706-104711.csv", realizedCSV("Mon Jul 06 10:47:11 EDT 2026", "01/01/2026", "07/06/2026", a, b),
-		"XXXX0398_GainLoss_Realized_Details_20260801-090000.csv", realizedCSV("Sat Aug 01 09:00:00 EDT 2026", "01/01/2026", "08/01/2026", a, adjusted, c))
-	if r.Files[0].New != 2 || r.Files[1].New != 1 || r.Files[1].Known != 2 || r.Files[1].Account != "A1 ...398" {
+		"XXXX0398_GainLoss_Realized_Details_20260801-090000.csv", realizedCSV("Sat Aug 01 09:00:00 EDT 2026", "01/01/2026", "08/01/2026",
+			a, adjusted, c, placeholder, disagree))
+	if r.Files[0].New != 2 || r.Files[1].New != 3 || r.Files[1].Known != 2 || r.Files[1].Account != "A1 ...398" {
 		t.Errorf("the exports report %+v", r.Files)
 	}
 	got := storeStrings(t, s, "SELECT symbol || ' ' || closed_date || ' ' || cost_basis_cents || ' ' || versions || ' ' || files || ' ' || coalesce(flags, '') FROM realized_lots ORDER BY closed_date")
-	want := []string{"ABCD 2026-06-15 16500 2 2 lot_revised", "XYZ 2026-07-01 10000 1 2 ", "XYZ 2026-07-20 3000 1 1 "}
+	want := []string{
+		"ABCD 2026-06-15 16500 2 2 lot_revised", "XYZ 2026-07-01 10000 1 2 ", "XYZ 2026-07-20 3000 1 1 ",
+		"QRS 2026-07-21 3000 1 1 placeholder", "QRS 2026-07-22 4000 1 1 columns_disagree",
+	}
 	if !slices.Equal(got, want) {
 		t.Errorf("the lots are %q, want %q", got, want)
 	}
@@ -750,5 +793,64 @@ func TestPairFollowsTransaction(t *testing.T) {
 	}
 	if after := pairs(); !slices.Equal(after, before) {
 		t.Errorf("recorded %q, rebuilt %q", before, after)
+	}
+}
+
+// A row is kept as the store reads it (13.1 and 14.3 of the design):
+// trades' quantities, unsigned in History files, are signed by the action,
+// a Cancel Buy's and a Cancel Sell's opposite to the trade they cancel,
+// whatever sign the file wrote, and a share movement's as written, in the
+// rows of a CSV and of its JSON twin, the transactions and their legs; a
+// quantity of more than six decimals is flagged inexact; a blank Amount
+// (an expiration's) adds nothing to the file's total. Rows outside the
+// range you give for a file that states none are refused.
+func TestImportRowDetails(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	rows := []csvRow{
+		{"03/02/2026", "Sell", "XYZ", "XYZ CORP", "5", "$10.00", "", "$50.00"},
+		{"03/03/2026", "Sell to Open", "XYZ 09/18/2026 50.00 C", "CALL XYZ", "1", "$1.00", "", "$100.00"},
+		{"03/04/2026", "Buy", "XYZ", "XYZ CORP", "5", "$10.00", "", "-$50.00"},
+		{"03/05/2026", "Cancel Buy", "XYZ", "XYZ CORP", "5", "$10.00", "", "$50.00"},
+		{"03/06/2026", "Cancel Sell", "XYZ", "XYZ CORP", "-5", "$10.00", "", "-$50.00"},
+		{"03/07/2026", "Expired", "XYZ 09/18/2026 50.00 C", "CALL XYZ", "-1", "", "", ""},
+		{"03/09/2026", "Reinvest Shares", "VTI", "VANGUARD", "0.1234567", "$300.00", "", "-$37.04"},
+	}
+	csv := historyCSV(rows...)
+	o := ImportOptions{Account: fileAccount, From: "2026-03-02", To: "2026-03-09"}
+	for _, c := range []struct {
+		o    ImportOptions
+		want string
+	}{
+		{ImportOptions{Account: fileAccount, From: "2026-03-03"}, "has rows from 2026-03-02, before -from 2026-03-03"},
+		{ImportOptions{Account: fileAccount, To: "2026-03-08"}, "has rows to 2026-03-09, after -to 2026-03-08"},
+	} {
+		if _, err := s.Import(t.Context(), []FileInput{{Name: exportName("20260310-090000", "csv"), Content: []byte(csv)}}, c.o); err == nil ||
+			!strings.Contains(err.Error(), c.want) {
+			t.Errorf("rows outside -from %s -to %s: %v, want %q", c.o.From, c.o.To, err, c.want)
+		}
+	}
+	importFiles(t, s, o, exportName("20260310-090000", "csv"), csv,
+		exportName("20260310-090500", "json"), historyJSON("03/02/2026", "03/09/2026", nil, rows...))
+	want := []string{"Sell -5000000", "Sell to Open -1000000", "Buy 5000000", "Cancel Buy -5000000", "Cancel Sell 5000000", "Expired -1000000", "Reinvest Shares "}
+	for file := 1; file <= 2; file++ {
+		got := storeStrings(t, s, fmt.Sprintf("SELECT action || ' ' || coalesce(quantity_micros, '') FROM history_row WHERE file_id = %d ORDER BY ordinal", file))
+		if !slices.Equal(got, want) {
+			t.Errorf("file %d's rows are %q, want %q", file, got, want)
+		}
+	}
+	if got := storeStrings(t, s, "SELECT action || ' ' || coalesce(quantity_micros, '') FROM file_transactions ORDER BY posted_date"); !slices.Equal(got, want) {
+		t.Errorf("the file transactions are %q, want %q", got, want)
+	}
+	got := storeStrings(t, s, `SELECT e.kind || ' ' || l.quantity_micros FROM legs l JOIN entries e ON e.ref = l.ref AND e.account_id = l.account_id
+		WHERE l.leg = 0 AND l.quantity_micros IS NOT NULL ORDER BY e.day`)
+	if !slices.Equal(got, want[:6]) {
+		t.Errorf("the legs are %q, want %q", got, want[:6])
+	}
+	if got := storeStrings(t, s, "SELECT coalesce(flags, '') FROM entries WHERE kind = 'Reinvest Shares'"); len(got) != 1 || !strings.Contains(got[0], "inexact") {
+		t.Errorf("a quantity of seven decimals is flagged %q", got)
+	}
+	if got := storeStrings(t, s, "SELECT coalesce(rows_total_cents, 'NULL') FROM file_fields ORDER BY file_id"); !slices.Equal(got, []string{"6296", "6296"}) {
+		t.Errorf("the files' totals are %q, want 6296 each", got)
 	}
 }

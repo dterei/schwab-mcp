@@ -16,8 +16,10 @@ import (
 // amount) inside the coverage is held out, so nothing counts twice; a
 // TD Ameritrade row inside the coverage counts; a tie is uncertain, with
 // its candidates. Each decision changes the count as the design says: a
-// count on a linked row is refused; your link settles the tie; a link to
-// an API row that the store's own match gives another row is refused; a
+// count on a linked row is refused, and so are a link to an API row that
+// the store's own match gives another row, to one of another account or
+// to none, and a link of a row whose count you decided; your link to the
+// API row the store's match gives it is taken; your link settles the tie; a
 // policy for an action counts its rows; a reject unlinks; and when the API
 // row that a file row is linked to goes, neither counts until you say the
 // file row is none of the API's.
@@ -40,7 +42,9 @@ func TestCounting(t *testing.T) {
 	importFiles(t, s, ImportOptions{}, "transactions.json", cliJSON(t,
 		apiRaw(2001, at(time.March, 2), "DIVIDEND_OR_INTEREST", 1, "", 0, "Ordinary Dividend~ABCD"),
 		apiRaw(2002, at(time.March, 10), "TRADE", -70, "XYZ", 7, ""),
-		apiRaw(2003, at(time.March, 20), "DIVIDEND_OR_INTEREST", 1.5, "", 0, "Ordinary Dividend~ABCD")))
+		apiRaw(2003, at(time.March, 20), "DIVIDEND_OR_INTEREST", 1.5, "", 0, "Ordinary Dividend~ABCD"),
+		strings.Replace(apiRaw(2099, at(time.March, 2), "DIVIDEND_OR_INTEREST", 1, "", 0, "Ordinary Dividend~ABCD"),
+			`"accountNumber": "`+fileAccount+`"`, `"accountNumber": "22220456"`, 1)))
 	history := historyCSV(
 		csvRow{"01/12/2026", "Qualified Dividend", "ABCD", "ABCD INC", "", "", "", "$3.21"},
 		csvRow{"01/20/2026", "Buy", "XYZ", "XYZ CORP", "5", "$10.00", "", "-$50.00"},
@@ -83,10 +87,10 @@ func TestCounting(t *testing.T) {
 	if got := counts(); !slices.Equal(got, want) {
 		t.Errorf("the file transactions count\n%q, want\n%q", got, want)
 	}
-	// Nothing counts twice: the ledger holds the 9 API transactions and the
-	// 3 file transactions that count, and no counted file transaction is in
-	// a match.
-	if n := storeInt(t, s, "SELECT count(*) FROM ledger"); n != 12 {
+	// Nothing counts twice: the account's ledger holds the 9 API
+	// transactions and the 3 file transactions that count, and no counted
+	// file transaction is in a match.
+	if n := storeInt(t, s, "SELECT count(*) FROM ledger WHERE account_id = 1"); n != 12 {
 		t.Errorf("the ledger holds %d entries, want 12", n)
 	}
 	if n := storeInt(t, s, `SELECT count(*) FROM entry e JOIN match_member m ON m.csv_txn_id = e.csv_txn_id WHERE e.counted = 1`); n != 0 {
@@ -102,6 +106,17 @@ func TestCounting(t *testing.T) {
 	if got := entryRowOf(t, s, "T1006", "counted, flags"); got != "1 not_in_files" {
 		t.Errorf("the API's wire, which the complete export lacks: %q", got)
 	}
+	// A later export that writes the uncertain row's description as the
+	// API rows do: still a tie, but each candidate's score and why are
+	// written again.
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260402-090000", "csv"),
+		historyCSV(csvRow{"01/14/2026", "Qualified Dividend", "EFGH", "Ordinary Dividend~EFGH", "", "", "", "$2.00"}))
+	if got, want := storeStrings(t, s, "SELECT CAST(score AS INTEGER) || ' ' || why FROM match_candidate ORDER BY txn_id"), []string{
+		"130 the same amount, a day apart, the same symbol, the same fees and the same description",
+		"130 the same amount, a day apart, the same symbol, the same fees and the same description",
+	}; !slices.Equal(got, want) {
+		t.Errorf("the restated row's candidates are %q, want %q", got, want)
+	}
 
 	refuses := func(d Decision, want string) {
 		t.Helper()
@@ -115,6 +130,17 @@ func TestCounting(t *testing.T) {
 		ref1+" is linked to T1001, whose record counts in its place; unlink it first: schwabtx edit "+ref1+" -link none")
 	refuses(Decision{Kind: "match", Subject: subjectOf(history, 8), Value: "a:1:1002"},
 		"T1002 is linked to "+subjectRef(t, s, history, 2)+" by the store's own match (exact)")
+	refuses(Decision{Kind: "match", Subject: c4, Value: "a:2:2099"}, "T2099 is in another account (A2 ...456) than "+subjectRef(t, s, history, 4))
+	refuses(Decision{Kind: "reject", Subject: c4, Value: "a:2:2099"}, "T2099 is in another account (A2 ...456) than "+subjectRef(t, s, history, 4))
+	refuses(Decision{Kind: "reject", Subject: c4, Value: "a:1:9999"}, "no API transaction a:1:9999 in the store")
+	// Your link to the API row that the store's own match already gives it
+	// is taken.
+	decide(t, s, Decision{Kind: "match", Subject: c1, Value: "a:1:1001 "})
+	// A row whose count you decided takes no part in matching.
+	ref7 := subjectRef(t, s, history, 7)
+	decide(t, s, Decision{Kind: "count", Subject: subjectOf(history, 7), Value: "yes"})
+	refuses(Decision{Kind: "match", Subject: subjectOf(history, 7), Value: "a:1:1002"},
+		"you decided whether "+ref7+" counts, which keeps it out of matching; withdraw that first: schwabtx edit "+ref7+" -count auto")
 	decide(t, s, Decision{Kind: "match", Subject: c4, Value: "a:1:1005"})
 	decide(t, s, Decision{Kind: "match", Subject: subjectOf(history, 8), Value: "a:1:1006"})
 	decide(t, s, Decision{Kind: "action", Subject: "action:BANK INTEREST", Value: "count"})
@@ -123,6 +149,7 @@ func TestCounting(t *testing.T) {
 	want[3] = "2026-01-14 Qualified Dividend linked"
 	want[4] = "2026-01-16 Bank Interest policy"
 	want[8] = "2026-01-28 Wire Funds linked"
+	want[1] = "2026-01-05 Buy user"
 	if got := counts(); !slices.Equal(got, want) {
 		t.Errorf("after your decisions the file transactions count\n%q, want\n%q", got, want)
 	}

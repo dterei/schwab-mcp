@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dterei/schwab-mcp/internal/nytime"
 )
 
 // exportSnapshot is a small snapshot of fileAccount: its cash, one
@@ -394,6 +396,18 @@ func TestExport(t *testing.T) {
 			t.Logf("no hard link here: %v", err)
 		} else {
 			outputs = append(outputs, link)
+			// A directory whose table file would be the store, under
+			// another name, is refused before anything is written.
+			linked := t.TempDir()
+			if err := os.Link(s.path, filepath.Join(linked, "ledger.csv")); err != nil {
+				t.Fatal(err)
+			}
+			if err := ledger.WriteDir(linked); err == nil || !strings.Contains(err.Error(), "would replace the store itself") {
+				t.Errorf("writing a directory whose ledger.csv is the store: %v", err)
+			}
+			if got := listing(t, linked); !slices.Equal(got, []string{"ledger.csv"}) {
+				t.Errorf("the refused directory holds %q", got)
+			}
 		}
 		before := listing(t, filepath.Dir(s.path))
 		for _, path := range outputs {
@@ -411,6 +425,42 @@ func TestExport(t *testing.T) {
 		}
 		if got := exported(t, exportOf(t, s, ExportOptions{})); got != ledgerCSV {
 			t.Errorf("after the refusals the ledger is\n%s", got)
+		}
+	})
+
+	t.Run("newer data", func(t *testing.T) {
+		// A later export re-adjusts the lot: -raw gives the newer row. A
+		// row posted after -from but as of a day before it is outside.
+		later := realizedCSV("Wed Apr 01 09:00:00 EDT 2026", "01/01/2026", "04/01/2026",
+			[9]string{"XYZ", "02/20/2026", "01/05/2026", "5", "$60.00", "$51.50", "$8.50", "Yes", "$1.00"})
+		importFiles(t, s, ImportOptions{Account: fileAccount},
+			"XXXX0398_GainLoss_Realized_Details_20260401-090000.csv", later,
+			exportName("20260402-090000", "csv"), historyCSV(csvRow{"03/02/2026 as of 02/27/2026", "Bank Interest", "", "BANK INT", "", "", "", "$0.04"}))
+		lots := tableOf(t, exportOf(t, s, ExportOptions{What: []string{"lots"}, Raw: true}), "lots")
+		if want := strings.TrimSuffix(strings.SplitN(later, "\n", 3)[2], "\n"); len(lots.rows) != 1 || lots.rows[0][len(lots.Columns)-1].text != want {
+			t.Errorf("the re-adjusted lot's raw is %+v, want the later export's %q", lots.rows, want)
+		}
+		for _, c := range []struct {
+			from nytime.Date
+			rows int
+		}{{"2026-02-28", 0}, {"2026-02-27", 1}} {
+			e := exportOf(t, s, ExportOptions{What: []string{"file-transactions"}, From: c.from, To: "2026-03-05"})
+			if n := e.Tables[0].Rows; n != c.rows {
+				t.Errorf("file transactions from %s: %d, want %d, by the day each is as of", c.from, n, c.rows)
+			}
+		}
+
+		// The manifest names the store's versions, each its own.
+		if _, err := rawDB(t, s.path).ExecContext(t.Context(), "UPDATE store SET derived_with = 7, calendar_version = 9"); err != nil {
+			t.Fatal(err)
+		}
+		b, err := exportOf(t, s, ExportOptions{}).manifest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m struct{ Schema, Rules, Calendar int }
+		if err := json.Unmarshal(b, &m); err != nil || m.Schema != 1 || m.Rules != 7 || m.Calendar != 9 {
+			t.Errorf("the manifest gives the versions %+v, %v; want schema 1, rules 7, calendar 9", m, err)
 		}
 	})
 }
