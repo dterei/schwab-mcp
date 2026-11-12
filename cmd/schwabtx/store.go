@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dterei/schwab-mcp/internal/history"
+	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/nytime"
 )
 
@@ -191,7 +192,7 @@ func parseDay(name, v string) (nytime.Date, error) {
 			return nytime.Date(d.Format(time.DateOnly)), nil
 		}
 	}
-	return "", fmt.Errorf("%s %q is not a date: give YYYY-MM-DD or MM/DD/YYYY", name, plainCell(v))
+	return "", fmt.Errorf("%s %q is not a date: give YYYY-MM-DD or MM/DD/YYYY", name, plainCell(mask.Text(v)))
 }
 
 // quoteArg quotes a word of a command printed for you to copy, when the

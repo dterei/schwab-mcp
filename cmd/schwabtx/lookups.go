@@ -44,13 +44,27 @@ type namedAccount struct {
 }
 
 // label names a in an error or a warning: by its masked number, whatever
-// -show-accounts says, and its nickname when it is known.
+// -show-accounts says, and its nickname when it is known, masked.
 func (a namedAccount) label() string {
 	l := accountCell(a.account.SecuritiesAccount.AccountNumber, false)
-	if n := textCell(a.nickname, 30); n != "" {
+	if n := a.name(false); n != "" {
 		l += " (" + n + ")"
 	}
 	return l
+}
+
+// name returns a's nickname for a table: free text, in which a run of 8
+// digits, which may be an account number, is masked as the store masks
+// it (mask.Text), unless show (-show-accounts).
+func (a namedAccount) name(show bool) string { return textCell(freeText(a.nickname, show), 30) }
+
+// freeText returns text that Schwab or you wrote, masked (mask.Text)
+// unless show.
+func freeText(s string, show bool) string {
+	if show {
+		return s
+	}
+	return mask.Text(s)
 }
 
 // runLookup runs the lookup of the given name: it reads the accounts, with
@@ -64,7 +78,7 @@ func runLookup(ctx context.Context, name string, args []string, stdout, stderr i
 	fs.SetOutput(stderr)
 	account := fs.String("account", "", "only this account: the last digits of its number, or its nickname")
 	asJSON := fs.Bool("json", false, "print Schwab's raw JSON instead of a table (includes full account numbers)")
-	showAccounts := fs.Bool("show-accounts", false, "print full account numbers in the table instead of the last 3 digits")
+	showAccounts := fs.Bool("show-accounts", false, "print full account numbers in the table instead of the last 3 digits, and nicknames and descriptions as Schwab sent them")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -244,8 +258,9 @@ func (s selector) pick(as []namedAccount) ([]namedAccount, error) {
 	var got []namedAccount
 	for _, a := range as {
 		n := a.account.SecuritiesAccount.AccountNumber
+		// A nickname is the one Schwab sent, or as the tables show it.
 		if s.digits != "" && n != "" && strings.HasSuffix(n, s.digits) ||
-			s.nickname != "" && sameName(a.nickname, s.nickname) {
+			s.nickname != "" && (sameName(a.nickname, s.nickname) || sameName(mask.Text(a.nickname), mask.Text(s.nickname))) {
 			got = append(got, a)
 		}
 	}
@@ -470,7 +485,7 @@ func accountsTable(as []namedAccount, show bool) ([]column, [][]string, []string
 	for _, a := range as {
 		b := balanceOf(a.account)
 		rows = append(rows, []string{
-			accountCell(a.account.SecuritiesAccount.AccountNumber, show), textCell(a.nickname, 30),
+			accountCell(a.account.SecuritiesAccount.AccountNumber, show), a.name(show),
 			plainCell(a.account.SecuritiesAccount.Type), b.value.String(),
 		})
 		total = total.plus(b.value)
@@ -503,7 +518,7 @@ func balancesTable(as []namedAccount, show bool) ([]column, [][]string, []string
 	for _, a := range as {
 		b := balanceOf(a.account)
 		rows = append(rows, []string{
-			accountCell(a.account.SecuritiesAccount.AccountNumber, show), textCell(a.nickname, 30),
+			accountCell(a.account.SecuritiesAccount.AccountNumber, show), a.name(show),
 			plainCell(a.account.SecuritiesAccount.Type), b.value.String(), b.cash.String(), b.buyingPower.String(),
 		})
 		totalValue, totalCash = totalValue.plus(b.value), totalCash.plus(b.cash)
@@ -641,13 +656,13 @@ func positionsTable(as []namedAccount, show bool) ([]column, [][]string, []strin
 			if symbol == "" {
 				symbol = "?"
 			}
-			description := textCell(h.description, 40)
+			description := textCell(freeText(h.description, show), 40)
 			if p.Instrument.AssetType == schwab.AssetOption {
 				// An option's description ends with its expiration, strike
 				// and type, which say more than the start of its
 				// underlying's name: the option's symbol starts with the
 				// underlying's own.
-				description = tailCell(h.description, 40)
+				description = tailCell(freeText(h.description, show), 40)
 			}
 			rows = append(rows, []string{
 				number, symbol, h.quantity, h.price, h.value.String(), h.cost.String(), h.gain.String(), description,

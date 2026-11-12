@@ -398,6 +398,39 @@ TOTAL                                     24691.20
 	}
 }
 
+// A nickname is free text, which the tables, the warnings and the errors
+// show masked, as the store keeps it: a run of 8 digits, which may be an
+// account number, shows as ... and its last 3, unless -show-accounts. The
+// nickname picks its account as Schwab sent it or as the tables show it.
+func TestLookupsMaskNicknames(t *testing.T) {
+	f, _ := setup(t)
+	f.addAccount("11112222", 1000, 0, testNow, time.Hour)
+	f.addAccount("33334444", 2000, 0, testNow, time.Hour)
+	f.SetUserPreference(preferenceBody("11112222", "Joint 6180 3398", "33334444", "Trf 48213907"))
+	doLogin(t)
+	stdout, _, err := runTx(t, "accounts")
+	if want := `ACCOUNT  NAME          TYPE       VALUE
+...222   Joint ...398  MARGIN  12345.60
+...444   Trf ...907    MARGIN  12345.60
+TOTAL                          24691.20
+`; err != nil || stdout != want {
+		t.Errorf("%v, printed\n%s\nwant\n%s", err, stdout, want)
+	}
+	if stdout, _, err := runTx(t, "accounts", "-show-accounts"); err != nil || !strings.Contains(stdout, "11112222  Joint 6180 3398") {
+		t.Errorf("-show-accounts: %v, printed\n%s", err, stdout)
+	}
+	for _, account := range []string{"Joint 6180 3398", "joint ...398"} {
+		if stdout, _, err := runTx(t, "accounts", "-account", account); err != nil || !strings.Contains(stdout, "...222   Joint ...398") {
+			t.Errorf("-account %q: %v, printed\n%s", account, err, stdout)
+		}
+	}
+	_, _, err = runTx(t, "accounts", "-account", "Nope 6180 3398")
+	if want := `no account matches -account "Nope ...398": the login shares ...222 (Joint ...398), ...444 (Trf ...907); `; err == nil ||
+		!strings.HasPrefix(err.Error(), want) {
+		t.Errorf("-account of no account: %v, want %q", err, want)
+	}
+}
+
 // -json prints the picked accounts as Schwab sent them, re-indented, full
 // numbers included: for accounts and balances alike, the accounts without
 // their positions, which they did not ask for. It makes no request for the
@@ -1694,6 +1727,14 @@ TOTAL                               -     -         -
 ...222   AAPL                     1      1.00     4.00     4.00      0.00  APPLE INC xxxxxxxxxxxxxxxxxxxxxxxxxxx...
 ...222   MRVL  250321C00155000   -1    2.0533  -272.50  -205.33    -67.17  ...TECHNOLOGY INC 03/21/2025 $155 Call
 TOTAL                                          -268.50  -201.33    -67.17
+`,
+		},
+		{
+			// A description is free text, masked as the store masks it.
+			"a description that holds an account number",
+			[]string{holdingAccount(pos("FUND", 4, "FUND 6180-3398"))},
+			`ACCOUNT  SYMBOL  QTY  AVG COST  VALUE  COST  OPEN P/L  DESCRIPTION
+...222   FUND      1      1.00   4.00  4.00      0.00  FUND ...398
 `,
 		},
 		{

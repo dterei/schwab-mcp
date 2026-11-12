@@ -98,8 +98,14 @@ They take the same flags:
                  nickname is X, as the tables print it, in any case
 -json            Schwab's raw JSON for the accounts instead of a table (includes
                  full account numbers)
--show-accounts   full account numbers in the table instead of the last 3 digits
+-show-accounts   full account numbers in the table instead of the last 3 digits,
+                 and nicknames and descriptions as Schwab sent them
 ```
+
+A nickname or a description is free text: the tables, warnings and errors
+mask a run of 8 digits in it, which may be an account number, as the store
+does (`Joint 6180 3398` reads `Joint ...398`). `-account` takes a nickname
+as Schwab sent it or as the tables print it.
 
 Every figure is as of the moment you ask: in the evening, and again from
 Sunday evening, Schwab values holdings at extended-hours prices, so the

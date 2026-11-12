@@ -662,6 +662,19 @@ func TestStoreCommandsMaskNumbers(t *testing.T) {
 	}
 	f := refIn(t, strings.Join(outputs, "\n"), `F[0-9a-f]{8,}`)
 	run("status", f)
+	// A number given to a flag of dates is said back masked, as every
+	// value an error says back is.
+	for _, args := range [][]string{
+		{"edit", f, "-from", "6180-3398", "-to", "2026-10-01"},
+		{"export", "-to", number},
+		{"import", "-from", "6180 3398", "-to", "2026-10-01", filepath.Join(dir, "transactions.json")},
+	} {
+		_, _, err := runTx(t, args...)
+		if err == nil || !strings.Contains(err.Error(), `"...398" is not a date`) {
+			t.Errorf("%q: %v", args, err)
+		}
+		outputs = append(outputs, fmt.Sprint(err))
+	}
 	entries, err := os.ReadDir(filepath.Join(dir, "export"))
 	if err != nil {
 		t.Fatal(err)
