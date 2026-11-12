@@ -207,6 +207,42 @@ func TestCounting(t *testing.T) {
 	}
 }
 
+// TestRestatedTickerStaysLinked imports a dividend on the first day of a
+// -json file's dates, which the store counts from the API's record alone
+// once a History export's row of it links to it, and then a later export
+// that names the security by another ticker: the transaction stays linked,
+// and the dividend counts once.
+func TestRestatedTickerStaysLinked(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	importFiles(t, s, ImportOptions{}, "transactions.json", cliJSON(t,
+		apiRaw(3001, at(time.March, 2), "DIVIDEND_OR_INTEREST", 15, "", 0, "Qualified Dividend~XYZ"),
+		apiRaw(3002, at(time.March, 20), "DIVIDEND_OR_INTEREST", 1.5, "", 0, "Ordinary Dividend~ABCD")))
+	dividend := csvRow{"03/02/2026", "Qualified Dividend", "XYZ", "XYZ CORP", "", "", "", "$15.00"}
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260401-090000", "csv"), historyCSV(dividend))
+	ledger := func() []string {
+		t.Helper()
+		return storeStrings(t, s, `SELECT ref || ' ' || source || ' ' || counted_why FROM entries
+			WHERE day = '2026-03-02' ORDER BY ref`)
+	}
+	ref := storeStrings(t, s, "SELECT ref FROM file_transactions")
+	if len(ref) != 1 {
+		t.Fatalf("the file transactions are %q", ref)
+	}
+	want := []string{ref[0] + " file linked", "T3001 api api"}
+	if got := ledger(); !slices.Equal(got, want) {
+		t.Fatalf("the dividend's entries are %q, want %q", got, want)
+	}
+	dividend[2] = "XYZ N"
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260402-090000", "csv"), historyCSV(dividend))
+	if got := ledger(); !slices.Equal(got, want) {
+		t.Errorf("after an export that names it XYZ N, the dividend's entries are %q, want %q", got, want)
+	}
+	if n := storeInt(t, s, "SELECT count(*) FROM ledger WHERE day = '2026-03-02'"); n != 1 {
+		t.Errorf("the ledger counts the dividend %d times", n)
+	}
+}
+
 // subjectRef returns the ref of the file transaction that holds row
 // ordinal of the History export content.
 func subjectRef(t *testing.T, s *Store, content string, ordinal int) string {

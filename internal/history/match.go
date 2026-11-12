@@ -126,6 +126,9 @@ type matchItem struct {
 	fees     sql.NullInt64
 	price    sql.NullFloat64
 	sym      symbolRef
+	// rowSyms are a file transaction's rows' symbols: the rows of an
+	// export that restates a ticker name the transaction by another.
+	rowSyms []symbolRef
 	// text is its description, masked, as the fine fields compare it.
 	text string
 	// An API transaction's id, order, legs of securities, time and
@@ -217,6 +220,7 @@ func matchAccount(in matchInput) ([]matchOutput, []candidateOutput) {
 			amount: e.amount, quantity: absNull(e.quantity), fees: e.fees, price: e.price,
 			sym: symbolRef{e.symbol.String, e.security}, text: matchText(e.text), action: normalAction(e.kind.String),
 			fileID: t.members[0].file.id, ordinal: t.members[0].ordinal, tda: e.flags.has("tda_history"), match: -1,
+			rowSyms: t.syms,
 		}
 		var ok bool
 		if it.rule, ok = matchRules[e.family]; !ok {
@@ -407,7 +411,7 @@ func (m *matcher) exact(files, apis []*matchItem) {
 			continue
 		}
 		for _, a := range byBucket[bucket{f.amount.Int64, f.day, f.family, f.quantity}] {
-			if a.match < 0 && sameSymbol(f.sym, a.sym) && !f.rejected[a.e.subject] {
+			if a.match < 0 && f.symbolIs(a.sym) && !f.rejected[a.e.subject] {
 				m.link("exact", sql.NullFloat64{}, []*matchItem{f}, []*matchItem{a})
 				break
 			}
@@ -459,7 +463,7 @@ func (m *matcher) fills(files, apis []*matchItem) {
 			var quantity int64
 			ok := true
 			for _, a := range g {
-				ok = ok && a.match < 0 && a.family == f.family && a.quantity.Valid && sameSymbol(f.sym, a.sym) && !f.rejected[a.e.subject]
+				ok = ok && a.match < 0 && a.family == f.family && a.quantity.Valid && f.symbolIs(a.sym) && !f.rejected[a.e.subject]
 				quantity += a.quantity.Int64
 			}
 			if ok && quantity == f.quantity.Int64 {
@@ -559,7 +563,7 @@ func bitsSet(n int) int {
 // of API transaction a and, when it gives a quantity, that leg's amount.
 func fitsLeg(f, a *matchItem) bool {
 	return slices.ContainsFunc(a.legs, func(l matchLeg) bool {
-		return sameSymbol(f.sym, l.sym) && (!f.quantity.Valid || l.amount == f.quantity)
+		return f.symbolIs(l.sym) && (!f.quantity.Valid || l.amount == f.quantity)
 	})
 }
 
@@ -753,7 +757,7 @@ func mayBe(f, a *matchItem) bool {
 	if !f.amount.Valid || f.amount != a.amount || f.rejected[a.e.subject] || !inWindow(f, a) || !familyFits(f, a) {
 		return false
 	}
-	return (f.amount.Int64 != 0 || sameSymbol(f.sym, a.sym)) && compatibleSymbols(f.sym, a.sym)
+	return (f.amount.Int64 != 0 || f.symbolIs(a.sym)) && (compatibleSymbols(f.sym, a.sym) || f.symbolIs(a.sym))
 }
 
 // lateRows flags late_api_row each file transaction in no match that you
@@ -906,7 +910,7 @@ func familyFits(f, a *matchItem) bool {
 func score(f, a *matchItem) int {
 	d, _ := daysApart(string(a.day), string(f.day))
 	s := 100 - 10*max(d, -d)
-	if sameSymbol(f.sym, a.sym) {
+	if f.symbolIs(a.sym) {
 		s += 20
 	}
 	if f.quantity == a.quantity {
@@ -934,7 +938,7 @@ func why(f, a *matchItem) string {
 	default:
 		parts = append(parts, strconv.Itoa(d)+" days apart")
 	}
-	if fineSymbol(f.sym.symbol) != "" && sameSymbol(f.sym, a.sym) {
+	if fineSymbol(f.sym.symbol) != "" && f.symbolIs(a.sym) {
 		parts = append(parts, "the same symbol")
 	}
 	if f.quantity == a.quantity && f.quantity.Valid {
@@ -965,6 +969,14 @@ func sameSymbol(a, b symbolRef) bool {
 		return optA && optB && ca == cb
 	}
 	return a.security.Valid && a.security == b.security || sa == sb
+}
+
+// symbolIs reports whether file transaction it's symbol, or one that a row
+// of it names, names the security that sym does (sameSymbol).
+func (it *matchItem) symbolIs(sym symbolRef) bool {
+	return sameSymbol(it.sym, sym) || slices.ContainsFunc(it.rowSyms, func(r symbolRef) bool {
+		return fineSymbol(r.symbol) != "" && sameSymbol(r, sym)
+	})
 }
 
 // compatibleSymbols reports whether two symbols may name one security:

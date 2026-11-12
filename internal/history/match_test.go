@@ -557,6 +557,22 @@ func TestMatcher(t *testing.T) {
 			},
 		},
 		{
+			name: "a later export that names the row by another ticker keeps the link that the earlier export's row makes",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				addRow(f, "2026-03-10", "Qualified Dividend", "XYZ", 1500, 0)
+				g := testFile(2, "b", "2026-05-01", "", "")
+				addRow(g, "2026-03-10", "Qualified Dividend", "XYZ N", 1500, 0)
+				w.files = []*fileInput{f, g}
+				w.addAPI(1, "2026-03-10", "income", "dividend", 1500, "XYZ", 0)
+				// The first day of a -json file's dates: outside the API's
+				// coverage, the row would count beside T1.
+				w.runs = []coverageRun{{source: "api_file", from: "2026-03-10", to: "2026-04-30"}}
+			},
+			want:   []string{"exact Ca.1 = T1"},
+			counts: []string{"Ca.1 linked"},
+		},
+		{
 			name: "a symbol changed: one security links them",
 			make: func(w *matchWorld) {
 				f := testFile(1, "a", "2026-04-01", "", "")

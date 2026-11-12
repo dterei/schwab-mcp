@@ -44,6 +44,10 @@ type csvTxnOutput struct {
 	posted, asOf, event nytime.Date
 	files               int
 	members             []*historyRowInput
+	// syms are its rows' symbols, each with its security, without
+	// repeats: an export may name the transaction by another ticker than
+	// an earlier one and than the API.
+	syms []symbolRef
 }
 
 // A lotOutput is a closed lot: the lots of Realized files that are one.
@@ -150,6 +154,13 @@ func deriveFiles(in accountInputs, api []ledgerEntry, apiRuns []coverageRun) fil
 		files := map[*fileInput]bool{}
 		for _, r := range c.rows {
 			files[r.file] = true
+			sym := symbolRef{symbol: r.symbol}
+			if sec, ok := secs.of(r.xKey, r.fileKey); ok {
+				sym.security = sql.NullInt64{Int64: sec.id, Valid: true}
+			}
+			if !slices.Contains(t.syms, sym) {
+				t.syms = append(t.syms, sym)
+			}
 		}
 		t.files = len(files)
 		out.txns[i] = t
