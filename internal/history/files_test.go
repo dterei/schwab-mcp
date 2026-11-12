@@ -358,7 +358,8 @@ func TestFilteredExport(t *testing.T) {
 // design): a later export that lacks one dividend among others of its
 // symbol, and one of two identical trades, agrees with the complete export
 // before it otherwise, and is complete; the transactions it lacks are
-// flagged missing_from_later and counts_differ.
+// flagged missing_from_later and counts_differ, each of which Review gives
+// the command that settles it.
 func TestCorrectionShaped(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -388,12 +389,32 @@ func TestCorrectionShaped(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("the transactions are %q, want %q", got, want)
 	}
+	// Review gives each of them the command that settles it.
+	groups, err := s.Review(t.Context(), ReviewOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commands := map[string][]string{}
+	for _, g := range groups {
+		for _, it := range g.Items {
+			commands[g.Title] = append(commands[g.Title], it.Commands...)
+		}
+	}
+	for code, want := range map[string]string{
+		"missing_from_later": "if Schwab took it back, as the later export says: schwabtx edit C",
+		"counts_differ":      "if it is counted once too often: schwabtx edit C",
+	} {
+		if cs := commands[code]; len(cs) == 0 || !strings.HasPrefix(cs[0], want) || !strings.HasSuffix(cs[0], " -count no") {
+			t.Errorf("Review gives %s the commands %q", code, cs)
+		}
+	}
 }
 
 // A file's coverage is narrowed by what its warnings show (14.6 of the
 // design), in the files and coverages views alike: an empty export covers
 // nothing, until you say its range had no activity; a range that ends on
-// the day of the export ends the day before.
+// the day of the export ends the day before. A late start waits for you,
+// with the command that settles it, until you say the file was filtered.
 func TestCoverageClipped(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -420,6 +441,42 @@ func TestCoverageClipped(t *testing.T) {
 	if got := storeStrings(t, s, "SELECT source || ' ' || from_date || ' ' || to_date FROM coverages ORDER BY source"); !slices.Equal(got,
 		[]string{"file 2026-01-01 2026-01-31", "file_unknown 2026-02-01 2026-03-19"}) {
 		t.Errorf("once you say the empty export is complete, the coverage is %q", got)
+	}
+	// An export whose oldest row is long after its range's start waits for
+	// you, until you say it was filtered, as its late start suggests.
+	late := historyJSON("01/01/2026", "01/31/2026", nil, csvRow{"01/26/2026", "Credit Interest", "", "SCHWAB1 INT", "", "", "", "$0.05"})
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260210-090000", "json"), late)
+	lateRef := storeStrings(t, s, "SELECT subject_ref FROM flags WHERE code = 'late_start'")
+	if len(lateRef) != 1 {
+		t.Fatalf("late_start is on %q", lateRef)
+	}
+	waiting := func() (int, []string) {
+		t.Helper()
+		st, err := s.Status(t.Context(), StatusOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		groups, err := s.Review(t.Context(), ReviewOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var lines []string
+		for _, g := range groups {
+			for _, it := range g.Items {
+				if g.Title == "late_start" {
+					lines = append(lines, append([]string{it.Ref}, it.Commands...)...)
+				}
+			}
+		}
+		return st.Attention, lines
+	}
+	n, lines := waiting()
+	if want := []string{lateRef[0], "if the file was filtered by type or symbol: schwabtx edit " + lateRef[0] + " -completeness filtered"}; !slices.Equal(lines, want) {
+		t.Errorf("Review lists late_start as %q, want %q", lines, want)
+	}
+	decide(t, s, Decision{Kind: "completeness", Subject: "f:" + fileHex([]byte(late)), Value: "filtered"})
+	if m, lines := waiting(); m != n-1 || lines != nil {
+		t.Errorf("once you say the late export is filtered, %d wait for attention (%d before) and Review lists late_start as %q", m, n, lines)
 	}
 }
 

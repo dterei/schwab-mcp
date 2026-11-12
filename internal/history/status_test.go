@@ -1,6 +1,9 @@
 package history
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // A ref that names nothing is said back as it was given, since refs are
 // identifiers that hold no account number (5.3 of the design): an API
@@ -25,5 +28,26 @@ func TestFindSaysRefsBack(t *testing.T) {
 		if _, err := s.Find(t.Context(), ref, ""); err == nil || err.Error() != want {
 			t.Errorf("Find(%q): %v, want %s", ref, err, want)
 		}
+	}
+}
+
+// A command in a flag's detail, quoted for a POSIX shell, is quoted again
+// word by word for another shell: a key with spaces and a quote in it, as
+// cmd.exe on Windows reads it in double quotes.
+func TestRequoted(t *testing.T) {
+	t.Parallel()
+	a, b := "K:s:FILE:XYZ 09/18/2026 50.00 C@2026-10-01", "K:s:FILE:O'NEIL@2026-10-02"
+	command := "schwabtx edit " + shellQuote(a) + " -differ " + shellQuote(b)
+	double := func(s string) string {
+		if strings.ContainsAny(s, " '") {
+			return `"` + s + `"`
+		}
+		return s
+	}
+	if got, want := requoted(command, double), `schwabtx edit "`+a+`" -differ "`+b+`"`; got != want {
+		t.Errorf("requoted(%q) = %s, want %s", command, got, want)
+	}
+	if got := requoted(command, shellQuote); got != command {
+		t.Errorf("requoted(%q) for a POSIX shell = %s", command, got)
 	}
 }

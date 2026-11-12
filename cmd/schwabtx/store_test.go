@@ -791,8 +791,9 @@ func shellWords(t *testing.T, s string) []string {
 }
 
 // The command that a symbol_unsure flag prints for you to copy names keys
-// of option symbols, which hold spaces, quoted, so that the shell gives the
-// keys back whole: run as split, it records your decision.
+// of option symbols, which hold spaces, quoted for the shell of the system
+// it runs on, so that the shell gives the keys back whole: run as split, it
+// records your decision.
 func TestPrintedCommandsQuoted(t *testing.T) {
 	offline(t)
 	newStoreFile(t)
@@ -805,9 +806,15 @@ func TestPrintedCommandsQuoted(t *testing.T) {
 	}
 	mustRun(t, args...)
 	review, _ := mustRun(t, "status", "-review")
-	i := strings.Index(review, "schwabtx edit 'K:")
-	if i < 0 {
-		t.Fatalf("status -review has no command with a quoted key:\n%s", review)
+	// Quoted for the shell of this system, single quotes on Unix and
+	// double on Windows, and no other way.
+	open, other := "'", `"`
+	if runtime.GOOS == "windows" {
+		open, other = other, open
+	}
+	i := strings.Index(review, "schwabtx edit "+open+"K:")
+	if i < 0 || strings.Contains(review, other+"K:") {
+		t.Fatalf("status -review has no command with a key quoted with %s alone:\n%s", open, review)
 	}
 	command, _, _ := strings.Cut(review[i:], "\n")
 	words := shellWords(t, command)

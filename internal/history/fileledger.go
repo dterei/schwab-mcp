@@ -784,14 +784,19 @@ func clusterFlags(flags *flagSet, c *cluster[*historyRowInput], refs map[*fileIn
 			for _, n := range names {
 				held = append(held, "F"+refs[symbols[n].file]+": "+n)
 			}
-			flags.add("symbol_unsure", fmt.Sprintf("%s; if they are two securities: schwabtx edit %s -differ %s",
-				strings.Join(held, "; "), shellQuote("K:"+a.fileKey), shellQuote("K:"+b.fileKey)))
+			flags.add("symbol_unsure", fmt.Sprintf("%s%sschwabtx edit %s -differ %s",
+				strings.Join(held, "; "), twoSecurities, shellQuote("K:"+a.fileKey), shellQuote("K:"+b.fileKey)))
 		}
 	}
 	if c.split {
 		flags.add("split_by_security", "its security differs from that of another file's row of its day, action and amount")
 	}
 }
+
+// twoSecurities comes before the command in a symbol_unsure flag's detail
+// that says two keys are two securities, which Review quotes again for the
+// shell that runs it.
+const twoSecurities = "; if they are two securities: "
 
 // shellQuote quotes a word for a POSIX shell when it needs it, so that a
 // command printed for you to copy gives back the ref.

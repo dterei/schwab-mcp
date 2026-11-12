@@ -812,8 +812,8 @@ Completeness changes flags and coverage, never a count.
 ### Settling what the store flags
 
 `status -review` lists everything of severity `attention`, grouped, each
-with the command that settles it, and `-all` adds the `info` flags. The
-usual ones:
+with the command that settles it where an edit does (a file's missing dates
+need another export), and `-all` adds the `info` flags. The usual ones:
 
 | Flag | What to do |
 | --- | --- |
@@ -829,8 +829,9 @@ usual ones:
 | `awaits_probe`, `unknown_type`, `unknown_action`, `zero_amount` | `edit REF -category C` |
 | `unpaired_journal`, `ambiguous_journal` | `edit REF -pair REF2`, or `-category` |
 | `completeness_unknown`, `looks_filtered`, `lacks_rows` | `edit F… -completeness complete` or `filtered` |
+| `missing_from_later`, `counts_differ` | `edit C… -count no` if the later export is right |
 | `stale_decision` | decide again (the same command), or withdraw it with `auto` |
-| `empty`, `at_cap`, `late_start`, `two_years` | export the missing dates again, as a shorter range |
+| `empty`, `at_cap`, `late_start`, `two_years` | export the missing dates again, as a shorter range; a late start of a file filtered by type or symbol is no gap: `edit F… -completeness filtered`, and it waits no more |
 | snapshot gaps | none: a missed session cannot be taken later; keep the scheduled snapshot running |
 
 ## Your decisions

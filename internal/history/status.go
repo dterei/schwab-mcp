@@ -362,7 +362,7 @@ func countWaiting(w *wtx, only sql.NullInt64, st *Status) error {
 		return err
 	}
 	if err := w.tx.QueryRowContext(w.ctx, `SELECT count(*) FROM flags WHERE severity = 'attention' AND code NOT IN (?2, ?3, ?4, ?5)
-		AND (?1 IS NULL OR account_id = ?1)`, only, attentionOther[0], attentionOther[1], attentionOther[2], attentionOther[3]).Scan(&st.Attention); err != nil {
+		AND (?1 IS NULL OR account_id = ?1) AND `+settledFlags, only, attentionOther[0], attentionOther[1], attentionOther[2], attentionOther[3]).Scan(&st.Attention); err != nil {
 		return err
 	}
 	return w.tx.QueryRowContext(w.ctx, `SELECT count(DISTINCT subject_ref) FROM flags WHERE code IN ('looks_filtered', 'lacks_rows')
@@ -499,8 +499,8 @@ type ReviewOptions struct {
 	// All lists the flags of info severity too.
 	All bool
 	// Quote quotes a word of the commands it gives, as the shell that runs
-	// them needs. Nil means as a POSIX shell needs, as the commands in
-	// flags' details are.
+	// them needs, those it takes from flags' details included. Nil means
+	// as a POSIX shell needs, as the commands in flags' details are.
 	Quote func(string) string
 }
 
@@ -694,17 +694,34 @@ func reviewHeldOut(w *wtx, only sql.NullInt64, q func(string) string) ([]ReviewG
 	return groups, nil
 }
 
-// flagCommands are the commands that settle a flag on an entry, beside any
-// its detail gives, with REF for the entry's ref.
+// flagCommands are the commands that settle a flag on an entry or a file,
+// beside any its detail gives, with REF for its ref. A flag that no edit
+// settles (a file's missing dates, legs that do not add up) has none.
 var flagCommands = map[string][]string{
-	"awaits_probe":   {"schwabtx edit REF -category CATEGORY"},
-	"gone":           {"if it still counts: schwabtx edit REF -count yes"},
-	"stale_decision": {"decide again: schwabtx edit REF ..."},
-	"status":         {"if it counts: schwabtx edit REF -count yes"},
-	"unknown_type":   {"schwabtx edit REF -category CATEGORY"},
-	"unknown_action": {"schwabtx edit REF -category CATEGORY"},
-	"zero_amount":    {"schwabtx edit REF -category CATEGORY"},
+	"absent_earlier":     {"if it was cancelled: schwabtx edit REF -count no"},
+	"ambiguous_journal":  {"schwabtx edit REF -pair TRANSACTION, or -category CATEGORY"},
+	"awaits_probe":       {"schwabtx edit REF -category CATEGORY"},
+	"counts_differ":      {"if it is counted once too often: schwabtx edit REF -count no"},
+	"gone":               {"if it still counts: schwabtx edit REF -count yes"},
+	"lacks_rows":         {"schwabtx edit REF -completeness filtered, or complete if it is"},
+	"late_start":         {"if the file was filtered by type or symbol: schwabtx edit REF -completeness filtered"},
+	"looks_filtered":     {"schwabtx edit REF -completeness complete, or filtered"},
+	"missing_from_later": {"if Schwab took it back, as the later export says: schwabtx edit REF -count no"},
+	"name_mismatch":      {"if it is another account's: schwabtx edit REF -account ACCOUNT"},
+	"near_duplicate":     {"on the one Schwab corrected: schwabtx edit REF -count no"},
+	"stale_decision":     {"decide again: schwabtx edit REF ..."},
+	"status":             {"if it counts: schwabtx edit REF -count yes"},
+	"unexpected_sign":    {"schwabtx edit REF -category CATEGORY"},
+	"unknown_type":       {"schwabtx edit REF -category CATEGORY"},
+	"unknown_action":     {"schwabtx edit REF -category CATEGORY"},
+	"unpaired_journal":   {"schwabtx edit REF -pair TRANSACTION, or -category CATEGORY"},
+	"zero_amount":        {"schwabtx edit REF -category CATEGORY"},
 }
+
+// settledFlags is a condition on the flags view that leaves out the flags
+// your decisions settled: late_start on a file you decided, or the store
+// found, is filtered, whose oldest row may well be late.
+const settledFlags = `NOT (code = 'late_start' AND subject_ref IN (SELECT ref FROM file_fields WHERE completeness = 'filtered'))`
 
 // reviewFlag returns the things flagged with d's code.
 func reviewFlag(w *wtx, only sql.NullInt64, d flagDef, q func(string) string) (ReviewGroup, error) {
@@ -720,7 +737,7 @@ func reviewFlag(w *wtx, only sql.NullInt64, d flagDef, q func(string) string) (R
 		err := rows.Scan(&f.ref, &f.acct, &f.detail)
 		fs = append(fs, f)
 		return err
-	}, `SELECT subject_ref, account_id, detail FROM flags WHERE code = ?2 AND (?1 IS NULL OR account_id = ?1)
+	}, `SELECT subject_ref, account_id, detail FROM flags WHERE code = ?2 AND (?1 IS NULL OR account_id = ?1) AND `+settledFlags+`
 		ORDER BY account_id, subject_ref`, only, d.code); err != nil {
 		return g, err
 	}
@@ -730,9 +747,6 @@ func reviewFlag(w *wtx, only sql.NullInt64, d flagDef, q func(string) string) (R
 			var err error
 			if it, err = entryItem(w, f.acct.Int64, f.ref); err != nil {
 				return g, err
-			}
-			for _, c := range flagCommands[d.code] {
-				it.Commands = append(it.Commands, strings.ReplaceAll(c, "REF", q(f.ref)))
 			}
 		} else if f.acct.Valid {
 			var masked string
@@ -748,12 +762,63 @@ func reviewFlag(w *wtx, only sql.NullInt64, d flagDef, q func(string) string) (R
 			}
 			it.Fields = []string{label.String}
 		}
-		if f.detail.String != "" {
-			it.Lines = append(it.Lines, f.detail.String)
+		if strings.HasPrefix(f.ref, "T") || strings.HasPrefix(f.ref, "C") || strings.HasPrefix(f.ref, "F") {
+			for _, c := range flagCommands[d.code] {
+				it.Commands = append(it.Commands, strings.ReplaceAll(c, "REF", q(f.ref)))
+			}
+		}
+		detail := f.detail.String
+		// The command in a symbol_unsure flag's detail is quoted for a
+		// POSIX shell; Review gives it quoted for the shell that runs it.
+		if held, command, ok := strings.Cut(detail, twoSecurities); ok && d.code == "symbol_unsure" {
+			detail = held
+			it.Commands = append(it.Commands, strings.TrimPrefix(twoSecurities, "; ")+requoted(command, q))
+		}
+		if detail != "" {
+			it.Lines = append(it.Lines, detail)
 		}
 		g.Items = append(g.Items, it)
 	}
 	return g, nil
+}
+
+// requoted returns command, whose words are quoted as a POSIX shell reads
+// them (shellQuote), with its words quoted by q instead.
+func requoted(command string, q func(string) string) string {
+	var words []string
+	var w strings.Builder
+	in, quoted, escaped := false, false, false
+	for _, r := range command {
+		switch {
+		case escaped:
+			w.WriteRune(r)
+			escaped = false
+		case quoted && r == '\'':
+			quoted = false
+		case quoted:
+			w.WriteRune(r)
+		case r == '\'':
+			quoted, in = true, true
+		case r == '\\':
+			escaped, in = true, true
+		case r == ' ':
+			if in {
+				words = append(words, w.String())
+				w.Reset()
+				in = false
+			}
+		default:
+			w.WriteRune(r)
+			in = true
+		}
+	}
+	if in {
+		words = append(words, w.String())
+	}
+	for i, word := range words {
+		words[i] = q(word)
+	}
+	return strings.Join(words, " ")
 }
 
 // reviewGaps returns, for each account, the sessions between its first and
