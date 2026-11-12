@@ -77,36 +77,36 @@ func fillEverySource(t *testing.T, s *Store) {
 	if _, err := s.RecordTransactions(ctx, failed); err != nil {
 		t.Fatal(err)
 	}
-	importFiles(t, s, ImportOptions{}, "transactions.json", cliJSON(t,
+	// One import of every kind of file: a -json file; a snapshot whose
+	// position's description holds a number; History exports of the files'
+	// account, a CSV file whose name holds a number and a JSON export whose
+	// row with an ItemIssueId names its security by a description that
+	// holds one; and a Realized export.
+	cli := cliJSON(t,
 		apiRaw(2006, jan(26), "JOURNAL", 7, "", 0, "JOURNAL FRM 5730-2618"),
 		apiRaw(2007, jan(27), "CASH_RECEIPT", 9, "", 0, "FROM "+fileAccount),
-		apiRaw(2008, jan(28), "CASH_RECEIPT", 9, "", 0, "FROM 4821 3907")))
-
-	// A snapshot whose position's description holds a number.
+		apiRaw(2008, jan(28), "CASH_RECEIPT", 9, "", 0, "FROM 4821 3907"))
 	line := snapshotLine(t, time.Date(2026, 11, 7, 5, 5, 0, 0, time.UTC),
 		fixtureAccount(t, individual, "VANGUARD TOTAL STOCK MARKET ETF", "FUND OF "+plantedA),
 		fixtureAccount(t, options))
-	importFile(t, s, "snapshots.jsonl", line)
-
-	// History exports of the files' account: a CSV file whose name holds a
-	// number, and a JSON export whose row with an ItemIssueId names its
-	// security by a description that holds one.
-	o := ImportOptions{Account: fileAccount}
 	csv := []csvRow{
 		{"02/02/2026", "Journal", "", "JOURNAL TO " + plantedB, "", "", "", "-$10.00"},
 		{"02/03/2026", "Wire Sent", "", "WIRE TO 4821-3907", "", "", "", "-$20.00"},
 		{"02/04/2026", "Buy", "XYZ", "XYZ CORP " + individual, "5", "$10.00", "", "-$50.00"},
 	}
-	importFiles(t, s, o, "Joint "+plantedA+"_XXX398_Transactions_20260210-090000.csv", historyCSV(csv...))
 	js := []csvRow{
 		{"02/05/2026", "Qualified Dividend", "QRS", "QRS FUND 5730 2618", "", "", "", "$3.00"},
 		{"02/06/2026", "Credit Interest", "", "SCHWAB1 INT " + fileAccount, "", "", "", "$0.07"},
 	}
-	importFiles(t, s, o, exportName("20260210-090500", "json"), historyJSON("02/05/2026", "02/09/2026", map[int]string{0: "71234567"}, js...))
 	realized := strings.Replace(realizedCSV("Mon Jul 06 10:47:11 EDT 2026", "01/01/2026", "07/06/2026",
 		[9]string{"XYZ", "07/01/2026", "01/05/2026", "10", "$120.00", "$100.00", "$20.00", "No", ""}),
 		`"XYZ CORP"`, `"XYZ CORP `+plantedB+`"`, 1)
-	importFiles(t, s, o, "XXXX0398_GainLoss_Realized_Details_20260706-104711.csv", realized)
+	importFiles(t, s, ImportOptions{Account: fileAccount},
+		"transactions.json", cli,
+		"snapshots.jsonl", line,
+		"Joint "+plantedA+"_XXX398_Transactions_20260210-090000.csv", historyCSV(csv...),
+		exportName("20260210-090500", "json"), historyJSON("02/05/2026", "02/09/2026", map[int]string{0: "71234567"}, js...),
+		"XXXX0398_GainLoss_Realized_Details_20260706-104711.csv", realized)
 
 	// Your decisions, with notes that hold numbers, and an account's kind.
 	files := storeInt(t, s, "SELECT account_id FROM account WHERE number = ?", fileAccount)
@@ -161,8 +161,20 @@ func TestViewsHoldNoAccountNumber(t *testing.T) {
 	seen := map[[2]string]bool{}
 	cells := 0
 	for _, v := range views {
-		for _, row := range storeRows(t, s, "SELECT * FROM "+v) {
-			for _, cell := range row {
+		cols := storeStrings(t, s, "SELECT name FROM pragma_table_info('"+v+"') ORDER BY cid")
+		rows := storeRows(t, s, "SELECT * FROM "+v)
+		for i, col := range cols {
+			seen[[2]string{v, col}] = true
+			c, ok := kinds[[2]string{v, col}]
+			if !ok {
+				t.Errorf("%s.%s has no kind in viewColumns", v, col)
+			}
+			free := rows
+			if c.when != "" {
+				free = storeRows(t, s, "SELECT * FROM "+v+" WHERE "+c.when)
+			}
+			for _, row := range rows {
+				cell := row[i]
 				cells++
 				joined := strings.Map(func(r rune) rune {
 					if separator(r) {
@@ -175,31 +187,17 @@ func TestViewsHoldNoAccountNumber(t *testing.T) {
 						t.Errorf("a cell of %s holds the number %s: %q", v, mask.Number(n), cell)
 					}
 				}
-			}
-		}
-		for _, col := range storeStrings(t, s, "SELECT name FROM pragma_table_info('"+v+"')") {
-			seen[[2]string{v, col}] = true
-			c, ok := kinds[[2]string{v, col}]
-			if !ok {
-				t.Errorf("%s.%s has no kind in viewColumns", v, col)
-				continue
-			}
-			if c.kind != freeText {
 				// What was planted is free text, which only a column of
 				// free text holds, masked.
-				for _, cell := range storeStrings(t, s, "SELECT "+col+" FROM "+v) {
-					if strings.Contains(cell, mask.Number(plantedA)) || strings.Contains(cell, mask.Number(plantedB)) {
-						t.Errorf("%s.%s, an identifier in viewColumns, holds free text: %q", v, col, cell)
-					}
+				if c.kind != freeText && (strings.Contains(cell, mask.Number(plantedA)) || strings.Contains(cell, mask.Number(plantedB))) {
+					t.Errorf("%s.%s, an identifier in viewColumns, holds free text: %q", v, col, cell)
 				}
+			}
+			if c.kind != freeText {
 				continue
 			}
-			query := "SELECT " + col + " FROM " + v + " WHERE " + col + " IS NOT NULL"
-			if c.when != "" {
-				query += " AND " + c.when
-			}
-			for _, cell := range storeStrings(t, s, query) {
-				text := cell
+			for _, row := range free {
+				cell, text := row[i], row[i]
 				switch col {
 				case "label":
 					if mask.FileName(cell) != cell {

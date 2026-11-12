@@ -16,7 +16,7 @@ RACE ?= -race
 FUZZTIME ?= 30s
 FUZZPKGS := ./internal/schwab ./internal/mask ./internal/history/schwabfile
 
-.PHONY: all check build test fuzz cover lint libc fmt tidy vuln clean help
+.PHONY: all check build test volume fuzz cover lint libc fmt tidy vuln clean help
 
 all: check
 
@@ -32,6 +32,9 @@ build: ## Build the commands into bin/
 
 test: ## Run the tests with the race detector
 	go test $(RACE) -shuffle=on ./...
+
+volume: ## Run the store's property test with many more seeds and operations than CI
+	go test ./internal/history -run '^TestIncrementalEqualsRebuild$$' -history.seeds=50 -history.ops=30
 
 # Needs Go 1.27. On Go 1.26, a FAIL whose only message is "context deadline
 # exceeded" comes from the fuzzing engine at the -fuzztime deadline

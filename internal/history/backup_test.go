@@ -13,13 +13,18 @@ import (
 	"testing"
 )
 
-// addAccounts adds an account for each number to the store.
+// addAccounts adds an account for each number to the store, in one write.
 func addAccounts(t *testing.T, s *Store, numbers ...string) {
 	t.Helper()
-	for _, n := range numbers {
-		if err := s.withWrite(t.Context(), "adding an account", func(w *wtx) error { return insertAccount(w, n) }); err != nil {
-			t.Fatal(err)
+	if err := s.withWrite(t.Context(), "adding accounts", func(w *wtx) error {
+		for _, n := range numbers {
+			if err := insertAccount(w, n); err != nil {
+				return err
+			}
 		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
