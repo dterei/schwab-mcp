@@ -1352,7 +1352,10 @@ One row per revision of an API transaction.
 One row per leg: each API leg, and the legs made for file transactions. A
 file transaction with a quantity has its security as leg 0 and its fees, if
 any, as leg 1; one without has one cash leg holding its amount, as an API
-cash row does.
+cash row does. The legs add up to the transaction's net amount in two ways:
+on a transaction with a security leg, the legs' `cost_cents` sum to it; on
+a cash-only one (a dividend, interest, a deposit, a wire, a journal), every
+`cost_cents` is 0 and the CURRENCY legs' `cash_cents` sum to it.
 
 | Column | Kind | What it holds |
 | --- | --- | --- |
@@ -1370,7 +1373,7 @@ cash row does.
 | `item_issue_id` | id | a History JSON row's `ItemIssueId` |
 | `quantity_micros` | id | a security leg's shares or contracts |
 | `cash_cents` | id | a cash leg's amount |
-| `cost_cents` | id | the leg's cash effect: the legs' costs sum to the net amount |
+| `cost_cents` | id | the leg's cost: on a transaction with a security leg, the legs' `cost_cents` sum to the net amount; on a cash-only transaction it is 0, and the CURRENCY legs' `cash_cents` sum to it |
 | `price` | id | a security leg's price |
 | `fee_type` | id | a fee leg's type |
 | `position_effect` | id | OPENING or CLOSING |
