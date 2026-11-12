@@ -25,15 +25,10 @@ func observeAt(t *testing.T, s *Store, at time.Time, k keyObservation, names ...
 }
 
 // decideSecurity records your decision of kind security on subject k:a,
-// with value, as Decide will.
+// with value.
 func decideSecurity(t *testing.T, s *Store, a, value string) {
 	t.Helper()
-	if err := s.withWrite(t.Context(), "deciding", func(w *wtx) error {
-		w.regroup = true
-		_, err := w.exec("INSERT INTO decision (made_at, kind, subject, value) VALUES (?, 'security', ?, ?)",
-			instant(w.now), "k:"+a, value)
-		return err
-	}); err != nil {
+	if _, err := s.Decide(t.Context(), Decision{Kind: "security", Subject: "k:" + a, Value: value}); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -2,13 +2,16 @@ package history
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -243,7 +246,9 @@ type derivedSnapshot struct {
 
 // deriveSnapshot derives snapshot id, taken at fetched, from its raw JSON
 // (layer 1 of the derivation): its fields, its positions, its market
-// dates, and the keys and names of the positions' instruments. Its account
+// dates, the flags it raises by itself, and the keys and names of the
+// positions' instruments. It is called for a snapshot that has no flags:
+// one just stored, or one of a rebuild, which empties the flags. Its account
 // is the one whose number it holds, added when the store does not hold it;
 // when seen, the account's first and last seen times take in fetched,
 // which is so when the snapshot is new and not when it is derived again. A
@@ -294,6 +299,18 @@ func deriveSnapshot(w *wtx, id int64, fetched time.Time, raw []byte, seen bool) 
 			}
 		}
 	}
+	flags := snapshotFlags(r)
+	for _, f := range calendarFlags(market, session) {
+		flags.add(f.code, f.detail)
+	}
+	if len(flags) > 0 {
+		if err := writeFlagDefs(w); err != nil {
+			return d, err
+		}
+		if err := writeFlags(w, "snapshot_id", id, nil, flags); err != nil {
+			return d, err
+		}
+	}
 	// The positions are written without their securities, which the
 	// grouping at the end of the write gives them.
 	if len(r.positions) > 0 {
@@ -319,6 +336,139 @@ func snapshotAccount(w *wtx, number string, at time.Time, seen bool) (int64, err
 		}
 	}
 	return ensureAccount(w, number, "snapshot", at)
+}
+
+// snapshotFlags returns the flags that snapshot r raises by itself, but
+// for those of the calendar: what the record could not read, a number
+// stored rounded from noise, a number off the grid, and an account number
+// that could not be read. A number off the grid is flagged when it is a
+// liquidation value, the cash or a position's quantity, which have columns
+// of their own; another balance figure off the grid is left without its
+// cents in balances, unflagged, since 13.6 of the design has inexact of
+// those info and flag_def gives a code one severity, attention.
+func snapshotFlags(r snapshotRow) flagSet {
+	var flags flagSet
+	var ps []snapshotProblem
+	_ = json.Unmarshal([]byte(r.fields.problems), &ps) // readSnapshot wrote it
+	for _, p := range ps {
+		where := p.Path
+		if p.Position != nil {
+			where = strings.Replace(p.Path, ".positions.", ".positions["+strconv.Itoa(*p.Position)+"].", 1)
+		}
+		switch {
+		case p.Flag == "":
+			flags.add("problems", where)
+		case p.Flag == "inexact" && p.Position == nil && !slices.Contains(columnFigures, p.Path):
+			// another balance figure, as said above
+		default:
+			flags.add(p.Flag, where+" "+p.Value)
+		}
+	}
+	for i, pos := range r.positions {
+		var ps []snapshotProblem
+		_ = json.Unmarshal([]byte(pos.problems), &ps) // readPosition wrote it
+		for _, p := range ps {
+			flags.add("problems", "securitiesAccount.positions["+strconv.Itoa(i)+"]."+p.Path)
+		}
+	}
+	if r.number == "" {
+		flags.add("no_account_number", "")
+	}
+	return flags
+}
+
+// columnFigures are the paths of the balance figures that snapshot_fields
+// holds in columns of their own.
+var columnFigures = []string{
+	"securitiesAccount.initialBalances.liquidationValue",
+	"securitiesAccount.currentBalances.liquidationValue",
+	"aggregatedBalance.liquidationValue",
+	"securitiesAccount.currentBalances.cashBalance",
+}
+
+// calendarFlags returns the flags of a snapshot whose market dates are
+// market and inSession: taken during a session, with no market date (before
+// the calendar's first close), or standing for a session in a year past the
+// calendar's checked years.
+func calendarFlags(market, inSession nytime.Date) flagSet {
+	var flags flagSet
+	if inSession != "" {
+		flags.add("in_session", string(inSession))
+	}
+	if market == "" {
+		flags.add("before_calendar", "")
+	}
+	for _, day := range []nytime.Date{market, inSession} {
+		if unverified(day) {
+			flags.add("calendar_unverified", string(day))
+		}
+	}
+	return flags
+}
+
+// conflictFlags returns the snapshots of an account that another of its
+// snapshots taken at the same instant differs from (the store holds the
+// same JSON at one instant once), by id, each with the refs of the others.
+func conflictFlags(snaps []snapshotInput) []snapshotFlag {
+	at := map[int64][]int64{} // fetched_at in nanoseconds -> snapshot ids
+	for _, s := range snaps {
+		at[s.fetchedAt.UnixNano()] = append(at[s.fetchedAt.UnixNano()], s.id)
+	}
+	var out []snapshotFlag
+	for _, ids := range at {
+		if len(ids) < 2 {
+			continue
+		}
+		slices.Sort(ids)
+		for _, id := range ids {
+			var others []string
+			for _, o := range ids {
+				if o != id {
+					others = append(others, "S"+strconv.FormatInt(o, 10))
+				}
+			}
+			out = append(out, snapshotFlag{snapshot: id, detail: "differs from " + strings.Join(others, ", ")})
+		}
+	}
+	slices.SortFunc(out, func(a, b snapshotFlag) int { return cmp.Compare(a.snapshot, b.snapshot) })
+	return out
+}
+
+// A snapshotFlag is a flag on a snapshot of an account: the snapshot and
+// the flag's detail.
+type snapshotFlag struct {
+	snapshot int64
+	detail   string
+}
+
+// writeConflicts brings the snapshot_conflict flags of account id's
+// snapshots to conflicts, writing only what differs. It runs in derive,
+// which writes flag_def after it, with foreign keys checked at the commit.
+func writeConflicts(w *wtx, id int64, conflicts []snapshotFlag) error {
+	have := map[int64]map[string]storedFlag{}
+	err := queryEach(w, func(rows *sql.Rows) error {
+		var snapshot int64
+		var f storedFlag
+		err := rows.Scan(&snapshot, &f.id, &f.detail)
+		have[snapshot] = map[string]storedFlag{"snapshot_conflict": f}
+		return err
+	}, `SELECT f.snapshot_id, f.flag_id, f.detail FROM flag f JOIN snapshot_fields s ON s.snapshot_id = f.snapshot_id
+		WHERE s.account_id = ? AND f.code = 'snapshot_conflict'`, id)
+	if err != nil {
+		return err
+	}
+	for _, c := range conflicts {
+		if err := writeFlags(w, "snapshot_id", c.snapshot, have[c.snapshot], flagSet{{"snapshot_conflict", c.detail}}); err != nil {
+			return err
+		}
+		delete(have, c.snapshot)
+	}
+	for _, snapshot := range slices.Sorted(maps.Keys(have)) {
+		if err := writeFlags(w, "snapshot_id", snapshot, have[snapshot], nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // unverified reports whether day is in a year past the calendar's checked
@@ -429,9 +579,9 @@ func pointPositions(w *wtx) error {
 }
 
 // recalendar works out again, under this build's calendar, every
-// snapshot's market dates, the market sessions and what each account
-// derives from its snapshots' market dates, and records the calendar's
-// version.
+// snapshot's market dates and the flags they raise, the market sessions
+// and what each account derives from its snapshots' market dates, and
+// records the calendar's version.
 func recalendar(w *wtx) error {
 	type taken struct {
 		id int64
@@ -446,6 +596,24 @@ func recalendar(w *wtx) error {
 	}, "SELECT snapshot_id, fetched_at FROM snapshot_fields ORDER BY snapshot_id"); err != nil {
 		return err
 	}
+	have := map[int64]map[string]storedFlag{} // snapshot -> its calendar flags
+	if err := queryEach(w, func(rows *sql.Rows) error {
+		var snapshot int64
+		var code string
+		var f storedFlag
+		err := rows.Scan(&snapshot, &code, &f.id, &f.detail)
+		if have[snapshot] == nil {
+			have[snapshot] = map[string]storedFlag{}
+		}
+		have[snapshot][code] = f
+		return err
+	}, `SELECT snapshot_id, code, flag_id, detail FROM flag
+		WHERE snapshot_id IS NOT NULL AND code IN ('in_session', 'before_calendar', 'calendar_unverified')`); err != nil {
+		return err
+	}
+	if err := writeFlagDefs(w); err != nil {
+		return err
+	}
 	version := buildVersions().calendar
 	for _, d := range all {
 		at, err := parseInstant(d.at)
@@ -458,6 +626,9 @@ func recalendar(w *wtx) error {
 		}
 		if _, err := w.exec(`UPDATE snapshot_fields SET market_date = ?, in_session_date = ?, calendar_version = ?
 			WHERE snapshot_id = ?`, nullString(string(market)), nullString(string(session)), version, d.id); err != nil {
+			return err
+		}
+		if err := writeFlags(w, "snapshot_id", d.id, have[d.id], calendarFlags(market, session)); err != nil {
 			return err
 		}
 	}

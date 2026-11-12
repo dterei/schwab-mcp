@@ -2,9 +2,13 @@ package history
 
 import (
 	"cmp"
+	"database/sql"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/nytime"
 )
 
@@ -25,6 +29,17 @@ type accountInputs struct {
 	// margin is how far inside a read's window a time must be for the read
 	// to count it in: a second, unless a test asks for another.
 	margin time.Duration
+	// decisions are your decisions on the account's entries and on the
+	// account, but for pairs, which pairAccounts reads.
+	decisions []decisionInput
+	// pairDecided holds the subjects of entries that your pair decisions
+	// name, which pairWithin leaves to pairAccounts.
+	pairDecided map[string]bool
+	// keySecurities are the securities of the keys that your entry_security
+	// decisions name, and names the symbols that securities have held, by
+	// which a dividend's symbol finds its security.
+	keySecurities map[string]int64
+	names         []symbolName
 }
 
 // A txnInput is what the derivation reads of an API transaction.
@@ -37,8 +52,35 @@ type txnInput struct {
 	// and tradeDay the day it was booked on.
 	time, tradeDate time.Time
 	tradeDay        nytime.Date
-	// digests are its revisions' cut digests, in the order of their seq.
+	// digests are its revisions' cut digests, in the order of their seq,
+	// and changed the key paths that changed in each from the one before.
 	digests [][32]byte
+	changed [][]string
+
+	// activityID is its activity ID, or 0, and idSource where that came
+	// from: number, string or none.
+	activityID int64
+	idSource   string
+	// typ, status, net and legs are its columns in txn and its legs in
+	// api_leg; description is its description masked, and text unmasked.
+	typ, status string
+	description sql.NullString
+	text        string
+	net         sql.NullInt64
+	legs        []legInput
+	// problems are what the record could not read of it, and the numbers
+	// that the store rounded or could not keep.
+	problems []txnProblem
+	// numberSent is the account number it named, masked, when that is not
+	// the account read.
+	numberSent string
+	// duplicate says that an answer held it twice.
+	duplicate bool
+	// current is what the rules read of it now, and bases what they read
+	// of the revisions that your decisions on it were made against, by seq;
+	// both only when you made one.
+	current apiClass
+	bases   map[int]apiClass
 }
 
 // A readInput is a complete read of the account's transactions.
@@ -74,6 +116,14 @@ type accountOutputs struct {
 	// accountType is the account's type as its latest snapshot that gives
 	// one gives it, or "".
 	accountType string
+	// conflicts are the snapshot_conflict flags of its snapshots, by
+	// snapshot.
+	conflicts []snapshotFlag
+	// entries are the account's ledger entries, by ref, paired within the
+	// account; pairAccounts and finishPairs pair them across accounts.
+	entries []ledgerEntry
+	// kind is the account's kind, from your account decision.
+	kind sql.NullString
 }
 
 // A txnOutput is what the derivation gives an API transaction.
@@ -95,8 +145,10 @@ type coverageRun struct {
 
 // deriveAccount derives what one account's evidence gives: each API
 // transaction's count of revisions and the read that shows it gone, the
-// account's coverage by the API and by its snapshots, and its type. It is
-// a function of its inputs alone, whatever their order.
+// account's coverage by the API and by its snapshots, its type, the
+// conflicts among its snapshots, and its ledger entries, classified,
+// counted, flagged and paired within the account. It is a function of its
+// inputs alone, whatever their order.
 func deriveAccount(in accountInputs) accountOutputs {
 	if in.margin == 0 {
 		in.margin = time.Second
@@ -121,6 +173,16 @@ func deriveAccount(in accountInputs) accountOutputs {
 		return cmp.Or(cmp.Compare(a.source, b.source), cmp.Compare(a.from, b.from))
 	})
 	out.accountType = latestType(in.snapshots)
+	out.conflicts = conflictFlags(in.snapshots)
+	gone, revs := map[int64]int64{}, map[int64]int{}
+	for _, t := range out.txns {
+		gone[t.id], revs[t.id] = t.goneRead, t.revisions
+	}
+	out.entries = apiEntries(in, gone, revs)
+	pairWithin(out.entries)
+	if d, ok := latestDecisions(in.decisions)[[2]string{"account", "acct:" + strconv.FormatInt(in.account, 10)}]; ok {
+		out.kind = sql.NullString{String: mask.Text(strings.TrimPrefix(d.value, "kind=")), Valid: true}
+	}
 	return out
 }
 

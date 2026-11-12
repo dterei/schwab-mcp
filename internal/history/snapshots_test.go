@@ -310,6 +310,56 @@ func TestReadSnapshotOddValues(t *testing.T) {
 	}
 }
 
+// A snapshot is flagged for what the record could not read, by path, its
+// own or a position's; for a number stored rounded and, when it has a
+// column of its own or is a position's quantity, for one off the grid,
+// each with its path and the number as sent; and for an account number
+// that could not be read. Another balance figure off the grid is not
+// flagged.
+func TestSnapshotFlags(t *testing.T) {
+	t.Parallel()
+	r := readSnapshot(fixtureAccount(t, individual,
+		`"liquidationValue": 6975.01`, `"liquidationValue": 81.29223999999999`,
+		`"longStockValue": 5442.84`, `"longStockValue": 5442.845`,
+		`"cashBalance": 1532.17`, `"cashBalance": "1532.17"`,
+		`"longQuantity": 12.0`, `"longQuantity": -236.999999999999`,
+		`"shortQuantity": 0.0`, `"shortQuantity": "0"`,
+		`"agedQuantity": 1220.89`, `"agedQuantity": 1.0000005`,
+	))
+	want := []entryFlag{
+		{"inexact", "securitiesAccount.initialBalances.liquidationValue 81.29223999999999; securitiesAccount.positions[3].agedQuantity 1.0000005"},
+		{"problems", "securitiesAccount.initialBalances.cashBalance; securitiesAccount.positions[0].shortQuantity"},
+		{"rounded", "securitiesAccount.positions[0].longQuantity -236.999999999999"},
+	}
+	if got := snapshotFlags(r).sorted(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the snapshot is flagged\n%q\nwant\n%q", got, want)
+	}
+	want = []entryFlag{{"no_account_number", ""}, {"problems", "securitiesAccount.accountNumber"}}
+	if got := snapshotFlags(readSnapshot(fixtureAccount(t, individual, `"29470135"`, `29470135`))).sorted(); !reflect.DeepEqual(got, want) {
+		t.Errorf("a snapshot whose number is a number is flagged %q, want %q", got, want)
+	}
+	if got := snapshotFlags(readSnapshot(fixtureAccount(t, individual))); len(got) != 0 {
+		t.Errorf("a snapshot as Schwab sent it is flagged %q", got)
+	}
+
+	for _, c := range []struct {
+		market, inSession nytime.Date
+		want              []entryFlag
+	}{
+		{"2026-11-06", "", nil},
+		{"2026-11-09", "2026-11-10", []entryFlag{{"in_session", "2026-11-10"}}},
+		{"", "", []entryFlag{{"before_calendar", ""}}},
+		{"", "2000-01-03", []entryFlag{{"before_calendar", ""}, {"in_session", "2000-01-03"}}},
+		{"2028-12-29", "", nil},
+		{"2029-01-02", "", []entryFlag{{"calendar_unverified", "2029-01-02"}}},
+		{"2028-12-29", "2029-01-02", []entryFlag{{"calendar_unverified", "2029-01-02"}, {"in_session", "2029-01-02"}}},
+	} {
+		if got := calendarFlags(c.market, c.inSession).sorted(); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("a snapshot that stands for %q, in session %q, is flagged %q, want %q", c.market, c.inSession, got, c.want)
+		}
+	}
+}
+
 // Every figure of the records' balances is read, whatever its name, so
 // that a figure added to them is kept; isInCall is a figure too.
 func TestBalanceFigures(t *testing.T) {
@@ -391,16 +441,29 @@ func TestDeriveAccountSnapshots(t *testing.T) {
 	}}
 	want := accountOutputs{coverage: []coverageRun{{source: "snapshot", from: "2026-11-02", to: "2026-11-06"}}, accountType: "CASH"}
 	for range 3 {
-		if got := deriveAccount(in); !reflect.DeepEqual(got, want) {
+		// Only what snapshots give: TestEntries checks the entries.
+		out := deriveAccount(in)
+		if got := (accountOutputs{txns: out.txns, coverage: out.coverage, accountType: out.accountType, conflicts: out.conflicts}); !reflect.DeepEqual(got, want) {
 			t.Errorf("derived %+v, want %+v", got, want)
 		}
 		slices.Reverse(in.snapshots)
 		in.snapshots[0], in.snapshots[2] = in.snapshots[2], in.snapshots[0]
 	}
-	tie := []snapshotInput{{id: 7, fetchedAt: day(9), accountType: "MARGIN"}, {id: 8, fetchedAt: day(9), accountType: "CASH"}}
+	tie := []snapshotInput{
+		{id: 7, fetchedAt: day(9), accountType: "MARGIN"},
+		{id: 3, fetchedAt: day(8)},
+		{id: 9, fetchedAt: day(9)},
+		{id: 8, fetchedAt: day(9), accountType: "CASH"},
+		{id: 2, fetchedAt: day(8).Add(time.Second)},
+	}
+	conflicts := []snapshotFlag{{7, "differs from S8, S9"}, {8, "differs from S7, S9"}, {9, "differs from S7, S8"}}
 	for range 2 {
-		if got := deriveAccount(accountInputs{account: 1, snapshots: tie}).accountType; got != "CASH" {
-			t.Errorf("of two snapshots at one time the type is %q, want the later id's", got)
+		got := deriveAccount(accountInputs{account: 1, snapshots: tie})
+		if got.accountType != "CASH" {
+			t.Errorf("of two snapshots at one time the type is %q, want the later id's", got.accountType)
+		}
+		if !reflect.DeepEqual(got.conflicts, conflicts) {
+			t.Errorf("the conflicts are %+v, want %+v", got.conflicts, conflicts)
 		}
 		slices.Reverse(tie)
 	}
@@ -456,6 +519,20 @@ func TestImportSnapshots(t *testing.T) {
 	wantConflicts := []SnapshotConflict{{Account: "A1 ...135", FetchedAt: day3, Snapshots: 2}}
 	if !reflect.DeepEqual(r.Snapshots.Conflicts, wantConflicts) {
 		t.Errorf("the conflicts are %+v, want %+v", r.Snapshots.Conflicts, wantConflicts)
+	}
+	// The two snapshots that differ are flagged, each naming the other, and
+	// so is the snapshot that is no account's.
+	if got := storeRows(t, s, "SELECT ref, flags FROM snapshots WHERE flags IS NOT NULL ORDER BY snapshot_id"); !reflect.DeepEqual(got,
+		[][]string{{"S9", "snapshot_conflict"}, {"S10", "snapshot_conflict"}}) {
+		t.Errorf("the snapshots view flags %q", got)
+	}
+	if got := storeStrings(t, s, `SELECT subject_ref || ' ' || code || ' ' || severity || ' ' || coalesce(detail, '') FROM flags
+		WHERE code <> 'problems' ORDER BY subject_ref, code`); !slices.Equal(got, []string{
+		"S10 snapshot_conflict attention differs from S9",
+		"S11 no_account_number attention ",
+		"S9 snapshot_conflict attention differs from S10",
+	}) {
+		t.Errorf("the flags are %q", got)
 	}
 
 	if got := storeRows(t, s, "SELECT label, lines, new, known, skipped FROM snapshot_import ORDER BY import_id"); !reflect.DeepEqual(got, [][]string{
@@ -581,6 +658,10 @@ func TestMarketDatesAndGaps(t *testing.T) {
 		[]string{"2026-11-06/", "2026-11-06/2026-11-09", "2026-11-10/", "2026-11-25/"}) {
 		t.Errorf("the market dates are %q", got)
 	}
+	if got := storeStrings(t, s, "SELECT DISTINCT market_date || ' ' || coalesce(flags, '') FROM snapshots ORDER BY fetched_at"); !slices.Equal(got,
+		[]string{"2026-11-06 ", "2026-11-06 in_session", "2026-11-10 ", "2026-11-25 "}) {
+		t.Errorf("the snapshots are flagged %q", got)
+	}
 	wantSessions, err := nyse.Between("2026-11-06", "2026-11-25")
 	if err != nil {
 		t.Fatal(err)
@@ -695,6 +776,7 @@ func TestSnapshotsRebuilt(t *testing.T) {
 			"SELECT * FROM coverage ORDER BY account_id, source",
 			"SELECT * FROM account ORDER BY account_id",
 			"SELECT key, kind, value, seen_in, first_seen_at, last_seen_at FROM key_name ORDER BY key, kind, value",
+			"SELECT snapshot_id, code, detail FROM flag ORDER BY snapshot_id, code",
 		} {
 			d[q] = storeRows(t, s, q)
 		}
@@ -726,7 +808,14 @@ func TestCalendarChangeRecomputes(t *testing.T) {
 	}
 	pt := func(datetime string) time.Time { return timeIn(t, pst, datetime) }
 	importFile(t, s, "snapshots.jsonl", snapshotAt(t, pt("2026-11-06 21:05:00"), individual)+
-		snapshotAt(t, pt("2026-11-10 21:05:00"), individual))
+		snapshotAt(t, pt("2026-11-10 21:05:00"), individual)+
+		snapshotAt(t, timeIn(t, nytime.NewYork(), "2026-11-10 15:45:00"), individual))
+	calendarFlags := func() []string {
+		return storeStrings(t, s, "SELECT subject_ref || ' ' || code || ' ' || coalesce(detail, '') FROM flags ORDER BY subject_ref, code")
+	}
+	if got := calendarFlags(); !slices.Equal(got, []string{"S3 in_session 2026-11-10"}) {
+		t.Errorf("before the new calendar the flags are %q", got)
+	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -767,8 +856,11 @@ func TestCalendarChangeRecomputes(t *testing.T) {
 		t.Errorf("opening the store warned %q", warned)
 	}
 	if got := storeStrings(t, s, "SELECT market_date || ' ' || calendar_version FROM snapshot_fields ORDER BY snapshot_id"); !slices.Equal(got,
-		[]string{"2026-11-06 2", "2026-11-09 2"}) {
+		[]string{"2026-11-06 2", "2026-11-09 2", "2026-11-09 2"}) {
 		t.Errorf("the market dates are %q", got)
+	}
+	if got := calendarFlags(); len(got) != 0 {
+		t.Errorf("a snapshot taken on a day the new calendar closes is flagged %q", got)
 	}
 	if got := storeStrings(t, s, "SELECT date || ' ' || close_at || ' ' || early FROM market_session ORDER BY date"); !slices.Equal(got,
 		[]string{"2026-11-06 2026-11-06T18:00:00.000Z 1", "2026-11-09 2026-11-09T21:00:00.000Z 0"}) {
@@ -797,6 +889,10 @@ func TestUnverifiedCalendar(t *testing.T) {
 	if got := storeStrings(t, s, "SELECT date || ' ' || verified FROM sessions ORDER BY date"); !slices.Equal(got,
 		[]string{"2028-12-29 1", "2029-01-02 0"}) {
 		t.Errorf("the sessions are %q", got)
+	}
+	if got := storeStrings(t, s, "SELECT subject_ref || ' ' || code || ' ' || detail FROM flags ORDER BY subject_ref"); !slices.Equal(got,
+		[]string{"S2 calendar_unverified 2029-01-02"}) {
+		t.Errorf("the flags are %q", got)
 	}
 }
 

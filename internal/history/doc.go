@@ -54,6 +54,21 @@
 // shares a row with raw JSON or a file's bytes, so deriving never rewrites
 // them. A rebuild derives everything again from the evidence alone, and a
 // newer NYSE calendar every market date and what depends on it.
+//
+// # The ledger and your decisions
+//
+// Each transaction is an entry of the ledger, which versioned rules
+// classify (a category and a family), flag for what needs a look, pair
+// (sweeps within an account, journals across your accounts, a cancel with
+// the trade it cancels) and count. Your decisions (Decide) are a log that is
+// never changed, keyed by stable subjects rather than by derived rows; the
+// latest of a kind on a subject holds, and the derivation applies it after
+// the rules, your category last. A decision on an entry records the
+// revision it was made against, and the entry is flagged stale_decision
+// when what the rules read of the transaction has changed since. Snapshots
+// are flagged too: for what the record could not read, numbers rounded or
+// off the grid, an account number that could not be read, two of one
+// account at one time that differ, and where they stand in the calendar.
 package history
 
 import (

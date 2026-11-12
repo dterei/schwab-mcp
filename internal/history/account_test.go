@@ -76,7 +76,13 @@ func TestDeriveAccount(t *testing.T) {
 		// after the last are outside them.
 		coverage: []coverageRun{{source: "api", from: "2026-10-03", to: "2026-10-07"}},
 	}
-	if got := deriveAccount(in); !reflect.DeepEqual(got, want) {
+	// Only the transactions' counts and the coverage: TestEntries checks
+	// the entries.
+	counts := func(in accountInputs) accountOutputs {
+		out := deriveAccount(in)
+		return accountOutputs{txns: out.txns, coverage: out.coverage}
+	}
+	if got := counts(in); !reflect.DeepEqual(got, want) {
 		t.Errorf("deriveAccount:\n%+v\nwant\n%+v", got, want)
 	}
 	r := rand.New(rand.NewPCG(1, 2))
@@ -86,7 +92,7 @@ func TestDeriveAccount(t *testing.T) {
 		r.Shuffle(len(sh.txns), func(i, j int) { sh.txns[i], sh.txns[j] = sh.txns[j], sh.txns[i] })
 		r.Shuffle(len(sh.reads), func(i, j int) { sh.reads[i], sh.reads[j] = sh.reads[j], sh.reads[i] })
 		r.Shuffle(len(sh.absences), func(i, j int) { sh.absences[i], sh.absences[j] = sh.absences[j], sh.absences[i] })
-		if got := deriveAccount(sh); !reflect.DeepEqual(got, want) {
+		if got := counts(sh); !reflect.DeepEqual(got, want) {
 			t.Fatalf("with its inputs in another order, deriveAccount gives\n%+v", got)
 		}
 	}

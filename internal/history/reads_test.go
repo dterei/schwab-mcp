@@ -235,7 +235,8 @@ func typeNames(types []schwab.TransactionType) []string {
 // A changed status makes a revision, which keeps its raw JSON and names the
 // key path that changed; changing it back makes a third. Another
 // closingPrice, or -2.7 written as -2.70, makes none, though the latest raw JSON
-// moves to it; a new key makes one.
+// moves to it; a new key makes one. A read that leaves the transaction with a
+// status other than VALID leaves it flagged for you.
 func TestRevisions(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -253,7 +254,8 @@ func TestRevisions(t *testing.T) {
 		changed string // the new revision's changed, if there is one
 	}{
 		{valid, Recorded{New: 1}, ""},
-		{pending, Recorded{Revised: 1}, `["status"]`},
+		// PENDING is a status that needs you.
+		{pending, Recorded{Revised: 1, Flagged: 1}, `["status"]`},
 		{valid, Recorded{Revised: 1}, `["status"]`},
 		{priced, Recorded{Same: 1}, ""},
 		{zero, Recorded{Same: 1}, ""},
@@ -308,13 +310,25 @@ func goneOf(t *testing.T, s *Store, id int64) int64 {
 	return storeInt(t, s, "SELECT gone_read_id FROM txn WHERE activity_id = ?", id)
 }
 
+// countedOf returns whether the entry of the transaction of activity id
+// counts, and why, as the transactions view shows it.
+func countedOf(t *testing.T, s *Store, id int64) string {
+	t.Helper()
+	got := storeStrings(t, s, fmt.Sprintf("SELECT counted || ' ' || counted_why FROM transactions WHERE activity_id = %d", id))
+	if len(got) != 1 {
+		t.Fatalf("the transactions view holds %d rows of %d", len(got), id)
+	}
+	return got[0]
+}
+
 // A complete read that leaves out a transaction whose time and trade date
-// lie inside its window records the absence and shows it gone. A capped
+// lie inside its window records the absence and shows it gone, flagged and
+// not counted. A capped
 // read, a read for one symbol, a window that holds the time but not the
 // trade date, a time in the window's last second and a read older than
 // the last that returned the row show nothing gone. A by-id read of a gone
 // transaction moves its latest raw JSON but leaves it gone; a later list
-// read that returns it brings it back.
+// read that returns it brings it back, counted again.
 func TestGoneAndBack(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{maxRows: 4})
@@ -364,6 +378,12 @@ func TestGoneAndBack(t *testing.T) {
 	if g := goneOf(t, s, a); g != r4.ReadID {
 		t.Errorf("A is gone by read %d, want %d", g, r4.ReadID)
 	}
+	if got := countedOf(t, s, a); got != "0 gone" {
+		t.Errorf("A, gone, is counted %q, want 0 gone", got)
+	}
+	if got := storeStrings(t, s, fmt.Sprintf("SELECT flags FROM transactions WHERE activity_id = %d", a)); len(got) != 1 || !strings.Contains(got[0], "gone") {
+		t.Errorf("A, gone, is flagged %q", got)
+	}
 	for _, id := range []int64{b, c, d} {
 		if g := goneOf(t, s, id); g != -1 {
 			t.Errorf("%d is gone by read %d, though the window does not hold it with a second to spare", id, g)
@@ -395,6 +415,9 @@ func TestGoneAndBack(t *testing.T) {
 	}
 	if g := goneOf(t, s, a); g != -1 {
 		t.Errorf("A, read again, is gone by read %d", g)
+	}
+	if got := countedOf(t, s, a); got != "1 api" {
+		t.Errorf("A, back, is counted %q, want 1 api", got)
 	}
 	// Read 4's absence stays, but it is older than the read that returned
 	// A last.

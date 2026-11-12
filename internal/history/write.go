@@ -92,6 +92,8 @@ type wtx struct {
 	sessions bool
 	// deferred says that foreign keys are checked at the commit.
 	deferred bool
+	// flagDefs says that flag_def holds flagDefs (writeFlagDefs).
+	flagDefs bool
 }
 
 // touch marks account as one whose evidence the write changed.

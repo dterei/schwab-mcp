@@ -67,6 +67,9 @@ type Recorded struct {
 	// this read returned; Gone the transactions that this read, being
 	// complete, shows gone.
 	Back, Gone int
+	// Flagged counts the account's entries that this read left with a flag
+	// that needs you (of severity attention) that they did not have.
+	Flagged int
 }
 
 // RecordTransactions records a read of an account's transactions: the read
@@ -121,6 +124,10 @@ func (s *Store) RecordTransactions(ctx context.Context, r TransactionsRead) (Rec
 			return err // a refused or failed read is recorded, and that is all
 		}
 		w.touch(acct)
+		before, err := attentionFlags(w, acct)
+		if err != nil {
+			return err
+		}
 		taken := map[int64]bool{} // transactions that a row of this read is
 		for _, row := range in {
 			res, err := recordRow(w, acct, r.Account, rec.ReadID, true, r.AnsweredAt, row, taken)
@@ -133,13 +140,15 @@ func (s *Store) RecordTransactions(ctx context.Context, r TransactionsRead) (Rec
 			if err := recordAbsences(w, acct, rec.ReadID, r.Query.Start, minTime(r.Query.End, r.SentAt), taken); err != nil {
 				return err
 			}
-			if err := w.derive(); err != nil {
-				return err
-			}
-			return w.tx.QueryRowContext(w.ctx, "SELECT count(*) FROM txn WHERE account_id = ? AND gone_read_id = ?",
-				acct, rec.ReadID).Scan(&rec.Gone)
 		}
-		return nil
+		if err := w.derive(); err != nil {
+			return err
+		}
+		if rec.Flagged, err = newlyFlagged(w, acct, before); err != nil {
+			return err
+		}
+		return w.tx.QueryRowContext(w.ctx, "SELECT count(*) FROM txn WHERE account_id = ? AND gone_read_id = ?",
+			acct, rec.ReadID).Scan(&rec.Gone)
 	})
 	return rec, err
 }
@@ -180,17 +189,56 @@ func (s *Store) RecordTransaction(ctx context.Context, r TransactionRead) (Recor
 		if rec.ReadID, err = insertRead(w, r.Read, rr); err != nil {
 			return err
 		}
+		if len(in) == 0 {
+			return nil
+		}
+		w.touch(acct)
+		before, err := attentionFlags(w, acct)
+		if err != nil {
+			return err
+		}
 		for _, row := range in {
-			w.touch(acct)
 			res, err := recordRow(w, acct, r.Account, rec.ReadID, false, r.AnsweredAt, row, map[int64]bool{})
 			if err != nil {
 				return err
 			}
 			rec.count(res)
 		}
-		return nil
+		if err := w.derive(); err != nil {
+			return err
+		}
+		rec.Flagged, err = newlyFlagged(w, acct, before)
+		return err
 	})
 	return rec, err
+}
+
+// attentionFlags returns the codes of the flags of severity attention on
+// account acct's entries, by ref.
+func attentionFlags(w *wtx, acct int64) (map[string][]string, error) {
+	flags := map[string][]string{}
+	err := queryEach(w, func(rows *sql.Rows) error {
+		var ref, code string
+		err := rows.Scan(&ref, &code)
+		flags[ref] = append(flags[ref], code)
+		return err
+	}, `SELECT e.ref, f.code FROM flag f JOIN entry e ON e.entry_id = f.entry_id JOIN flag_def d ON d.code = f.code
+		WHERE e.account_id = ? AND d.severity = 'attention'`, acct)
+	return flags, err
+}
+
+// newlyFlagged counts account acct's entries that have a flag of
+// severity attention now that before, attentionFlags' answer of earlier,
+// does not give them.
+func newlyFlagged(w *wtx, acct int64, before map[string][]string) (int, error) {
+	after, err := attentionFlags(w, acct)
+	n := 0
+	for ref, codes := range after {
+		if slices.ContainsFunc(codes, func(c string) bool { return !slices.Contains(before[ref], c) }) {
+			n++
+		}
+	}
+	return n, err
 }
 
 // maxRows returns how many rows make an answer capped:
@@ -711,6 +759,39 @@ func decodeTxn(raw string) schwab.Transaction {
 	var t schwab.Transaction
 	_ = json.Unmarshal([]byte(raw), &t) // lenient: it never fails
 	return t
+}
+
+// rawDescription returns the description in a transaction's raw JSON as
+// the record reads it (decodeTxn), without reading the rest: the last
+// copy of the key decides, and one that is not a string, or null, is "". A
+// description is free text, which the store keeps masked; the rules read
+// it unmasked, from the raw JSON.
+func rawDescription(raw string) string {
+	var w struct {
+		Description json.RawMessage `json:"description"`
+	}
+	var s string
+	if json.Unmarshal([]byte(raw), &w) != nil || json.Unmarshal(w.Description, &s) != nil {
+		return ""
+	}
+	return s
+}
+
+// rawIfMasked selects a transaction's latest raw JSON when its masked
+// description, x.description, shows that masking changed it, and NULL
+// otherwise: unmasked needs no more.
+const rawIfMasked = "CASE WHEN instr(x.description, '...') > 0 THEN t.latest_raw END"
+
+// unmasked returns a transaction's description as Schwab sent it, from
+// description, the column that holds it masked, and raw, its latest raw
+// JSON as rawIfMasked selects it. Masking writes "..." in place of the
+// digits it hides, so a masked description without "..." is the
+// description itself, and only one with it needs its raw JSON read.
+func unmasked(description, raw sql.NullString) string {
+	if raw.Valid {
+		return rawDescription(raw.String)
+	}
+	return description.String
 }
 
 // nullInstant returns t as an instant column, NULL for the zero time.
