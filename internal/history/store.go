@@ -108,6 +108,10 @@ type Store struct {
 	// retries counts the attempts that SQLITE_BUSY made the store repeat,
 	// for tests.
 	retries atomic.Int64
+	// testBusyReads counts the read transactions still to end as if SQLite
+	// had found the store busy (errTestBusy) once fn has read everything,
+	// so that a test sees a read run again. Only tests set it.
+	testBusyReads atomic.Int32
 }
 
 // DefaultPath returns the store's file when no -store flag names one:

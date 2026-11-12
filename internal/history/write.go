@@ -221,7 +221,13 @@ func (s *Store) withRead(ctx context.Context, fn func(*rtx) error) error {
 		if schema > buildVersions().schema {
 			return s.newerError(versions{schema: schema}, false)
 		}
-		return fn(r)
+		if err := fn(r); err != nil {
+			return err
+		}
+		if n := s.testBusyReads.Load(); n > 0 && s.testBusyReads.CompareAndSwap(n, n-1) {
+			return errTestBusy
+		}
+		return nil
 	})
 	return s.mapError(op, err)
 }
@@ -303,11 +309,11 @@ func code(err error) int {
 	return 0
 }
 
-// isBusy reports whether err is SQLITE_BUSY in any of its forms. Not
-// SQLITE_LOCKED: without a shared cache that is a conflict within one
-// connection, a bug that a retry would hide.
+// isBusy reports whether err is SQLITE_BUSY in any of its forms, or a
+// test's stand-in for it. Not SQLITE_LOCKED: without a shared cache that is
+// a conflict within one connection, a bug that a retry would hide.
 func isBusy(err error) bool {
-	return code(err)&0xff == sqlite3.SQLITE_BUSY
+	return code(err)&0xff == sqlite3.SQLITE_BUSY || errors.Is(err, errTestBusy)
 }
 
 // mapError turns an error from SQLite into one that says what failed and

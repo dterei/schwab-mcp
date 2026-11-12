@@ -122,6 +122,19 @@
 // left a -wal would be read with that -wal, and other processes' open
 // connections would read a file replaced under them. A backup of an older
 // schema or rules is brought up to this schwabtx's first, in a copy.
+//
+// # Exports
+//
+// Export reads the views that milestones 3 and 4 read, in one read
+// transaction, into memory, and only then writes them, in CSV or JSON
+// Lines, so that a slow reader of the output holds no transaction open:
+// money in dollars and quantities in whole units, formatted from the
+// store's integers, in an order that makes an export of a store that has
+// not changed the same bytes. A file is written readable only by you,
+// through a temporary file renamed over it, and never over one of the
+// store's own files. Only when asked does an export hold full account
+// numbers: Schwab's raw JSON, a file's rows and a snapshot's elements, or
+// each row's number.
 package history
 
 import (
