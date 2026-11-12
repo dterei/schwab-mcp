@@ -33,15 +33,26 @@ var companionSuffixes = []string{"-wal", "-shm", ".migrate.lock", ".sync.lock"}
 // process with the store open that opened one of them, and closed it, would
 // drop the locks that SQLite holds on it.
 func IsCompanion(p, store string) bool {
+	return isCompanion(p, store, true)
+}
+
+// isCompanion is IsCompanion, which counts the backups beside the store
+// among its files only when backups says so: a backup is a database of its
+// own, which a process with the store open may read, as a restore does.
+func isCompanion(p, store string, backups bool) bool {
 	p, store = cleanPath(p), cleanPath(store)
-	if dirName(p, store) && companionName(filepath.Base(p), filepath.Base(store)) {
+	if dirName(p, store) && companionName(filepath.Base(p), filepath.Base(store), backups) {
 		return true
 	}
-	pi, err := os.Stat(p)
+	pi, err := os.Stat(p) //nolint:gosec // G703: the path is the caller's to name; only its metadata is read.
 	if err != nil {
 		return false
 	}
-	for _, c := range Companions(store) {
+	files := Companions(store)
+	if !backups {
+		files = files[:1+len(companionSuffixes)]
+	}
+	for _, c := range files {
 		if ci, err := os.Stat(c); err == nil && os.SameFile(pi, ci) {
 			return true
 		}
@@ -65,7 +76,7 @@ func dirName(p, store string) bool {
 	if sameName(a, b) {
 		return true
 	}
-	ai, err := os.Stat(a)
+	ai, err := os.Stat(a) //nolint:gosec // G703: the path is the caller's to name; only its metadata is read.
 	if err != nil {
 		return false
 	}
@@ -74,8 +85,8 @@ func dirName(p, store string) bool {
 }
 
 // companionName reports whether name is the name of one of the files of a
-// store named store, beside it.
-func companionName(name, store string) bool {
+// store named store, beside it, its backups among them when backups says so.
+func companionName(name, store string, backups bool) bool {
 	if sameName(name, store) {
 		return true
 	}
@@ -85,7 +96,7 @@ func companionName(name, store string) bool {
 		}
 	}
 	prefix, suffix := store+".schema", ".bak"
-	return len(name) >= len(prefix)+len(suffix) &&
+	return backups && len(name) >= len(prefix)+len(suffix) &&
 		sameName(name[:len(prefix)], prefix) && sameName(name[len(name)-len(suffix):], suffix)
 }
 

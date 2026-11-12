@@ -101,6 +101,19 @@
 // outside it, the files are the record. The matching is a function of the
 // account's transactions and your decisions, never of what an earlier
 // derivation linked.
+//
+// # Upkeep
+//
+// Rebuild derives everything again from the evidence alone, which gives
+// what the derivations at the end of each write gave. Check runs SQLite's
+// integrity and foreign key checks and checks the invariants of the
+// derived data. Backup copies the store, as of a commit, to a new file
+// readable only by you, while other processes go on using it. Restore
+// replaces the store's content with a backup's through SQLite's backup
+// API, never by copying files: a copy over a database whose killed writer
+// left a -wal would be read with that -wal, and other processes' open
+// connections would read a file replaced under them. A backup of an older
+// schema or rules is brought up to this schwabtx's first, in a copy.
 package history
 
 import (

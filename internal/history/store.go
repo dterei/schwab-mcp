@@ -163,19 +163,9 @@ func Open(ctx context.Context, o Options) (*Store, error) {
 	if o.disk == nil {
 		o.disk = localDisk
 	}
-	path := o.Path
-	if path == "" {
-		p, err := DefaultPath()
-		if err != nil {
-			return nil, err
-		}
-		path = p
-	}
-	// A file: URI of a relative path is refused, so the path is made
-	// absolute.
-	path, err := filepath.Abs(path)
+	path, err := storePath(o)
 	if err != nil {
-		return nil, fmt.Errorf("finding the store's path: %w", err)
+		return nil, err
 	}
 	s := &Store{path: path, o: o}
 	if err := s.checkPath(); err != nil {
@@ -199,6 +189,24 @@ func Open(ctx context.Context, o Options) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// storePath returns the store's file that o names, or DefaultPath, made
+// absolute: a file: URI of a relative path is refused.
+func storePath(o Options) (string, error) {
+	path := o.Path
+	if path == "" {
+		p, err := DefaultPath()
+		if err != nil {
+			return "", err
+		}
+		path = p
+	}
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("finding the store's path: %w", err)
+	}
+	return path, nil
 }
 
 // testHookBeforeUpdate, if set in a test's child process, runs once Open has

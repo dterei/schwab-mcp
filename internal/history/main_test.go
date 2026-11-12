@@ -136,6 +136,12 @@ func countAccounts(t *testing.T, db *sql.DB) int {
 //     date, and saying each warning;
 //   - "hold" opens HISTORY_TEST_STORE, adds an account inside a write, says
 //     "inside", and waits there to be killed;
+//   - "commit" opens HISTORY_TEST_STORE, adds an account in a write that
+//     commits, says "committed", and waits there to be killed, its changes
+//     in the -wal alone;
+//   - "restore" restores HISTORY_TEST_STORE from the backup
+//     HISTORY_TEST_BACKUP as a build with one more schema and newer rules
+//     would, saying each warning and then what Restore reports;
 //   - "journal" makes HISTORY_TEST_STORE another program's SQLite file in
 //     rollback-journal mode, changes it inside a transaction until the file
 //     holds changes that the journal can undo, says "inside", and waits
@@ -245,6 +251,27 @@ func child(mode string) int {
 			return nil
 		})
 		return fail(fmt.Errorf("the write ended (%w) instead of waiting to be killed", err))
+	case "commit":
+		s, err := Open(ctx, o)
+		if err != nil {
+			return fail(err)
+		}
+		if err := s.withWrite(ctx, "adding an account", func(w *wtx) error { return insertAccount(w, "committed") }); err != nil {
+			return fail(err)
+		}
+		fmt.Println("committed")
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		return fail(errors.New("the input ended instead of the child being killed"))
+	case "restore":
+		migrations = append(migrations, migration{sql: "CREATE TABLE later (x INTEGER) STRICT;"})
+		deriveVersion++
+		o.Warn = func(m string) { fmt.Println("warn:", m) }
+		r, err := Restore(ctx, o, os.Getenv("HISTORY_TEST_BACKUP"), false)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Printf("restored %d accounts, then %d; updated %v\n", r.Before.Accounts, r.After.Accounts, r.Updated)
+		return 0
 	case "journal":
 		db, err := sql.Open("sqlite", dsn(store, "_pragma=busy_timeout(5000)"))
 		if err != nil {
@@ -294,7 +321,10 @@ type childProcess struct {
 func startChild(t *testing.T, mode string, env ...string) *childProcess {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), append([]string{"HISTORY_TEST_CHILD=" + mode}, env...)...)
+	// The race detector waits a second before a process that it watches
+	// exits, which a child need not.
+	race := strings.TrimSpace(os.Getenv("GORACE") + " atexit_sleep_ms=0")
+	cmd.Env = append(os.Environ(), append([]string{"HISTORY_TEST_CHILD=" + mode, "GORACE=" + race}, env...)...)
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

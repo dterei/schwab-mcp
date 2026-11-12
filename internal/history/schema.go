@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"regexp"
 	"runtime/debug"
 	"strconv"
@@ -148,22 +147,9 @@ func (s *Store) migrate(ctx context.Context) error {
 // it, readable only by you, before its schema changes.
 func (s *Store) backup(ctx context.Context, version int) error {
 	name := fmt.Sprintf("%s.schema%d.%s.bak", s.path, version, s.o.Now().UTC().Format("20060102T150405Z"))
-	// VACUUM INTO writes into an empty file, but a file that it creates
-	// itself is readable by others.
-	//nolint:forbidigo // A new file beside the store, never one of the store's own: O_EXCL refuses any that is there.
-	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return fmt.Errorf("backing the store up before updating its schema: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("backing the store up before updating its schema: %w", err)
-	}
 	const op = "backing the store up before updating its schema"
-	if err := s.retry(ctx, op, func() error {
-		_, err := s.w.ExecContext(ctx, "VACUUM INTO ?", name)
+	if err := s.vacuumInto(ctx, op, name); err != nil {
 		return err
-	}); err != nil {
-		return s.mapError(op, err)
 	}
 	s.o.Warn("backed the store up to " + name + " before updating its schema")
 	return nil

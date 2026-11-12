@@ -2,6 +2,7 @@ package history
 
 import (
 	"cmp"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -410,6 +411,16 @@ func parseNullInstant(s sql.NullString) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	return parseInstant(s.String)
+}
+
+// Rebuild derives everything that the store derives again, from the
+// evidence alone, under this schwabtx's rules and calendar, in one write
+// (schwabtx store rebuild). It writes no evidence, so it changes nothing
+// that a derivation would not, unless the derived data had drifted from
+// what the rules give. A store that a newer schwabtx has written is
+// refused with ErrNewer, as every write refuses it.
+func (s *Store) Rebuild(ctx context.Context) error {
+	return s.withWrite(ctx, "rebuilding the store's derived data", rebuild)
 }
 
 // rebuild derives the store again under this build's rules and calendar.
