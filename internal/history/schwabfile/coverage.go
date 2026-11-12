@@ -126,37 +126,65 @@ type Coverage struct {
 }
 
 // Coverage returns the days that f, a History or Realized Gain/Loss file,
-// covers. from and to are a range you gave, each "" when you gave none,
-// which counts only where the file states none; exported is the New York
-// date of the export, from ExportedAt, or else of the import. The range
-// is narrowed as its warnings show: an empty file covers nothing; one at a
-// limit, starting late, or stopping at two years starts the day after its
-// oldest row, which may be partial, since rows come newest first; and a
-// range that ends on or after the day of the export ends the day before,
-// since an export made during a day holds only part of it.
+// covers, as its Span gives them (Span.Coverage).
 func (f *File) Coverage(from, to, exported nytime.Date) Coverage {
+	return f.Span().Coverage(from, to, exported)
+}
+
+// A Span is what a file's coverage is worked out from: the range it
+// states, the dates of its oldest and newest rows, and the codes of its
+// warnings. The store keeps these of each file it imports, so that it can
+// work out the coverage again, with a range you give later, without
+// reading the file again.
+type Span struct {
+	StatedFrom, StatedTo nytime.Date
+	Oldest, Newest       nytime.Date
+	Warnings             []string
+}
+
+// Span returns what f's coverage is worked out from.
+func (f *File) Span() Span {
+	s := Span{StatedFrom: f.StatedFrom, StatedTo: f.StatedTo}
+	s.Oldest, s.Newest = f.span()
+	for _, w := range f.Warnings {
+		s.Warnings = append(s.Warnings, w.Code)
+	}
+	return s
+}
+
+// Coverage returns the days that a History or Realized Gain/Loss file
+// whose span is s covers. from and to are a range you gave, each "" when
+// you gave none, which counts only where the file states none; exported is
+// the New York date of the export, from ExportedAt, or else of the
+// import. The range is narrowed as its warnings show: an empty file covers
+// nothing; one at a limit, starting late, or stopping at two years starts
+// the day after its oldest row, which may be partial, since rows come
+// newest first; and a range that ends on or after the day of the export
+// ends the day before, since an export made during a day holds only part
+// of it.
+func (s Span) Coverage(from, to, exported nytime.Date) Coverage {
 	var c Coverage
-	oldest, newest := f.span()
+	oldest, newest := s.Oldest, s.Newest
 	sides := []struct {
 		stated, given, rows nytime.Date
 		at                  *nytime.Date
 		name                string
 	}{
-		{f.StatedFrom, from, oldest, &c.RangeFrom, "start"},
-		{f.StatedTo, to, newest, &c.RangeTo, "end"},
+		{s.StatedFrom, from, oldest, &c.RangeFrom, "start"},
+		{s.StatedTo, to, newest, &c.RangeTo, "end"},
 	}
 	var fromRows []string // the sides of the range that its rows give
-	for _, s := range sides {
+	for _, side := range sides {
 		switch {
-		case s.stated != "":
-			*s.at = s.stated
+		case side.stated != "":
+			*side.at = side.stated
 			c.Source = firstOf(c.Source, "stated")
-		case s.given != "":
-			*s.at = s.given
+		case side.given != "":
+			*side.at = side.given
 			c.Source = firstOf(c.Source, "user")
-		case s.rows != "":
-			*s.at = s.rows
-			fromRows = append(fromRows, s.name)
+		case side.rows != "":
+			*side.at = side.rows
+			fromRows = append(fromRows, side.name)
 		}
 	}
 	if c.RangeFrom == "" || c.RangeTo == "" {
@@ -185,14 +213,14 @@ func (f *File) Coverage(from, to, exported nytime.Date) Coverage {
 	}
 	c.From, c.To = c.RangeFrom, c.RangeTo
 	var clipped []string
-	for _, w := range f.Warnings {
-		switch w.Code {
+	for _, w := range s.Warnings {
+		switch w {
 		case WarnEmpty:
 			clipped = append(clipped, "empty: it holds no rows, as an export over a limit is reported to")
 			c.From, c.To = "", ""
 		case WarnAtCap, WarnLateStart, WarnTwoYears:
 			if day := addDays(oldest, 1); c.From != "" && day > c.From {
-				clipped = append(clipped, fmt.Sprintf("%s: it starts on %s, the day after its oldest row", w.Code, day))
+				clipped = append(clipped, fmt.Sprintf("%s: it starts on %s, the day after its oldest row", w, day))
 				c.From = day
 			}
 		}

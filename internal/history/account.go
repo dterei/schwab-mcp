@@ -40,6 +40,31 @@ type accountInputs struct {
 	// which a dividend's symbol finds its security.
 	keySecurities map[string]int64
 	names         []symbolName
+
+	// number is the account's number, whose last digits a file's name
+	// should give.
+	number string
+	// files are the files of schwab.com imported for the account, those
+	// set aside included, in the order of their import; secs is what the
+	// counting of their rows reads of the store's securities.
+	files []*fileInput
+	secs  *securities
+	// fileDecisions are your decisions on the entries of file
+	// transactions, each naming a row of one of files.
+	fileDecisions []decisionInput
+	// apiFiles are the spans of the rows that each `schwabtx transactions
+	// -json` file holds of the account, which the API's rows of those
+	// files cover (9.6 of the design).
+	apiFiles []apiFileSpan
+}
+
+// An apiFileSpan is the span of the trade days of the rows of a
+// `schwabtx transactions -json` file that are an account's, and whether
+// your completeness decision says the file was filtered, which withdraws
+// what it covers.
+type apiFileSpan struct {
+	oldest, newest nytime.Date
+	filtered       bool
 }
 
 // A txnInput is what the derivation reads of an API transaction.
@@ -124,6 +149,12 @@ type accountOutputs struct {
 	entries []ledgerEntry
 	// kind is the account's kind, from your account decision.
 	kind sql.NullString
+	// files are what the account's files of schwab.com give: their
+	// coverage, completeness and flags, their transactions and their
+	// closed lots.
+	files    []fileOutput
+	fileTxns []csvTxnOutput
+	lots     []lotOutput
 }
 
 // A txnOutput is what the derivation gives an API transaction.
@@ -168,17 +199,25 @@ func deriveAccount(in accountInputs) accountOutputs {
 		out.txns = append(out.txns, txnOutput{id: t.id, revisions: revisions(t.digests), goneRead: goneRead(t, absent[t.id], reads, in.margin)})
 	}
 	slices.SortFunc(out.txns, func(a, b txnOutput) int { return cmp.Compare(a.id, b.id) })
-	out.coverage = append(apiCoverage(in.txns, in.reads, in.margin), snapshotCoverage(in.snapshots)...)
-	slices.SortFunc(out.coverage, func(a, b coverageRun) int {
-		return cmp.Or(cmp.Compare(a.source, b.source), cmp.Compare(a.from, b.from))
-	})
+	apiRuns := append(apiCoverage(in.txns, in.reads, in.margin), apiFileCoverage(in.apiFiles)...)
 	out.accountType = latestType(in.snapshots)
 	out.conflicts = conflictFlags(in.snapshots)
-	gone, revs := map[int64]int64{}, map[int64]int{}
+	gone, revs, earlier := map[int64]int64{}, map[int64]int{}, map[int64]int64{}
 	for _, t := range out.txns {
 		gone[t.id], revs[t.id] = t.goneRead, t.revisions
 	}
-	out.entries = apiEntries(in, gone, revs)
+	for _, t := range in.txns {
+		earlier[t.id] = absentEarlier(t, absent[t.id], reads, in.margin)
+	}
+	out.entries = apiEntries(in, gone, revs, earlier)
+	fl := deriveFiles(in, out.entries, apiRuns)
+	out.files, out.fileTxns, out.lots = fl.files, fl.txns, fl.lots
+	out.entries = append(out.entries, fl.entries...)
+	slices.SortFunc(out.entries, func(a, b ledgerEntry) int { return cmp.Compare(a.ref, b.ref) })
+	out.coverage = append(append(apiRuns, snapshotCoverage(in.snapshots)...), fl.coverage...)
+	slices.SortFunc(out.coverage, func(a, b coverageRun) int {
+		return cmp.Or(cmp.Compare(a.source, b.source), cmp.Compare(a.from, b.from))
+	})
 	pairWithin(out.entries)
 	if d, ok := latestDecisions(in.decisions)[[2]string{"account", "acct:" + strconv.FormatInt(in.account, 10)}]; ok {
 		out.kind = sql.NullString{String: mask.Text(strings.TrimPrefix(d.value, "kind=")), Valid: true}
@@ -268,6 +307,47 @@ func goneRead(t txnInput, absentFrom []int64, reads map[int64]readInput, margin 
 		}
 	}
 	return gone
+}
+
+// absentEarlier returns the first complete read made before t was first
+// read, by the import of a `schwabtx transactions -json` file, that did not
+// return it though its window held its time and trade date with the margin
+// to spare (9.8 of the design), or 0. Such a read may have run before the
+// file was made, when a late row did not exist yet, so it does not show t
+// gone; a list read that returns t settles it.
+func absentEarlier(t txnInput, absentFrom []int64, reads map[int64]readInput, margin time.Duration) int64 {
+	if t.time.IsZero() || t.latestListRead != 0 {
+		return 0
+	}
+	var first int64
+	for _, id := range absentFrom {
+		r := reads[id]
+		if id >= t.firstRead || first != 0 && id >= first {
+			continue
+		}
+		if inside(r, t.time, margin) && (t.tradeDate.IsZero() || inside(r, t.tradeDate, margin)) {
+			first = id
+		}
+	}
+	return first
+}
+
+// apiFileCoverage returns the runs of days that the API rows of
+// `schwabtx transactions -json` files cover (9.6 of the design): for each
+// file not said to be filtered, the days strictly between its oldest and
+// newest rows' trade days, since `-n` may have cut its oldest day and its
+// newest may have gained rows after it ran.
+func apiFileCoverage(spans []apiFileSpan) []coverageRun {
+	var runs []coverageRun
+	for _, s := range spans {
+		if s.filtered || s.oldest == "" {
+			continue
+		}
+		if from, to := nextDay(s.oldest), addDays(s.newest, -1); from <= to {
+			runs = append(runs, coverageRun{source: "api_file", from: from, to: to})
+		}
+	}
+	return mergeRuns(runs)
 }
 
 // inside reports whether x lies inside read r's window, from its start to

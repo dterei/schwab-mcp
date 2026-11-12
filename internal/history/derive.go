@@ -37,11 +37,16 @@ var derivedTables = []string{
 // derivation's results can derive early, and the end of the write does
 // nothing more.
 func (w *wtx) derive() error {
-	if len(w.touched) == 0 && !w.regroup && !w.sessions {
+	if len(w.touched) == 0 && !w.regroup && !w.sessions && !w.files {
 		return nil
 	}
 	if err := w.deferForeignKeys(); err != nil {
 		return err
+	}
+	if w.files {
+		if err := deriveFileFields(w); err != nil {
+			return err
+		}
 	}
 	var g *globals
 	if w.regroup {
@@ -55,6 +60,15 @@ func (w *wtx) derive() error {
 		}
 		if err := touchMovedSecurities(w, g); err != nil {
 			return err
+		}
+		// What counts each file's rows once reads the securities, so every
+		// account with files is derived again.
+		ids, err := fileAccounts(w)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			w.touch(id)
 		}
 	}
 	if w.sessions {
@@ -112,6 +126,11 @@ func (w *wtx) derive() error {
 	}
 	wr := written{ids: map[entryKey]int64{}, pairs: map[entryKey]storedPair{}}
 	for _, id := range slices.Sorted(maps.Keys(outs)) {
+		if err := pruneFiles(w, id, *outs[id]); err != nil {
+			return err
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(outs)) {
 		finishPairs(outs[id].entries, pairs)
 		if err := writeAccount(w, id, *outs[id], wr); err != nil {
 			return err
@@ -130,8 +149,11 @@ func (w *wtx) derive() error {
 // every account's derivation reads.
 func loadAccount(w *wtx, id int64, g *globals) (accountInputs, error) {
 	in := accountInputs{
-		account: id, margin: w.s.o.margin,
+		account: id, margin: w.s.o.margin, number: g.numbers[id],
 		pairDecided: g.pairDecided, keySecurities: g.keySecurities, names: g.names,
+	}
+	if err := loadFiles(w, &in, g); err != nil {
+		return in, err
 	}
 	byID := map[int64]int{} // txn_id -> index in in.txns
 	err := queryEach(w, func(rows *sql.Rows) error {
@@ -358,6 +380,9 @@ func writeAccount(w *wtx, id int64, out accountOutputs, wr written) error {
 	if _, err := w.exec("UPDATE account SET kind = ?1 WHERE account_id = ?2 AND kind IS NOT ?1", out.kind, id); err != nil {
 		return err
 	}
+	if err := writeFiles(w, id, &out); err != nil {
+		return err
+	}
 	return writeEntries(w, id, out.entries, wr)
 }
 
@@ -408,6 +433,9 @@ func rebuild(w *wtx) error {
 		return err
 	}
 	if err := rebuildSnapshots(w); err != nil {
+		return err
+	}
+	if err := rebuildFiles(w); err != nil {
 		return err
 	}
 	if err := queryEach(w, func(rows *sql.Rows) error {

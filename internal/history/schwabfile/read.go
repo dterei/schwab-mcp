@@ -208,7 +208,7 @@ func Read(name string, content []byte) (*File, error) {
 		}
 	}
 	f.CRLF = bytes.Contains(content, []byte("\r\n"))
-	f.NameDigits = nameDigits(name)
+	f.NameDigits = NameDigits(name)
 	if f.AccountHint == "" {
 		f.AccountHint = f.NameDigits
 	}
@@ -283,9 +283,10 @@ func readJSON(shown, text string) (*File, error) {
 // the start of a Realized Gain/Loss export's.
 var nameDigitsRE = regexp.MustCompile(`(?i)(?:_XXX([0-9]{3})_Transactions_|^XXXX([0-9]{4})_GainLoss_)`)
 
-// nameDigits returns the account's last digits that a file's name gives,
-// or "".
-func nameDigits(name string) string {
+// NameDigits returns the account's last digits that a file's name gives,
+// or "": the store checks them against the account that the file is for,
+// whenever that changes.
+func NameDigits(name string) string {
 	m := nameDigitsRE.FindStringSubmatch(baseName(name))
 	if m == nil {
 		return ""

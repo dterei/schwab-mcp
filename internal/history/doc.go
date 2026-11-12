@@ -71,6 +71,24 @@
 // are flagged too: for what the record could not read, numbers rounded or
 // off the grid, an account number that could not be read, two of one
 // account at one time that differ, and where they stand in the calendar.
+//
+// # Files from schwab.com
+//
+// Import takes files by their contents, all of them in one write: snapshot
+// files, History exports in CSV and JSON, Realized Gain/Loss exports'
+// Lot Details, and `schwabtx transactions -json` output, whose rows are
+// Schwab's own and join the API's transactions without changing one the
+// store holds. A file's bytes are kept, so a better reader is a rebuild; its
+// rows are read once, when it comes. Across files each transaction counts
+// once: rows of one date, action, fees and amount are one transaction,
+// as many as the most that one file holds, and more only where rows are
+// known to be of different securities. A decision on a file transaction
+// names one of its rows and follows the transaction that holds it, whichever
+// file opened it, and survives that file being set aside (Forget). What
+// a file covers is its range clipped by what its warnings show, and its
+// completeness is established, by your word or by its agreeing with the
+// API's rows or a complete file's, never assumed; until the sync exists, a
+// -json file's rows cover the days strictly inside their span.
 package history
 
 import (

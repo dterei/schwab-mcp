@@ -25,6 +25,9 @@ type globals struct {
 	pairDecided   map[string]bool
 	// numbers are the accounts' numbers, by id.
 	numbers map[int64]string
+	// secs is what the counting of files' rows reads of the securities,
+	// read when an account with files is first derived.
+	secs *securities
 }
 
 // loadGlobals reads what every account's derivation reads.
@@ -75,13 +78,18 @@ func loadDecisions(w *wtx, where string, args ...any) ([]decisionInput, error) {
 		}
 		if basis.Valid {
 			var b struct {
-				Seq *int `json:"seq"`
+				Seq   *int     `json:"seq"`
+				Shown string   `json:"shown"`
+				Rows  []string `json:"rows"`
 			}
 			if err := json.Unmarshal([]byte(basis.String), &b); err != nil {
 				return err
 			}
 			if b.Seq != nil {
 				d.basisSeq, d.basisValid = *b.Seq, true
+			}
+			if b.Shown != "" {
+				d.basisShown, d.basisRows = b.Shown, append([]string{}, b.Rows...)
 			}
 		}
 		ds = append(ds, d)
@@ -147,7 +155,7 @@ func loadPairCandidates(w *wtx, g *globals, outs map[int64]*accountOutputs) ([]p
 		stored[c.key] = p
 		return nil
 	}, `SELECT e.account_id, e.ref, e.subject, e.family, e.amount_cents, e.quantity_micros, e.security_id, e.day,
-		e.category_rule = 'user', x.description, `+rawIfMasked+`,
+		e.category_rule = 'user', coalesce(x.description, e.description), `+rawIfMasked+`,
 		e.pair_kind, p.account_id, p.ref,
 		EXISTS (SELECT 1 FROM flag f WHERE f.entry_id = e.entry_id AND f.code = 'unpaired_journal'),
 		EXISTS (SELECT 1 FROM flag f WHERE f.entry_id = e.entry_id AND f.code = 'ambiguous_journal')

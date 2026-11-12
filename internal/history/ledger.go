@@ -55,6 +55,9 @@ type ledgerEntry struct {
 	// userCategory says that your category decision booked it, and
 	// pairDecided that one of your pair decisions names it.
 	userCategory, pairDecided bool
+	// csvSubject is the subject of a file transaction's entry, by which its
+	// row id in csv_txn is found once that is written.
+	csvSubject string
 }
 
 // key returns the entry's key.
@@ -68,6 +71,10 @@ type decisionInput struct {
 	// made against, when basisValid.
 	basisSeq   int
 	basisValid bool
+	// basisShown and basisRows are, for a decision on a file transaction,
+	// the row it showed and the rows it held, each <sha256 hex>:<ordinal>.
+	basisShown string
+	basisRows  []string
 }
 
 // latestDecisions returns the latest decision of each kind and subject,
@@ -101,8 +108,9 @@ var answeredByCategory = []string{"awaits_probe", "unexpected_sign", "zero_amoun
 // in the order of their refs: each one's fields (13.1 of the design), its
 // classification (13.3), then your category, and its counting and flags.
 // Pairs come after (pairWithin, pairAccounts). gone holds the read that
-// shows each transaction gone, by id.
-func apiEntries(in accountInputs, gone map[int64]int64, revisions map[int64]int) []ledgerEntry {
+// shows each transaction gone, by id, and earlier the read before its
+// first that left it out (absentEarlier).
+func apiEntries(in accountInputs, gone map[int64]int64, revisions map[int64]int, earlier map[int64]int64) []ledgerEntry {
 	reads := map[int64]readInput{}
 	for _, r := range in.reads {
 		reads[r.id] = r
@@ -201,6 +209,10 @@ func apiEntries(in accountInputs, gone map[int64]int64, revisions map[int64]int)
 		}
 		if r, ok := reads[gone[t.id]]; ok {
 			e.flags.add("gone", "left out by the complete read sent "+instant(r.sent))
+		}
+		if r, ok := reads[earlier[t.id]]; ok {
+			e.flags.add("absent_earlier", "left out by the complete read sent "+instant(r.sent)+
+				", before you imported it; if it was cancelled: schwabtx edit "+e.ref+" -count no")
 		}
 		var stale []string
 		for _, kind := range decidedKinds {

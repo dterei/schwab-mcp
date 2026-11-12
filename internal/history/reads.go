@@ -296,6 +296,7 @@ func queryTypes(types []schwab.TransactionType) (sql.NullString, bool) {
 type readRow struct {
 	endpoint   string
 	account    sql.NullInt64
+	file       sql.NullInt64 // the -json file of a read of the endpoint file
 	start, end sql.NullString
 	types      sql.NullString
 	allTypes   bool
@@ -330,11 +331,11 @@ func insertRead(w *wtx, r Read, rr readRow) (int64, error) {
 		return 0, err
 	}
 	var id int64
-	err = w.tx.QueryRowContext(w.ctx, `INSERT INTO api_read (endpoint, account_id, window_start, window_end, types,
+	err = w.tx.QueryRowContext(w.ctx, `INSERT INTO api_read (endpoint, account_id, file_id, window_start, window_end, types,
 		all_types, symbol, activity_id, sent_at, answered_at, outcome, http_status, correlation_id, error,
 		row_count, duplicates, capped, complete)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING read_id`,
-		rr.endpoint, rr.account, rr.start, rr.end, rr.types, rr.allTypes, rr.symbol, rr.activityID,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING read_id`,
+		rr.endpoint, rr.account, rr.file, rr.start, rr.end, rr.types, rr.allTypes, rr.symbol, rr.activityID,
 		instant(r.SentAt), instant(r.AnsweredAt), outcome, status, correl, text,
 		rr.rows, string(dups), rr.capped, rr.complete).Scan(&id)
 	return id, err
@@ -411,6 +412,7 @@ func duplicates(rows []preparedRow) []int64 {
 type rowResult struct {
 	kind int // rowNew, rowSame or rowRevised
 	back bool
+	txn  int64 // the transaction it is
 }
 
 const (
@@ -464,10 +466,10 @@ func recordRow(w *wtx, acct int64, number string, readID int64, list bool, seen 
 		if err := deriveTxn(w, id, acct, number, p.row); err != nil {
 			return rowResult{}, err
 		}
-		return rowResult{kind: rowNew}, observeTxn(w, p.row, seen)
+		return rowResult{kind: rowNew, txn: id}, observeTxn(w, p.row, seen)
 	}
 	taken[cur.id] = true
-	res := rowResult{kind: rowSame, back: list && cur.gone}
+	res := rowResult{kind: rowSame, back: list && cur.gone, txn: cur.id}
 	if cur.digest == p.digest {
 		if _, err := w.exec(`UPDATE api_revision SET last_read_id = ?, last_seen_at = max(?, first_seen_at)
 			WHERE revision_id = ?`, readID, at, cur.revision); err != nil {

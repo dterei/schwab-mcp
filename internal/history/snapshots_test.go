@@ -623,18 +623,18 @@ func TestImportSnapshots(t *testing.T) {
 		t.Errorf("the store holds %d snapshots, want 11", n)
 	}
 
-	// A dry run reports what it would do and saves nothing; a file that is
-	// not a snapshot file is refused with nothing imported.
+	// A dry run reports what it would do and saves nothing; a file that the
+	// store does not import is refused with nothing imported.
 	dry, err := s.Import(ctx, []FileInput{{Name: "a.jsonl", Content: []byte(snapshotLine(t, day3.Add(48*time.Hour), accounts...))}}, ImportOptions{DryRun: true})
 	if err != nil || len(dry.Files) != 1 || dry.Files[0].Snapshots.New != 3 {
 		t.Errorf("the dry run reports %+v, %v", dry, err)
 	}
 	_, err = s.Import(ctx, []FileInput{
 		{Name: "b.jsonl", Content: []byte(snapshotLine(t, day3.Add(72*time.Hour), accounts...))},
-		{Name: "Individual_XXX135_Transactions_20261111-120000.csv", Content: []byte("Date,Action,Symbol\n")},
+		{Name: "Checking_XXX135_Transactions_20261111-120000.json", Content: []byte(`{"PostedTransactions": []}`)},
 	}, ImportOptions{})
-	if err == nil || !strings.HasPrefix(err.Error(), "Individual_XXX135_Transactions_20261111-120000.csv is not a snapshot file") {
-		t.Errorf("importing a History export gives %v", err)
+	if err == nil || err.Error() != "Checking_XXX135_Transactions_20261111-120000.json is a Schwab Bank export, which schwabtx does not import; nothing was imported" {
+		t.Errorf("importing a Schwab Bank export gives %v", err)
 	}
 	if n := storeInt(t, s, "SELECT count(*) FROM snapshot"); n != 11 {
 		t.Errorf("the store holds %d snapshots after a dry run and a refusal, want 11", n)

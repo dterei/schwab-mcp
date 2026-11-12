@@ -4,12 +4,14 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dterei/schwab-mcp/internal/mask"
 )
@@ -28,10 +30,19 @@ type Decision struct {
 	//	security        that two keys name one security or two: same k:<key>,
 	//	                differ k:<key>, or auto
 	//	account         an account's kind: kind=<text>, or auto
+	//	completeness    whether a file holds every type and symbol: complete,
+	//	                filtered or auto; on `-json` output, filtered withdraws
+	//	                the coverage its rows give
+	//	file_account    the account a file is for: acct:<account>, or auto
+	//	file_range      the days a file that states none covers:
+	//	                <from>..<to> (YYYY-MM-DD), or auto
+	//	forget          whether a file is set aside: yes or no
 	Kind string
 	// Subject is what it is about: an entry's subject (a:<account>:<activity
 	// ID>, or a:<account>:~<time>.<digest> for one without an activity ID),
-	// a key's (k:<key>) or an account's (acct:<account>).
+	// a row of a History file (c:<sha256 hex>:<ordinal>), which stands for
+	// the file transaction that holds it, a file's (f:<sha256 hex>), a key's
+	// (k:<key>) or an account's (acct:<account>).
 	Subject string
 	Value   string
 	// Note is yours to say why. It is kept masked (mask.Text), as all free
@@ -66,9 +77,12 @@ type EntryState struct {
 	SecurityKey            string
 }
 
-// decisionKinds are the kinds that Decide takes: those of this part of the
-// store. Decisions about files come with their import.
-var decisionKinds = []string{"category", "count", "pair", "entry_security", "security", "account"}
+// decisionKinds are the kinds that Decide takes. Decisions that link a
+// file transaction to API transactions come with the matching of the two.
+var decisionKinds = []string{
+	"category", "count", "pair", "entry_security", "security", "account",
+	"completeness", "file_account", "file_range", "forget",
+}
 
 // Decide records your decision d, once it has checked that its subject is
 // in the store now and that its value is one its kind takes, and derives
@@ -136,7 +150,8 @@ func entryStates(w *wtx) (map[entryKey]EntryState, error) {
 
 // checkDecision checks d against the store, touches what it bears on, and
 // returns its basis: for a decision on an API entry, the revision of the
-// transaction it is made against.
+// transaction it is made against; for one on a file transaction, the rows
+// it holds and the one it shows.
 func checkDecision(w *wtx, d Decision) (sql.NullString, error) {
 	var basis sql.NullString
 	refuse := func(format string, args ...any) (sql.NullString, error) {
@@ -183,6 +198,11 @@ func checkDecision(w *wtx, d Decision) (sql.NullString, error) {
 		}
 		w.touch(id)
 		return basis, nil
+	case "completeness", "file_account", "file_range", "forget":
+		return basis, checkFileDecision(w, d)
+	}
+	if strings.HasPrefix(d.Subject, "c:") {
+		return checkRowDecision(w, d)
 	}
 	// The rest are about an entry.
 	var acct int64
@@ -262,4 +282,147 @@ func keyRef(subject string) string {
 		return "K:" + key
 	}
 	return subject
+}
+
+// checkFileDecision checks a decision on a file, d, whose subject is
+// f:<sha256 hex>, and marks the write to derive the files again: their
+// accounts, and the account each is for.
+func checkFileDecision(w *wtx, d Decision) error {
+	var kind, ref string
+	var acct sql.NullInt64
+	err := w.tx.QueryRowContext(w.ctx, `SELECT f.kind, d.ref, d.account_id FROM import_file f JOIN file_fields d ON d.file_id = f.file_id
+		WHERE ? = 'f:' || lower(hex(f.sha256))`, d.Subject).Scan(&kind, &ref, &acct)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("no file %s in the store", mask.Text(d.Subject))
+	}
+	if err != nil {
+		return err
+	}
+	if kind == "api_json" && d.Kind != "completeness" {
+		return fmt.Errorf("%s brought transactions from Schwab's API, which the store keeps; it is for no one account and cannot be set aside", ref)
+	}
+	switch d.Kind {
+	case "completeness":
+		allowed := []string{"complete", "filtered", "auto"}
+		if kind == "api_json" {
+			allowed = []string{"filtered", "auto"}
+		}
+		if !slices.Contains(allowed, d.Value) {
+			return fmt.Errorf("a completeness decision on %s is %s, not %q", ref, strings.Join(allowed, ", "), mask.Text(d.Value))
+		}
+	case "file_account":
+		if d.Value != "auto" {
+			id, err := strconv.ParseInt(strings.TrimPrefix(d.Value, "acct:"), 10, 64)
+			if !strings.HasPrefix(d.Value, "acct:") || err != nil {
+				return fmt.Errorf("a file_account decision is acct:<account> or auto, not %q", mask.Text(d.Value))
+			}
+			if ok, err := rowExists(w, "SELECT 1 FROM account WHERE account_id = ?", id); err != nil || !ok {
+				return cmp.Or(err, fmt.Errorf("no account A%d in the store", id))
+			}
+		}
+	case "file_range":
+		from, to, ok := strings.Cut(d.Value, "..")
+		_, errFrom := time.Parse(time.DateOnly, from)
+		_, errTo := time.Parse(time.DateOnly, to)
+		if d.Value != "auto" && (!ok || errFrom != nil || errTo != nil || to < from) {
+			return fmt.Errorf("a file_range decision is FROM..TO (YYYY-MM-DD, FROM not after TO) or auto, not %q", mask.Text(d.Value))
+		}
+	case "forget":
+		if d.Value != "yes" && d.Value != "no" {
+			return fmt.Errorf("a forget decision is yes or no, not %q", mask.Text(d.Value))
+		}
+	}
+	if acct.Valid {
+		w.touch(acct.Int64)
+	}
+	if kind == "api_json" {
+		return queryEach(w, func(rows *sql.Rows) error {
+			var id int64
+			err := rows.Scan(&id)
+			w.touch(id)
+			return err
+		}, `SELECT DISTINCT r.account_id FROM api_read r JOIN import_file f ON f.file_id = r.file_id
+			WHERE ? = 'f:' || lower(hex(f.sha256))`, d.Subject)
+	}
+	w.files = true
+	return nil
+}
+
+// checkRowDecision checks a decision on a file transaction, d, whose
+// subject is a row of a History file, c:<sha256 hex>:<ordinal>, and
+// returns its basis: the rows of the transaction that holds the row now
+// and the one it shows, each <sha256 hex>:<ordinal>, against which it goes
+// stale. A row of a file set aside holds no transaction; a decision on it
+// waits for one (13.7 of the design).
+func checkRowDecision(w *wtx, d Decision) (sql.NullString, error) {
+	var basis sql.NullString
+	if !slices.Contains(decidedKinds, d.Kind) {
+		return basis, fmt.Errorf("schwabtx takes no decision of kind %s on a file transaction", d.Kind)
+	}
+	var row int64
+	var acct sql.NullInt64
+	err := w.tx.QueryRowContext(w.ctx, `SELECT r.row_id, d.account_id FROM history_row r JOIN import_file f ON f.file_id = r.file_id
+		JOIN file_fields d ON d.file_id = f.file_id WHERE ? = 'c:' || lower(hex(f.sha256)) || ':' || r.ordinal`, d.Subject).Scan(&row, &acct)
+	if errors.Is(err, sql.ErrNoRows) {
+		return basis, fmt.Errorf("no transaction %s in the store", mask.Text(d.Subject))
+	}
+	if err != nil {
+		return basis, err
+	}
+	switch d.Kind {
+	case "category":
+		if d.Value != "auto" && !slices.Contains(categories, d.Value) {
+			return basis, fmt.Errorf("unknown category %q; one of %s, or auto", mask.Text(d.Value), strings.Join(categories, ", "))
+		}
+	case "count":
+		if !slices.Contains([]string{"yes", "no", "auto"}, d.Value) {
+			return basis, fmt.Errorf("a count decision is yes, no or auto, not %q", mask.Text(d.Value))
+		}
+	case "pair":
+		if d.Value != "none" && d.Value != "auto" {
+			var other int64
+			if err := w.tx.QueryRowContext(w.ctx, "SELECT account_id FROM entry WHERE subject = ?", d.Value).Scan(&other); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return basis, fmt.Errorf("no transaction %s in the store to pair it with", mask.Text(d.Value))
+				}
+				return basis, err
+			}
+			w.touch(other)
+		}
+	case "entry_security":
+		if d.Value != "auto" {
+			key, isKey := strings.CutPrefix(d.Value, "k:")
+			if ok, err := keyExists(w, key); err != nil || !ok || !isKey {
+				if err != nil {
+					return basis, err
+				}
+				return basis, fmt.Errorf("no instrument key %s in the store", keyRef(d.Value))
+			}
+		}
+	}
+	if acct.Valid {
+		w.touch(acct.Int64)
+	}
+	var b struct {
+		Shown string   `json:"shown"`
+		Rows  []string `json:"rows"`
+	}
+	err = queryEach(w, func(rows *sql.Rows) error {
+		var id string
+		var shown bool
+		err := rows.Scan(&id, &shown)
+		b.Rows = append(b.Rows, id)
+		if shown {
+			b.Shown = id
+		}
+		return err
+	}, `SELECT lower(hex(f.sha256)) || ':' || r.ordinal, r.row_id = c.shown_row_id FROM csv_member m
+		JOIN csv_txn c ON c.csv_txn_id = m.csv_txn_id JOIN csv_member o ON o.csv_txn_id = c.csv_txn_id
+		JOIN history_row r ON r.row_id = o.row_id JOIN import_file f ON f.file_id = r.file_id
+		WHERE m.row_id = ? ORDER BY f.file_id, r.ordinal`, row)
+	if err != nil || b.Shown == "" {
+		return basis, err
+	}
+	j, err := json.Marshal(b)
+	return sql.NullString{String: string(j), Valid: true}, err
 }

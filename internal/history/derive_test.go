@@ -1,7 +1,6 @@
 package history
 
 import (
-	"crypto/sha256"
 	"os"
 	"strings"
 	"testing"
@@ -34,7 +33,7 @@ func truncateWAL(t *testing.T, s *Store) {
 
 // Deriving an account whose evidence did not change writes next to
 // nothing: fewer than 20 frames to the -wal. Deriving one that holds a
-// transaction of 2 MB of raw JSON (first and latest) and a 5 MB file, or
+// transaction of 2 MB of raw JSON (first and latest) and a file of more than 1 MB, or
 // rebuilding the whole store, rewrites no page of either: the -wal stays
 // under 1 MB.
 func TestDerivationWritesLittle(t *testing.T) {
@@ -49,13 +48,11 @@ func TestDerivationWritesLittle(t *testing.T) {
 	rows := append(fixtureRows(t, individual), decodeRow(t, big))
 	record(t, s, listRead(individual, start, end, sent, rows...))
 	record(t, s, listRead(options, start, end, sent, fixtureRows(t, options)...))
-	content := []byte(strings.Repeat("Date,Action,Symbol,Description,Quantity,Price,Fees & Comm,Amount\n", 5<<20/64))
-	sum := sha256.Sum256(content)
-	if err := s.withWrite(ctx, "importing a file", func(w *wtx) error {
-		_, err := w.exec(`INSERT INTO import_file (account_id, kind, name, content, sha256, imported_at)
-			VALUES (1, 'history_csv', 'big.csv', ?, ?, ?)`, content, sum[:], instant(w.now))
-		return err
-	}); err != nil {
+	// A History export of one row and more than 1 MB of a key that Read passes over.
+	content := []byte(`{"FromDate": "08/01/2026", "ToDate": "08/31/2026", "Padding": "` + strings.Repeat("x", 1<<20+1<<18) +
+		`", "BrokerageTransactions": [{"Date": "08/03/2026", "Action": "Credit Interest", "Symbol": "",
+		"Description": "SCHWAB1 INT", "Quantity": "", "Price": "", "Fees & Comm": "", "Amount": "$0.07"}]}`)
+	if _, err := s.Import(ctx, []FileInput{{Name: "big.json", Content: content}}, ImportOptions{Account: "A1"}); err != nil {
 		t.Fatal(err)
 	}
 	touch := func(w *wtx) error {

@@ -95,6 +95,7 @@ var flagDefs = []flagDef{
 	{"coverage_clipped", on("file"), info, "its coverage is narrower than its stated range"},
 	{"encoding_fallback", on("file"), info, "the file is not UTF-8 and was read as Windows-1252"},
 	{"lazy_quotes", on("file"), info, "the file's quotes were read leniently"},
+	{"rows_after_total", on("file"), info, "rows after the file's total, which were not read"},
 	{"coverage_from_rows", on("file"), info, "the file states no range, so its rows' dates give it"},
 	{"rows_outside_coverage", on("file"), info, "rows lie outside the stated range, which they widen"},
 	{"undated_rows", on("file"), attention, "rows without a date, which make no transaction"},

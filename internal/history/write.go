@@ -95,6 +95,10 @@ type wtx struct {
 	deferred bool
 	// flagDefs says that flag_def holds flagDefs (writeFlagDefs).
 	flagDefs bool
+	// files says that the write imported a file or made a decision about
+	// one, so that the end of the write brings every file's ref, account
+	// and setting aside up to date (deriveFileFields).
+	files bool
 }
 
 // touch marks account as one whose evidence the write changed.
