@@ -22,7 +22,9 @@ import (
 // API row the store's match gives it is taken; your link settles the tie; a
 // policy for an action counts its rows; a reject unlinks; and when the API
 // row that a file row is linked to goes, neither counts until you say the
-// file row is none of the API's.
+// file row is none of the API's. A row you said is none of the API's, whose
+// API row then comes late, is flagged while both count, until you link
+// them.
 func TestCounting(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -177,6 +179,29 @@ func TestCounting(t *testing.T) {
 	}
 	if got := entryRowOf(t, s, "T1003", "counted, counted_why"); got != "0 gone" {
 		t.Errorf("the API's sale: %q", got)
+	}
+
+	// The held-out sale, which you said no API row is, and then the API row
+	// of it, which Schwab served late: both count, and the file's is
+	// flagged until you say which it is; the API's is not flagged as
+	// missing from the files.
+	sale := subjectRef(t, s, history, 11)
+	decide(t, s, Decision{Kind: "match", Subject: subjectOf(history, 11), Value: "none"})
+	importFiles(t, s, ImportOptions{}, "late.json", cliJSON(t, apiRaw(2004, at(time.March, 12), "TRADE", 11, "XYZ", -1, "")))
+	if got, want := entryRowOf(t, s, sale, "counted, counted_why, flags"), "1 user late_api_row"; got != want {
+		t.Errorf("the file's sale, after its API row came: %q, want %q", got, want)
+	}
+	if got := storeStrings(t, s, "SELECT detail FROM flags WHERE code = 'late_api_row'"); !slices.Equal(got, []string{
+		"it may be T2004, which counts beside it; if it is: schwabtx edit " + sale + " -link T2004; if not: schwabtx edit " + sale + " -reject T2004",
+	}) {
+		t.Errorf("the late_api_row flag says %q", got)
+	}
+	if got := entryRowOf(t, s, "T2004", "counted, flags"); got != "1 " {
+		t.Errorf("the API's late sale: %q", got)
+	}
+	decide(t, s, Decision{Kind: "match", Subject: subjectOf(history, 11), Value: "a:1:2004"})
+	if got := entryRowOf(t, s, sale, "counted, counted_why"); got != "0 linked" {
+		t.Errorf("the file's sale, linked to its late API row: %q", got)
 	}
 }
 

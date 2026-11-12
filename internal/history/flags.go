@@ -67,6 +67,7 @@ var flagDefs = []flagDef{
 	{"uncertain_match", on("entry"), attention, "several API rows could be it; not counted until you say"},
 	{"held_out", on("entry"), attention, "no API row although the API covers its dates; not counted until you say"},
 	{"linked_api_uncounted", on("entry"), attention, "the API row it is linked to is gone, INVALID or not counted by you, so neither counts"},
+	{"late_api_row", on("entry"), attention, "you said it counts from the file, and an API row that may be it has come since: both count until you say"},
 	{"merged_fills", on("entry"), info, "linked to several fills of one order"},
 	{"merged_rows", on("entry"), info, "one of several file rows linked to one API transaction"},
 	{"differs_from_api", on("entry"), info, "linked, with another quantity, price, fees or day"},

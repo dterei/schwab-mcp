@@ -820,6 +820,7 @@ usual ones:
 | `uncertain_match` | `edit C… -link T…` the one it is, or `-link none` |
 | `held_out` | `edit C… -link T…` if an API row is it, else `-link none`; or `edit -action LABEL -policy count` for every such row of an action |
 | `linked_api_uncounted` | the API row it is linked to does not count; `edit C… -link none` counts it from the file |
+| `late_api_row` | `edit C… -link T…` if the API row that came is it (after `-count auto`, if you gave `-count yes`), else `edit C… -reject T…` |
 | `symbol_unsure` | nothing if one security changed its ticker; else `edit K:… -differ K:…` |
 | `split_by_security` | nothing if they are different securities; else `edit K:… -same K:…` |
 | `near_duplicate` | `edit C… -count no` on the one Schwab corrected |
@@ -946,6 +947,7 @@ command to copy. Every code:
 | `uncertain_match` | entry | attention | several API rows could be it; not counted until you say |
 | `held_out` | entry | attention | no API row although the API covers its dates; not counted until you say |
 | `linked_api_uncounted` | entry | attention | the API row it is linked to is gone, INVALID or not counted by you, so neither counts |
+| `late_api_row` | entry | attention | you said it counts from the file, and an API row that may be it has come since: both count until you say |
 | `merged_fills` | entry | info | linked to several fills of one order |
 | `merged_rows` | entry | info | one of several file rows linked to one API transaction |
 | `differs_from_api` | entry | info | linked, with another quantity, price, fees or day |

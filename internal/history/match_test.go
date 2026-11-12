@@ -467,6 +467,35 @@ func TestMatcher(t *testing.T) {
 			codes:  []string{"stale_decision"},
 		},
 		{
+			name: "an API row that came after you said a row counts from the file is flagged on the row, not as missing from the files",
+			make: func(w *matchWorld) {
+				f := testFile(1, "a", "2026-04-01", "", "")
+				for _, amount := range []int64{600, 700, 800, 900} {
+					addRow(f, "2026-03-10", "Qualified Dividend", "ABCD", amount, 0)
+				}
+				w.files = []*fileInput{f}
+				w.addAPI(2, "2026-03-11", "income", "dividend", 600, "ABCD", 0)
+				w.addAPI(3, "2026-03-10", "income", "dividend", 700, "ABCD", 0)
+				w.addAPI(4, "2026-03-10", "income", "dividend", 800, "ABCD", 0)
+				gone := w.addAPI(5, "2026-03-10", "income", "dividend", 900, "ABCD", 0)
+				gone.counted, gone.countedWhy = false, "gone"
+				w.decisions = []decisionInput{
+					{id: 1, kind: "match", subject: "c:" + f.sha + ":1", value: "none"},
+					{id: 2, kind: "count", subject: "c:" + f.sha + ":2", value: "yes"},
+					// You said the third is not T4, and the fourth's API row
+					// does not count.
+					{id: 3, kind: "match", subject: "c:" + f.sha + ":3", value: "none"},
+					{id: 4, kind: "reject", subject: "c:" + f.sha + ":3", value: "a:1:4"},
+					{id: 5, kind: "match", subject: "c:" + f.sha + ":4", value: "none"},
+				}
+				w.runs = cover
+				w.complete = []schwabfile.Coverage{{From: "2026-03-01", To: "2026-03-31"}}
+			},
+			counts:   []string{"Ca.1 user late_api_row", "Ca.2 user late_api_row", "Ca.3 user", "Ca.4 user"},
+			codes:    []string{"late_api_row", "not_in_files"},
+			apiFlags: []string{"T4 not_in_files", "T5 not_in_files"},
+		},
+		{
 			name: "a symbol changed: one security links them",
 			make: func(w *matchWorld) {
 				f := testFile(1, "a", "2026-04-01", "", "")

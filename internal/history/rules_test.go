@@ -20,7 +20,7 @@ import (
 // rulesDigests holds, for each DeriveVersion, the digest of what
 // TestRulesVersion prints of the rules.
 var rulesDigests = map[int]string{
-	1: "9822f933727a4f3211e684056fb1ea442c41b268b6c3f31b4ec8d8e86410c6b5",
+	1: "45f0525d0a0301ce30980029e19abf9aae6f342ce658df4c4c4c117de64111ba",
 }
 
 // printRules writes to h what the rules make of a grid of inputs, and their

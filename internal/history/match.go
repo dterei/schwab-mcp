@@ -173,7 +173,9 @@ type matchLeg struct {
 // quantities are its legs', when one set and one transaction alone fit
 // (legs); and equal amounts in each other's window, each the other's
 // strictly best by score (unique). Your reject decisions keep their pairs
-// apart in all of these.
+// apart in all of these. A file transaction you decided counts from the
+// file, which an API transaction left over may be, is flagged
+// late_api_row: both count until you say which it is.
 func matchAccount(in matchInput) ([]matchOutput, []candidateOutput) {
 	byTxn := map[int64]*txnInput{}
 	for i := range in.txns {
@@ -244,7 +246,7 @@ func matchAccount(in matchInput) ([]matchOutput, []candidateOutput) {
 	edges := m.unique(files, apis)
 	cands := m.uncertain(files, edges)
 	m.differences()
-	notInFiles(apis, in.complete)
+	notInFiles(apis, in.complete, lateRows(files, apis))
 	countFiles(files, m.matches, in.policies, in.apiRuns)
 
 	out := make([]matchOutput, len(m.matches))
@@ -571,13 +573,9 @@ func (m *matcher) unique(files, apis []*matchItem) map[*matchItem][]edge {
 			continue
 		}
 		for _, a := range byAmount[f.amount.Int64] {
-			if a.match >= 0 || f.rejected[a.e.subject] || !inWindow(f, a) || !familyFits(f, a) {
-				continue
+			if a.match < 0 && mayBe(f, a) {
+				edges[f] = append(edges[f], edge{f, a, score(f, a)})
 			}
-			if f.amount.Int64 == 0 && !sameSymbol(f.sym, a.sym) || !compatibleSymbols(f.sym, a.sym) {
-				continue
-			}
-			edges[f] = append(edges[f], edge{f, a, score(f, a)})
 		}
 	}
 	for {
@@ -731,11 +729,56 @@ func (m *matcher) differences() {
 	}
 }
 
+// mayBe reports whether API transaction a may be file transaction f, as
+// the unique step pairs them: equal amounts, f's day in its window after
+// a's, a family that f's may be, symbols that may be one security (the
+// same one, for an amount of 0), and no reject decision of yours between
+// them.
+func mayBe(f, a *matchItem) bool {
+	if !f.amount.Valid || f.amount != a.amount || f.rejected[a.e.subject] || !inWindow(f, a) || !familyFits(f, a) {
+		return false
+	}
+	return (f.amount.Int64 != 0 || sameSymbol(f.sym, a.sym)) && compatibleSymbols(f.sym, a.sym)
+}
+
+// lateRows flags late_api_row each file transaction in no match that you
+// decided counts from the file (-link none, or -count yes) and that a
+// counted API transaction in no match may be (mayBe): one that came after
+// your decision, as a row the API serves late does, and that counts beside
+// it until you say which it is. It returns those API transactions.
+func lateRows(files, apis []*matchItem) map[*matchItem]bool {
+	near := map[*matchItem]bool{}
+	for _, f := range files {
+		if f.match >= 0 || !f.none && (!f.decided || !f.e.counted) {
+			continue
+		}
+		var refs []string
+		for _, a := range apis {
+			if a.match < 0 && a.e.counted && mayBe(f, a) {
+				refs = append(refs, a.e.ref)
+				near[a] = true
+			}
+		}
+		if len(refs) == 0 {
+			continue
+		}
+		link := fmt.Sprintf("schwabtx edit %s -link %s", f.e.ref, refs[0])
+		if !f.none {
+			link = fmt.Sprintf("schwabtx edit %s -count auto", f.e.ref)
+		}
+		f.e.flags.add("late_api_row", fmt.Sprintf("it may be %s, which counts beside it; if it is: %s; if not: schwabtx edit %s -reject %s",
+			joinOr(refs), link, f.e.ref, refs[0]))
+	}
+	return near
+}
+
 // notInFiles flags each API transaction in no match whose day a complete
-// History file of the account covers not_in_files (step 7): it counts.
-func notInFiles(apis []*matchItem, complete []schwabfile.Coverage) {
+// History file of the account covers not_in_files (step 7): it counts. An
+// API transaction that a file transaction you decided counts may be
+// (late, from lateRows) is not flagged: a file row of it may be there.
+func notInFiles(apis []*matchItem, complete []schwabfile.Coverage, late map[*matchItem]bool) {
 	for _, a := range apis {
-		if a.match >= 0 || a.day == "" {
+		if a.match >= 0 || a.day == "" || late[a] {
 			continue
 		}
 		if slices.ContainsFunc(complete, func(c schwabfile.Coverage) bool { return covers(c, a.day) }) {
