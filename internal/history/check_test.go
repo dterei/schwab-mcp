@@ -12,8 +12,8 @@ import (
 // invariant that derived rows broken by hand break is reported, naming
 // transactions and accounts by their refs: a linked file transaction that
 // counts, a match without its API side, without its file side, or empty,
-// and of another account than its transactions', a pair one way only, a
-// pair both ways of two kinds, and a row whose foreign key dangles. A
+// and of another account than its transactions', a pair one way only (of
+// one kind), a pair both ways of two kinds, and a row whose foreign key dangles. A
 // stored account number that masking by pattern would miss is warned
 // about, by the account's ref. A damaged file is reported by the
 // integrity check alone.
@@ -43,10 +43,13 @@ func TestCheck(t *testing.T) {
 			"INSERT INTO match (account_id, method) VALUES (1, 'user')",
 			"INSERT INTO match (match_id, account_id, method) VALUES (99, 1, 'user')",
 			"INSERT INTO match_member (match_id, txn_id) SELECT 99, txn_id FROM entry WHERE ref = 'T1002'",
-			// T1001 paired one way with T1002, which is paired both ways
-			// with the file transaction, but as another kind.
+			// T1001 paired one way with T1002, as the one kind that T1002
+			// is paired as, but with the file transaction; and T1002 and
+			// the file transaction paired both ways, but as two kinds.
+			`UPDATE entry SET pair_kind = 'sweep', pair_entry_id = (SELECT entry_id FROM entry WHERE ref = 'T1002')
+				WHERE ref = 'T1001'`,
 			`UPDATE entry SET pair_kind = 'journal', pair_entry_id = (SELECT entry_id FROM entry WHERE ref = 'T1002')
-				WHERE ref = 'T1001' OR csv_txn_id IS NOT NULL`,
+				WHERE csv_txn_id IS NOT NULL`,
 			`UPDATE entry SET pair_kind = 'sweep', pair_entry_id = (SELECT entry_id FROM entry WHERE csv_txn_id IS NOT NULL)
 				WHERE ref = 'T1002'`,
 		} {
