@@ -676,6 +676,38 @@ func TestMoveFile(t *testing.T) {
 			t.Errorf("%+v is taken", d)
 		}
 	}
+
+	// A file that states its range keeps it, and completeness is not said
+	// of a Realized export: edit would say it recorded what changes
+	// nothing.
+	stated := historyJSON("02/01/2026", "02/15/2026", nil, csvRow{"02/05/2026", "Wire Funds", "", "WIRED FUNDS", "", "", "", "-$500.00"})
+	realized := realizedCSV("Sun Mar 01 09:00:00 EST 2026", "01/01/2026", "03/01/2026",
+		[9]string{"XYZ", "02/20/2026", "01/05/2026", "10", "$120.00", "$100.00", "$20.00", "No", ""})
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260216-090000", "json"), stated,
+		"XXXX0398_GainLoss_Realized_Details_20260301-090000.csv", realized)
+	refs := storeStrings(t, s, "SELECT ref FROM files WHERE kind IN ('history_json', 'realized_csv') ORDER BY kind")
+	for _, c := range []struct {
+		d    Decision
+		want string
+	}{
+		{
+			Decision{Kind: "file_range", Subject: "f:" + fileHex([]byte(stated)), Value: "2026-01-01..2026-02-28"},
+			refs[0] + " states the dates it covers, 2026-02-01 to 2026-02-15, which it keeps: -from and -to are for a file that states none",
+		},
+		{
+			Decision{Kind: "file_range", Subject: "f:" + fileHex([]byte(realized)), Value: "2026-01-01..2026-02-28"},
+			refs[1] + " states the dates it covers, 2026-01-01 to 2026-03-01, which it keeps: -from and -to are for a file that states none",
+		},
+		{
+			Decision{Kind: "completeness", Subject: "f:" + fileHex([]byte(realized)), Value: "complete"},
+			refs[1] + " is a Realized Gain/Loss export, which holds closed lots, not transactions of every type: completeness is not said of it",
+		},
+	} {
+		if _, err := s.Decide(t.Context(), c.d); err == nil || err.Error() != c.want {
+			t.Errorf("%+v: %v, want %s", c.d, err, c.want)
+		}
+	}
+	decide(t, s, Decision{Kind: "file_range", Subject: "f:" + fileHex([]byte(stated)), Value: "auto"})
 }
 
 // Import imports every file or none (14.7 of the design): a refused file

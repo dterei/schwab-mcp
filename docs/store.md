@@ -866,9 +866,9 @@ interest`). Every decision takes `-note`.
 | `action` | an action | `count`, `hold`, `auto` | whether held-out rows of that action count | `-action LABEL -policy count\|hold` |
 | `security` | a key | `same` or `differ` another key, `auto` | that two keys are one security, or two | `K:… -same K:…`, `-differ K:…`, `-auto` |
 | `account` | an account | its kind, `auto` | the account's kind (taxable, ira, roth, ...) | `A… -kind TEXT` |
-| `completeness` | a file | `complete`, `filtered`, `auto` | the file's completeness; `filtered` on a `-json` file withdraws its `api_file` coverage | `F… -completeness complete\|filtered` |
+| `completeness` | a file | `complete`, `filtered`, `auto` | the file's completeness; `filtered` on a `-json` file withdraws its `api_file` coverage; refused for a Realized export, of which it is not said | `F… -completeness complete\|filtered` |
 | `file_account` | a file | an account, `auto` | the account the file is for, in place of the one at import; both accounts are derived again | `F… -account ACCOUNT` |
-| `file_range` | a file | a range, `auto` | the dates the file covers, for a file that states none | `F… -from DATE -to DATE`, `F… -range auto` |
+| `file_range` | a file | a range, `auto` | the dates the file covers, for a file that states none (refused for one that states its own) | `F… -from DATE -to DATE`, `F… -range auto` |
 | `forget` | a file | `yes`, `no` | sets the file aside, or brings it back | `schwabtx import -forget F… [-undo]` |
 
 **A category you set is applied last**, after every rule and automatic pair,

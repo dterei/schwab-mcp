@@ -370,8 +370,10 @@ func keyRef(subject string) string {
 func checkFileDecision(w *wtx, d Decision) error {
 	var kind, ref string
 	var acct sql.NullInt64
-	err := w.tx.QueryRowContext(w.ctx, `SELECT f.kind, d.ref, d.account_id FROM import_file f JOIN file_fields d ON d.file_id = f.file_id
-		WHERE ? = 'f:' || lower(hex(f.sha256))`, d.Subject).Scan(&kind, &ref, &acct)
+	var statedFrom, statedTo sql.NullString
+	err := w.tx.QueryRowContext(w.ctx, `SELECT f.kind, d.ref, d.account_id, d.stated_from, d.stated_to
+		FROM import_file f JOIN file_fields d ON d.file_id = f.file_id
+		WHERE ? = 'f:' || lower(hex(f.sha256))`, d.Subject).Scan(&kind, &ref, &acct, &statedFrom, &statedTo)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("no file %s in the store", mask.Text(d.Subject))
 	}
@@ -383,6 +385,10 @@ func checkFileDecision(w *wtx, d Decision) error {
 	}
 	switch d.Kind {
 	case "completeness":
+		if kind == "realized_csv" && d.Value != "auto" {
+			return fmt.Errorf("%s is a Realized Gain/Loss export, which holds closed lots, not transactions of every type: "+
+				"completeness is not said of it", ref)
+		}
 		allowed := []string{"complete", "filtered", "auto"}
 		if kind == "api_json" {
 			allowed = []string{"filtered", "auto"}
@@ -406,6 +412,10 @@ func checkFileDecision(w *wtx, d Decision) error {
 		_, errTo := time.Parse(time.DateOnly, to)
 		if d.Value != "auto" && (!ok || errFrom != nil || errTo != nil || to < from) {
 			return fmt.Errorf("a file_range decision is FROM..TO (YYYY-MM-DD, FROM not after TO) or auto, not %q", mask.Text(d.Value))
+		}
+		if d.Value != "auto" && statedFrom.Valid {
+			return fmt.Errorf("%s states the dates it covers, %s to %s, which it keeps: -from and -to are for a file that states none",
+				ref, statedFrom.String, statedTo.String)
 		}
 	case "forget":
 		if d.Value != "yes" && d.Value != "no" {
