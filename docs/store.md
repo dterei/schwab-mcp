@@ -562,10 +562,10 @@ it back:
 
 ```
 $ schwabtx import -forget F0869ae0a
-set aside F0869ae0a (Individual_XXX135_Transactions_20240601-090000.csv): 0 transactions that no other file holds left the ledger, 11 stay (also in Fe7a63ed0), and your decisions on them follow them
+set aside F0869ae0a (Individual_XXX135_Transactions_20240601-090000.csv): 0 transactions that no other file holds were set aside, 11 stay (also in Fe7a63ed0), and your decisions on them follow them
 bring it back with: schwabtx import -forget F0869ae0a -undo
 $ schwabtx import -forget F0869ae0a -undo
-brought back F0869ae0a (Individual_XXX135_Transactions_20240601-090000.csv): 0 transactions that no other file holds are in the ledger again, 11 stay (also in Fe7a63ed0)
+brought back F0869ae0a (Individual_XXX135_Transactions_20240601-090000.csv): 0 transactions that no other file holds are back, 11 stay (also in Fe7a63ed0)
 ```
 
 A file set aside stays in the store, bytes and all: setting aside is a

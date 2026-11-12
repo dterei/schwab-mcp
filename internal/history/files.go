@@ -763,14 +763,19 @@ type ForgetReport struct {
 	Ref, Name string
 	// Undo says that the file was brought back.
 	Undo bool
-	// Left counts the transactions and lots that the file alone holds,
-	// which left the ledger (or, with Undo, came back); Stayed those that
-	// other files hold too, which stay, and StayIn those files' refs.
-	Left, Stayed int
-	StayIn       []string
-	// Waiting counts your decisions on transactions that the file alone
-	// holds: they wait, never applied elsewhere, until a file that holds
-	// the transaction comes.
+	// Lots says that the file is a Realized export, whose rows are lots.
+	Lots bool
+	// Left counts the transactions or lots that the file alone holds,
+	// which were set aside (or, with Undo, came back); Counted those of
+	// its transactions that counted in the ledger (or, with Undo, count
+	// again), not those linked to an API transaction, which counts in their
+	// place; Stayed those that other files hold too, which stay, and
+	// StayIn those files' refs.
+	Left, Counted, Stayed int
+	StayIn                []string
+	// Waiting counts your decisions that applied to the transactions that
+	// the file alone holds, whatever row of them each names: they wait,
+	// applied to nothing, until a file that holds the transaction comes.
 	Waiting int
 }
 
@@ -793,8 +798,12 @@ func (s *Store) Forget(ctx context.Context, fileRef string, undo bool) (ForgetRe
 		if kind == "api_json" {
 			return fmt.Errorf("%s brought transactions from Schwab's API, which the store keeps; there is nothing to set aside", ref)
 		}
+		r.Lots = kind == "realized_csv"
 		if !undo {
 			if err := forgetCounts(w, id, &r); err != nil {
+				return err
+			}
+			if r.Waiting, err = forgetWaiting(w, id); err != nil {
 				return err
 			}
 		}
@@ -814,7 +823,6 @@ func (s *Store) Forget(ctx context.Context, fileRef string, undo bool) (ForgetRe
 			if err := forgetCounts(w, id, &r); err != nil {
 				return err
 			}
-			r.Waiting = 0
 		}
 		return w.tx.QueryRowContext(w.ctx, `SELECT d.ref, d.label FROM file_fields d WHERE d.file_id = ?`, id).Scan(&r.Ref, &r.Name)
 	})
@@ -858,16 +866,20 @@ func findFile(w *wtx, given string) (id int64, sha, kind, ref string, err error)
 }
 
 // forgetCounts counts, into r, the transactions and lots that file id
-// holds now: those it alone holds, those that other files hold too, and
-// those files; and your decisions on transactions that it alone holds.
+// holds now: those it alone holds, and of those the transactions that
+// count; those that other files hold too, and those files.
 func forgetCounts(w *wtx, id int64, r *ForgetReport) error {
 	err := queryEach(w, func(rows *sql.Rows) error {
 		var others sql.NullString
-		if err := rows.Scan(&others); err != nil {
+		var counted bool
+		if err := rows.Scan(&others, &counted); err != nil {
 			return err
 		}
 		if !others.Valid {
 			r.Left++
+			if counted {
+				r.Counted++
+			}
 			return nil
 		}
 		r.Stayed++
@@ -883,22 +895,46 @@ func forgetCounts(w *wtx, id int64, r *ForgetReport) error {
 		SELECT (SELECT group_concat(DISTINCT d.ref) FROM (
 			SELECT r.file_id FROM csv_member m JOIN history_row r ON r.row_id = m.row_id WHERE mine.kind = 'c' AND m.csv_txn_id = mine.txn
 			UNION SELECT r.file_id FROM lot_member m JOIN realized_row r ON r.row_id = m.row_id WHERE mine.kind = 'l' AND m.lot_id = mine.txn
-		) o JOIN file_fields d ON d.file_id = o.file_id WHERE o.file_id <> ?1) FROM mine`, id)
+		) o JOIN file_fields d ON d.file_id = o.file_id WHERE o.file_id <> ?1),
+		mine.kind = 'c' AND coalesce((SELECT e.counted FROM entry e WHERE e.csv_txn_id = mine.txn), 0) = 1
+		FROM mine`, id)
 	if err != nil {
 		return err
 	}
 	slices.Sort(r.StayIn)
-	// The latest decision of each kind on each row, and every reject since
-	// the last that withdrew them all (rejects accumulate).
-	return w.tx.QueryRowContext(w.ctx, `WITH latest AS (
-			SELECT kind, subject, value, max(decision_id) FROM decision
-			WHERE kind IN ('category', 'count', 'pair', 'entry_security', 'match') AND subject LIKE 'c:%' GROUP BY kind, subject
-			UNION SELECT DISTINCT 'reject', d.subject, d.value, 0 FROM decision d
-			WHERE d.kind = 'reject' AND d.subject LIKE 'c:%' AND NOT EXISTS (SELECT 1 FROM decision a
-				WHERE a.kind = 'reject' AND a.subject = d.subject AND a.value = 'auto' AND a.decision_id >= d.decision_id))
-		SELECT count(*) FROM latest l JOIN history_row r ON l.subject = 'c:' || (SELECT lower(hex(sha256)) FROM import_file
-			WHERE file_id = r.file_id) || ':' || r.ordinal
-		WHERE r.file_id = ? AND l.value <> 'auto' AND NOT EXISTS (
-			SELECT 1 FROM csv_member m JOIN csv_member o ON o.csv_txn_id = m.csv_txn_id JOIN history_row x ON x.row_id = o.row_id
-			WHERE m.row_id = r.row_id AND x.file_id <> r.file_id)`, id).Scan(&r.Waiting)
+	return nil
+}
+
+// forgetWaiting counts your decisions that apply to the transactions that
+// file id alone holds, before it is set aside: each kind's latest on the
+// transaction, and its rejects, whatever row of it each names (one made on
+// a row of a file set aside before reaches the transaction that holds the
+// row now). Set aside, the file takes them with it: they wait.
+func forgetWaiting(w *wtx, id int64) (int, error) {
+	var acct sql.NullInt64
+	if err := w.tx.QueryRowContext(w.ctx, "SELECT account_id FROM file_fields WHERE file_id = ?", id).Scan(&acct); err != nil || !acct.Valid {
+		return 0, err
+	}
+	g, err := loadGlobals(w)
+	if err != nil {
+		return 0, err
+	}
+	in, err := loadAccount(w, acct.Int64, g)
+	if err != nil {
+		return 0, err
+	}
+	fl := deriveFiles(in, nil, nil)
+	n := 0
+	for i, t := range fl.txns {
+		if slices.ContainsFunc(t.members, func(r *historyRowInput) bool { return r.file.id != id }) {
+			continue
+		}
+		for kind := range fl.decided[i] {
+			if kind != "reject" {
+				n++
+			}
+		}
+		n += len(rejectedBy(fl.all[i]))
+	}
+	return n, nil
 }

@@ -359,12 +359,27 @@ func forgetFile(ctx context.Context, path, ref string, undo bool, stdout, stderr
 	if r.Stayed > 0 {
 		also = fmt.Sprintf(", %d %s (also in %s)", r.Stayed, pluralWord(r.Stayed, "stays", "stay"), strings.Join(r.StayIn, ", "))
 	}
+	// Of a History export's transactions, those linked to an API
+	// transaction never counted: the API's does, whether the file is set
+	// aside or not.
+	what := pluralWord(r.Left, "transaction")
+	if r.Lots {
+		what = pluralWord(r.Left, "lot")
+	}
+	counted := ""
+	if !r.Lots && r.Left > 0 {
+		counted = fmt.Sprintf(", %d of them counted in the ledger", r.Counted)
+		if r.Left == 1 {
+			counted = map[bool]string{true: ", counted in the ledger", false: ", not counted in the ledger"}[r.Counted == 1]
+		}
+	}
 	if undo {
-		fmt.Fprintf(stdout, "brought back %s (%s): %d %s that no other file holds %s in the ledger again%s\n",
-			r.Ref, name, r.Left, pluralWord(r.Left, "transaction"), pluralWord(r.Left, "is", "are"), also)
+		fmt.Fprintf(stdout, "brought back %s (%s): %d %s that no other file holds %s back%s%s\n",
+			r.Ref, name, r.Left, what, pluralWord(r.Left, "is", "are"), counted, also)
 		return nil
 	}
-	line := fmt.Sprintf("set aside %s (%s): %d %s that no other file holds left the ledger", r.Ref, name, r.Left, pluralWord(r.Left, "transaction"))
+	line := fmt.Sprintf("set aside %s (%s): %d %s that no other file holds %s set aside%s", r.Ref, name, r.Left, what,
+		pluralWord(r.Left, "was", "were"), counted)
 	if r.Stayed > 0 {
 		line += also + ", and your decisions on them follow them"
 	}

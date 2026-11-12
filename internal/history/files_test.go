@@ -633,6 +633,45 @@ func TestForget(t *testing.T) {
 	}
 }
 
+// Forget counts, of the transactions that the file alone holds, those
+// that counted in the ledger: not one linked to an API transaction, which
+// counts in its place. It counts as waiting each decision that applied to
+// them, whatever row it names: one made on a row of a file set aside
+// before, which reached the transaction that this file's row holds now,
+// too.
+func TestForgetCounts(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	importFiles(t, s, ImportOptions{}, "transactions.json", cliJSON(t,
+		apiRaw(3001, at(time.February, 2), "DIVIDEND_OR_INTEREST", 1, "", 0, "Qualified Dividend~ABCD")))
+	a := csvRow{"02/02/2026", "Qualified Dividend", "ABCD", "ABCD INC", "", "", "", "$1.00"}
+	b := csvRow{"02/09/2026", "Wire Funds", "", "WIRED FUNDS", "", "", "", "-$500.00"}
+	first, second := historyCSV(a, b), historyCSV(b)
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260210-090000", "csv"), first)
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260215-090000", "csv"), second)
+	decide(t, s, Decision{Kind: "category", Subject: subjectOf(first, 2), Value: "transfer_out"})
+	if got := storeStrings(t, s, "SELECT posted_date || ' ' || counted_why FROM file_transactions ORDER BY posted_date"); !slices.Equal(got,
+		[]string{"2026-02-02 linked", "2026-02-09 file"}) {
+		t.Fatalf("the file transactions are %q", got)
+	}
+	firstRef := storeStrings(t, s, "SELECT ref FROM file_fields WHERE file_id = 2")[0]
+	secondRef := storeStrings(t, s, "SELECT ref FROM file_fields WHERE file_id = 3")[0]
+	r, err := s.Forget(t.Context(), firstRef, false)
+	if err != nil || r.Left != 1 || r.Counted != 0 || r.Stayed != 1 || r.Waiting != 0 {
+		t.Errorf("setting the first file aside reports %+v, %v; want 1 left, none of it counted, 1 stayed, none waiting", r, err)
+	}
+	r, err = s.Forget(t.Context(), secondRef, false)
+	if err != nil || r.Left != 1 || r.Counted != 1 || r.Stayed != 0 || r.Waiting != 1 {
+		t.Errorf("setting the second file aside reports %+v, %v; want 1 left and counted, your decision on the first's row waiting", r, err)
+	}
+	if r, err = s.Forget(t.Context(), secondRef, true); err != nil || r.Left != 1 || r.Counted != 1 || r.Waiting != 0 {
+		t.Errorf("bringing the second back reports %+v, %v", r, err)
+	}
+	if got := storeStrings(t, s, "SELECT category FROM file_transactions"); !slices.Equal(got, []string{"transfer_out"}) {
+		t.Errorf("brought back, the wire is %q", got)
+	}
+}
+
 // A file can be moved to another account, and given another range, by
 // your decisions (14.7 of the design): its transactions leave the one and
 // join the other, both derived again, and a name whose digits are not the

@@ -546,7 +546,10 @@ func TestPrintedCommandsNameTheStore(t *testing.T) {
 		strings.Contains(strings.ReplaceAll(out, "schwabtx edit -store "+quoteArg(store), ""), "schwabtx edit") {
 		t.Errorf("status -review printed\n%s\nwant every command naming the store", out)
 	}
-	mustRun(t, "import", "-store", store, "-forget", f)
+	if out, _ := mustRun(t, "import", "-store", store, "-forget", f); !strings.HasPrefix(out,
+		"set aside "+f+" (export.csv): 1 transaction that no other file holds was set aside, counted in the ledger\n") {
+		t.Errorf("import -forget printed %q", out)
+	}
 	_, _, err := runTx(t, "import", "-store", store, "-account", "A1", export)
 	_, command, ok = strings.Cut(fmt.Sprint(err), "bring it back with: ")
 	command, _, _ = strings.Cut(command, ";")
