@@ -575,6 +575,7 @@ func TestStoreCommandsMaskNumbers(t *testing.T) {
 		{"status", "-review", "-all"},
 		{"status", "T1001"},
 		{"edit", "A1", "-kind", "taxable " + number},
+		{"status", "A1"},
 		{"store", "backup", filepath.Join(dir, "backup.db")},
 		{"export", "-what", "all", "-all", "-dir", filepath.Join(dir, "export")},
 	} {

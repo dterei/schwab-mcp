@@ -37,7 +37,8 @@ type Decision struct {
 	//	entry_security  an entry's security: k:<key>, or auto
 	//	security        that two keys name one security or two: same k:<key>,
 	//	                differ k:<key>, or auto
-	//	account         an account's kind: kind=<text>, or auto
+	//	account         an account's kind: kind=<text>, the text kept masked
+	//	                (mask.Text); or auto
 	//	completeness    whether a file holds every type and symbol: complete,
 	//	                filtered or auto; on `-json` output, filtered withdraws
 	//	                the coverage its rows give
@@ -119,6 +120,10 @@ func (s *Store) DecideAll(ctx context.Context, ds []Decision) ([]Decided, error)
 		}
 		if label, ok := strings.CutPrefix(d.Subject, "action:"); ok && d.Kind == "action" {
 			ds[i].Subject = "action:" + normalAction(label)
+		}
+		// An account's kind is text of yours, kept masked, as a note is.
+		if kind, ok := strings.CutPrefix(d.Value, "kind="); ok && d.Kind == "account" {
+			ds[i].Value = "kind=" + mask.Text(kind)
 		}
 		if d.Kind == "match" {
 			subjects := strings.Split(d.Value, ",")

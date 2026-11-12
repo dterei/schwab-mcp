@@ -324,7 +324,8 @@ func TestPairDecisionsAcrossAccounts(t *testing.T) {
 // kind masked as free text is, and records nothing; DecideAll, given a
 // decision it refuses after one it takes, records neither. They record the
 // rest, with what each changed: whether an entry counts, its category, its
-// security, an account's kind (masked), and that two keys are one security.
+// security, an account's kind (masked in the log too), and that two keys
+// are one security.
 func TestDecide(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -404,6 +405,9 @@ func TestDecide(t *testing.T) {
 	decide(t, s, Decision{Kind: "account", Subject: "acct:1", Value: "kind=ira 12345678"})
 	if got := storeStrings(t, s, "SELECT kind FROM accounts WHERE account_id = 1"); !slices.Equal(got, []string{"ira ...678"}) {
 		t.Errorf("the account's kind is %q", got)
+	}
+	if got := storeStrings(t, s, "SELECT value FROM decision WHERE kind = 'account'"); !slices.Equal(got, []string{"kind=ira ...678"}) {
+		t.Errorf("the decision on the account's kind holds %q", got)
 	}
 	decide(t, s, Decision{Kind: "security", Subject: "k:i:4417302", Value: "same k:i:4417355"})
 	if a, b := securityOf(t, s, "i:4417302"), securityOf(t, s, "i:4417355"); a != b {
