@@ -188,6 +188,14 @@ func TestReadSnapshot(t *testing.T) {
 	if fig := balances["initial"]["isInCall"]; fig.V != 0 || fig.C != nil {
 		t.Errorf("isInCall reads as %+v, want 0 without cents", fig)
 	}
+	inCall := readSnapshot(fixtureAccount(t, options, `"isInCall": false`, `"isInCall": true`))
+	var inCallSets map[string]map[string]figure
+	if err := json.Unmarshal([]byte(inCall.fields.balances), &inCallSets); err != nil {
+		t.Fatal(err)
+	}
+	if fig := inCallSets["initial"]["isInCall"]; fig.V != 1 || fig.C != nil {
+		t.Errorf("isInCall true reads as %+v, want 1 without cents", fig)
+	}
 	if fig, ok := balances["initial"]["equityPercentage"]; !ok || fig.C != nil {
 		t.Errorf("equityPercentage reads as %+v, want a value without cents", fig)
 	}
@@ -331,6 +339,18 @@ func TestSnapshotFlags(t *testing.T) {
 		{"problems", "securitiesAccount.initialBalances.cashBalance; securitiesAccount.positions[0].shortQuantity"},
 		{"rounded", "securitiesAccount.positions[0].longQuantity -236.999999999999"},
 	}
+	if got := snapshotFlags(r).sorted(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the snapshot is flagged\n%q\nwant\n%q", got, want)
+	}
+	// The current cash and the aggregated liquidation value have columns
+	// of their own too.
+	r = readSnapshot(fixtureAccount(t, individual,
+		`"cashBalance": 1532.17`, `"cashBalance":1532.17`, // the initial one, left as it was
+		`"cashBalance": 1532.17`, `"cashBalance": 1532.171`,
+		`"liquidationValue": 6997.68`, `"liquidationValue":6997.68`, // the current one, left as it was
+		`"liquidationValue": 6997.68`, `"liquidationValue": 6997.6801`,
+	))
+	want = []entryFlag{{"inexact", "securitiesAccount.currentBalances.cashBalance 1532.171; aggregatedBalance.liquidationValue 6997.6801"}}
 	if got := snapshotFlags(r).sorted(); !reflect.DeepEqual(got, want) {
 		t.Errorf("the snapshot is flagged\n%q\nwant\n%q", got, want)
 	}
@@ -705,6 +725,29 @@ func TestMarketDatesAndGaps(t *testing.T) {
 	}
 }
 
+// A snapshot taken during a session stands for no close: it fills no gap,
+// though its market date is the session before, and it does not move an
+// account's first closed-phase snapshot back.
+func TestIntradaySnapshotFillsNoGap(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	et := func(datetime string) time.Time { return timeIn(t, nytime.NewYork(), datetime) }
+	file := snapshotAt(t, et("2026-11-05 18:00:00"), individual) + // stands for Thu 11-05
+		snapshotAt(t, et("2026-11-09 10:00:00"), options) + // during Mon 11-09: Fri 11-06, but not a close
+		snapshotAt(t, et("2026-11-09 15:45:00"), individual) + // likewise
+		snapshotAt(t, et("2026-11-10 18:00:00"), individual, options) + // Tue 11-10
+		snapshotAt(t, et("2026-11-11 18:00:00"), options) // Wed 11-11
+	importFile(t, s, "snapshots.jsonl", file)
+	if got := storeStrings(t, s, "SELECT account || ' ' || market_date FROM snapshot_gaps ORDER BY account_id, market_date"); !slices.Equal(got,
+		[]string{"...135 2026-11-06", "...135 2026-11-09"}) {
+		t.Errorf("the gaps are %q, want Fri 11-06 and Mon 11-09 of ...135 alone", got)
+	}
+	if got := storeRows(t, s, "SELECT account, from_date, to_date FROM coverages WHERE source = 'snapshot' ORDER BY account_id"); !reflect.DeepEqual(got,
+		[][]string{{"...135", "2026-11-05", "2026-11-10"}, {"...398", "2026-11-10", "2026-11-11"}}) {
+		t.Errorf("the snapshots' coverages are %q", got)
+	}
+}
+
 // A sync's read of the accounts keeps each account as a snapshot taken
 // when the answer came, to the second, its raw JSON without white space;
 // the snapshot file that the same answer gives (schwabfile.SnapshotLine)
@@ -880,31 +923,49 @@ func TestUnverifiedCalendar(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
 	r := importFile(t, s, "snapshots.jsonl", snapshotAt(t, time.Date(2028, 12, 29, 22, 0, 0, 0, time.UTC), individual)+
-		snapshotAt(t, time.Date(2029, 1, 2, 22, 0, 0, 0, time.UTC), individual))
+		snapshotAt(t, time.Date(2029, 1, 2, 22, 0, 0, 0, time.UTC), individual)+
+		// During the first session past the checked years: it stands for
+		// a checked close, but names an unchecked session.
+		snapshotAt(t, timeIn(t, nytime.NewYork(), "2029-01-02 10:00:00"), options))
 	want := []string{"snapshots on or after 2029-01-01 use a calendar not yet checked against NYSE's published dates; " +
 		"a newer schwabtx will have it"}
-	if r.Snapshots.Unverified != 1 || !slices.Equal(r.Warnings, want) {
+	if r.Snapshots.Unverified != 2 || !slices.Equal(r.Warnings, want) {
 		t.Errorf("the import reports %d unverified and warns %q", r.Snapshots.Unverified, r.Warnings)
 	}
 	if got := storeStrings(t, s, "SELECT date || ' ' || verified FROM sessions ORDER BY date"); !slices.Equal(got,
 		[]string{"2028-12-29 1", "2029-01-02 0"}) {
 		t.Errorf("the sessions are %q", got)
 	}
-	if got := storeStrings(t, s, "SELECT subject_ref || ' ' || code || ' ' || detail FROM flags ORDER BY subject_ref"); !slices.Equal(got,
-		[]string{"S2 calendar_unverified 2029-01-02"}) {
+	if got := storeStrings(t, s, "SELECT subject_ref || ' ' || code || ' ' || detail FROM flags ORDER BY subject_ref, code"); !slices.Equal(got,
+		[]string{"S2 calendar_unverified 2029-01-02", "S3 calendar_unverified 2029-01-02", "S3 in_session 2029-01-02"}) {
 		t.Errorf("the flags are %q", got)
 	}
 }
 
 // The market sessions span the market dates of every snapshot, one that
-// is no account's included.
+// is no account's included, and one taken during a session too.
 func TestSessionsOfAnySnapshot(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
-	importFile(t, s, "snapshots.jsonl", snapshotLine(t, time.Date(2026, 11, 7, 5, 5, 0, 0, time.UTC),
-		json.RawMessage(`{"securitiesAccount":{"accountNumber":29470135}}`)))
-	if got := storeStrings(t, s, "SELECT date FROM sessions"); !slices.Equal(got, []string{"2026-11-06"}) {
+	importFile(t, s, "snapshots.jsonl", snapshotAt(t, timeIn(t, nytime.NewYork(), "2026-11-05 11:00:00"), individual)+
+		snapshotLine(t, time.Date(2026, 11, 7, 5, 5, 0, 0, time.UTC), json.RawMessage(`{"securitiesAccount":{"accountNumber":29470135}}`)))
+	if got := storeStrings(t, s, "SELECT date FROM sessions ORDER BY date"); !slices.Equal(got, []string{"2026-11-04", "2026-11-05", "2026-11-06"}) {
 		t.Errorf("the sessions are %q", got)
+	}
+}
+
+// Snapshots of one account at one time that differ are each flagged with
+// the others, those of a later import too.
+func TestSnapshotConflictsAcrossImports(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	at := time.Date(2026, 11, 7, 5, 5, 0, 0, time.UTC)
+	importFile(t, s, "a.jsonl", snapshotLine(t, at, fixtureAccount(t, individual))+
+		snapshotLine(t, at, fixtureAccount(t, individual, `"roundTrips": 0`, `"roundTrips": 1`)))
+	importFile(t, s, "b.jsonl", snapshotLine(t, at, fixtureAccount(t, individual, `"roundTrips": 0`, `"roundTrips": 2`)))
+	if got := storeStrings(t, s, "SELECT subject_ref || ' ' || detail FROM flags WHERE code = 'snapshot_conflict' ORDER BY subject_ref"); !slices.Equal(got,
+		[]string{"S1 differs from S2, S3", "S2 differs from S1, S3", "S3 differs from S1, S2"}) {
+		t.Errorf("the conflicts are %q", got)
 	}
 }
 
@@ -921,6 +982,30 @@ func TestPositionsPointAtSecurities(t *testing.T) {
 		"1 c:0XYZ..RI60045000", "1 c:30303M102", "2 c:0XYZ..RI60045000", "2 c:30303M102", "3 c:0XYZ..RI60045000", "3 c:30303M102",
 	}) {
 		t.Errorf("the positions point at %q", got)
+	}
+}
+
+// A position moves to the security that its key joins: snapshots imported
+// first point the AAPL position at its CUSIP's security, and a read of
+// transactions that later joins the CUSIP to AAPL's instrumentId, whose
+// key sorts first, points it at the joined security, in a write that
+// leaves no position pointing at the security it removed.
+func TestPositionMovesWithItsSecurity(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	importFile(t, s, "snapshots.jsonl", snapshotAt(t, day(2025, 6, 2).Add(22*time.Hour), individual))
+	aapl := "SELECT coalesce(security_key, '-') FROM positions WHERE symbol = 'AAPL'"
+	if got := storeStrings(t, s, aapl); !slices.Equal(got, []string{"c:037833100"}) {
+		t.Fatalf("before the transactions, the AAPL position points at %q, want c:037833100", got)
+	}
+	if _, err := s.RecordTransactions(t.Context(), listRead(individual, fixturesStart, fixturesEnd, day(2025, 6, 3), fixtureRows(t, individual)...)); err != nil {
+		t.Fatalf("recording the transactions: %v", err)
+	}
+	if got := storeStrings(t, s, aapl); !slices.Equal(got, []string{"i:1973757747"}) {
+		t.Errorf("after the transactions, the AAPL position points at %q, want i:1973757747", got)
+	}
+	if got := storeStrings(t, s, "SELECT security_key FROM security_keys WHERE key = 'c:037833100'"); !slices.Equal(got, []string{"i:1973757747"}) {
+		t.Errorf("the CUSIP's key is in %q, want i:1973757747", got)
 	}
 }
 

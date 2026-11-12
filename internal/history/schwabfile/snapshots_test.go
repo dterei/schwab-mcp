@@ -86,14 +86,16 @@ func TestReadSnapshotLines(t *testing.T) {
 		`{"version":1,"fetched_at":"Nov 9","accounts":[]}`,
 		`{"version":1,"fetched_at":"2026-11-09T05:05:00Z","accounts":{}}`,
 		`{"version":1,"fetched_at":"2026-11-09T05:05:00Z"}`,
+		`{"version":1,"fetched_at":"2026-11-09T05:05:00Z","accounts":null}`,
+		`{"version":1.0,"fetched_at":"2026-11-09T05:05:00Z","accounts":[]}`,
 		"  \r",
 		`{"version":1,"fetched_at":"2026-11-10T05:05:00.5Z","accounts":[ {"a": [1, 2]} ]}` + "\r",
 		`{"version":1,"fetched_at":"2026-11-11T05:05:00Z","accounts":[{"securitiesAccount":{}}]}`, // no newline
 	}
 	got, skipped := ReadSnapshotLines([]byte(strings.Join(lines, "\n")))
 	wantSkipped := map[string]int{
-		SkipNotJSON: 2, "version 2": 1, `version "1"`: 1, SkipNotObject: 1, SkipNoVersion: 1,
-		SkipNoFetchedAt: 1, SkipBadTime: 1, SkipNotList: 2, SkipPartial: 1,
+		SkipNotJSON: 2, "version 2": 1, `version "1"`: 1, "version 1.0": 1, SkipNotObject: 1, SkipNoVersion: 1,
+		SkipNoFetchedAt: 1, SkipBadTime: 1, SkipNotList: 3, SkipPartial: 1,
 	}
 	if !maps.Equal(skipped, wantSkipped) {
 		t.Errorf("skipped %v, want %v", skipped, wantSkipped)
@@ -108,9 +110,9 @@ func TestReadSnapshotLines(t *testing.T) {
 		string(g.Accounts[1]) != `{"securitiesAccount":{"accountNumber":"61803398","positions":[5]}}` {
 		t.Errorf("line 2 reads as line %d with %s", g.Line, g.Accounts)
 	}
-	if g := got[2]; g.Line != 15 || len(g.Accounts) != 1 || string(g.Accounts[0]) != `{"a":[1,2]}` ||
+	if g := got[2]; g.Line != 17 || len(g.Accounts) != 1 || string(g.Accounts[0]) != `{"a":[1,2]}` ||
 		!g.FetchedAt.Equal(time.Date(2026, 11, 10, 5, 5, 0, 5e8, time.UTC)) {
-		t.Errorf("line 15 reads as line %d at %v with %s", g.Line, g.FetchedAt, g.Accounts)
+		t.Errorf("line 17 reads as line %d at %v with %s", g.Line, g.FetchedAt, g.Accounts)
 	}
 	long := `{"version":123456789012345678901234567890,"fetched_at":"2026-11-09T05:05:00Z","accounts":[]}` + "\n"
 	if _, skipped := ReadSnapshotLines([]byte(long)); skipped["version 12345678901234567890..."] != 1 {
