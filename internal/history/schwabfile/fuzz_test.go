@@ -2,6 +2,8 @@ package schwabfile
 
 import (
 	"fmt"
+	"math"
+	"math/big"
 	"reflect"
 	"strings"
 	"testing"
@@ -62,8 +64,8 @@ func FuzzRead(f *testing.F) {
 
 // ParseDecimal never panics and refuses only what is neither blank, a
 // placeholder nor a number; a number's canonical spelling reads back to
-// itself, its cents and millionths agree, and its float is the canonical
-// spelling's.
+// itself, its cents and millionths agree, and its float is the float64
+// nearest its exact value, as math/big rounds it, unless that is too large.
 func FuzzDecimal(f *testing.F) {
 	for _, s := range []string{
 		"$1,234.56", "-$1,234.56", "(10.65)", "($10.65)", "1,000", "0.0123", "0.1234567", "--", "N/A", "Missing", "",
@@ -91,17 +93,12 @@ func FuzzDecimal(f *testing.F) {
 		if centsOK && cents > -1<<40 && cents < 1<<40 && (!microsOK || micros != cents*10000) {
 			t.Fatalf("%q is %d cents but %d millionths (%v)", s, cents, micros, microsOK)
 		}
-		if f, ok := d.Float(); ok && fmt.Sprint(f) != fmt.Sprint(mustParseFloat(d.Canon())) {
-			t.Fatalf("%q as a float is %v", s, f)
+		exact, _ := new(big.Rat).SetString(d.Canon())
+		want, _ := exact.Float64() // the nearest float64, or an infinity
+		if f, ok := d.Float(); ok != !math.IsInf(want, 0) || ok && f != want {
+			t.Fatalf("%q as a float is %v, %v; its value's nearest is %v", s, f, ok, want)
 		}
 	})
-}
-
-// mustParseFloat parses a canonical decimal as a float, as Float does.
-func mustParseFloat(s string) float64 {
-	var f float64
-	_, _ = fmt.Sscan(s, &f)
-	return f
 }
 
 // What ParseOption reads, written as an OCC symbol, is the same contract

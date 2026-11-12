@@ -76,7 +76,7 @@ func TestDecimal(t *testing.T) {
 			t.Errorf("placeholder %q has a float", in)
 		}
 	}
-	for _, in := range []string{"abc", "-", "$", ".", "1.2.3", "1e5", "(-5)", "-(5)", "--5", "5-", "$ 5", "1 000", "12%", "(5", "0x10", "١٢"} {
+	for _, in := range []string{"abc", "-", "$", ".", "1.2.3", "1e5", "(-5)", "-(5)", "--5", "5-", "$ 5", "1 000", "12%", "(5", "(10.65", "10.65)", "0x10", "١٢"} {
 		d, err := ParseDecimal(in)
 		if err == nil || !d.Present || d.Number() || d.Text != in || !strings.Contains(err.Error(), `"`+in+`"`) {
 			t.Errorf("ParseDecimal(%q) = %+v, %v, want refused with its text", in, d, err)

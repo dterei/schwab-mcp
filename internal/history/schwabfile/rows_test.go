@@ -56,8 +56,9 @@ func TestHistoryFooter(t *testing.T) {
 	}
 }
 
-// History JSON's rows are read by their keys: a number is read as
-// written, null and a missing key are blank (a missing column is a
+// History JSON's rows are read by their keys: a string is trimmed, a
+// number, negative ones too, is read as written, null and a missing key
+// are blank (a missing column is a
 // problem), any other value is a problem, an element that is not an object
 // is a row of problems, keys beyond the ten are kept in Raw only, and the
 // stated fees are checked like the total.
@@ -93,6 +94,15 @@ func TestHistoryJSONRows(t *testing.T) {
 	if !slices.Equal(codes(f.Warnings), []string{WarnUndatedRows, WarnTotalMismatch}) ||
 		f.Warnings[1].Detail != "the stated total is $3.01 but the rows sum to 3; the stated total of fees is $0.02 but the rows sum to 0.01" {
 		t.Errorf("warnings %v", f.Warnings)
+	}
+	f, err = Read("x.json", []byte(`{"BrokerageTransactions":[{"Date":" 01/02/2026 ","Action":" Buy ","Symbol":" XYZ ",`+
+		`"Description":" XYZ CORP ","Quantity":" 2 ","Price":" $1.00 ","Fees & Comm":" ","Amount":-2.01}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := f.History[0]; r.Posted != "2026-01-02" || r.Action != "Buy" || r.Symbol != "XYZ" || r.Description != "XYZ CORP" ||
+		r.Quantity.Text != "2" || r.Price.Text != "$1.00" || r.Fees.Present || r.Amount.Canon() != "-2.01" || len(r.Problems) != 0 {
+		t.Errorf("a row of padded cells and a negative number reads as %+v", r)
 	}
 	f, err = Read("x.json", []byte(`{"BrokerageTransactions":[{"Date":"01/02/2026"}],"BrokerageTransactions":[]}`))
 	if err != nil || len(f.History) != 0 {
@@ -180,5 +190,15 @@ func TestRealizedRows(t *testing.T) {
 	}
 	if len(f.Realized) != 2 || !slices.Equal(f.Warnings, want) {
 		t.Errorf("read %d lots with warnings %v, want 2 and %v", len(f.Realized), f.Warnings, want)
+	}
+	// "TOTAL" ends the lots too; a column one of whose lots holds a
+	// placeholder has no known sum, so its Total is not checked.
+	total = `"TOTAL","","","","20","","","$180.00","$200.00","$0.00","","","","","--","","","","","","","","","",""` + "\n"
+	f, err = Read("x.csv", []byte(title+lotsHeader+lot("-$10.00", "No", "")+lot("--", "Yes", "$10.00")+total))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Realized) != 2 || len(f.Warnings) != 0 {
+		t.Errorf("read %d lots with warnings %v, want 2 and none", len(f.Realized), f.Warnings)
 	}
 }

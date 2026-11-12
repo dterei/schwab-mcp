@@ -303,19 +303,24 @@ func TestRefusedByContent(t *testing.T) {
 		`{"FromDate": "01/01/2026"`:        "is not a JSON object",
 		`{"BrokerageTransactions": 5}`:     "BrokerageTransactions is not a list",
 		`{"BrokerageTransactions": []} {}`: "is not a JSON object",
-		`{"FromDate": "2026-01-01", "BrokerageTransactions": []}`:     `FromDate "...101" is not MM/DD/YYYY`,
-		`{"FromDate": 5, "BrokerageTransactions": []}`:                `FromDate "5" is not MM/DD/YYYY`,
-		`{"ToDate": {}, "BrokerageTransactions": []}`:                 "ToDate is not text",
-		`{"Transactions": [{"Date": "01/02/2026"}]}`:                  "a JSON file that is not a History export",
-		`[{"activityId": 1}, {"type": "TRADE"}]`:                      "not `schwabtx transactions -json` output",
-		`[{"activityId": 1}, 2]`:                                      "not `schwabtx transactions -json` output",
-		`[{"activityId": 1}`:                                          "not `schwabtx transactions -json` output",
-		"\"Date\",\"Action\"\n\"a\"b\"\"\n":                           "not a file schwabtx knows",
-		"\"Transactions  for account XXXX-1234 as of 12/20/2014\"\n":  "has a first line and nothing else",
-		"\"Transactions for account ...123 as of x ET\"\n\"A\",\"B\"": `has no "Date" column; it is not a History export`,
-		"\"Realized Gain/Loss for ...123\"\n\"A\",\"B\"":              `has no "Symbol" column; it is not a Realized Gain/Loss Lot Details`,
-		"\"\",\"\"\n,,\n":                                             "not a file schwabtx knows",
-		"\"Date\",\"Action\",\"Symbol\",\"Amount\",\"Price\"\n":       `has no "Description" column`,
+		`{"FromDate": "2026-01-01", "BrokerageTransactions": []}`:        `FromDate "...101" is not MM/DD/YYYY`,
+		`{"FromDate": 5, "BrokerageTransactions": []}`:                   `FromDate "5" is not MM/DD/YYYY`,
+		`{"ToDate": {}, "BrokerageTransactions": []}`:                    "ToDate is not text",
+		`{"Transactions": [{"Date": "01/02/2026"}]}`:                     "a JSON file that is not a History export",
+		`[{"activityId": 1}, {"type": "TRADE"}]`:                         "not `schwabtx transactions -json` output",
+		`[{"activityId": 1}, 2]`:                                         "not `schwabtx transactions -json` output",
+		`[{"activityId": 1}`:                                             "not `schwabtx transactions -json` output",
+		"\"Date\",\"Action\"\n\"a\"b\"\"\n":                              "not a file schwabtx knows",
+		"\"Transactions  for account XXXX-1234 as of 12/20/2014\"\n":     "has a first line and nothing else",
+		"\"Transactions for account ...123 as of x ET\"\n\"A\",\"B\"":    `has no "Date" column; it is not a History export`,
+		"\"Realized Gain/Loss for ...123\"\n\"A\",\"B\"":                 `has no "Symbol" column; it is not a Realized Gain/Loss Lot Details`,
+		"\"\",\"\"\n,,\n":                                                "not a file schwabtx knows",
+		"\"Date\",\"Action\",\"Symbol\",\"Amount\",\"Price\"\n":          `has no "Description" column`,
+		"\"Date\",\"Action\",\"Symbol\",\"Amount\"\n":                    `has no "Description" column; it is not a History export`,
+		"\"Date\",\"Action\",\"Amount\"\n":                               "not a file schwabtx knows",
+		"\"Transactions  for account ...123 as of x ET\"\n" + lotsHeader: `has no "Date" column; it is not a History export`,
+		halfLots(12):    `has no "Symbol" column; it is not a Realized Gain/Loss Lot Details`,
+		halfLots(11):    "not a file schwabtx knows",
 		"<html></html>": "an XML export",
 		"Hello":         "not a file schwabtx knows",
 	} {
@@ -328,6 +333,16 @@ func TestRefusedByContent(t *testing.T) {
 			t.Errorf("%q refused with %q, want %q", content, err, want)
 		}
 	}
+}
+
+// halfLots is a Lot Details header of only its last n columns, with no
+// title.
+func halfLots(n int) string {
+	var names []string
+	for _, c := range lotColumns[len(lotColumns)-n:] {
+		names = append(names, `"`+c[0]+`"`)
+	}
+	return strings.Join(names, ",") + "\n"
 }
 
 // A History header is bound by name, in any case and order, with padding
@@ -394,6 +409,8 @@ func TestHints(t *testing.T) {
 		{"x.csv", `"Transactions  for account Brokerage as of 05/03/2022 02:21:05 PM ET"` + "\n" + header, "", ""},
 		{"x.csv", `"Transactions  for account Trust 12345678 as of 05/03/2022 02:21:05 PM ET"` + "\n" + header, "12345678", ""},
 		{"x.csv", `"Transactions  for account Trust 2 as of 05/03/2022 02:21:05 PM ET"` + "\n" + header, "", ""},
+		{"x.csv", `"Transactions  for account ...456 Joint as of 05/03/2022 02:21:05 PM ET"` + "\n" + header, "", ""},
+		{"x.csv", `"Transactions  for account 12345678 Trust as of 05/03/2022 02:21:05 PM ET"` + "\n" + header, "", ""},
 		{"x.csv", `"Transactions  for account Trust 1234567890 as of 05/03/2022 02:21:05 PM ET"` + "\n" + header, "1234567890", ""},
 		{"x.csv", `"Transactions  for account Trust1234567890 as of 05/03/2022 02:21:05 PM ET"` + "\n" + header, "", ""},
 		{"x.csv", `"Realized Gain/Loss - Lot Details for Joint …456 as of Mon Jul 06 10:47:11 EDT 2026 from 01/01/2026 to 07/06/2026"` +
