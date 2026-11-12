@@ -442,6 +442,8 @@ func TestExportedAt(t *testing.T) {
 		{"x.csv", `"Transactions  for account XXXX-1234 as of 12/20/2014 21:16:49 ET"` + "\n" + header, "2014-12-21T02:16:49Z"},
 		{"x.csv", `"Transactions  for account ...456 as of 7/3/2022 02:21:05 pm ET"` + "\n" + header, "2022-07-03T18:21:05Z"},
 		{"x.csv", `"Transactions  for account ...456 as of 05/03/2022 12:21:05 AM ET"` + "\n" + header, "2022-05-03T04:21:05Z"},
+		{"x.csv", `"Transactions  for account ...123 as of 05/03/2023 2:21:05 PM ET"` + "\n" + header, "2023-05-03T18:21:05Z"},
+		{"x.csv", `"Transactions  for account ...123 as of 05/03/2023 9:21:05 ET"` + "\n" + header, "2023-05-03T13:21:05Z"},
 		{"a_20260706-104711.csv", header, "2026-07-06T14:47:11Z"},
 		{"a_20260115-104711.json", `{"BrokerageTransactions": []}`, "2026-01-15T15:47:11Z"},
 		{"a_20261341-250000.csv", header, ""},

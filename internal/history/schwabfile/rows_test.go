@@ -8,7 +8,8 @@ import (
 
 // A History CSV's footer gives its stated total and ends its rows: a
 // record after it is not read, and warns; a footer whose total is not a
-// number warns that it is not; empty records are passed over.
+// number warns that it is not, and one of empty cells states none; empty
+// records are passed over.
 func TestHistoryFooter(t *testing.T) {
 	header := `"Date","Action","Symbol","Description","Quantity","Price","Fees & Comm","Amount"` + "\n"
 	row := `"01/02/2026","Credit Interest","","SCHWAB1 INT","","","","$1.25"` + "\n"
@@ -39,6 +40,16 @@ func TestHistoryFooter(t *testing.T) {
 	}
 	if !slices.Equal(f.Warnings, []Warning{{WarnTotalMismatch, `the stated total, "N/A", is not a number`}}) {
 		t.Errorf("a total that is not a number warns %v", f.Warnings)
+	}
+	f, err = Read("x.csv", []byte(header+row+`Transactions Total,"","","","","","",""`+"\n"+row))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.History) != 1 || f.StatedTotal != nil || !slices.Equal(f.Warnings, []Warning{{
+		WarnRowsAfterTotal, "1 record after the Transactions Total line, the first on line 4, not read",
+	}}) {
+		t.Errorf("a footer of empty cells ends the rows and states no total: %d rows, the total %+v, warnings %v",
+			len(f.History), f.StatedTotal, f.Warnings)
 	}
 	f, err = Read("x.csv", []byte(header+row+`Transactions Total,"","","","","","",-$1.25`+"\n"))
 	if err != nil {

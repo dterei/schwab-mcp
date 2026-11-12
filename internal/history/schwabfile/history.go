@@ -87,8 +87,10 @@ func readHistoryCSV(banner *record, cols []int, recs []record) *File {
 					total = c
 				}
 			}
-			d, _ := ParseDecimal(total)
-			f.StatedTotal = &d
+			if total != "" { // a footer of empty cells states no total
+				d, _ := ParseDecimal(total)
+				f.StatedTotal = &d
+			}
 			after = []int{}
 		default:
 			f.History = append(f.History, historyRow(len(f.History)+1, r.line, r.raw, func(c int) (string, string) {
@@ -119,7 +121,8 @@ func (f *File) readBanner(banner string) {
 	at, layout := m[2]+" "+m[3], "1/2/2006 15:04:05"
 	f.Layout = LayoutBanner24h
 	if m[4] != "" {
-		at, layout = at+" "+strings.ToUpper(m[4]), "1/2/2006 03:04:05 PM"
+		// "3", not "03": Schwab wrote the hour in one digit or two.
+		at, layout = at+" "+strings.ToUpper(m[4]), "1/2/2006 3:04:05 PM"
 		f.Layout = LayoutBanner12h
 	}
 	if t, err := time.ParseInLocation(layout, at, nytime.NewYork()); err == nil {
@@ -315,6 +318,9 @@ func jsonTop(text, key string) (map[string]json.RawMessage, []element, error) {
 			return nil, nil, fmt.Errorf("%s is not a list", key)
 		}
 		list = list[:0:0]
+		// The line where each element starts, counted from the previous
+		// element's start, so that the text is counted through once.
+		line, counted := 1, 0
 		for dec.More() {
 			var v json.RawMessage
 			if err := dec.Decode(&v); err != nil {
@@ -322,7 +328,9 @@ func jsonTop(text, key string) (map[string]json.RawMessage, []element, error) {
 			}
 			end := int(dec.InputOffset())
 			start := end - len(v)
-			list = append(list, element{text: text[start:end], line: 1 + strings.Count(text[:start], "\n")})
+			line += strings.Count(text[counted:start], "\n")
+			counted = start
+			list = append(list, element{text: text[start:end], line: line})
 		}
 		if _, err := dec.Token(); err != nil { // ]
 			return nil, nil, err
