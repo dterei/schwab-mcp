@@ -202,7 +202,10 @@ func exactDecimal(lit string) string {
 // changedPaths returns the key paths whose values differ between two of a
 // transaction's raw JSONs, cut, in order: the keys from the top joined by
 // dots, without array indexes, as the Q12 probe writes them, so that
-// "transferItems.instrument.instrumentId" is any leg's.
+// "transferItems.instrument.instrumentId" is any leg's. Values are compared
+// where they lie, array elements by their index, so that a value that
+// moves from one leg to another changes its path too. Two raw JSONs whose
+// cut forms differ always have a path that changed; the list is never nil.
 func changedPaths(before, after []byte) ([]string, error) {
 	b, err := cutTree(before)
 	if err != nil {
@@ -212,51 +215,54 @@ func changedPaths(before, after []byte) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	bv, av := map[string][]string{}, map[string][]string{}
-	leafValues(b, "", bv)
-	leafValues(a, "", av)
-	var changed []string
-	for p := range bv {
-		if !slices.Equal(bv[p], av[p]) {
-			changed = append(changed, p)
+	bv, av := map[string]leaf{}, map[string]leaf{}
+	leafValues(b, "", "", bv)
+	leafValues(a, "", "", av)
+	changed := map[string]bool{}
+	for at, l := range bv {
+		if m, ok := av[at]; !ok || m.value != l.value {
+			changed[l.path] = true
 		}
 	}
-	for p := range av {
-		if _, ok := bv[p]; !ok {
-			changed = append(changed, p)
+	for at, l := range av {
+		if _, ok := bv[at]; !ok {
+			changed[l.path] = true
 		}
 	}
-	slices.Sort(changed)
-	return changed, nil
+	return append([]string{}, slices.Sorted(maps.Keys(changed))...), nil
 }
 
-// leafValues adds to out each value of v under its key path, as its
-// canonical form: an array's elements under the array's path, and an empty
-// object or array as itself.
-func leafValues(v any, path string, out map[string][]string) {
+// A leaf is a value in a raw JSON's tree, in its canonical form, with the
+// key path it lies under.
+type leaf struct{ path, value string }
+
+// leafValues adds to out each leaf of v, by where it lies (at: its keys,
+// and the index of each array element on the way), with its key path
+// (path: its keys alone). An empty object or array is a leaf of its own.
+func leafValues(v any, at, path string, out map[string]leaf) {
 	switch v := v.(type) {
 	case map[string]any:
 		if len(v) == 0 {
-			out[path] = append(out[path], "{}")
+			out[at] = leaf{path, "{}"}
 		}
-		for _, k := range slices.Sorted(maps.Keys(v)) {
+		for k, e := range v {
 			p := keyName(k)
 			if path != "" {
 				p = path + "." + p
 			}
-			leafValues(v[k], p, out)
+			leafValues(e, at+"."+keyName(k), p, out)
 		}
 	case []any:
 		if len(v) == 0 {
-			out[path] = append(out[path], "[]")
+			out[at] = leaf{path, "[]"}
 		}
-		for _, e := range v {
-			leafValues(e, path, out)
+		for i, e := range v {
+			leafValues(e, at+"["+strconv.Itoa(i)+"]", path, out)
 		}
 	default:
 		var b bytes.Buffer
 		writeCanonical(&b, v)
-		out[path] = append(out[path], b.String())
+		out[at] = leaf{path, b.String()}
 	}
 }
 

@@ -98,11 +98,13 @@ func TestCutForm(t *testing.T) {
 		raw     []byte
 		changed []string
 	}{
-		"status":        {replaceOnce(t, list, `"status": "VALID"`, `"status": "PENDING"`), []string{"status"}},
-		"a new key":     {replaceOnce(t, list, `"subAccount": "CASH",`, `"subAccount": "CASH", "qualifiedDividend": false,`), []string{"qualifiedDividend"}},
-		"a cost":        {replaceOnce(t, list, `"cost": -2.7`, `"cost": -2.71`), []string{"transferItems.cost"}},
-		"an instrument": {replaceOnce(t, list, `"instrumentId": 4417302`, `"instrumentId": 4417303`), []string{"transferItems.instrument.instrumentId"}},
-		"a key gone":    {replaceOnce(t, list, `"positionId": 3926184811,`, ``), []string{"positionId"}},
+		"status":          {replaceOnce(t, list, `"status": "VALID"`, `"status": "PENDING"`), []string{"status"}},
+		"a new key":       {replaceOnce(t, list, `"subAccount": "CASH",`, `"subAccount": "CASH", "qualifiedDividend": false,`), []string{"qualifiedDividend"}},
+		"a cost":          {replaceOnce(t, list, `"cost": -2.7`, `"cost": -2.71`), []string{"transferItems.cost"}},
+		"an instrument":   {replaceOnce(t, list, `"instrumentId": 4417302`, `"instrumentId": 4417303`), []string{"transferItems.instrument.instrumentId"}},
+		"a key gone":      {replaceOnce(t, list, `"positionId": 3926184811,`, ``), []string{"positionId"}},
+		"an empty object": {replaceOnce(t, list, `"subAccount": "CASH",`, `"subAccount": "CASH", "extra": {},`), []string{"extra"}},
+		"an empty array":  {replaceOnce(t, list, `"subAccount": "CASH",`, `"subAccount": "CASH", "extra": [],`), []string{"extra"}},
 	}
 	for name, c := range differ {
 		if got, d := mustCut(t, c.raw); got == want || d == digest {
@@ -112,6 +114,23 @@ func TestCutForm(t *testing.T) {
 			t.Errorf("%s: changed paths %q, %v; want %q", name, changed, err, c.changed)
 		}
 	}
+	// A key that moves from one leg to another leaves each path with the
+	// same values, but not in the same legs.
+	before := []byte(`{"transferItems": [{"amount": 1, "cost": 2}, {"amount": 3}]}`)
+	after := []byte(`{"transferItems": [{"amount": 1}, {"amount": 3, "cost": 2}]}`)
+	if _, d := mustCut(t, after); d == mustDigest(t, before) {
+		t.Error("a key moved to another leg: the cut form did not change")
+	}
+	if changed, err := changedPaths(before, after); err != nil || !slices.Equal(changed, []string{"transferItems.cost"}) {
+		t.Errorf("a key moved to another leg: changed paths %q, %v; want transferItems.cost", changed, err)
+	}
+}
+
+// mustDigest returns the cut digest of raw.
+func mustDigest(t *testing.T, raw []byte) [32]byte {
+	t.Helper()
+	_, d := mustCut(t, raw)
+	return d
 }
 
 // The cut form of a small row is written out exactly, and its digest is
