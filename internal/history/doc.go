@@ -16,7 +16,8 @@
 // only in its -wal, so the three are moved, copied or removed together or
 // not at all. Beside them are lock files and the backups made before a
 // schema changed (Companions). Open refuses a -wal or -shm without its
-// database rather than adopt another store's journal.
+// database, or beside an empty one, rather than adopt another store's
+// journal.
 //
 // A process that has the store open never opens any of the three by path:
 // on Linux and macOS, closing any descriptor of a file drops every lock that

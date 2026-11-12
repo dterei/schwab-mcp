@@ -167,6 +167,16 @@ func header(t *testing.T, path string) [2]byte {
 	return [2]byte{b[18], b[19]}
 }
 
+// readFile returns the bytes of the file at path.
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 // Open refuses a file that is not a store, or not one it can use, and
 // changes nothing: another program's SQLite file keeps its journal mode,
 // its permissions and its directory as they were.
@@ -205,6 +215,68 @@ func TestOpenRefuses(t *testing.T) {
 		}
 		if got := listing(t, dir); !slices.Equal(got, names) {
 			t.Errorf("the directory holds %q, want %q as before", got, names)
+		}
+	})
+	t.Run("another program's, in WAL mode", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "other.db")
+		db := rawDB(t, path)
+		if _, err := db.ExecContext(t.Context(), "PRAGMA journal_mode = WAL; CREATE TABLE t (x); INSERT INTO t VALUES (1)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		before, perm, names := header(t, path), mode(t, path), listing(t, dir)
+		if before != [2]byte{2, 2} || !slices.Equal(names, []string{"other.db"}) {
+			t.Fatalf("the file's header holds %v and the directory %q, want WAL's 2, 2 and the file alone", before, names)
+		}
+		_, err := Open(t.Context(), Options{Path: path})
+		if !errors.Is(err, ErrNotAStore) {
+			t.Fatalf("Open: %v, want ErrNotAStore", err)
+		}
+		if got := header(t, path); got != before {
+			t.Errorf("the header holds %v, want %v as before", got, before)
+		}
+		if got := mode(t, path); got != perm {
+			t.Errorf("the file has mode %v, want %v as before", got, perm)
+		}
+		if got := listing(t, dir); !slices.Equal(got, names) {
+			t.Errorf("the directory holds %q, want %q as before: no -wal or -shm", got, names)
+		}
+	})
+	t.Run("another program's, with a journal to recover", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "other.db")
+		journal := path + "-journal"
+		c := startChild(t, "journal", "HISTORY_TEST_STORE="+path)
+		c.expect(t, "inside")
+		if err := c.cmd.Process.Kill(); err != nil {
+			t.Fatal(err)
+		}
+		_ = c.cmd.Wait()
+		db, j := readFile(t, path), readFile(t, journal)
+		if magic := []byte{0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7}; len(j) < 8 || !slices.Equal(j[:8], magic) {
+			t.Fatalf("the journal starts %x, want SQLite's magic %x: the child left no journal to recover", j[:min(8, len(j))], magic)
+		}
+		_, err := Open(t.Context(), Options{Path: path})
+		if !errors.Is(err, ErrNotAStore) {
+			t.Fatalf("Open: %v, want ErrNotAStore", err)
+		}
+		want := path + " is not a schwabtx store: it has a rollback journal to recover (other.db-journal), which a schwabtx store never has; " +
+			"nothing in it was changed"
+		if err.Error() != want {
+			t.Errorf("Open: %q, want %q", err, want)
+		}
+		if got := readFile(t, path); !slices.Equal(got, db) {
+			t.Error("the file changed: its journal was rolled back")
+		}
+		if got := readFile(t, journal); !slices.Equal(got, j) {
+			t.Error("the journal changed")
 		}
 	})
 	t.Run("damaged", func(t *testing.T) {
@@ -310,6 +382,39 @@ func TestOpenRefuses(t *testing.T) {
 				}
 				if got := listing(t, dir); !slices.Equal(got, []string{"history.db" + journal}) {
 					t.Errorf("the directory holds %q", got)
+				}
+			})
+		}
+	}
+	for _, journal := range []string{"-wal", "-shm"} {
+		for _, mustExist := range []bool{false, true} {
+			t.Run("empty beside "+journal, func(t *testing.T) {
+				t.Parallel()
+				dir := t.TempDir()
+				path := filepath.Join(dir, "history.db")
+				if err := os.WriteFile(path, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path+journal, []byte("journal"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				_, err := Open(t.Context(), Options{Path: path, MustExist: mustExist})
+				if !errors.Is(err, ErrOrphanJournal) {
+					t.Fatalf("Open: %v, want ErrOrphanJournal", err)
+				}
+				want := path + " is empty but " + path + journal + " is here: the journal of an earlier store whose database was emptied or replaced " +
+					"by an empty file; put that store's database back as history.db, or remove history.db-wal and history.db-shm if you mean to discard that store"
+				if err.Error() != want {
+					t.Errorf("Open: %q, want %q", err, want)
+				}
+				if got := listing(t, dir); !slices.Equal(got, []string{"history.db", "history.db" + journal}) {
+					t.Errorf("the directory holds %q", got)
+				}
+				if got := readFile(t, path+journal); string(got) != "journal" {
+					t.Errorf("the journal holds %q, want it as it was", got)
+				}
+				if got := readFile(t, path); len(got) != 0 {
+					t.Errorf("the database holds %d bytes, want it empty as it was", len(got))
 				}
 			})
 		}

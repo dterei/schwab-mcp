@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -129,7 +130,11 @@ func countAccounts(t *testing.T, db *sql.DB) int {
 //   - "migrate" opens HISTORY_TEST_STORE as a build with one more schema and
 //     newer rules would, saying each warning;
 //   - "hold" opens HISTORY_TEST_STORE, adds an account inside a write, says
-//     "inside", and waits there to be killed.
+//     "inside", and waits there to be killed;
+//   - "journal" makes HISTORY_TEST_STORE another program's SQLite file in
+//     rollback-journal mode, changes it inside a transaction until the file
+//     holds changes that the journal can undo, says "inside", and waits
+//     there to be killed.
 //
 // Each says "ready" once it has done what comes before the barrier, the file
 // HISTORY_TEST_BARRIER, and waits for that file before going on. It
@@ -215,6 +220,24 @@ func child(mode string) int {
 			return nil
 		})
 		return fail(fmt.Errorf("the write ended (%w) instead of waiting to be killed", err))
+	case "journal":
+		db, err := sql.Open("sqlite", dsn(store, "_pragma=busy_timeout(5000)"))
+		if err != nil {
+			return fail(err)
+		}
+		db.SetMaxOpenConns(1)
+		// A cache of two pages makes the transaction write the pages it
+		// changed to the file before it commits, their old contents in the
+		// journal. In a process with other connections open, SQLite can
+		// lend the cache their pages instead.
+		if _, err := db.ExecContext(ctx, `CREATE TABLE t (x);
+			WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200) INSERT INTO t SELECT zeroblob(1000) FROM n;
+			PRAGMA cache_size = 2; BEGIN; UPDATE t SET x = zeroblob(1001)`); err != nil {
+			return fail(err)
+		}
+		fmt.Println("inside")
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		return fail(errors.New("the transaction ended instead of waiting to be killed"))
 	}
 	return fail(fmt.Errorf("unknown mode %q", mode))
 }

@@ -76,8 +76,9 @@ var (
 	// ErrBusy means that another process kept the store locked for the
 	// whole of Options.LockWait.
 	ErrBusy = errors.New("the store stayed locked by another process")
-	// ErrOrphanJournal means that the store is missing but its -wal or -shm
-	// is there: the journal of an earlier store whose database was moved.
+	// ErrOrphanJournal means that the store is missing, or empty, but its
+	// -wal or -shm is there: the journal of an earlier store whose database
+	// was moved or emptied.
 	ErrOrphanJournal = errors.New("the store's journal is there without the store")
 )
 
@@ -231,20 +232,32 @@ func (s *Store) checkPath() error {
 	switch {
 	case err == nil && st.IsDir():
 		return fmt.Errorf("%s is a directory, not a store; name the store's file with -store PATH or SCHWAB_STORE_FILE", path)
-	case err == nil:
+	case err == nil && st.Size() > 0:
 		return nil
-	case !errors.Is(err, fs.ErrNotExist):
+	case err != nil && !errors.Is(err, fs.ErrNotExist):
 		return fmt.Errorf("looking for the store: %w", err)
 	}
-	// The store is missing. A journal without it belongs to an earlier store
-	// whose database was moved: adopting it would lose or damage that store.
+	// The store is missing, or empty. A journal beside it belongs to an
+	// earlier store whose database was moved, or emptied: adopting it would
+	// lose or damage that store, and SQLite deletes the -wal of an empty
+	// database the first time it reads it. A store that another process is
+	// making has a page in its database before it has a -wal or -shm.
 	for _, j := range []string{path + "-wal", path + "-shm"} {
-		if _, err := os.Lstat(j); err == nil {
-			wal, shm := filepath.Base(path)+"-wal", filepath.Base(path)+"-shm"
+		if _, jerr := os.Lstat(j); jerr == nil {
+			base := filepath.Base(path)
+			wal, shm := base+"-wal", base+"-shm"
+			if err == nil {
+				return &storeError{kind: ErrOrphanJournal, msg: fmt.Sprintf("%s is empty but %s is here: the journal of an earlier store whose database "+
+					"was emptied or replaced by an empty file; put that store's database back as %s, or remove %s and %s if you mean to discard that store",
+					path, j, base, wal, shm)}
+			}
 			return &storeError{kind: ErrOrphanJournal, msg: fmt.Sprintf("%s is missing but %s is here: the journal of an earlier store whose database "+
 				"was moved or deleted; move %s and %s to where %s went, or remove them if you mean to discard that store",
-				path, j, wal, shm, filepath.Base(path))}
+				path, j, wal, shm, base)}
 		}
+	}
+	if err == nil {
+		return nil // an empty file: a new store, unless o.MustExist (identify)
 	}
 	if s.o.MustExist {
 		return &storeError{kind: ErrNoStore, msg: fmt.Sprintf("no store at %s yet; schwabtx import makes one", path)}
@@ -368,13 +381,35 @@ func (s *Store) connect(ctx context.Context) error {
 // identify reads the file's application ID, schema version and whether it
 // holds any schema, through a connection that cannot write and sets no
 // pragma, and refuses a file that is neither a schwabtx store nor new.
+//
+// A read-only connection to a file in WAL mode still makes a -wal and a
+// -shm beside it, and leaves them, so a file without any journal is read as
+// immutable, which makes none: with no journal there is nothing for it to
+// miss. That read takes no lock, so if a journal has appeared meanwhile,
+// or the read failed, another process may have been changing the file, and
+// it is read again with locks.
 func (s *Store) identify(ctx context.Context) error {
-	id, version, empty, err := s.probe(ctx, true)
+	var id, version int64
+	var empty, read bool
+	var err error
+	if s.noJournal() {
+		id, version, empty, err = s.probe(ctx, "mode=ro", "immutable=1")
+		read = err == nil && s.noJournal()
+	}
+	if !read {
+		id, version, empty, err = s.probe(ctx, "mode=ro")
+	}
 	if err != nil && journalNeedsRecovery(err) && exists(s.path+"-wal") {
 		// A read-only connection cannot recover a WAL that a killed writer
 		// left. Without mode=ro, and still with no pragma, SQLite recovers
 		// the journal that it wrote itself, and writes nothing else.
-		id, version, empty, err = s.probe(ctx, false)
+		id, version, empty, err = s.probe(ctx)
+	}
+	if code(err) == sqlite3.SQLITE_READONLY_ROLLBACK {
+		// A rollback journal to recover, which a store, always in WAL mode,
+		// never has: recovering it would change another program's file.
+		return &storeError{kind: ErrNotAStore, err: err, msg: fmt.Sprintf("%s is not a schwabtx store: it has a rollback journal to recover (%s-journal), "+
+			"which a schwabtx store never has; nothing in it was changed", s.path, filepath.Base(s.path))}
 	}
 	if err != nil {
 		switch code(err) & 0xff {
@@ -396,13 +431,15 @@ func (s *Store) identify(ctx context.Context) error {
 	return &storeError{kind: ErrNotAStore, msg: s.path + " is not a schwabtx store (it is another program's SQLite file); nothing in it was changed"}
 }
 
+// noJournal reports whether the file has no -wal, -shm or rollback journal
+// beside it.
+func (s *Store) noJournal() bool {
+	return !exists(s.path+"-wal") && !exists(s.path+"-shm") && !exists(s.path+"-journal")
+}
+
 // probe reads the file's application ID and user_version and whether its
-// schema is empty, read-only when ro.
-func (s *Store) probe(ctx context.Context, ro bool) (id, version int64, empty bool, err error) {
-	var params []string
-	if ro {
-		params = []string{"mode=ro"}
-	}
+// schema is empty, through a connection with the URI's params.
+func (s *Store) probe(ctx context.Context, params ...string) (id, version int64, empty bool, err error) {
 	db, err := sql.Open("sqlite", dsn(s.path, params...))
 	if err != nil {
 		return 0, 0, false, err
