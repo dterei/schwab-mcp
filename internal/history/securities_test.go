@@ -385,7 +385,8 @@ func TestObserveInstruments(t *testing.T) {
 }
 
 // The grouping on values: links by a CUSIP, by a symbol that one key of
-// each kind held at once, and none when two keys of one kind held it then,
+// each kind held at once (the keys of one symbol in several exports being
+// one), and none when two keys of one kind held it then,
 // or when the link would put two keys you said differ in one security,
 // though neither is the one linked; a security that holds a key of
 // Schwab's is definite, whichever its other keys; the groups and their
@@ -401,6 +402,7 @@ func TestGroupKeys(t *testing.T) {
 		key("i:1"), key("c:111111111"), key("x:9"), key("i:2"), key("i:3"), key("c:222222222"),
 		key("s:EQUITY:LONE"), key("s:FILE:AMB@2026-05-01"), key("i:4"), key("c:333333333"),
 		key("i:5"), key("c:555555555"), key("x:7"), key("i:7"), key("s:FILE:EEE@2026-05-01"), key("x:8"),
+		key("x:6"), key("s:FILE:FFF@2026-02-01"), key("s:FILE:FFF@2026-03-01"),
 	}
 	names := []nameInfo{
 		name("i:1", "symbol", "AAA", 1, 6),
@@ -425,6 +427,11 @@ func TestGroupKeys(t *testing.T) {
 		// A file's symbol joins the instrumentId that held it.
 		name("i:7", "symbol", "EEE", 1, 12),
 		name("s:FILE:EEE@2026-05-01", "symbol", "EEE", 5, 5),
+		// Two exports' keys of FFF each join the ItemIssueId that both
+		// exports held: they are one file symbol, not two holders of it.
+		name("x:6", "symbol", "FFF", 2, 3),
+		name("s:FILE:FFF@2026-02-01", "symbol", "FFF", 2, 2),
+		name("s:FILE:FFF@2026-03-01", "symbol", "FFF", 3, 3),
 	}
 	links := []keyLink{{a: "c:555555555", b: "x:7"}}
 	want := [][]string{
@@ -435,6 +442,7 @@ func TestGroupKeys(t *testing.T) {
 		{"i:5", "c:555555555"},
 		{"i:7", "s:FILE:EEE@2026-05-01"},
 		{"c:333333333"},
+		{"x:6", "s:FILE:FFF@2026-02-01", "s:FILE:FFF@2026-03-01"},
 		{"x:7"},
 		{"x:8"},
 		{"s:EQUITY:LONE"},
@@ -453,7 +461,7 @@ func TestGroupKeys(t *testing.T) {
 	}
 	if want := map[string]bool{
 		"i:1": true, "i:2": true, "i:3": true, "i:4": true, "i:5": true, "i:7": true, "c:333333333": true,
-		"x:7": true, "x:8": true, "s:EQUITY:LONE": false, "s:FILE:AMB@2026-05-01": false,
+		"x:6": true, "x:7": true, "x:8": true, "s:EQUITY:LONE": false, "s:FILE:AMB@2026-05-01": false,
 	}; !maps.Equal(definite, want) {
 		t.Errorf("the groups are definite %v, want %v", definite, want)
 	}

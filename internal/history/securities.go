@@ -297,7 +297,8 @@ func fileSymbol(key string) string {
 //     overlap within symbolSlack, when over the union of those periods the
 //     symbol names exactly one key of each of the two kinds, so that a
 //     ticker used by two companies at different times links each to its
-//     own.
+//     own. The keys that several exports make of one symbol are one key
+//     of files here: they tell no two holders of it apart.
 //  3. After the others, the keys of files of one symbol that joined no
 //     security holding a key of Schwab's: one ticker in files with nothing
 //     to tell its exports apart.
@@ -475,11 +476,18 @@ func overlapWithin(f1, l1, f2, l2 time.Time, slack time.Duration) bool {
 
 // holders counts the keys of kind among held, the keys that hold one
 // symbol, that held it within symbolSlack of the period from from to to.
+// The keys of files (s:FILE:S@D) are counted by their symbol: each export
+// makes a key of its own for a symbol, and two exports' keys of one symbol
+// say nothing of two securities holding it.
 func holders(held []nameInfo, kind string, from, to time.Time) int {
 	seen := map[string]bool{}
 	for _, n := range held {
 		if keyKind(n.key) == kind && overlap(n.first, n.last, from, to) {
-			seen[n.key] = true
+			holder := n.key
+			if kind == "f" {
+				holder = fileSymbol(n.key)
+			}
+			seen[holder] = true
 		}
 	}
 	return len(seen)
