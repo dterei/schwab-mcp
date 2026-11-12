@@ -128,7 +128,8 @@ refuses, and imports nothing.
 ## Opening and writing
 
 `schwabtx import` and `schwabtx store restore` make the store when it is
-missing, and say so (`new store at PATH`). Every other command refuses a
+missing, and say so (`new store at PATH`); their dry runs (`-dry-run`) do
+not, nor does an import of a file it refuses. Every other command refuses a
 missing store and makes nothing:
 
 ```
@@ -199,8 +200,8 @@ snapshot` writes:
 
 ```
 $ schwabtx import
-new store at /home/you/.config/schwabtx/history.db
 snapshots.jsonl: snapshot file, 6 lines: 18 new snapshots, 0 already held
+new store at /home/you/.config/schwabtx/history.db
 1 file imported into /home/you/.config/schwabtx/history.db
 ```
 
@@ -258,7 +259,7 @@ Individual_XXX135_Transactions_20240601-090000.json: History export (JSON) of A1
     2023-02-01 to 2024-05-31 (as the file states), 11 rows
   11 transactions new to the store, 0 already held (another file had them)
   linked to Schwab's API rows: 8; uncertain: 0; held out (inside the API's dates, no API row): 1;
-    before the API's history: 2
+    outside the API's dates (counted from the file): 2
   completeness: unknown; if you exported every type and no symbol, say so: schwabtx edit Fe7a63ed0 -completeness complete
 nothing was saved (-dry-run)
 ```
@@ -274,13 +275,13 @@ Individual_XXX135_Transactions_20240601-090000.json: History export (JSON) of A1
     2023-02-01 to 2024-05-31 (as the file states), 11 rows
   11 transactions new to the store, 0 already held (another file had them)
   linked to Schwab's API rows: 8; uncertain: 0; held out (inside the API's dates, no API row): 1;
-    before the API's history: 2
+    outside the API's dates (counted from the file): 2
   completeness: unknown; if you exported every type and no symbol, say so: schwabtx edit Fe7a63ed0 -completeness complete
 Individual_XXX135_Transactions_20240601-090000.csv: History export (CSV) of A1 ...135,
     2023-02-01 to 2024-05-01 (from its rows), 11 rows
   0 transactions new to the store, 11 already held (another file had them)
   linked to Schwab's API rows: 8; uncertain: 0; held out (inside the API's dates, no API row): 1;
-    before the API's history: 2
+    outside the API's dates (counted from the file): 2
   warning: coverage_from_rows: it states no range, and none was given: its range is its rows', 2023-02-01 to 2024-05-01
   completeness: unknown; if you exported every type and no symbol, say so: schwabtx edit F0869ae0a -completeness complete
 XXXX0135_GainLoss_Realized_Details_20240601-090000.csv: Realized Gain/Loss export (Lot Details) of A1 ...135,
@@ -300,7 +301,7 @@ imported again adds nothing:
 $ schwabtx import Downloads/Individual_XXX135_Transactions_20240601-090000.json
 Individual_XXX135_Transactions_20240601-090000.json: History export (JSON)
   warning: already imported as Fe7a63ed0 for A1 ...135; if it is for another account: schwabtx edit Fe7a63ed0 -account ACCOUNT
-1 file imported into /home/you/.config/schwabtx/history.db; 1 item waits for you: schwabtx status -review
+0 files imported (1 already held) into /home/you/.config/schwabtx/history.db; 1 item waits for you: schwabtx status -review
 ```
 
 A file that is none of these is refused by what it is, and then nothing is
@@ -541,7 +542,7 @@ the store is sound: /home/you/.config/schwabtx/history.db
 $ schwabtx store rebuild
 derived everything in /home/you/.config/schwabtx/history.db again from the evidence
 $ schwabtx store backup history-backup.db
-backed the store up to history-backup.db; schwabtx store restore history-backup.db puts it back
+backed the store up to /home/you/history-backup.db; schwabtx store restore /home/you/history-backup.db puts it back
 $ schwabtx store backup history-backup.db
 error: backing the store up: /home/you/history-backup.db exists; choose a new name
 ```
@@ -551,7 +552,9 @@ what the derived data must hold (no transaction counted twice, every match
 with both sides in one account, pairs that agree), and exits 1 on any
 problem. `store rebuild` derives everything again from the evidence: what
 the derivation at the end of each write gives, so it changes nothing unless
-something is wrong. `-forget` sets an imported file aside, and `-undo` brings
+something is wrong. A command that schwabtx prints for you to copy, such as
+the restore after a backup, names the store with `-store` when it is not the
+one a command opens without it. `-forget` sets an imported file aside, and `-undo` brings
 it back:
 
 ```
@@ -563,7 +566,8 @@ brought back F0869ae0a (Individual_XXX135_Transactions_20240601-090000.csv): 0 t
 ```
 
 A file set aside stays in the store, bytes and all: setting aside is a
-decision, which `-undo` withdraws.
+decision, which `-undo` withdraws. Imported again, it is refused, with the
+command that brings it back, and nothing is imported.
 
 ## Importing files
 
@@ -824,12 +828,12 @@ need another export), and `-all` adds the `info` flags. The usual ones:
 | `symbol_unsure` | nothing if one security changed its ticker; else `edit K:… -differ K:…` |
 | `split_by_security` | nothing if they are different securities; else `edit K:… -same K:…` |
 | `near_duplicate` | `edit C… -count no` on the one Schwab corrected |
+| `missing_from_later`, `counts_differ` | `edit C… -count no` if the later export is right |
 | `gone` | nothing if it was cancelled; `edit T… -count yes` if it stands |
 | `absent_earlier` | nothing if it came late; `edit T… -count no` if it was cancelled |
 | `awaits_probe`, `unknown_type`, `unknown_action`, `zero_amount` | `edit REF -category C` |
 | `unpaired_journal`, `ambiguous_journal` | `edit REF -pair REF2`, or `-category` |
 | `completeness_unknown`, `looks_filtered`, `lacks_rows` | `edit F… -completeness complete` or `filtered` |
-| `missing_from_later`, `counts_differ` | `edit C… -count no` if the later export is right |
 | `stale_decision` | decide again (the same command), or withdraw it with `auto` |
 | `empty`, `at_cap`, `late_start`, `two_years` | export the missing dates again, as a shorter range; a late start of a file filtered by type or symbol is no gap: `edit F… -completeness filtered`, and it waits no more |
 | snapshot gaps | none: a missed session cannot be taken later; keep the scheduled snapshot running |

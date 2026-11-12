@@ -103,7 +103,7 @@ account (A…) -kind. The value auto withdraws a decision.
 		if len(rest) > 0 || !set["action"] || !set["policy"] {
 			return errors.New("-action LABEL and -policy count|hold|auto go together, without a REF")
 		}
-		s, err := openStore(ctx, path, true, stderr)
+		s, err := openStore(ctx, path, stderr)
 		if err != nil {
 			return err
 		}
@@ -133,7 +133,7 @@ account (A…) -kind. The value auto withdraws a decision.
 		return fmt.Errorf("edit %s needs an option that says what you decide; schwabtx edit -h lists them", plainCell(ref))
 	}
 
-	s, err := openStore(ctx, path, true, stderr)
+	s, err := openStore(ctx, path, stderr)
 	if err != nil {
 		return err
 	}

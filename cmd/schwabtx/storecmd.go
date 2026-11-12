@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/dterei/schwab-mcp/internal/history"
@@ -69,7 +70,7 @@ file alone can damage.
 			return fmt.Errorf("%s would replace the store itself (or one of its files); choose another name", rest[0])
 		}
 	}
-	s, err := openStore(ctx, path, true, stderr)
+	s, err := openStore(ctx, path, stderr)
 	if err != nil {
 		return err
 	}
@@ -102,7 +103,13 @@ file alone can damage.
 	if err := s.Backup(ctx, rest[0]); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "backed the store up to %s; schwabtx store restore %s puts it back\n", rest[0], quoteArg(rest[0]))
+	// The command to restore the backup names it, and the store unless it
+	// is the default, so that it works as printed from any folder.
+	backup, err := filepath.Abs(rest[0])
+	if err != nil {
+		backup = rest[0]
+	}
+	fmt.Fprintf(stdout, "backed the store up to %s; %s puts it back\n", backup, copyCommand(path, "store", "restore", quoteArg(backup)))
 	return nil
 }
 

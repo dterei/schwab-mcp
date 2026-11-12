@@ -97,7 +97,7 @@ func runExport(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		}
 	}
 
-	s, err := openStore(ctx, path, true, stderr)
+	s, err := openStore(ctx, path, stderr)
 	if err != nil {
 		return err
 	}

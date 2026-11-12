@@ -289,7 +289,7 @@ func TestImportHistoryAndResolve(t *testing.T) {
 	for _, want := range []string{
 		"Individual_XXX398_Transactions_20261001-120000.json: History export (JSON) of A1 ...398,\n    2026-09-01 to 2026-09-22 (as the file states), 6 rows\n",
 		"  6 transactions new to the store, 0 already held (another file had them)\n",
-		"  linked to Schwab's API rows: 4; uncertain: 0; held out (inside the API's dates, no API row): 1;\n    before the API's history: 1\n",
+		"  linked to Schwab's API rows: 4; uncertain: 0; held out (inside the API's dates, no API row): 1;\n    outside the API's dates (counted from the file): 1\n",
 		"; 1 item waits for you: schwabtx status -review\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -493,6 +493,42 @@ func TestRestoreCommand(t *testing.T) {
 	}
 }
 
+// A command printed for you to copy names the store with -store when it
+// is not the store that a command opens without -store: the restore that
+// store backup prints, run as printed from another folder, restores that
+// store, which holds again what it held at the backup. Printed for the
+// default store, the command names none.
+func TestPrintedCommandsNameTheStore(t *testing.T) {
+	offline(t)
+	store := newStoreFile(t)
+	t.Setenv("SCHWAB_STORE_FILE", "")
+	dir := t.TempDir()
+	first := writeFile(t, dir, "first.jsonl", snapshotFile(t, []time.Time{testNow}, "11110123"))
+	second := writeFile(t, dir, "second.jsonl", snapshotFile(t, []time.Time{testNow.Add(24 * time.Hour)}, "22220456"))
+	mustRun(t, "import", "-store", store, first)
+	t.Chdir(dir)
+	out, _ := mustRun(t, "store", "-store", store, "backup", "backup.db")
+	printed, ok := strings.CutSuffix(out, " puts it back\n")
+	_, command, _ := strings.Cut(printed, "; ")
+	words := shellWords(t, command)
+	if !ok || len(words) != 6 || !slices.Equal(words[:5], []string{"schwabtx", "store", "-store", store, "restore"}) ||
+		!filepath.IsAbs(words[5]) || filepath.Base(words[5]) != "backup.db" {
+		t.Fatalf("store backup printed %q", out)
+	}
+	mustRun(t, "import", "-store", store, second)
+	t.Chdir(t.TempDir())
+	mustRun(t, words[1:]...)
+	if out, _ := mustRun(t, "status", "-store", store); strings.Contains(out, "...456") || !strings.Contains(out, "A1 ...123") {
+		t.Errorf("status of the store after %s:\n%s", command, out)
+	}
+
+	t.Setenv("SCHWAB_STORE_FILE", store)
+	out, _ = mustRun(t, "store", "backup", filepath.Join(dir, "default.db"))
+	if want := "; schwabtx store restore " + quoteArg(filepath.Join(dir, "default.db")) + " puts it back\n"; !strings.HasSuffix(out, want) {
+		t.Errorf("store backup of the default store printed %q, want it to end %q", out, want)
+	}
+}
+
 // edit -category sets a transaction's category, which the export then shows
 // as yours, flags after the ref included; -category auto gives it back to
 // the rule. An edit with an option that is refused records none of its
@@ -656,8 +692,9 @@ func TestStoreCommandsNeedNoLogin(t *testing.T) {
 }
 
 // The commands that only read the store, and edit and the store's own
-// (but restore), refuse a store that is not there and make none; an import
-// makes one.
+// (but restore), refuse a store that is not there and make none; so do a
+// dry run of an import and an import of a file it refuses; an import makes
+// one, and says so.
 func TestReadCommandsNeedAStore(t *testing.T) {
 	offline(t)
 	dir := filepath.Join(t.TempDir(), "none")
@@ -681,11 +718,23 @@ func TestReadCommandsNeedAStore(t *testing.T) {
 			t.Errorf("%q: %v", args, err)
 		}
 	}
+	// Nor does a dry run of an import, or an import of a file it refuses.
+	snap := writeFile(t, t.TempDir(), "snapshots.jsonl", snapshotFile(t, []time.Time{testNow}, "11110123"))
+	if out, stderr := mustRun(t, "import", "-dry-run", snap); !strings.HasPrefix(out, "snapshots.jsonl: snapshot file, 1 line: 1 new snapshot, 0 already held\n") ||
+		!strings.HasSuffix(out, "\nnothing was saved (-dry-run)\n") || stderr != "" {
+		t.Errorf("a dry run into a missing store printed %q, warned %q", out, stderr)
+	}
+	bank, err := os.ReadFile(filepath.Join("..", "..", "internal", "history", "schwabfile", "testdata", "refuse", "bank-checking-2022.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stderr, err := runTx(t, "import", writeFile(t, t.TempDir(), "Checking_Transactions.csv", string(bank))); err == nil || stderr != "" {
+		t.Errorf("importing a bank export into a missing store: %v, warned %q", err, stderr)
+	}
 	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("the store's folder was made: %v", err)
 	}
 	// An import makes the store, and says so.
-	snap := writeFile(t, t.TempDir(), "snapshots.jsonl", snapshotFile(t, []time.Time{testNow}, "11110123"))
 	if _, stderr := mustRun(t, "import", snap); stderr != "new store at "+path+"\n" {
 		t.Errorf("an import into a missing store said %q", stderr)
 	}
@@ -696,6 +745,8 @@ func TestReadCommandsNeedAStore(t *testing.T) {
 // numbers, listing them; takes an account by its ref or its nickname; takes
 // -force over the digits in a file's name; and says of a file imported
 // again for another account how to move it, which edit -account then does.
+// -forget refuses the import's other flags, and then sets nothing aside; a
+// file set aside is refused when it is imported again.
 func TestImportRefusesAndSelects(t *testing.T) {
 	offline(t)
 	store := newStoreFile(t)
@@ -744,7 +795,8 @@ func TestImportRefusesAndSelects(t *testing.T) {
 	}
 	out, _ = mustRun(t, "import", "-account", "A1", "-force", renamed)
 	f := refIn(t, out, `F[0-9a-f]{8,}`)
-	if !strings.Contains(out, "warning: already imported as "+f+" for A2 ...123 Joint Account; if it is for another account: schwabtx edit "+f+" -account ACCOUNT\n") {
+	if !strings.Contains(out, "warning: already imported as "+f+" for A2 ...123 Joint Account; if it is for another account: schwabtx edit "+f+" -account ACCOUNT\n") ||
+		!strings.Contains(out, "\n0 files imported (1 already held) into "+store+";") {
 		t.Errorf("the same bytes again for A1 printed %q", out)
 	}
 	out, _ = mustRun(t, "edit", f, "-account", "A1")
@@ -753,6 +805,28 @@ func TestImportRefusesAndSelects(t *testing.T) {
 	}
 	if out, _ := mustRun(t, "export", "-account", "A1"); len(csvRows(t, out)) != 1 {
 		t.Errorf("A1's ledger after the move:\n%s", out)
+	}
+	// -forget takes none of the import's other flags, and then sets
+	// nothing aside.
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-dry-run"}, "-dry-run does not go with -forget, which takes only -undo"},
+		{[]string{"-account", "A1", "-force"}, "-account and -force do not go with -forget, which takes only -undo"},
+	} {
+		if _, _, err := runTx(t, append([]string{"import", "-forget", f}, tc.args...)...); err == nil || err.Error() != tc.want {
+			t.Errorf("import -forget %s %q: %v, want %s", f, tc.args, err, tc.want)
+		}
+	}
+	if out, _ := mustRun(t, "export", "-account", "A1"); len(csvRows(t, out)) != 1 {
+		t.Errorf("A1's ledger after -forget was refused:\n%s", out)
+	}
+	// Set aside, it is refused when it is imported again.
+	mustRun(t, "import", "-forget", f)
+	if _, _, err := runTx(t, "import", "-account", "A1", "-force", renamed); err == nil || err.Error() != filepath.Base(renamed)+" was set aside as "+f+
+		"; bring it back with: schwabtx import -forget "+f+" -undo; nothing was imported" {
+		t.Errorf("importing a file set aside: %v", err)
 	}
 }
 

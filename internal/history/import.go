@@ -69,10 +69,9 @@ type FileReport struct {
 	// or "api_json", `schwabtx transactions -json` output.
 	Kind string
 	// Ref is the file's ref in the store, and Already says that the store
-	// held the file before, under that ref; then nothing more was done,
-	// and Forgotten says whether it is set aside.
-	Ref                string
-	Already, Forgotten bool
+	// held the file before, under that ref; then nothing more was done.
+	Ref     string
+	Already bool
 	// Account is the account an export is for, as "A2 ...456 Joint".
 	Account string
 	// Layout is the export's layout, and From and To the days it covers,
@@ -91,7 +90,8 @@ type FileReport struct {
 	// transactions, whose record counts in their place; Uncertain those
 	// that several API transactions could be; HeldOut those that the API's
 	// coverage holds and no API transaction is; and BeforeAPI those that
-	// count as history the API does not serve.
+	// count from the file, as history the API does not serve: outside the
+	// API's coverage, before it or, until a sync reads them, after it.
 	Linked, Uncertain, HeldOut, BeforeAPI int
 	// Accounts says what the store made of `-json` output's rows, by
 	// account.
@@ -117,7 +117,8 @@ type FileReport struct {
 // export's Lot Details, or `schwabtx transactions -json` output. A file
 // that is none of them is the import's error, naming the file, and nothing
 // is imported. A file that the store holds already, by its bytes, is
-// reported and changes nothing. A snapshot that the store holds adds
+// reported and changes nothing; one that you set aside is the import's
+// error, which says how to bring it back, and nothing is imported. A snapshot that the store holds adds
 // nothing, so importing a snapshot file again, or a longer copy of it,
 // adds only what is new. The report is worked out inside the write, so
 // that a dry run reports exactly what the import would do.
@@ -158,7 +159,14 @@ func (s *Store) Import(ctx context.Context, files []FileInput, o ImportOptions) 
 			}
 			r := FileReport{Name: name, Kind: string(f.Kind), Layout: f.Layout}
 			var id int64
-			switch err := w.tx.QueryRowContext(w.ctx, "SELECT file_id FROM import_file WHERE sha256 = ?", sha256Of(in.Content)).Scan(&id); {
+			var ref string
+			var forgotten bool
+			switch err := w.tx.QueryRowContext(w.ctx, `SELECT f.file_id, d.ref, d.forgotten FROM import_file f
+				JOIN file_fields d ON d.file_id = f.file_id WHERE f.sha256 = ?`, sha256Of(in.Content)).Scan(&id, &ref, &forgotten); {
+			case err == nil && forgotten:
+				// Bringing it back is a decision of its own.
+				return fmt.Errorf("%s was set aside as %s; bring it back with: schwabtx import -forget %s -undo; nothing was imported",
+					name, ref, ref)
 			case err == nil:
 				r.Already = true
 			case !errors.Is(err, sql.ErrNoRows):
@@ -206,10 +214,9 @@ func (s *Store) Import(ctx context.Context, files []FileInput, o ImportOptions) 
 func fileReport(w *wtx, id int64, r *FileReport) error {
 	var acct sql.NullInt64
 	var from, to, source, completeness, by sql.NullString
-	var forgotten bool
 	var rows sql.NullInt64
-	if err := w.tx.QueryRowContext(w.ctx, `SELECT ref, account_id, forgotten, covers_from, covers_to, coverage_source,
-		completeness, complete_by, row_count FROM file_fields WHERE file_id = ?`, id).Scan(&r.Ref, &acct, &forgotten,
+	if err := w.tx.QueryRowContext(w.ctx, `SELECT ref, account_id, covers_from, covers_to, coverage_source,
+		completeness, complete_by, row_count FROM file_fields WHERE file_id = ?`, id).Scan(&r.Ref, &acct,
 		&from, &to, &source, &completeness, &by, &rows); err != nil {
 		return err
 	}
@@ -220,13 +227,9 @@ func fileReport(w *wtx, id int64, r *FileReport) error {
 		}
 	}
 	if r.Already {
-		r.Forgotten = forgotten
 		msg := "already imported as " + r.Ref
 		if r.Account != "" {
 			msg += " for " + r.Account + "; if it is for another account: schwabtx edit " + r.Ref + " -account ACCOUNT"
-		}
-		if forgotten {
-			msg = "it was set aside as " + r.Ref + "; bring it back with: schwabtx import -forget " + r.Ref + " -undo"
 		}
 		r.Warnings = append(r.Warnings, msg)
 		return nil

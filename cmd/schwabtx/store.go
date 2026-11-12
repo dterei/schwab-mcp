@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -46,6 +44,30 @@ func storePath(flagValue string) (string, error) {
 	return abs, nil
 }
 
+// copyCommand returns a command of schwabtx, its words given, as a command
+// prints it for you to copy: with -store and path after its first word
+// when path is not the store that the command opens without -store (the
+// default, or SCHWAB_STORE_FILE), so that it acts on the same store. The
+// words are quoted, when they need it, by the caller.
+func copyCommand(path string, words ...string) string {
+	cmd := []string{"schwabtx", words[0]}
+	if def, err := storePath(""); err != nil || !sameStore(def, path) {
+		cmd = append(cmd, "-store", quoteArg(path))
+	}
+	return strings.Join(append(cmd, words[1:]...), " ")
+}
+
+// sameStore reports whether a and b, absolute paths, name one store file:
+// one path, or, when both exist, one file.
+func sameStore(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	ia, errA := os.Stat(a)
+	ib, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(ia, ib)
+}
+
 // storeOptions returns the options that open the store at path: warnings
 // go to stderr, and so does, once, that a write waits for another process.
 // A read command (mustExist) refuses a missing store rather than make one.
@@ -64,18 +86,10 @@ func storeOptions(path string, mustExist bool, stderr io.Writer) history.Options
 	}
 }
 
-// openStore opens the store at path, as storeOptions says, and says so on
-// stderr when it made a new one.
-func openStore(ctx context.Context, path string, mustExist bool, stderr io.Writer) (*history.Store, error) {
-	_, statErr := os.Stat(path)
-	s, err := history.Open(ctx, storeOptions(path, mustExist, stderr))
-	if err != nil {
-		return nil, err
-	}
-	if errors.Is(statErr, fs.ErrNotExist) {
-		fmt.Fprintln(stderr, "new store at", path)
-	}
-	return s, nil
+// openStore opens the store at path, as storeOptions says, for a command
+// that needs one there and makes none.
+func openStore(ctx context.Context, path string, stderr io.Writer) (*history.Store, error) {
+	return history.Open(ctx, storeOptions(path, true, stderr))
 }
 
 // parseInterspersed parses args with fs, flags before or after the other

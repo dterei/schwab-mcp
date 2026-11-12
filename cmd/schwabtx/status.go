@@ -58,7 +58,7 @@ that one thing in full.
 	if err != nil {
 		return err
 	}
-	s, err := openStore(ctx, path, true, stderr)
+	s, err := openStore(ctx, path, stderr)
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func printStatus(stdout, stderr io.Writer, path string, st history.Status) error
 			parts = append(parts, fmt.Sprintf("%d %s", p.n, pluralWord(p.n, p.one, p.other)))
 		}
 	}
-	fmt.Fprintf(stdout, "to review: %s\n  (schwabtx status -review)\n", strings.Join(parts, ", "))
+	fmt.Fprintf(stdout, "to review: %s\n  (%s)\n", strings.Join(parts, ", "), copyCommand(path, "status", "-review"))
 	return nil
 }
 

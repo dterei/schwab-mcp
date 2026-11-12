@@ -8,9 +8,11 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/dterei/schwab-mcp/internal/history"
+	"github.com/dterei/schwab-mcp/internal/history/schwabfile"
 )
 
 // runImport imports files into the store: snapshot files, History and
@@ -64,6 +66,17 @@ file that schwabtx snapshot writes. Importing a file again adds nothing.
 		if len(files) > 0 {
 			return errors.New("-forget takes no files: it sets aside a file the store holds")
 		}
+		// -forget changes the store at once: none of the import's own
+		// flags, -dry-run among them, goes with it.
+		var other []string
+		fl.Visit(func(f *flag.Flag) {
+			if f.Name != "store" && f.Name != "forget" && f.Name != "undo" {
+				other = append(other, "-"+f.Name)
+			}
+		})
+		if len(other) > 0 {
+			return fmt.Errorf("%s %s not go with -forget, which takes only -undo", strings.Join(other, " and "), pluralWord(len(other), "does", "do"))
+		}
 		return forgetFile(ctx, path, *forget, *undo, stdout, stderr)
 	}
 	if *undo {
@@ -109,14 +122,22 @@ file that schwabtx snapshot writes. Importing a file again adds nothing.
 		case err != nil:
 			return fmt.Errorf("reading %w; nothing was imported", err)
 		}
+		// A file that is none of those an import reads is refused before
+		// the store is opened, which would make a missing one.
+		if _, err := schwabfile.Read(filepath.Base(f), content); err != nil {
+			return fmt.Errorf("%w; nothing was imported", err)
+		}
 		in[i] = history.FileInput{Name: f, Content: content}
 	}
+	if o.From != "" && o.To != "" && o.To < o.From {
+		return fmt.Errorf("-from %s is after -to %s", o.From, o.To)
+	}
 
-	s, err := openStore(ctx, path, false, stderr)
+	s, made, closeStore, err := openImportStore(ctx, path, *dryRun, stderr)
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer closeStore()
 	report, err := s.Import(ctx, in, o)
 	if err != nil {
 		return err
@@ -128,12 +149,63 @@ file that schwabtx snapshot writes. Importing a file again adds nothing.
 		fmt.Fprintln(stdout, "nothing was saved (-dry-run)")
 		return nil
 	}
-	line := fmt.Sprintf("%s imported into %s", plural(len(report.Files), "file"), path)
+	if made {
+		fmt.Fprintln(stderr, "new store at", path)
+	}
+	// A file the store held already is reported, and is not imported.
+	held := 0
+	for _, r := range report.Files {
+		if r.Already {
+			held++
+		}
+	}
+	line := plural(len(report.Files)-held, "file") + " imported"
+	if held > 0 {
+		line += fmt.Sprintf(" (%d already held)", held)
+	}
+	line += " into " + path
 	if n := report.Waiting; n > 0 {
-		line += fmt.Sprintf("; %d %s for you: schwabtx status -review", n, pluralWord(n, "item waits", "items wait"))
+		line += fmt.Sprintf("; %d %s for you: %s", n, pluralWord(n, "item waits", "items wait"), copyCommand(path, "status", "-review"))
 	}
 	fmt.Fprintln(stdout, line)
 	return nil
+}
+
+// openImportStore opens the store at path for an import, and makes it
+// when it is missing, which made says. A dry run makes no store: when the
+// store is missing, it opens a new store of its own, the same as an empty
+// one, in a folder of its own. closeStore closes the store, and removes
+// that folder.
+func openImportStore(ctx context.Context, path string, dryRun bool, stderr io.Writer) (s *history.Store, made bool, closeStore func(), err error) {
+	_, statErr := os.Stat(path)
+	missing := errors.Is(statErr, fs.ErrNotExist)
+	if dryRun && missing {
+		// What would refuse to make the store, such as a journal left
+		// without it, refuses the dry run too.
+		s, err = history.Open(ctx, storeOptions(path, true, stderr))
+		if err == nil {
+			return s, false, func() { s.Close() }, nil // made meanwhile
+		}
+		if !errors.Is(err, history.ErrNoStore) {
+			return nil, false, nil, err
+		}
+		dir, err := os.MkdirTemp("", "schwabtx-dry-run-")
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("making a store for the dry run: %w", err)
+		}
+		if s, err = history.Open(ctx, storeOptions(filepath.Join(dir, "history.db"), false, stderr)); err != nil {
+			os.RemoveAll(dir)
+			return nil, false, nil, err
+		}
+		return s, false, func() {
+			s.Close()
+			os.RemoveAll(dir)
+		}, nil
+	}
+	if s, err = history.Open(ctx, storeOptions(path, false, stderr)); err != nil {
+		return nil, false, nil, err
+	}
+	return s, missing, func() { s.Close() }, nil
 }
 
 // kindNames say what each kind of file is, as an import reports it.
@@ -194,7 +266,7 @@ func printFileReport(w io.Writer, r history.FileReport) {
 		default:
 			fmt.Fprintf(w, "  %d %s new to the store, %d already held (another file had them)\n", r.New, pluralWord(r.New, "transaction"), r.Known)
 			fmt.Fprintf(w, "  linked to Schwab's API rows: %d; uncertain: %d; held out (inside the API's dates, no API row): %d;\n"+
-				"    before the API's history: %d\n", r.Linked, r.Uncertain, r.HeldOut, r.BeforeAPI)
+				"    outside the API's dates (counted from the file): %d\n", r.Linked, r.Uncertain, r.HeldOut, r.BeforeAPI)
 		}
 	}
 	for _, msg := range r.Warnings {
@@ -246,7 +318,7 @@ func pluralWord(n int, one string, many ...string) string {
 // forgetFile sets aside the file that ref names in the store at path, or
 // with undo brings it back, and says what that did.
 func forgetFile(ctx context.Context, path, ref string, undo bool, stdout, stderr io.Writer) error {
-	s, err := openStore(ctx, path, true, stderr)
+	s, err := openStore(ctx, path, stderr)
 	if err != nil {
 		return err
 	}
@@ -273,6 +345,6 @@ func forgetFile(ctx context.Context, path, ref string, undo bool, stdout, stderr
 		line += fmt.Sprintf("; %d of your decisions now %s (their transactions are in no other file)", r.Waiting, pluralWord(r.Waiting, "waits", "wait"))
 	}
 	fmt.Fprintln(stdout, line)
-	fmt.Fprintf(stdout, "bring it back with: schwabtx import -forget %s -undo\n", quoteArg(r.Ref))
+	fmt.Fprintf(stdout, "bring it back with: %s\n", copyCommand(path, "import", "-forget", quoteArg(r.Ref), "-undo"))
 	return nil
 }

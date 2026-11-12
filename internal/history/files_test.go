@@ -572,6 +572,7 @@ func TestForgetByRef(t *testing.T) {
 // holds stay, your decision on its row following the transaction; your
 // decisions on a transaction no other file holds (a category, a link, but
 // not one withdrawn) wait, and are applied again when the file comes back.
+// The file set aside, imported again, is refused, and nothing is imported.
 func TestForget(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -606,6 +607,19 @@ func TestForget(t *testing.T) {
 	}
 	if got := fileOf(t, s, "Individual_XXX398_Transactions_20260210-090000.csv", "forgotten, completeness"); got != "1 " {
 		t.Errorf("the file set aside is %q", got)
+	}
+	// Imported again, with another file, it is refused, with how to bring
+	// it back, and nothing is imported.
+	_, err = s.Import(t.Context(), []FileInput{
+		{Name: exportName("20260216-090000", "csv"), Content: []byte(historyCSV(d))},
+		{Name: exportName("20260210-090000", "csv"), Content: []byte(first)},
+	}, ImportOptions{Account: fileAccount})
+	if want := exportName("20260210-090000", "csv") + " was set aside as " + firstRef + "; bring it back with: schwabtx import -forget " +
+		firstRef + " -undo; nothing was imported"; err == nil || err.Error() != want {
+		t.Errorf("importing the file set aside again: %v, want %s", err, want)
+	}
+	if n := storeInt(t, s, "SELECT count(*) FROM import_file"); n != 2 {
+		t.Errorf("the store holds %d files after an import that was refused", n)
 	}
 	r, err = s.Forget(t.Context(), firstRef, true)
 	if err != nil || !r.Undo || r.Left != 1 || r.Stayed != 2 {
