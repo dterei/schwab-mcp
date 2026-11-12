@@ -70,11 +70,16 @@ func TestLedgerOfFixtures(t *testing.T) {
 		}
 	}
 	// Names are dated when they were served: BND's, by a read 14 months
-	// after its dividend, name no security then; XYZ's, the call's
+	// after its dividend, name no security then, but the account
+	// reinvested the dividend in BND that day, so its ~BND is that
+	// security, and so is its withholding's; XYZ's, the call's
 	// deliverable's symbol, served 3 weeks after its dividend, names that
 	// security by name.
-	if got := entryRowOf(t, s, "T73508261950", "security_key, flags"); got != " unresolved_security" {
+	if got := entryRowOf(t, s, "T73508261950", "security_key, flags"); got != "i:4417302 " {
 		t.Errorf("the dividend of BND: %q", got)
+	}
+	if got := entryRowOf(t, s, "T73508261954", "security_key, flags"); got != "i:4417302 " {
+		t.Errorf("the withholding on BND: %q", got)
 	}
 	if got := entryRowOf(t, s, "T73508261948", "security_key, flags"); got != "i:1854092 security_by_name" {
 		t.Errorf("the dividend of XYZ: %q", got)

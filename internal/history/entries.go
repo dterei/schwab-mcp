@@ -424,6 +424,17 @@ func touchMovedSecurities(w *wtx, g *globals) error {
 			decided[d.subject] = sql.NullInt64{Int64: id, Valid: true}
 		}
 	}
+	traded := map[int64][]tradedSecurity{} // by account
+	if err := queryEach(w, func(r *sql.Rows) error {
+		var acct int64
+		var t tradedSecurity
+		err := r.Scan(&acct, &t.day, &t.security)
+		traded[acct] = append(traded[acct], t)
+		return err
+	}, `SELECT x.account_id, x.trade_day, l.security_id FROM api_leg l JOIN txn x ON x.txn_id = l.txn_id
+		WHERE l.asset_type IS NOT 'CURRENCY' AND l.security_id IS NOT NULL AND x.trade_day IS NOT NULL`); err != nil {
+		return err
+	}
 	for _, x := range rows {
 		if w.touched[x.account] {
 			continue
@@ -432,7 +443,7 @@ func touchMovedSecurities(w *wtx, g *globals) error {
 		if x.legs == 1 {
 			legs = []legInput{{assetType: "EQUITY", symbol: x.sym.String, security: x.legSecurity}}
 		}
-		sec, how := entrySecurity(decided[x.subject.String], legs, unmasked(x.description, x.text), nytime.Date(x.day.String), g.names)
+		sec, how := entrySecurity(decided[x.subject.String], legs, unmasked(x.description, x.text), nytime.Date(x.day.String), g.names, traded[x.account])
 		var byName, unresolved sql.NullString
 		switch how.code {
 		case "security_by_name":

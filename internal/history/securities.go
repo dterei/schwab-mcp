@@ -45,8 +45,13 @@ type nameObservation struct {
 
 // observeKey adds a key, or takes in what an observation at at says of
 // it: the times it was first and last seen take in at, and its fields are
-// those of its latest observation. A new key belongs to no security until
-// the grouping at the end of the write gives it one.
+// those of its latest observation, whole, a field that it leaves out
+// included; of several observations at that time, each field is the
+// greatest that one of them gives. So the fields are a function of the
+// observations, whatever order they came in, and a rebuild, which sees
+// each transaction's latest raw JSON as of when it was seen, gives the
+// same. A new key belongs to no security until the grouping at the end of
+// the write gives it one.
 func observeKey(w *wtx, k keyObservation, at time.Time) error {
 	if err := w.deferForeignKeys(); err != nil {
 		return err
@@ -65,12 +70,16 @@ func observeKey(w *wtx, k keyObservation, at time.Time) error {
 	return w.noteKeys(res, err)
 }
 
-// observeKeySQL adds a key, or takes in an observation of it. A field of
-// the latest observation replaces the key's, but one it does not give is
-// kept. Nothing is written when nothing changes.
+// observeKeySQL adds a key, or takes in an observation of it. A later
+// observation replaces each of the key's fields with its own, NULL
+// included; one at the time of its latest keeps the greater of each field
+// (max is NULL when either is, so coalesce takes the other); an earlier
+// one changes no field. Nothing is written when nothing changes.
 var observeKeySQL = func() string {
-	const latest = "CASE WHEN excluded.last_seen_at >= instrument_key.last_seen_at " +
-		"THEN coalesce(excluded.%[1]s, instrument_key.%[1]s) ELSE instrument_key.%[1]s END"
+	const latest = "CASE WHEN excluded.last_seen_at > instrument_key.last_seen_at THEN excluded.%[1]s " +
+		"WHEN excluded.last_seen_at = instrument_key.last_seen_at " +
+		"THEN coalesce(max(excluded.%[1]s, instrument_key.%[1]s), excluded.%[1]s, instrument_key.%[1]s) " +
+		"ELSE instrument_key.%[1]s END"
 	var set, differ []string
 	for _, f := range []string{"asset_type", "type", "put_call", "strike", "expiration_day", "multiplier", "underlying_symbol"} {
 		set = append(set, f+" = "+fmt.Sprintf(latest, f))

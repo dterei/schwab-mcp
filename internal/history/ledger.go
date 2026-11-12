@@ -109,6 +109,7 @@ func apiEntries(in accountInputs, gone map[int64]int64, revisions map[int64]int)
 	}
 	latest := latestDecisions(in.decisions)
 	refs := txnRefs(in.account, in.txns)
+	traded := tradedSecurities(in.txns)
 	entries := make([]ledgerEntry, 0, len(in.txns))
 	for _, t := range in.txns {
 		e := ledgerEntry{account: in.account, text: t.text}
@@ -151,7 +152,7 @@ func apiEntries(in accountInputs, gone map[int64]int64, revisions map[int64]int)
 			}
 		}
 		var how entryFlag
-		e.security, how = entrySecurity(decided, t.legs, t.text, t.tradeDay, in.names)
+		e.security, how = entrySecurity(decided, t.legs, t.text, t.tradeDay, in.names, traded)
 		if how.code != "" {
 			e.flags.add(how.code, how.detail)
 		}
@@ -342,8 +343,11 @@ func changedSince(t txnInput) []string {
 // by name or not at all, the flag that says so (13.1 and 10.3 of the
 // design): your entry_security decision's, decided; else that of its one
 // security leg; else the one that the symbol after the tilde of its
-// description, text, named on its day; else none.
-func entrySecurity(decided sql.NullInt64, legs []legInput, text string, day nytime.Date, names []symbolName) (sql.NullInt64, entryFlag) {
+// description, text, named on its day: a name seen within symbolSlack of
+// the day, else a security of a leg that the account's transactions
+// traded within symbolSlack of the day and that has held the symbol
+// (tradedNear), else a name seen within a year (by name); else none.
+func entrySecurity(decided sql.NullInt64, legs []legInput, text string, day nytime.Date, names []symbolName, traded []tradedSecurity) (sql.NullInt64, entryFlag) {
 	if decided.Valid {
 		return decided, entryFlag{}
 	}
@@ -358,12 +362,15 @@ func entrySecurity(decided sql.NullInt64, legs []legInput, text string, day nyti
 	}
 	if sym, ok := schwab.SymbolAfterTilde(text); ok {
 		if day != "" {
-			if r, ok := resolveSymbol(names, sym, day); ok {
-				var how entryFlag
-				if r.byName {
-					how = entryFlag{"security_by_name", sym + " last seen " + string(nytime.DateOf(r.seen))}
-				}
-				return sql.NullInt64{Int64: r.security, Valid: true}, how
+			r, ok := resolveSymbol(names, sym, day)
+			if ok && !r.byName {
+				return sql.NullInt64{Int64: r.security, Valid: true}, entryFlag{}
+			}
+			if id, ok := tradedNear(traded, names, sym, day); ok {
+				return sql.NullInt64{Int64: id, Valid: true}, entryFlag{}
+			}
+			if ok {
+				return sql.NullInt64{Int64: r.security, Valid: true}, entryFlag{"security_by_name", sym + " last seen " + string(nytime.DateOf(r.seen))}
 			}
 		}
 		return sql.NullInt64{}, entryFlag{"unresolved_security", sym}
@@ -372,6 +379,58 @@ func entrySecurity(decided sql.NullInt64, legs []legInput, text string, day nyti
 		return sql.NullInt64{}, entryFlag{"unresolved_security", sec[0].symbol}
 	}
 	return sql.NullInt64{}, entryFlag{}
+}
+
+// A tradedSecurity is a security that a leg of one of an account's
+// transactions moved, and the day the transaction was booked on.
+type tradedSecurity struct {
+	day      nytime.Date
+	security int64
+}
+
+// tradedSecurities returns the securities that the legs of txns, an
+// account's transactions, moved, with their days.
+func tradedSecurities(txns []txnInput) []tradedSecurity {
+	var out []tradedSecurity
+	for _, t := range txns {
+		for _, l := range t.legs {
+			if l.isSecurity() && l.security.Valid && t.tradeDay != "" {
+				out = append(out, tradedSecurity{t.tradeDay, l.security.Int64})
+			}
+		}
+	}
+	return out
+}
+
+// tradedNear returns the one security among traded, what an account's
+// transactions moved, that a transaction booked within symbolSlack of day
+// moved and that has ever held symbol, or false when none or several did.
+// Names are dated when they were served, so a read that comes long after a
+// dividend, as a backfill does, dates its security's names long after it;
+// but a transaction of the same account that week, such as the dividend's
+// reinvestment, shows which security the symbol named then. A reused
+// ticker's later holder is not among them unless the account traded it
+// that week.
+func tradedNear(traded []tradedSecurity, names []symbolName, symbol string, day nytime.Date) (int64, bool) {
+	held := map[int64]bool{}
+	for _, n := range names {
+		if n.value == symbol {
+			held[n.security] = true
+		}
+	}
+	found := map[int64]bool{}
+	for _, t := range traded {
+		if d, ok := daysApart(string(day), string(t.day)); ok && d >= -7 && d <= 7 && held[t.security] {
+			found[t.security] = true
+		}
+	}
+	if len(found) != 1 {
+		return 0, false
+	}
+	for id := range found {
+		return id, true
+	}
+	return 0, false
 }
 
 // daysApart returns how many days b is after a, or false when either is

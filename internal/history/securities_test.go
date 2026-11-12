@@ -3,6 +3,7 @@ package history
 import (
 	"database/sql"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"reflect"
 	"slices"
@@ -305,10 +306,90 @@ func TestSecuritiesRebuilt(t *testing.T) {
 	}
 }
 
+// A key's fields are its latest observation's, whole: when that leaves a
+// field out, the key has none, though an earlier observation gave one, so
+// that the order in which transactions were read, which a rebuild does
+// not see, cannot decide the field. Of observations at one time, the
+// greater value of each field holds.
+func TestKeyFieldsRebuilt(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	meta := fixtureRows(t, options)[1]
+	if meta.ActivityID != 73508261942 {
+		t.Fatalf("the fixture's second row of the options account is %d, want 73508261942", meta.ActivityID)
+	}
+	without := decodeRow(t, string(replaceOnce(t, replaceOnce(t, meta.Raw, `, "type": "COMMON_STOCK"`, ``), `73508261942`, `9001`)))
+	with := decodeRow(t, string(replaceOnce(t, meta.Raw, `73508261942`, `9002`)))
+	fields := func() []string {
+		return slices.Concat(
+			storeStrings(t, s, "SELECT key || ' ' || coalesce(type, '-') FROM instrument_key WHERE key = 'i:1940083512'"),
+			storeStrings(t, s, "SELECT security_key || ' ' || coalesce(type, '-') FROM securities WHERE security_key = 'i:1940083512'"))
+	}
+	record(t, s, listRead(options, fixturesStart, fixturesEnd, day(2026, 8, 1), without))
+	record(t, s, listRead(options, fixturesStart, fixturesEnd, day(2026, 8, 2), with))
+	if got, want := fields(), []string{"i:1940083512 COMMON_STOCK", "i:1940083512 COMMON_STOCK"}; !slices.Equal(got, want) {
+		t.Errorf("after the read with a type: %q, want %q", got, want)
+	}
+	record(t, s, listRead(options, fixturesStart, fixturesEnd, day(2026, 8, 3), without))
+	want := []string{"i:1940083512 -", "i:1940083512 -"}
+	if got := fields(); !slices.Equal(got, want) {
+		t.Errorf("after a later read without it: %q, want %q", got, want)
+	}
+	if err := s.withWrite(t.Context(), "rebuilding", rebuild); err != nil {
+		t.Fatal(err)
+	}
+	if got := fields(); !slices.Equal(got, want) {
+		t.Errorf("rebuilt: %q, want %q as recorded", got, want)
+	}
+	// Two observations at one time, in either order.
+	at := day(2026, 9, 1)
+	observeAt(t, s, at, keyObservation{key: "i:1940083512", typ: "B"})
+	observeAt(t, s, at, keyObservation{key: "i:1940083512", typ: "A", assetType: "EQUITY"})
+	if got := storeStrings(t, s, "SELECT coalesce(asset_type, '-') || ' ' || type FROM instrument_key WHERE key = 'i:1940083512'"); !slices.Equal(got, []string{"EQUITY B"}) {
+		t.Errorf("of two observations at one time, the fields are %q, want the greater of each, EQUITY B", got)
+	}
+}
+
+// A transaction's instruments give keys and names: an instrumentId of 1,
+// which is not an instrument's own, keys a leg by its asset type and
+// symbol and keys no deliverable; an option's underlyingCusip names the
+// one deliverable whose symbol is its underlying symbol, and none when two
+// deliverables are.
+func TestObserveInstruments(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	row := decodeRow(t, `{"activityId": 1, "time": "2026-10-01T14:00:00+0000", "type": "TRADE", "transferItems": [
+		{"instrument": {"assetType": "EQUITY", "symbol": "ONE", "instrumentId": 1}, "amount": 1},
+		{"instrument": {"assetType": "OPTION", "symbol": "XYZ   260918C00050000", "instrumentId": 500,
+		 "underlyingSymbol": "XYZ", "underlyingCusip": "111111111", "optionDeliverables": [
+		 {"deliverable": {"assetType": "EQUITY", "symbol": "OTHER", "instrumentId": 502}},
+		 {"deliverable": {"assetType": "EQUITY", "symbol": "XYZ", "instrumentId": 501}},
+		 {"deliverable": {"assetType": "EQUITY", "symbol": "XYZ", "instrumentId": 1}}]}, "amount": 1},
+		{"instrument": {"assetType": "OPTION", "symbol": "ABC   260918C00050000", "instrumentId": 600,
+		 "underlyingSymbol": "ABC", "underlyingCusip": "222222222", "optionDeliverables": [
+		 {"deliverable": {"assetType": "EQUITY", "symbol": "ABC", "instrumentId": 601}},
+		 {"deliverable": {"assetType": "EQUITY", "symbol": "ABC", "instrumentId": 602}}]}, "amount": 1}]}`)
+	if err := s.withWrite(t.Context(), "observing a transaction", func(w *wtx) error {
+		return observeTxn(w, row, day(2026, 10, 2))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := storeStrings(t, s, "SELECT key FROM instrument_key ORDER BY key"); !slices.Equal(got,
+		[]string{"i:500", "i:501", "i:502", "i:600", "i:601", "i:602", "s:EQUITY:ONE"}) {
+		t.Errorf("the keys are %q", got)
+	}
+	if got := storeStrings(t, s, "SELECT key || ' ' || value FROM key_name WHERE kind = 'cusip' ORDER BY key"); !slices.Equal(got,
+		[]string{"i:501 111111111"}) {
+		t.Errorf("the CUSIP names are %q, want the underlying's alone", got)
+	}
+}
+
 // The grouping on values: links by a CUSIP, by a symbol that one key of
-// each kind held at once, and none when two keys of one kind held it then;
-// the groups and their canonical keys do not depend on the order of the
-// keys and names.
+// each kind held at once, and none when two keys of one kind held it then,
+// or when the link would put two keys you said differ in one security,
+// though neither is the one linked; a security that holds a key of
+// Schwab's is definite, whichever its other keys; the groups and their
+// canonical keys do not depend on the order of the keys and names.
 func TestGroupKeys(t *testing.T) {
 	t.Parallel()
 	at := func(m time.Month) time.Time { return time.Date(2026, m, 1, 0, 0, 0, 0, time.UTC) }
@@ -319,6 +400,7 @@ func TestGroupKeys(t *testing.T) {
 	keys := []keyInfo{
 		key("i:1"), key("c:111111111"), key("x:9"), key("i:2"), key("i:3"), key("c:222222222"),
 		key("s:EQUITY:LONE"), key("s:FILE:AMB@2026-05-01"), key("i:4"), key("c:333333333"),
+		key("i:5"), key("c:555555555"), key("x:7"), key("i:7"), key("s:FILE:EEE@2026-05-01"), key("x:8"),
 	}
 	names := []nameInfo{
 		name("i:1", "symbol", "AAA", 1, 6),
@@ -334,22 +416,46 @@ func TestGroupKeys(t *testing.T) {
 		// Held months apart: no link.
 		name("i:4", "symbol", "CCC", 1, 2),
 		name("c:333333333", "symbol", "CCC", 11, 11),
+		// i:5 holds a CUSIP and the symbol DDD, which x:7 holds too; you
+		// said x:7 differs from i:5's CUSIP, so the symbol does not link
+		// them.
+		name("i:5", "cusip", "555555555", 1, 1),
+		name("i:5", "symbol", "DDD", 1, 12),
+		name("x:7", "symbol", "DDD", 5, 5),
+		// A file's symbol joins the instrumentId that held it.
+		name("i:7", "symbol", "EEE", 1, 12),
+		name("s:FILE:EEE@2026-05-01", "symbol", "EEE", 5, 5),
 	}
+	links := []keyLink{{a: "c:555555555", b: "x:7"}}
 	want := [][]string{
 		{"i:1", "c:111111111", "x:9"},
 		{"i:2"},
 		{"i:3", "c:222222222"},
 		{"i:4"},
+		{"i:5", "c:555555555"},
+		{"i:7", "s:FILE:EEE@2026-05-01"},
 		{"c:333333333"},
+		{"x:7"},
+		{"x:8"},
 		{"s:EQUITY:LONE"},
 		{"s:FILE:AMB@2026-05-01"},
 	}
 	groups := func(keys []keyInfo, names []nameInfo) [][]string {
 		var out [][]string
-		for _, g := range groupKeys(keys, names, nil) {
+		for _, g := range groupKeys(keys, names, links) {
 			out = append(out, g.keys)
 		}
 		return out
+	}
+	definite := map[string]bool{}
+	for _, g := range groupKeys(keys, names, links) {
+		definite[g.keys[0]] = g.definite
+	}
+	if want := map[string]bool{
+		"i:1": true, "i:2": true, "i:3": true, "i:4": true, "i:5": true, "i:7": true, "c:333333333": true,
+		"x:7": true, "x:8": true, "s:EQUITY:LONE": false, "s:FILE:AMB@2026-05-01": false,
+	}; !maps.Equal(definite, want) {
+		t.Errorf("the groups are definite %v, want %v", definite, want)
 	}
 	if got := groups(keys, names); !reflect.DeepEqual(got, want) {
 		t.Fatalf("groupKeys: %q, want %q", got, want)
@@ -365,9 +471,12 @@ func TestGroupKeys(t *testing.T) {
 	}
 }
 
-// An option's contract comes from the instrumentId seen last, else from
-// an OCC symbol; its underlying is the one security that held its
-// underlying symbol while the option was seen, and none when two did.
+// An option's contract comes from the instrumentId seen last, the
+// greater of two seen last at once, else from the least OCC symbol among
+// its names; its underlying is the one security that held its underlying
+// symbol while the option was seen, and none when two did. A security's
+// asset type and type are its canonical key's, and it was seen from the
+// first time one of its keys was to the last.
 func TestGroupAttributes(t *testing.T) {
 	t.Parallel()
 	at := func(m time.Month) time.Time { return time.Date(2026, m, 1, 0, 0, 0, 0, time.UTC) }
@@ -395,18 +504,106 @@ func TestGroupAttributes(t *testing.T) {
 		{key: "i:3", kind: "symbol", value: "BBB", first: at(1), last: at(12)},
 	}
 	keys = append(keys, keyInfo{key: "c:0XYZ..RI", first: at(1), last: at(1)})
+	early, late := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2020, 3, 1, 0, 0, 0, 0, time.UTC)
+	keys = append(keys,
+		// Two ids of one contract seen last at once: the greater's.
+		option("i:50", "CALL", "", 6), option("i:51", "PUT", "", 6),
+		// An option on OLD, which one company held in 2020 and another
+		// while the option was seen.
+		option("i:40", "CALL", "OLD", 6),
+		keyInfo{key: "i:41", first: early, last: late},
+		keyInfo{key: "i:42", first: at(1), last: at(12)},
+		// An option known by two OCC symbols, the greater first.
+		keyInfo{key: "s:OPTION:ZZZ", assetType: "OPTION", first: at(1), last: at(1)},
+		// A stock whose CUSIP's position says otherwise of it.
+		keyInfo{key: "i:30", assetType: "EQUITY", typ: "COMMON_STOCK", first: at(3), last: at(5)},
+		keyInfo{key: "c:300000000", assetType: "COLLECTIVE_INVESTMENT", typ: "ETF", first: at(1), last: at(9)},
+	)
+	names = append(names,
+		nameInfo{key: "i:50", kind: "cusip", value: "0ZZZ..RI", first: at(1), last: at(1)},
+		nameInfo{key: "i:51", kind: "cusip", value: "0ZZZ..RI", first: at(1), last: at(1)},
+		nameInfo{key: "i:41", kind: "symbol", value: "OLD", first: early, last: late},
+		nameInfo{key: "i:42", kind: "symbol", value: "OLD", first: at(1), last: at(12)},
+		nameInfo{key: "s:OPTION:ZZZ", kind: "symbol", value: "ZZZ   270918C00060000", first: at(1), last: at(1)},
+		nameInfo{key: "s:OPTION:ZZZ", kind: "symbol", value: "ZZZ   260918C00050000", first: at(1), last: at(1)},
+		nameInfo{key: "i:30", kind: "cusip", value: "300000000", first: at(3), last: at(3)},
+	)
+	keys = append(keys, keyInfo{key: "c:0ZZZ..RI", first: at(1), last: at(1)})
 	got := map[string]string{}
 	for _, g := range groupKeys(keys, names, nil) {
 		got[g.keys[0]] = fmt.Sprintf("%s %v %s %s %s", g.putCall, g.strike.Float64, g.expiration, g.underlyingSymbol, g.underlying)
+		if g.keys[0] == "i:30" {
+			got["i:30"] = fmt.Sprintf("%s %s %s %s", g.assetType, g.typ, instant(g.first), instant(g.last))
+		}
 	}
 	for k, want := range map[string]string{
 		"i:10":                           "PUT 50  AAA i:1",
 		"i:20":                           "CALL 50  BBB ",
 		"s:OPTION:XYZ   260918C00050000": "CALL 50 2026-09-18 XYZ ",
+		"i:50":                           "PUT 50   ",
+		"i:40":                           "CALL 50  OLD i:42",
+		"s:OPTION:ZZZ":                   "CALL 50 2026-09-18 ZZZ ",
+		"i:30":                           "EQUITY COMMON_STOCK " + instant(at(1)) + " " + instant(at(9)),
 	} {
 		if got[k] != want {
 			t.Errorf("security %s: %q, want %q", k, got[k], want)
 		}
+	}
+}
+
+// A ~SYM names the one security that the account traded within 7 days of
+// the day and that has ever held the symbol: none when it traded two such,
+// or traded the one only further away.
+func TestTradedNear(t *testing.T) {
+	t.Parallel()
+	names := []symbolName{
+		{security: 1, value: "BND", first: day(2026, 1, 1), last: day(2026, 1, 1)},
+		{security: 2, value: "TWO", first: day(2026, 1, 1), last: day(2026, 1, 1)},
+		{security: 3, value: "TWO", first: day(2026, 1, 1), last: day(2026, 1, 1)},
+	}
+	traded := []tradedSecurity{{"2024-04-04", 1}, {"2024-04-04", 9}, {"2024-05-01", 2}, {"2024-05-03", 3}, {"2024-06-01", 2}}
+	for _, c := range []struct {
+		symbol string
+		day    nytime.Date
+		want   int64
+		ok     bool
+	}{
+		{"BND", "2024-04-04", 1, true},
+		{"BND", "2024-03-28", 1, true},
+		{"BND", "2024-04-11", 1, true},
+		{"BND", "2024-04-12", 0, false},
+		{"TWO", "2024-05-02", 0, false},
+		{"TWO", "2024-06-03", 2, true},
+		{"NONE", "2024-04-04", 0, false},
+	} {
+		if got, ok := tradedNear(traded, names, c.symbol, c.day); got != c.want || ok != c.ok {
+			t.Errorf("tradedNear(%q, %s) = %d, %v; want %d, %v", c.symbol, c.day, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// The symbols that a dividend's ~SYM is looked up among are each key's
+// symbols and uniform symbols, which Schwab writes otherwise at times.
+func TestSymbolNames(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	observeAt(t, s, day(2026, 5, 1), keyObservation{key: "i:900", assetType: "EQUITY"},
+		nameObservation{kind: "symbol", value: "BRKB", seenIn: "transaction"},
+		nameObservation{kind: "uniform_symbol", value: "BRK.B", seenIn: "transaction"},
+		nameObservation{kind: "description", value: "BERKSHIRE", seenIn: "transaction"})
+	var got []string
+	if err := s.withWrite(t.Context(), "reading the names", func(w *wtx) error {
+		names, err := loadSymbolNames(w)
+		got = nil
+		for _, n := range names {
+			got = append(got, n.value)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, []string{"BRK.B", "BRKB"}) {
+		t.Errorf("the symbol names are %q, want BRK.B and BRKB", got)
 	}
 }
 
@@ -424,6 +621,12 @@ func TestResolveSymbol(t *testing.T) {
 		{security: 4, value: "XYZ   260918C00050000", first: day(2026, 8, 1), last: day(2026, 8, 1)},
 		{security: 5, value: "DUP", first: day(2026, 1, 1), last: day(2026, 3, 1)},
 		{security: 6, value: "DUP", first: day(2026, 2, 1), last: day(2026, 2, 1)},
+		// One security held TWO under two keys, the later first.
+		{security: 7, value: "TWO", first: day(2026, 2, 1), last: day(2026, 3, 1)},
+		{security: 7, value: "TWO", first: day(2025, 11, 1), last: day(2025, 12, 1)},
+		// Seen 7 days and 12 hours after the start of 2026-05-01: within 7
+		// days of the day's end.
+		{security: 8, value: "EDGE", first: midnight("2026-05-08").Add(12 * time.Hour), last: midnight("2026-05-08").Add(12 * time.Hour)},
 	}
 	for _, c := range []struct {
 		symbol string
@@ -440,6 +643,8 @@ func TestResolveSymbol(t *testing.T) {
 		{"DUP", "2026-02-01", resolution{}, false},
 		{"XYZ   260918C00050000", "2026-08-03", resolution{security: 4}, true},
 		{"XYZ   260918P00050000", "2026-08-03", resolution{}, false},
+		{"TWO", "2026-06-01", resolution{security: 7, byName: true, seen: day(2026, 3, 1)}, true},
+		{"EDGE", "2026-05-01", resolution{security: 8}, true},
 	} {
 		got, ok := resolveSymbol(names, c.symbol, c.day)
 		if got != c.want || ok != c.ok {
