@@ -47,6 +47,12 @@ type Options struct {
 
 	// disk, if set, stands in for localDisk in tests.
 	disk func(path string) (fsInfo, error)
+	// maxRows, if set, stands in for schwab.MaxTransactions in tests.
+	maxRows int
+	// margin, if set, stands in for the second by which a time must lie
+	// inside a read's window for the read to count it in (deriveAccount),
+	// so that a test can derive under a narrower rule.
+	margin time.Duration
 }
 
 // The errors that Open, and the store's reads and writes, return, as

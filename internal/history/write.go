@@ -73,11 +73,20 @@ func (s *Store) newerError(v versions, atOpen bool) error {
 
 // A wtx is a write transaction of withWrite.
 type wtx struct {
+	s   *Store
 	tx  *sql.Tx
 	ctx context.Context
 	// now is the one reading of the clock for the whole transaction: every
 	// time it records is this one.
 	now time.Time
+	// touched are the accounts whose evidence the write changed, which the
+	// end of the write derives again.
+	touched map[int64]bool
+}
+
+// touch marks account as one whose evidence the write changed.
+func (w *wtx) touch(account int64) {
+	w.touched[account] = true
 }
 
 // exec runs a statement in the transaction.
@@ -108,7 +117,8 @@ type inWrite struct{}
 // withWrite runs fn in one write transaction. BEGIN IMMEDIATE takes the
 // write lock first, so no transaction reads and then fails to write. It
 // first reads the store's versions: any above this build's is ErrNewer, and
-// nothing is written. On SQLITE_BUSY from any statement or the COMMIT (a
+// nothing is written. After fn it derives again the accounts that fn
+// touched (wtx.derive), and then commits. On SQLITE_BUSY from any statement or the COMMIT (a
 // primary code of 5: 5, 261, 517 or 773) it rolls back and runs fn again
 // after a pause, until Options.LockWait has passed (ErrBusy) or ctx ends
 // (ctx's error). op says what the write does, for messages: "importing 2
@@ -128,13 +138,16 @@ func (s *Store) withWrite(ctx context.Context, op string, fn func(*wtx) error) e
 		if err != nil {
 			return err
 		}
-		w := &wtx{tx: tx, ctx: context.WithValue(ctx, inWrite{}, op), now: s.o.Now().UTC()}
+		w := &wtx{s: s, tx: tx, ctx: context.WithValue(ctx, inWrite{}, op), now: s.o.Now().UTC(), touched: map[int64]bool{}}
 		v, err := readVersions(w.ctx, tx)
 		if err == nil && v.newer() {
 			err = s.newerError(v, false)
 		}
 		if err == nil {
 			err = fn(w)
+		}
+		if err == nil {
+			err = w.derive()
 		}
 		if err != nil {
 			_ = tx.Rollback()

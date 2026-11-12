@@ -38,6 +38,18 @@
 // versions, of its schema, its rules and its calendar, and stops with
 // ErrNewer when a newer schwabtx has changed the store meanwhile. Reads use
 // a pool of their own, whose connections cannot write.
+//
+// # Derivation
+//
+// What one piece of evidence gives by itself, such as a transaction's
+// columns and legs from its latest raw JSON, is derived when the evidence
+// arrives. What relates the evidence of an account, such as which
+// transactions a complete read shows gone and which days the API covers,
+// is derived again from scratch, for each account whose evidence a write
+// changed, at the end of that write, and only rows that change are
+// written. No derived value shares a row with raw JSON or a file's bytes,
+// so deriving never rewrites them. A rebuild derives everything again from
+// the evidence alone.
 package history
 
 import (
