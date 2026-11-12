@@ -24,8 +24,16 @@ type Decision struct {
 	// Kind is what it decides:
 	//
 	//	category        an entry's category: one of the categories, or auto
-	//	count           whether an entry counts: yes, no or auto
+	//	count           whether an entry counts: yes, no or auto; refused on a
+	//	                file transaction linked to an API transaction
 	//	pair            the entry an entry is paired with (its subject), none or auto
+	//	match           the API transactions that a file transaction is, by
+	//	                their subjects separated by commas; none, for none of
+	//	                them, so that it counts from the file; or auto
+	//	reject          an API transaction (its subject) that a file
+	//	                transaction is not; auto withdraws every one before
+	//	action          whether file transactions of an action that the API's
+	//	                coverage holds out count: count, hold or auto
 	//	entry_security  an entry's security: k:<key>, or auto
 	//	security        that two keys name one security or two: same k:<key>,
 	//	                differ k:<key>, or auto
@@ -42,7 +50,9 @@ type Decision struct {
 	// ID>, or a:<account>:~<time>.<digest> for one without an activity ID),
 	// a row of a History file (c:<sha256 hex>:<ordinal>), which stands for
 	// the file transaction that holds it, a file's (f:<sha256 hex>), a key's
-	// (k:<key>) or an account's (acct:<account>).
+	// (k:<key>), an account's (acct:<account>) or an action's
+	// (action:<the action as a file writes it>, kept as its letters and
+	// digits in lower case).
 	Subject string
 	Value   string
 	// Note is yours to say why. It is kept masked (mask.Text), as all free
@@ -77,10 +87,9 @@ type EntryState struct {
 	SecurityKey            string
 }
 
-// decisionKinds are the kinds that Decide takes. Decisions that link a
-// file transaction to API transactions come with the matching of the two.
+// decisionKinds are the kinds that Decide takes.
 var decisionKinds = []string{
-	"category", "count", "pair", "entry_security", "security", "account",
+	"category", "count", "pair", "entry_security", "match", "reject", "action", "security", "account",
 	"completeness", "file_account", "file_range", "forget",
 }
 
@@ -92,6 +101,16 @@ var decisionKinds = []string{
 func (s *Store) Decide(ctx context.Context, d Decision) (Decided, error) {
 	if !slices.Contains(decisionKinds, d.Kind) {
 		return Decided{}, fmt.Errorf("schwabtx takes no decision of kind %q; it takes %s", mask.Text(d.Kind), strings.Join(decisionKinds, ", "))
+	}
+	if label, ok := strings.CutPrefix(d.Subject, "action:"); ok && d.Kind == "action" {
+		d.Subject = "action:" + normalAction(label)
+	}
+	if d.Kind == "match" {
+		subjects := strings.Split(d.Value, ",")
+		for i, s := range subjects {
+			subjects[i] = strings.TrimSpace(s)
+		}
+		d.Value = strings.Join(subjects, ",")
 	}
 	var out Decided
 	err := s.withWrite(ctx, "recording your decision", func(w *wtx) error {
@@ -200,9 +219,14 @@ func checkDecision(w *wtx, d Decision) (sql.NullString, error) {
 		return basis, nil
 	case "completeness", "file_account", "file_range", "forget":
 		return basis, checkFileDecision(w, d)
+	case "action":
+		return basis, checkActionDecision(w, d)
 	}
 	if strings.HasPrefix(d.Subject, "c:") {
 		return checkRowDecision(w, d)
+	}
+	if d.Kind == "match" || d.Kind == "reject" {
+		return refuse("a %s decision is on a file transaction (C…), not %s", d.Kind, mask.Text(d.Subject))
 	}
 	// The rest are about an entry.
 	var acct int64
@@ -369,6 +393,15 @@ func checkRowDecision(w *wtx, d Decision) (sql.NullString, error) {
 	if err != nil {
 		return basis, err
 	}
+	// The file transaction that holds the row now; a row of a file set
+	// aside is in none.
+	ref, txn := mask.Text(d.Subject), sql.NullInt64{}
+	switch err := w.tx.QueryRowContext(w.ctx, `SELECT e.ref, e.csv_txn_id FROM csv_member m JOIN entry e ON e.csv_txn_id = m.csv_txn_id
+		WHERE m.row_id = ?`, row).Scan(&ref, &txn); {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return basis, err
+	}
 	switch d.Kind {
 	case "category":
 		if d.Value != "auto" && !slices.Contains(categories, d.Value) {
@@ -377,6 +410,38 @@ func checkRowDecision(w *wtx, d Decision) (sql.NullString, error) {
 	case "count":
 		if !slices.Contains([]string{"yes", "no", "auto"}, d.Value) {
 			return basis, fmt.Errorf("a count decision is yes, no or auto, not %q", mask.Text(d.Value))
+		}
+		var api string
+		switch err := w.tx.QueryRowContext(w.ctx, `SELECT e.ref FROM match_member f JOIN match_member a ON a.match_id = f.match_id
+			JOIN entry e ON e.txn_id = a.txn_id WHERE f.csv_txn_id = ? ORDER BY e.ref LIMIT 1`, txn).Scan(&api); {
+		case err == nil && d.Value != "auto":
+			return basis, fmt.Errorf("%s is linked to %s, whose record counts in its place; unlink it first: schwabtx edit %s -link none", ref, api, ref)
+		case err != nil && !errors.Is(err, sql.ErrNoRows):
+			return basis, err
+		}
+	case "match":
+		if d.Value == "none" || d.Value == "auto" {
+			break
+		}
+		var counted string
+		switch err := w.tx.QueryRowContext(w.ctx, `SELECT value FROM decision WHERE kind = 'count' AND subject IN (
+			SELECT 'c:' || lower(hex(f.sha256)) || ':' || r.ordinal FROM csv_member m JOIN history_row r ON r.row_id = m.row_id
+			JOIN import_file f ON f.file_id = r.file_id WHERE m.csv_txn_id = ?) ORDER BY decision_id DESC LIMIT 1`, txn).Scan(&counted); {
+		case err == nil && counted != "auto":
+			return basis, fmt.Errorf("you decided whether %s counts, which keeps it out of matching; withdraw that first: schwabtx edit %s -count auto", ref, ref)
+		case err != nil && !errors.Is(err, sql.ErrNoRows):
+			return basis, err
+		}
+		for s := range strings.SplitSeq(d.Value, ",") {
+			if err := checkLink(w, s, acct, ref, txn, true); err != nil {
+				return basis, err
+			}
+		}
+	case "reject":
+		if d.Value != "auto" {
+			if err := checkLink(w, d.Value, acct, ref, txn, false); err != nil {
+				return basis, err
+			}
 		}
 	case "pair":
 		if d.Value != "none" && d.Value != "auto" {
@@ -425,4 +490,71 @@ func checkRowDecision(w *wtx, d Decision) (sql.NullString, error) {
 	}
 	j, err := json.Marshal(b)
 	return sql.NullString{String: string(j), Valid: true}, err
+}
+
+// checkActionDecision checks a decision on an action, d, whose subject is
+// action:<the action, normalized>, and marks every account with files for
+// derivation.
+func checkActionDecision(w *wtx, d Decision) error {
+	action := strings.TrimPrefix(d.Subject, "action:")
+	if !strings.HasPrefix(d.Subject, "action:") || action == "" {
+		return fmt.Errorf("an action decision is on action:<the action, as a file writes it>, not %q", mask.Text(d.Subject))
+	}
+	if !slices.Contains([]string{"count", "hold", "auto"}, d.Value) {
+		return fmt.Errorf("an action decision is count, hold or auto, not %q", mask.Text(d.Value))
+	}
+	if _, ok := fileActions[action]; !ok {
+		seen := false
+		if err := queryEach(w, func(rows *sql.Rows) error {
+			var a string
+			err := rows.Scan(&a)
+			seen = seen || normalAction(a) == action
+			return err
+		}, "SELECT DISTINCT action FROM history_row"); err != nil {
+			return err
+		}
+		if !seen {
+			return fmt.Errorf("no file holds the action %q", mask.Text(action))
+		}
+	}
+	ids, err := fileAccounts(w)
+	for _, id := range ids {
+		w.touch(id)
+	}
+	return err
+}
+
+// checkLink checks that subject names an API transaction of account acct,
+// to which your decision links (link) or does not link the file
+// transaction ref, whose row id in csv_txn is txn. A link to an API
+// transaction that the store's own match gives another file transaction
+// is refused, so that the other is not left out unawares.
+func checkLink(w *wtx, subject string, acct sql.NullInt64, ref string, txn sql.NullInt64, link bool) error {
+	var other int64
+	var api string
+	err := w.tx.QueryRowContext(w.ctx, "SELECT account_id, ref FROM entry WHERE subject = ? AND txn_id IS NOT NULL", subject).Scan(&other, &api)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("no API transaction %s in the store", mask.Text(subject))
+	case err != nil:
+		return err
+	case !acct.Valid || other != acct.Int64:
+		label, err := accountLabel(w, other)
+		return cmp.Or(err, fmt.Errorf("%s is in another account (%s) than %s", api, label, ref))
+	case !link:
+		return nil
+	}
+	var method, by string
+	err = w.tx.QueryRowContext(w.ctx, `SELECT m.method, e.ref FROM entry a JOIN match_member am ON am.txn_id = a.txn_id
+		JOIN match m ON m.match_id = am.match_id JOIN match_member fm ON fm.match_id = m.match_id
+		JOIN entry e ON e.csv_txn_id = fm.csv_txn_id
+		WHERE a.subject = ? AND m.method <> 'user' AND fm.csv_txn_id IS NOT ? ORDER BY e.ref LIMIT 1`, subject, txn).Scan(&method, &by)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return err
+	}
+	return fmt.Errorf("%s is linked to %s by the store's own match (%s); link %s to it too (schwabtx edit %s -link %s), or keep them apart first (schwabtx edit %s -reject %s)",
+		api, by, method, by, by, api, by, api)
 }

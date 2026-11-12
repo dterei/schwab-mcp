@@ -150,7 +150,7 @@ func (w *wtx) derive() error {
 func loadAccount(w *wtx, id int64, g *globals) (accountInputs, error) {
 	in := accountInputs{
 		account: id, margin: w.s.o.margin, number: g.numbers[id],
-		pairDecided: g.pairDecided, keySecurities: g.keySecurities, names: g.names,
+		pairDecided: g.pairDecided, keySecurities: g.keySecurities, names: g.names, policies: g.policies,
 	}
 	if err := loadFiles(w, &in, g); err != nil {
 		return in, err
@@ -158,13 +158,13 @@ func loadAccount(w *wtx, id int64, g *globals) (accountInputs, error) {
 	byID := map[int64]int{} // txn_id -> index in in.txns
 	err := queryEach(w, func(rows *sql.Rows) error {
 		var t txnInput
-		var latest, activity sql.NullInt64
+		var latest, activity, order sql.NullInt64
 		var at, trade, day, typ, status, text, problems, sent sql.NullString
 		if err := rows.Scan(&t.id, &t.firstRead, &latest, &at, &trade, &day, &activity, &t.idSource, &typ, &status,
-			&t.description, &text, &t.net, &problems, &sent); err != nil {
+			&t.description, &text, &t.net, &problems, &sent, &order); err != nil {
 			return err
 		}
-		t.latestListRead, t.tradeDay, t.activityID = latest.Int64, nytime.Date(day.String), activity.Int64
+		t.latestListRead, t.tradeDay, t.activityID, t.orderID = latest.Int64, nytime.Date(day.String), activity.Int64, order.Int64
 		t.typ, t.status, t.text, t.numberSent = typ.String, status.String, unmasked(t.description, text), sent.String
 		if err := json.Unmarshal([]byte(cmp.Or(problems.String, "[]")), &t.problems); err != nil {
 			return err
@@ -181,7 +181,7 @@ func loadAccount(w *wtx, id int64, g *globals) (accountInputs, error) {
 		return nil
 	}, `SELECT t.txn_id, t.first_read_id, t.latest_list_read_id, x.time, x.trade_date, x.trade_day, t.activity_id,
 		t.id_source, x.type, x.status, x.description, `+rawIfMasked+`,
-		x.net_cents, x.problems, x.number_sent_masked
+		x.net_cents, x.problems, x.number_sent_masked, x.order_id
 		FROM api_txn t JOIN txn x ON x.txn_id = t.txn_id WHERE t.account_id = ?`, id)
 	if err != nil {
 		return in, err
@@ -381,6 +381,9 @@ func writeAccount(w *wtx, id int64, out accountOutputs, wr written) error {
 		return err
 	}
 	if err := writeFiles(w, id, &out); err != nil {
+		return err
+	}
+	if err := writeMatches(w, id, &out); err != nil {
 		return err
 	}
 	return writeEntries(w, id, out.entries, wr)

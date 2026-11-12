@@ -251,6 +251,7 @@ func pairEntry(ref, family, category, day string, amount int64) ledgerEntry {
 	e := ledgerEntry{account: 1}
 	e.ref, e.subject = ref, "a:1:"+ref
 	e.family, e.category, e.rule = family, category, "test"
+	e.counted = true
 	e.day = sql.NullString{String: day, Valid: true}
 	e.amount = centsOf(amount)
 	return e

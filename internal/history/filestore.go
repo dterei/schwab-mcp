@@ -186,7 +186,7 @@ func loadFiles(w *wtx, in *accountInputs, g *globals) error {
 		return err
 	}
 	for _, f := range in.files {
-		ds, err := loadDecisions(w, "kind IN ('category', 'count', 'pair', 'entry_security') AND subject >= ? AND subject < ?",
+		ds, err := loadDecisions(w, "kind IN ('category', 'count', 'pair', 'entry_security', 'match', 'reject') AND subject >= ? AND subject < ?",
 			"c:"+f.sha+":", "c:"+f.sha+";")
 		if err != nil {
 			return err
@@ -287,9 +287,16 @@ func pruneFiles(w *wtx, id int64, out accountOutputs) error {
 					return err
 				}
 			} else {
-				// Its entry goes with it, so that a transaction that takes its
-				// row id meanwhile finds no entry naming it.
+				// Its entry, its place in a match and its candidates go with
+				// it, so that a transaction that takes its row id meanwhile
+				// finds nothing naming it.
 				if _, err := w.exec("DELETE FROM flag WHERE entry_id IN (SELECT entry_id FROM entry WHERE csv_txn_id = ?)", rid); err != nil {
+					return err
+				}
+				if _, err := w.exec("DELETE FROM match_member WHERE csv_txn_id = ?", rid); err != nil {
+					return err
+				}
+				if _, err := w.exec("DELETE FROM match_candidate WHERE csv_txn_id = ?", rid); err != nil {
 					return err
 				}
 				if _, err := w.exec("UPDATE entry SET pair_kind = NULL, pair_entry_id = NULL WHERE pair_entry_id IN (SELECT entry_id FROM entry WHERE csv_txn_id = ?)", rid); err != nil {

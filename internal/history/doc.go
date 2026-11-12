@@ -89,6 +89,18 @@
 // completeness is established, by your word or by its agreeing with the
 // API's rows or a complete file's, never assumed; until the sync exists, a
 // -json file's rows cover the days strictly inside their span.
+//
+// # Matching and counting
+//
+// Where the API covers, it is the record. A file transaction that is an
+// API transaction, by rules of families, days, amounts and symbols or by
+// your decision, is linked to it, and the API's record counts in its
+// place. Inside the API's coverage, a file transaction that no API
+// transaction is, or that several could be, is held out and flagged until
+// you say, so that nothing counts twice whichever way the matching errs;
+// outside it, the files are the record. The matching is a function of the
+// account's transactions and your decisions, never of what an earlier
+// derivation linked.
 package history
 
 import (

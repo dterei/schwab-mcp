@@ -28,6 +28,8 @@ type globals struct {
 	// secs is what the counting of files' rows reads of the securities,
 	// read when an account with files is first derived.
 	secs *securities
+	// policies are your action decisions, by the action normalized.
+	policies map[string]string
 }
 
 // loadGlobals reads what every account's derivation reads.
@@ -63,6 +65,14 @@ func loadGlobals(w *wtx) (*globals, error) {
 		g.numbers[id] = number
 		return err
 	}, "SELECT account_id, number FROM account")
+	if err != nil {
+		return nil, err
+	}
+	actions, err := loadDecisions(w, "kind = 'action'")
+	g.policies = map[string]string{}
+	for _, d := range latestDecisions(actions) {
+		g.policies[strings.TrimPrefix(d.subject, "action:")] = d.value
+	}
 	return g, err
 }
 
@@ -104,6 +114,7 @@ func candidateOf(e ledgerEntry, number string) pairCandidate {
 	return pairCandidate{
 		key: e.key(), subject: e.subject, family: e.family, amount: e.amount, quantity: e.quantity,
 		security: e.security, day: e.day.String, text: e.text, number: number, userCategory: e.userCategory,
+		uncounted: !e.counted,
 	}
 }
 
@@ -134,7 +145,7 @@ func loadPairCandidates(w *wtx, g *globals, outs map[int64]*accountOutputs) ([]p
 		var withAccount sql.NullInt64
 		var unpaired, ambiguous bool
 		if err := rows.Scan(&c.key.account, &c.key.ref, &c.subject, &c.family, &c.amount, &c.quantity, &c.security, &day,
-			&c.userCategory, &description, &text, &kind, &withAccount, &withRef, &unpaired, &ambiguous); err != nil {
+			&c.userCategory, &c.uncounted, &description, &text, &kind, &withAccount, &withRef, &unpaired, &ambiguous); err != nil {
 			return err
 		}
 		if outs[c.key.account] != nil {
@@ -155,7 +166,7 @@ func loadPairCandidates(w *wtx, g *globals, outs map[int64]*accountOutputs) ([]p
 		stored[c.key] = p
 		return nil
 	}, `SELECT e.account_id, e.ref, e.subject, e.family, e.amount_cents, e.quantity_micros, e.security_id, e.day,
-		e.category_rule = 'user', coalesce(x.description, e.description), `+rawIfMasked+`,
+		e.category_rule = 'user', e.counted = 0, coalesce(x.description, e.description), `+rawIfMasked+`,
 		e.pair_kind, p.account_id, p.ref,
 		EXISTS (SELECT 1 FROM flag f WHERE f.entry_id = e.entry_id AND f.code = 'unpaired_journal'),
 		EXISTS (SELECT 1 FROM flag f WHERE f.entry_id = e.entry_id AND f.code = 'ambiguous_journal')

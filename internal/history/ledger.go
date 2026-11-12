@@ -96,9 +96,10 @@ func latestDecisions(ds []decisionInput) map[[2]string]decisionInput {
 }
 
 // decidedKinds are the kinds of your decisions on an entry that record
-// the revision they were made against, and go stale when what the rules
-// read of the transaction changes.
-var decidedKinds = []string{"category", "count", "pair", "entry_security"}
+// what they were made against, and go stale when what the rules read of
+// the transaction changes: the revision of an API transaction, the rows of
+// a file transaction. Only a file transaction takes match and reject.
+var decidedKinds = []string{"category", "count", "pair", "entry_security", "match", "reject"}
 
 // answeredByCategory are the flags that say how the rules booked an entry
 // for want of knowing better, which your category answers.
@@ -460,9 +461,10 @@ func daysApart(a, b string) (int, bool) {
 }
 
 // pairWithin pairs an account's entries with one another, in a fixed
-// order whatever the order of the entries, each entry in one pair at most
-// and none that one of your pair decisions names (pairAccounts pairs
-// those):
+// order whatever the order of the entries, each entry in one pair at most,
+// none that does not count (a file transaction that is an API
+// transaction's, one held out, one gone) and none that one of your pair
+// decisions names (pairAccounts pairs those):
 //
 //   - sweep: two sweeps of opposite amounts at most a day apart;
 //   - reversal: a file's Cancel Buy or Cancel Sell and the Buy or Sell of
@@ -480,7 +482,7 @@ func pairWithin(entries []ledgerEntry) {
 		a, b := &entries[i], &entries[j]
 		return cmp.Or(cmp.Compare(a.day.String, b.day.String), cmp.Compare(a.ref, b.ref))
 	})
-	free := func(e *ledgerEntry) bool { return e.pairKind == "" && !e.pairDecided }
+	free := func(e *ledgerEntry) bool { return e.pairKind == "" && !e.pairDecided && e.counted }
 	for x, i := range order {
 		a := &entries[i]
 		if a.family != "sweep" || !free(a) || !a.amount.Valid || a.amount.Int64 == 0 {

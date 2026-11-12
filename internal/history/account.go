@@ -56,6 +56,10 @@ type accountInputs struct {
 	// -json` file holds of the account, which the API's rows of those
 	// files cover (9.6 of the design).
 	apiFiles []apiFileSpan
+	// policies are your action decisions, by the action normalized
+	// (normalAction): whether a file transaction of that action that the
+	// API's coverage holds out counts.
+	policies map[string]string
 }
 
 // An apiFileSpan is the span of the trade days of the rows of a
@@ -83,9 +87,10 @@ type txnInput struct {
 	changed [][]string
 
 	// activityID is its activity ID, or 0, and idSource where that came
-	// from: number, string or none.
+	// from: number, string or none; orderID is its order's ID, or 0.
 	activityID int64
 	idSource   string
+	orderID    int64
 	// typ, status, net and legs are its columns in txn and its legs in
 	// api_leg; description is its description masked, and text unmasked.
 	typ, status string
@@ -155,6 +160,10 @@ type accountOutputs struct {
 	files    []fileOutput
 	fileTxns []csvTxnOutput
 	lots     []lotOutput
+	// matches are which file transactions are which API transactions, and
+	// candidates what each uncertain one may be.
+	matches    []matchOutput
+	candidates []candidateOutput
 }
 
 // A txnOutput is what the derivation gives an API transaction.
@@ -177,9 +186,10 @@ type coverageRun struct {
 // deriveAccount derives what one account's evidence gives: each API
 // transaction's count of revisions and the read that shows it gone, the
 // account's coverage by the API and by its snapshots, its type, the
-// conflicts among its snapshots, and its ledger entries, classified,
-// counted, flagged and paired within the account. It is a function of its
-// inputs alone, whatever their order.
+// conflicts among its snapshots, what its files give, which of its file
+// transactions are which of its API transactions, and its ledger entries,
+// classified, counted, flagged and paired within the account. It is a
+// function of its inputs alone, whatever their order.
 func deriveAccount(in accountInputs) accountOutputs {
 	if in.margin == 0 {
 		in.margin = time.Second
@@ -212,6 +222,10 @@ func deriveAccount(in accountInputs) accountOutputs {
 	out.entries = apiEntries(in, gone, revs, earlier)
 	fl := deriveFiles(in, out.entries, apiRuns)
 	out.files, out.fileTxns, out.lots = fl.files, fl.txns, fl.lots
+	out.matches, out.candidates = matchAccount(matchInput{
+		api: out.entries, txns: in.txns, files: fl.entries, fileTxns: fl.txns, decided: fl.decided, all: fl.all,
+		policies: in.policies, apiRuns: apiRuns, complete: fl.complete,
+	})
 	out.entries = append(out.entries, fl.entries...)
 	slices.SortFunc(out.entries, func(a, b ledgerEntry) int { return cmp.Compare(a.ref, b.ref) })
 	out.coverage = append(append(apiRuns, snapshotCoverage(in.snapshots)...), fl.coverage...)

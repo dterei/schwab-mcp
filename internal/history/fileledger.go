@@ -64,6 +64,12 @@ type fileLedger struct {
 	lots     []lotOutput
 	entries  []ledgerEntry
 	coverage []coverageRun
+	// decided are the latest of your decisions of each kind that reach
+	// each of txns, and all every one that does; complete are what the
+	// complete History files cover.
+	decided  []map[string]decisionInput
+	all      [][]decisionInput
+	complete []schwabfile.Coverage
 }
 
 // holdsFamilies are the families of file transactions that move holdings,
@@ -144,14 +150,17 @@ func deriveFiles(in accountInputs, api []ledgerEntry, apiRuns []coverageRun) fil
 		t.files = len(files)
 		out.txns[i] = t
 	}
-	decided := fileDecisions(in, clusters, byRow, secs)
+	out.decided, out.all = fileDecisions(in, clusters, byRow, secs)
 	for i, c := range clusters {
-		out.entries = append(out.entries, fileEntry(in, out.txns[i], c, decided[i], refs, secs, familyOf))
+		out.entries = append(out.entries, fileEntry(in, out.txns[i], c, out.decided[i], refs, secs, familyOf))
 	}
 	acrossFiles(out.entries, clusters, comp, covs, familyOf, refs)
 
 	for _, f := range in.files {
 		out.files = append(out.files, fileFlags(in, f, covs, comp[f]))
+		if comp[f].completeness == "complete" && covs[f].From != "" {
+			out.complete = append(out.complete, covs[f])
+		}
 	}
 	out.lots = deriveLots(lots, secs, refs)
 	out.coverage = fileCoverageRuns(in, covs, comp)
@@ -471,15 +480,17 @@ func joinAnd(words []string) string {
 }
 
 // fileDecisions returns, for each cluster, the latest of your decisions of
-// each kind on an entry (category, count, entry_security) that reach it
-// (13.7 of the design): a decision names a row, and reaches the cluster
-// that holds that row now. A row of a file set aside reaches the cluster
-// that holds the other rows of the cluster it would be in were every
-// file taken part, when exactly one does; else the decision waits.
-func fileDecisions(in accountInputs, clusters []*cluster[*historyRowInput], byRow map[*historyRowInput]int, secs *securities) []map[string]decisionInput {
+// each kind on an entry (category, count, pair, entry_security, match)
+// that reach it, and every one that does, rejects among them, in the order
+// they were made (13.7 of the design): a decision names a row, and reaches
+// the cluster that holds that row now. A row of a file set aside reaches
+// the cluster that holds the other rows of the cluster it would be in were
+// every file taken part, when exactly one does; else the decision waits.
+func fileDecisions(in accountInputs, clusters []*cluster[*historyRowInput], byRow map[*historyRowInput]int, secs *securities) ([]map[string]decisionInput, [][]decisionInput) {
 	out := make([]map[string]decisionInput, len(clusters))
+	all := make([][]decisionInput, len(clusters))
 	if len(in.fileDecisions) == 0 {
-		return out
+		return out, all
 	}
 	rowOf := map[string]*historyRowInput{}
 	for _, f := range in.files {
@@ -536,6 +547,7 @@ func fileDecisions(in accountInputs, clusters []*cluster[*historyRowInput], byRo
 		if !ok {
 			continue
 		}
+		all[i] = append(all[i], d)
 		if out[i] == nil {
 			out[i] = map[string]decisionInput{}
 		}
@@ -543,14 +555,15 @@ func fileDecisions(in accountInputs, clusters []*cluster[*historyRowInput], byRo
 			out[i][d.kind] = d
 		}
 	}
-	for _, m := range out {
+	for i, m := range out {
 		for k, d := range m {
 			if d.value == "auto" {
 				delete(m, k)
 			}
 		}
+		slices.SortFunc(all[i], func(a, b decisionInput) int { return cmp.Compare(a.id, b.id) })
 	}
-	return out
+	return out, all
 }
 
 // fileEntry makes the ledger entry of a file transaction t, the cluster c

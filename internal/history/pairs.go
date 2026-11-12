@@ -21,9 +21,10 @@ type pairCandidate struct {
 	// text is its description unmasked, and number its account's number,
 	// whose last three digits a journal's description may name.
 	text, number string
-	// userCategory says that your category decision booked it, which keeps
-	// it out of automatic pairing.
-	userCategory bool
+	// userCategory says that your category decision booked it, and
+	// uncounted that it does not count; either keeps it out of automatic
+	// pairing.
+	userCategory, uncounted bool
 }
 
 // A pairResult is what pairAccounts makes of a candidate: the entry it is
@@ -49,7 +50,7 @@ type pairResult struct {
 // security (shares), when each is the other's only candidate; among
 // several, the one whose description names the other's account by its
 // last three digits, if one alone does. A journal booked by your category
-// decision takes no part. A journal left unpaired is flagged
+// decision, or one that does not count, takes no part. A journal left unpaired is flagged
 // unpaired_journal, or ambiguous_journal when it had candidates.
 func pairAccounts(cands []pairCandidate, decisions []decisionInput) map[entryKey]pairResult {
 	slices.SortFunc(cands, func(a, b pairCandidate) int {
@@ -106,7 +107,7 @@ func pairAccounts(cands []pairCandidate, decisions []decisionInput) map[entryKey
 	// Automatic journal pairs.
 	auto := func(i int) bool {
 		c := cands[i]
-		return !res[i].decided && !c.userCategory && (c.family == "journal" || c.family == "shares")
+		return !res[i].decided && !c.userCategory && !c.uncounted && (c.family == "journal" || c.family == "shares")
 	}
 	matches := func(a, b pairCandidate) bool {
 		d, ok := daysApart(a.day, b.day)
@@ -216,9 +217,9 @@ func finishPairs(entries []ledgerEntry, res map[entryKey]pairResult) {
 			e.category = "journal"
 		}
 		switch {
-		case e.pairKind == "" && e.family == "sweep" && !r.none:
+		case e.pairKind == "" && e.family == "sweep" && !r.none && e.counted:
 			e.flags.add("unpaired_sweep", "")
-		case e.pairKind == "" && e.family == "reversal" && !r.none:
+		case e.pairKind == "" && e.family == "reversal" && !r.none && e.counted:
 			e.flags.add("unpaired_reversal", "")
 		case e.pairKind == "reversal":
 			o := byKey[e.pair]

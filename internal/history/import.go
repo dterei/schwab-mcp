@@ -84,6 +84,12 @@ type FileReport struct {
 	// transactions (or lots) new to the store, and Known those that another
 	// file holds too.
 	Rows, New, Known int
+	// Of a History export's transactions, Linked counts those that are API
+	// transactions, whose record counts in their place; Uncertain those
+	// that several API transactions could be; HeldOut those that the API's
+	// coverage holds and no API transaction is; and BeforeAPI those that
+	// count as history the API does not serve.
+	Linked, Uncertain, HeldOut, BeforeAPI int
 	// Accounts says what the store made of `-json` output's rows, by
 	// account.
 	Accounts []APIFileAccount
@@ -234,6 +240,28 @@ func fileReport(w *wtx, id int64, r *FileReport) error {
 		return err
 	}
 	r.Known -= r.New
+	err := queryEach(w, func(rows *sql.Rows) error {
+		var why string
+		var n int
+		if err := rows.Scan(&why, &n); err != nil {
+			return err
+		}
+		switch why {
+		case "linked":
+			r.Linked = n
+		case "uncertain":
+			r.Uncertain = n
+		case "held_out":
+			r.HeldOut = n
+		case "file":
+			r.BeforeAPI = n
+		}
+		return nil
+	}, `SELECT e.counted_why, count(DISTINCT e.entry_id) FROM history_row r JOIN csv_member m ON m.row_id = r.row_id
+		JOIN entry e ON e.csv_txn_id = m.csv_txn_id WHERE r.file_id = ? GROUP BY e.counted_why`, id)
+	if err != nil {
+		return err
+	}
 	return queryEach(w, func(rows *sql.Rows) error {
 		var code string
 		var detail sql.NullString

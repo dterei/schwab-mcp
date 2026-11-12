@@ -332,7 +332,11 @@ func TestDecide(t *testing.T) {
 		d    Decision
 		want string
 	}{
-		{Decision{Kind: "match", Subject: "a:1:73508261946", Value: "none"}, `schwabtx takes no decision of kind "match"`},
+		{Decision{Kind: "match", Subject: "a:1:73508261946", Value: "none"}, "a match decision is on a file transaction (C…), not a:1:...946"},
+		{Decision{Kind: "reject", Subject: "a:1:73508261946", Value: "a:1:73508261941"}, "a reject decision is on a file transaction (C…), not a:1:...946"},
+		{Decision{Kind: "action", Subject: "action:Bank Interest", Value: "always"}, `an action decision is count, hold or auto, not "always"`},
+		{Decision{Kind: "action", Subject: "Bank Interest", Value: "count"}, `an action decision is on action:<the action, as a file writes it>, not "Bank Interest"`},
+		{Decision{Kind: "action", Subject: "action:Bank Interst", Value: "count"}, `no file holds the action "bankinterst"`},
 		{Decision{Kind: "category", Subject: "a:1:1", Value: "fee"}, "no transaction a:1:1 in the store"},
 		{Decision{Kind: "category", Subject: "a:1:73508261946", Value: "trade"}, `unknown category "trade"; one of deposit, withdrawal,`},
 		{Decision{Kind: "count", Subject: "a:1:73508261946", Value: "maybe"}, `a count decision is yes, no or auto, not "maybe"`},
