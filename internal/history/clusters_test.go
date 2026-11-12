@@ -284,6 +284,57 @@ func TestCompleteness(t *testing.T) {
 	}
 }
 
+// A file lacks only what Schwab still holds (14.6 of the design): an API
+// row gone from a later complete read, or INVALID, which a complete
+// export rightly leaves out, does not make it filtered or keep it from
+// being complete by the API; one you decided not to count is still
+// Schwab's, and a file without its family is filtered. Nor is a gone row
+// a row of the days a file shares with the API, for it to agree on.
+func TestCompletenessOfGone(t *testing.T) {
+	t.Parallel()
+	entry := func(id int64, day string, amount int64, family string) ledgerEntry {
+		return ledgerEntry{entryRow: entryRow{
+			day: nullString(day), amount: sql.NullInt64{Int64: amount, Valid: true}, family: family, txn: sql.NullInt64{Int64: id, Valid: true},
+			counted: true, countedWhy: "api",
+		}}
+	}
+	runs := []coverageRun{{source: "api", from: "2026-01-12", to: "2026-02-02"}}
+	for _, c := range []struct {
+		name string
+		buy  func(e *ledgerEntry)
+		want string
+	}{
+		{"gone", func(e *ledgerEntry) {
+			e.counted, e.countedWhy = false, "gone"
+			e.flags.add("gone", "left out by the complete read sent 2026-02-03T15:00:00.000Z")
+		}, "complete api"},
+		{"INVALID", func(e *ledgerEntry) {
+			e.counted, e.countedWhy = false, "invalid"
+			e.flags.add("status", "INVALID")
+		}, "complete api"},
+		{"not counted by you", func(e *ledgerEntry) { e.counted, e.countedWhy = false, "user" }, "filtered lacks_rows"},
+		{"pending", func(e *ledgerEntry) { e.flags.add("status", "PENDING") }, "filtered lacks_rows"},
+	} {
+		f := testFile(1, "a", "2026-02-10", "2026-01-01", "2026-02-01")
+		addRow(f, "2026-01-12", "Qualified Dividend", "ABCD", 321, 0)
+		addRow(f, "2026-01-25", "Qualified Dividend", "ABCD", 100, 0)
+		api := []ledgerEntry{entry(1001, "2026-01-12", 321, "income"), entry(1002, "2026-01-20", -5000, "buy"), entry(1007, "2026-01-25", 100, "income")}
+		c.buy(&api[1])
+		if got := completenessOf(accountInputs{files: []*fileInput{f}}, api, runs); !slices.Equal(got, []string{c.want}) {
+			t.Errorf("beside a buy %s: %q, want %q", c.name, got, c.want)
+		}
+	}
+	// Nor does a gone row give the days the file shares with the API a row
+	// for it to agree on.
+	f := testFile(1, "a", "2026-02-10", "2026-01-01", "2026-02-01")
+	addRow(f, "2026-01-05", "Qualified Dividend", "ABCD", 321, 0)
+	gone := entry(1002, "2026-01-20", -5000, "buy")
+	gone.flags.add("gone", "")
+	if got := completenessOf(accountInputs{files: []*fileInput{f}}, []ledgerEntry{gone}, runs); !slices.Equal(got, []string{"unknown"}) {
+		t.Errorf("sharing with the API only days of a gone row: %q", got)
+	}
+}
+
 // Your decision on a row of a file follows the transaction that holds the
 // row (13.7 of the design): set the first file aside, and a decision made
 // on its row applies to the transaction the second file's row now opens;

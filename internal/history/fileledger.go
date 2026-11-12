@@ -12,6 +12,7 @@ import (
 	"github.com/dterei/schwab-mcp/internal/history/schwabfile"
 	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/nytime"
+	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
 // A fileOutput is what the derivation gives a file of the account: its
@@ -204,7 +205,8 @@ type lack struct {
 
 // completeness establishes how complete each History file is (14.6 of the
 // design): by your decision; else filtered when it lacks, in a filter's
-// shape, rows that another source holds inside its coverage (it holds no
+// shape, rows that another source holds inside its coverage (of the API's,
+// those that Schwab still holds) (it holds no
 // row of their family, or names one symbol alone and they another); else
 // unknown when its rows have a filter's shape by themselves; else complete
 // when it shares days holding rows with the API's coverage, or with a file
@@ -272,7 +274,7 @@ func completeness(files []*fileInput, covs map[*fileInput]schwabfile.Coverage, c
 		if fromAPI {
 			for _, e := range api {
 				day := nytime.Date(e.day.String)
-				if !e.day.Valid || !covers(cov, day) || !within(day) || !inRuns(day, "api", "api_file") {
+				if !e.day.Valid || !schwabHolds(e) || !covers(cov, day) || !within(day) || !inRuns(day, "api", "api_file") {
 					continue
 				}
 				if !fileHolds(f, e) {
@@ -335,7 +337,9 @@ func completeness(files []*fileInput, covs map[*fileInput]schwabfile.Coverage, c
 			continue
 		}
 		shared := func(d nytime.Date) bool { return covers(covs[f], d) && inRuns(d, "api") }
-		apiRows := slices.ContainsFunc(api, func(e ledgerEntry) bool { return e.day.Valid && shared(nytime.Date(e.day.String)) })
+		apiRows := slices.ContainsFunc(api, func(e ledgerEntry) bool {
+			return e.day.Valid && schwabHolds(e) && shared(nytime.Date(e.day.String))
+		})
 		if agrees(f, shared, nil, apiRows) {
 			out[f], settled[f] = fileComplete{completeness: "complete", by: "api"}, true
 		}
@@ -365,6 +369,15 @@ func completeness(files []*fileInput, covs map[*fileInput]schwabfile.Coverage, c
 		}
 	}
 	return out
+}
+
+// schwabHolds reports whether Schwab still holds API entry e: it is not
+// gone (9.5 of the design) and its status is not INVALID. A complete
+// export rightly leaves out what Schwab no longer holds, so such an entry
+// is no row that a file lacks (14.6). Your count decision does not change
+// what Schwab holds: an entry you decided not to count is still one.
+func schwabHolds(e ledgerEntry) bool {
+	return !e.flags.has("gone") && !slices.Contains(e.flags, entryFlag{"status", string(schwab.TransactionStatusInvalid)})
 }
 
 // fileHolds reports whether file f holds a row that may be API entry e:
