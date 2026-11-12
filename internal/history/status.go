@@ -280,8 +280,8 @@ type AccountStatus struct {
 	Gaps, Since int
 }
 
-// A Span is the days from From to To, in Runs runs of coverage; Runs is 0
-// when nothing covers any.
+// A Span is the days from From to To, in Runs runs of coverage, apart
+// where no coverage holds a day; Runs is 0 when nothing covers any.
 type Span struct {
 	From, To nytime.Date
 	Runs     int
@@ -382,12 +382,28 @@ func accountStatus(w *wtx, id int64, show bool, now time.Time) (AccountStatus, e
 			return a, err
 		}
 	}
+	// span returns the days that the coverage of sources holds, from the
+	// first to the last, and in how many runs: coverages that overlap or
+	// meet, of one source or of several, are one run.
 	span := func(sources ...string) (Span, error) {
 		var sp Span
-		var from, to sql.NullString
-		err := w.tx.QueryRowContext(w.ctx, `SELECT min(from_date), max(to_date), count(*) FROM coverages
-			WHERE account_id = ? AND source IN (SELECT value FROM json_each(?))`, id, jsonList(sources)).Scan(&from, &to, &sp.Runs)
-		sp.From, sp.To = nytime.Date(from.String), nytime.Date(to.String)
+		err := queryEach(w, func(rows *sql.Rows) error {
+			var from, to string
+			if err := rows.Scan(&from, &to); err != nil {
+				return err
+			}
+			switch {
+			case sp.Runs == 0:
+				sp.From, sp.To, sp.Runs = nytime.Date(from), nytime.Date(to), 1
+			case nytime.Date(from) > nextDay(sp.To):
+				sp.To = nytime.Date(to)
+				sp.Runs++
+			default:
+				sp.To = max(sp.To, nytime.Date(to))
+			}
+			return nil
+		}, `SELECT from_date, to_date FROM coverages WHERE account_id = ? AND source IN (SELECT value FROM json_each(?))
+			ORDER BY from_date, to_date`, id, jsonList(sources))
 		return sp, err
 	}
 	if a.API, err = span("api", "api_file"); err != nil {

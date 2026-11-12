@@ -51,3 +51,37 @@ func TestRequoted(t *testing.T) {
 		t.Errorf("requoted(%q) for a POSIX shell = %s", command, got)
 	}
 }
+
+// Status counts the runs of an account's coverage by its days: coverages
+// that overlap or meet are one run, whichever their sources, and only a
+// day that none of them holds parts two runs.
+func TestStatusRuns(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	addAccounts(t, s, "61803398")
+	if err := s.withWrite(t.Context(), "writing coverage", func(w *wtx) error {
+		for _, c := range [][3]string{
+			{"file", "2026-01-01", "2026-03-15"},
+			{"file_filtered", "2026-02-06", "2026-03-15"},
+			{"file_unknown", "2026-03-16", "2026-03-31"},
+			{"file", "2026-05-01", "2026-05-31"},
+			{"api", "2026-02-01", "2026-02-10"},
+			{"api_file", "2026-02-11", "2026-02-20"},
+		} {
+			if _, err := w.exec("INSERT INTO coverage (account_id, source, from_date, to_date) VALUES (1, ?, ?, ?)", c[0], c[1], c[2]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := s.Status(t.Context(), StatusOptions{Account: "A1"})
+	if err != nil || len(st.Accounts) != 1 {
+		t.Fatalf("Status of A1: %+v, %v", st, err)
+	}
+	if a := st.Accounts[0]; a.Files != (Span{"2026-01-01", "2026-05-31", 2}) || a.API != (Span{"2026-02-01", "2026-02-20", 1}) ||
+		a.Snapshots != (Span{}) {
+		t.Errorf("the account's spans are files %+v, API %+v, snapshots %+v", a.Files, a.API, a.Snapshots)
+	}
+}
