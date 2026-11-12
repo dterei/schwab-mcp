@@ -27,6 +27,11 @@ type CheckReport struct {
 // that has fewer than 8 digits, or characters other than digits, which
 // free text masked by pattern would show whole. What it reports names
 // accounts and transactions by their refs, never by their numbers.
+//
+// When the integrity check finds the file damaged, Check reports that
+// alone, and no error: the other checks would read a damaged file, and
+// one of them could fail on it. An error is returned only when Check
+// could not run, and then with no report.
 func (s *Store) Check(ctx context.Context) (CheckReport, error) {
 	var c CheckReport
 	err := s.withRead(ctx, func(r *rtx) error {
@@ -136,14 +141,20 @@ func (s *Store) Check(ctx context.Context) (CheckReport, error) {
 				return nil
 			}},
 		}
-		for _, ch := range checks {
+		for i, ch := range checks {
 			if err := each(ch.do, ch.query); err != nil {
 				return err
+			}
+			if i == 0 && len(c.Problems) > 0 {
+				return nil // damaged: what the other checks read is not to be trusted
 			}
 		}
 		return nil
 	})
-	return c, err
+	if err != nil {
+		return CheckReport{}, err
+	}
+	return c, nil
 }
 
 // numberWarning returns the warning of an account number that masking by
