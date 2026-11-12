@@ -141,15 +141,25 @@ func writeFlagDefs(w *wtx) error {
 	if err != nil {
 		return err
 	}
+	var upsert *sql.Stmt
 	for _, d := range flagDefs {
 		h, ok := have[d.code]
 		delete(have, d.code)
 		if ok && h.subjects[0] == d.subjects[0] && h.severity == d.severity && h.meaning == d.meaning {
 			continue
 		}
-		if _, err := w.exec(`INSERT INTO flag_def (code, subject, severity, meaning) VALUES (?, ?, ?, ?)
-			ON CONFLICT (code) DO UPDATE SET subject = excluded.subject, severity = excluded.severity, meaning = excluded.meaning`,
-			d.code, d.subjects[0], d.severity, d.meaning); err != nil {
+		if upsert == nil {
+			// Prepared once for every row that differs: compiling the
+			// statement costs many times what running it does, and a
+			// store's first write writes every row.
+			upsert, err = w.tx.PrepareContext(w.ctx, `INSERT INTO flag_def (code, subject, severity, meaning) VALUES (?, ?, ?, ?)
+				ON CONFLICT (code) DO UPDATE SET subject = excluded.subject, severity = excluded.severity, meaning = excluded.meaning`)
+			if err != nil {
+				return err
+			}
+			defer upsert.Close()
+		}
+		if _, err := upsert.ExecContext(w.ctx, d.code, d.subjects[0], d.severity, d.meaning); err != nil {
 			return err
 		}
 	}
