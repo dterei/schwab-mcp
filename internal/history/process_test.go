@@ -1,6 +1,7 @@
 package history
 
 import (
+	"database/sql"
 	"maps"
 	"os"
 	"path/filepath"
@@ -18,12 +19,13 @@ func release(t *testing.T, barrier string) {
 	}
 }
 
-// queryInt runs a query of one integer on the store at path, through a
-// connection of its own.
-func queryInt(t *testing.T, path, query string) int {
+// queryInt runs a query of one integer on db, a connection of rawDB's:
+// opening one parses the store's whole schema, so a test asks all it asks
+// of a file through one.
+func queryInt(t *testing.T, db *sql.DB, query string) int {
 	t.Helper()
 	var n int
-	if err := rawDB(t, path).QueryRowContext(t.Context(), query).Scan(&n); err != nil {
+	if err := db.QueryRowContext(t.Context(), query).Scan(&n); err != nil {
 		t.Fatalf("%s: %v", query, err)
 	}
 	return n
@@ -71,17 +73,18 @@ func TestOpenNewStoreConcurrently(t *testing.T) {
 		}
 		for _, p := range paths {
 			if len(fails) == 0 {
-				if n := queryInt(t, p, "PRAGMA user_version"); n != 1 {
+				db := rawDB(t, p)
+				if n := queryInt(t, db, "PRAGMA user_version"); n != 1 {
 					t.Errorf("%s has schema %d, want 1", filepath.Base(p), n)
 				}
-				if n := queryInt(t, p, "SELECT count(*) FROM sqlite_schema WHERE type = 'table'"); n != 35 {
+				if n := queryInt(t, db, "SELECT count(*) FROM sqlite_schema WHERE type = 'table'"); n != 35 {
 					t.Errorf("%s has %d tables, want 35", filepath.Base(p), n)
 				}
-				if n := queryInt(t, p, "SELECT count(*) FROM store"); n != 1 {
+				if n := queryInt(t, db, "SELECT count(*) FROM store"); n != 1 {
 					t.Errorf("%s has %d store rows, want 1", filepath.Base(p), n)
 				}
 				var mode string
-				if err := rawDB(t, p).QueryRowContext(t.Context(), "PRAGMA journal_mode").Scan(&mode); err != nil || mode != "wal" {
+				if err := db.QueryRowContext(t.Context(), "PRAGMA journal_mode").Scan(&mode); err != nil || mode != "wal" {
 					t.Errorf("%s is in journal mode %q, %v; want wal", filepath.Base(p), mode, err)
 				}
 			}
@@ -149,22 +152,24 @@ func TestMigrateOnceWithBackup(t *testing.T) {
 			t.Errorf("the backup has mode %v, want 0600", m)
 		}
 	}
+	db := rawDB(t, path)
 	for q, want := range map[string]int{
 		"PRAGMA user_version":                                     2,
 		"SELECT derived_with FROM store":                          2,
 		"SELECT count(*) FROM sqlite_schema WHERE name = 'later'": 1,
 		"SELECT count(*) FROM account":                            1,
 	} {
-		if got := queryInt(t, path, q); got != want {
+		if got := queryInt(t, db, q); got != want {
 			t.Errorf("the store: %s = %d, want %d", q, got, want)
 		}
 	}
+	db = rawDB(t, backups[0])
 	for q, want := range map[string]int{
 		"PRAGMA user_version":            1,
 		"SELECT derived_with FROM store": 1,
 		"SELECT count(*) FROM account":   1,
 	} {
-		if got := queryInt(t, backups[0], q); got != want {
+		if got := queryInt(t, db, q); got != want {
 			t.Errorf("the backup: %s = %d, want %d", q, got, want)
 		}
 	}
@@ -207,7 +212,7 @@ func TestUpdateOnce(t *testing.T) {
 			if raise == "rules" {
 				q, want = "SELECT derived_with FROM store", deriveVersion+1
 			}
-			if got := queryInt(t, path, q); got != want {
+			if got := queryInt(t, rawDB(t, path), q); got != want {
 				t.Errorf("the store: %s = %d, want %d", q, got, want)
 			}
 		})
@@ -252,7 +257,7 @@ func TestWritersInOtherProcesses(t *testing.T) {
 		c.expect(t, "done")
 		c.rest(t)
 	}
-	if n := queryInt(t, path, "SELECT count(*) FROM account"); n != 60 {
+	if n := queryInt(t, rawDB(t, path), "SELECT count(*) FROM account"); n != 60 {
 		t.Errorf("the store holds %d accounts, want 60", n)
 	}
 }

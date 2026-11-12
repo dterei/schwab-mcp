@@ -39,7 +39,7 @@ func decideSecurity(t *testing.T, s *Store, a, value string) {
 func securityOf(t *testing.T, s *Store, key string) string {
 	t.Helper()
 	var got string
-	if err := s.r.QueryRowContext(t.Context(), "SELECT security_key FROM security_keys WHERE key = ?", key).Scan(&got); err != nil {
+	if err := peek(s).QueryRowContext(t.Context(), "SELECT security_key FROM security_keys WHERE key = ?", key).Scan(&got); err != nil {
 		t.Fatalf("the security of %s: %v", key, err)
 	}
 	return got

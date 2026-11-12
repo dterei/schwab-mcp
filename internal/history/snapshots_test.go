@@ -83,7 +83,7 @@ func importFile(t *testing.T, s *Store, name, content string) FileReport {
 // text, NULL as "NULL".
 func storeRows(t *testing.T, s *Store, query string) [][]string {
 	t.Helper()
-	rows, err := s.r.QueryContext(t.Context(), query)
+	rows, err := peek(s).QueryContext(t.Context(), query)
 	if err != nil {
 		t.Fatal(err)
 	}

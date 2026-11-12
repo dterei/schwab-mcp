@@ -75,10 +75,11 @@ func TestBackup(t *testing.T) {
 	if h := header(t, file); h != [2]byte{1, 1} {
 		t.Errorf("the backup's header says journal modes %v, want a file without a journal", h)
 	}
-	if got := queryInt(t, file, "SELECT count(*) FROM account"); int64(got) < before || int64(got) > after {
+	db := rawDB(t, file)
+	if got := queryInt(t, db, "SELECT count(*) FROM account"); int64(got) < before || int64(got) > after {
 		t.Errorf("the backup holds %d accounts, not between %d and %d", got, before, after)
 	}
-	if got := queryInt(t, file, "SELECT count(*) FROM pragma_integrity_check WHERE integrity_check <> 'ok'"); got != 0 {
+	if got := queryInt(t, db, "SELECT count(*) FROM pragma_integrity_check WHERE integrity_check <> 'ok'"); got != 0 {
 		t.Errorf("the backup fails the integrity check")
 	}
 
@@ -147,7 +148,8 @@ func TestRestore(t *testing.T) {
 	if n := countAccounts(t, held); n != 2 {
 		t.Errorf("the connection held across the restore sees %d accounts, want the backup's 2", n)
 	}
-	if n := countAccounts(t, rawDB(t, path)); n != 2 {
+	fresh := rawDB(t, path)
+	if n := countAccounts(t, fresh); n != 2 {
 		t.Errorf("a new connection sees %d accounts, want the backup's 2", n)
 	}
 	for query, want := range map[string]int{
@@ -157,7 +159,7 @@ func TestRestore(t *testing.T) {
 		"SELECT derived_with FROM store":                                         DeriveVersion + 1,
 		"SELECT count(*) FROM account WHERE number IN ('20000003', 'committed')": 0,
 	} {
-		if got := queryInt(t, path, query); got != want {
+		if got := queryInt(t, fresh, query); got != want {
 			t.Errorf("after the restore, %s: %d, want %d", query, got, want)
 		}
 	}

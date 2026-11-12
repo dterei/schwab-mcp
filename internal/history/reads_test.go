@@ -101,12 +101,19 @@ func record(t *testing.T, s *Store, r TransactionsRead) Recorded {
 	return rec
 }
 
-// storeInt returns the integer that query gives on the store's readers,
-// or -1 for NULL.
+// peek is the connection through which the tests read what a store holds:
+// its writer's, idle between writes, which has the store's schema already.
+// A reader's first connection parses the whole schema again, which costs a
+// store test about 80 ms under -race; what the readers' pool itself does
+// has tests of its own.
+func peek(s *Store) *sql.DB { return s.w }
+
+// storeInt returns the integer that query gives on the store, or -1 for
+// NULL.
 func storeInt(t *testing.T, s *Store, query string, args ...any) int64 {
 	t.Helper()
 	var n sql.NullInt64
-	if err := s.r.QueryRowContext(t.Context(), query, args...).Scan(&n); err != nil {
+	if err := peek(s).QueryRowContext(t.Context(), query, args...).Scan(&n); err != nil {
 		t.Fatalf("%s: %v", query, err)
 	}
 	if !n.Valid {
@@ -119,7 +126,7 @@ func storeInt(t *testing.T, s *Store, query string, args ...any) int64 {
 // for NULL.
 func storeStrings(t *testing.T, s *Store, query string) []string {
 	t.Helper()
-	rows, err := s.r.QueryContext(t.Context(), query)
+	rows, err := peek(s).QueryContext(t.Context(), query)
 	if err != nil {
 		t.Fatalf("%s: %v", query, err)
 	}
