@@ -249,6 +249,10 @@ func (s *Store) lock(ctx context.Context, suffix, op string) (release func(), er
 	return l.Release, nil
 }
 
+// Evidence counts the store's evidence: what it holds that a derivation
+// cannot make again. A store that holds none is as a new one.
+func (s *Store) Evidence(ctx context.Context) (Counts, error) { return s.counts(ctx) }
+
 // counts counts the store's evidence.
 func (s *Store) counts(ctx context.Context) (Counts, error) {
 	var c Counts

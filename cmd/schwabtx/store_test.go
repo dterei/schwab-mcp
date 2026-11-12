@@ -770,6 +770,17 @@ func TestReadCommandsNeedAStore(t *testing.T) {
 	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("the store's folder was made: %v", err)
 	}
+	// Nor does an import that the store refuses once it is open: an export
+	// whose account nothing gives.
+	export := writeFile(t, t.TempDir(), "Transactions.csv", historyCSV(historyRow{"09/01/2026", "Qualified Dividend", "ABCD", "ABCD INC", "", "", "", "$3.21"}))
+	if _, stderr, err := runTx(t, "import", export); err == nil || !strings.Contains(err.Error(), "use -account") || stderr != "" {
+		t.Errorf("importing an export of no account into a missing store: %v, warned %q", err, stderr)
+	}
+	for _, f := range history.Companions(path) {
+		if _, err := os.Stat(f); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("an import refused left %s: %v", f, err)
+		}
+	}
 	// An import makes the store, and says so.
 	if _, stderr := mustRun(t, "import", snap); stderr != "new store at "+path+"\n" {
 		t.Errorf("an import into a missing store said %q", stderr)

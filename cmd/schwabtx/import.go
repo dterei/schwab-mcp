@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/dterei/schwab-mcp/internal/history"
 	"github.com/dterei/schwab-mcp/internal/history/schwabfile"
@@ -139,9 +140,13 @@ file that schwabtx snapshot writes. Importing a file again adds nothing.
 	if err != nil {
 		return err
 	}
+	closeStore = sync.OnceFunc(closeStore)
 	defer closeStore()
 	report, err := s.Import(ctx, in, o)
 	if err != nil {
+		if made {
+			discardStore(ctx, s, path, closeStore, stderr)
+		}
 		return err
 	}
 	var b strings.Builder
@@ -210,6 +215,24 @@ func openImportStore(ctx context.Context, path string, dryRun bool, stderr io.Wr
 		return nil, false, nil, err
 	}
 	return s, missing, func() { s.Close() }, nil
+}
+
+// discardStore closes and removes the store at path, which an import
+// made and then refused: a mistyped -store leaves nothing behind. A store
+// that another process wrote to meanwhile holds evidence, and is kept,
+// and then says so.
+func discardStore(ctx context.Context, s *history.Store, path string, closeStore func(), stderr io.Writer) {
+	c, err := s.Evidence(ctx)
+	closeStore()
+	if err != nil || c != (history.Counts{}) {
+		fmt.Fprintln(stderr, "new store at", path)
+		return
+	}
+	for _, f := range history.Companions(path) {
+		if !strings.HasSuffix(f, ".bak") {
+			_ = os.Remove(f)
+		}
+	}
 }
 
 // kindNames say what each kind of file is, as an import reports it.
