@@ -1059,7 +1059,8 @@ entry, counted or not.
   JSON Lines, never re-encoded, and as text in CSV. **`-show-accounts`** adds
   `account_number`. Both hold full account numbers, and `export` then says
   so on stderr (`warning: this export holds full account numbers`).
-  Without them no exported cell holds one.
+  Without them no exported cell holds one, but for a file's symbol, which
+  is kept as the file writes it (see [Privacy](#privacy)).
 - **Where.** stdout by default. `-o FILE`, and each file of `-dir DIR` (made
   readable only by you), is written to a temporary file beside it, readable
   only by you, synced, and then renamed over it, so an export that fails
@@ -1141,6 +1142,13 @@ masked:
 - **Identifiers** are never masked, and none can be an account number:
   refs, Schwab's activity, order, position and instrument IDs, CUSIPs,
   `ItemIssueId`s, hashes, dates, amounts, and numbers from Schwab's JSON.
+  A Realized lot's Opened Date and Term as the file writes them are free
+  text, masked.
+- **A file's symbols** are kept as the file writes them, in every column
+  that shows a symbol and in the `s:FILE:SYMBOL@DATE` key made from one,
+  since a symbol may be a CUSIP of 9 digits that matching and grouping
+  read. Schwab writes no account number there; one a file wrote there
+  would show in full.
 - **No view** reads an account number, raw JSON, a file's name or its bytes.
   Every view column is free text or an identifier ([The views](#the-views)
   says which). The tests hold every view to it: SQLite's authorizer shows
@@ -1576,14 +1584,14 @@ export writes it.
 | `security_key` | id | its security |
 | `closed_date` | id | Closed Date |
 | `opened_date` | id | Opened Date, when it is a date |
-| `opened_text` | id | Opened Date as written |
+| `opened_text` | free | Opened Date as written, masked |
 | `quantity_micros` | id | Quantity |
 | `proceeds_cents` | id | Proceeds |
 | `cost_basis_cents` | id | Cost Basis (CB) |
 | `gain_cents` | id | Gain/Loss ($) |
 | `lt_gain_cents` | id | Long Term Gain/Loss |
 | `st_gain_cents` | id | Short Term Gain/Loss |
-| `term` | id | Term |
+| `term` | free | Term, masked |
 | `wash_sale` | id | Wash Sale?, as 1 or 0 |
 | `disallowed_loss_cents` | id | Disallowed Loss |
 | `unadjusted_cost_cents` | id | Unadjusted Cost Basis |

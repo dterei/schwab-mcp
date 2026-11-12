@@ -100,9 +100,11 @@ func fillEverySource(t *testing.T, s *Store) {
 		{"02/05/2026", "Qualified Dividend", "QRS", "QRS FUND 5730 2618", "", "", "", "$3.00"},
 		{"02/06/2026", "Credit Interest", "", "SCHWAB1 INT " + fileAccount, "", "", "", "$0.07"},
 	}
-	realized := strings.Replace(realizedCSV("Mon Jul 06 10:47:11 EDT 2026", "01/01/2026", "07/06/2026",
-		[9]string{"XYZ", "07/01/2026", "01/05/2026", "10", "$120.00", "$100.00", "$20.00", "No", ""}),
-		`"XYZ CORP"`, `"XYZ CORP `+plantedB+`"`, 1)
+	// A Realized lot's Opened Date and Term as written are free text too.
+	realized := strings.NewReplacer(`"XYZ CORP"`, `"XYZ CORP `+plantedB+`"`, `"Short Term"`, `"Short Term 4821-3907"`).Replace(
+		realizedCSV("Mon Jul 06 10:47:11 EDT 2026", "01/01/2026", "07/06/2026",
+			[9]string{"XYZ", "07/01/2026", "01/05/2026", "10", "$120.00", "$100.00", "$20.00", "No", ""},
+			[9]string{"QRS", "07/02/2026", "Various 5730 2618", "4", "$80.00", "$60.00", "$20.00", "No", ""}))
 	importFiles(t, s, ImportOptions{Account: fileAccount},
 		"transactions.json", cli,
 		"snapshots.jsonl", line,

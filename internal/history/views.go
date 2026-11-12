@@ -60,7 +60,7 @@ var viewColumns = func() []viewColumn {
 		{"snapshot_gaps", "account_id account market_date"},
 		{"coverages", "account_id account source from_date to_date"},
 		{"files", "ref account_id account kind label* layout imported_at exported_at covers_from covers_to coverage_source completeness complete_by lacks_rows row_count forgotten warnings"},
-		{"realized_lots", "ref account_id account symbol name* security_key closed_date opened_date opened_text quantity_micros proceeds_cents cost_basis_cents gain_cents lt_gain_cents st_gain_cents term wash_sale disallowed_loss_cents unadjusted_cost_cents txn_cost_basis_cents txn_gain_cents versions files flags"},
+		{"realized_lots", "ref account_id account symbol name* security_key closed_date opened_date opened_text* quantity_micros proceeds_cents cost_basis_cents gain_cents lt_gain_cents st_gain_cents term* wash_sale disallowed_loss_cents unadjusted_cost_cents txn_cost_basis_cents txn_gain_cents versions files flags"},
 		{"flags", "code severity meaning detail* subject_ref account_id"},
 		{"reads", "read_id endpoint account_id window_start window_end all_types symbol sent_at answered_at outcome http_status row_count capped complete"},
 	} {

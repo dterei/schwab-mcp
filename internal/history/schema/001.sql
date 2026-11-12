@@ -409,7 +409,7 @@ CREATE TABLE realized_row (                      -- derived from import_file.con
   name       TEXT,                                -- through mask.Text (free text)
   closed_date           TEXT CHECK (DAY(closed_date)),
   opened_date           TEXT CHECK (DAY(opened_date)),
-  opened_text           TEXT NOT NULL,           -- Opened Date as written
+  opened_text           TEXT NOT NULL,           -- Opened Date as written, through mask.Text (free text)
   quantity_micros       INTEGER,
   quantity_text         TEXT NOT NULL,
   proceeds_per_share    REAL,

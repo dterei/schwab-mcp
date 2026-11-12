@@ -142,8 +142,9 @@ See [cmd/schwabtx](cmd/schwabtx/README.md) for flags and troubleshooting.
   `%LocalAppData%\schwabtx`), holds your account numbers and whole history,
   readable only by you, and so are its exports and backups. What its
   commands print and export shows account numbers as `...` and their last
-  3 digits, and masks any run of 8 digits in the text it keeps, unless you
-  ask for them with `-show-accounts` or `-raw`. See
+  3 digits, and masks any run of 8 digits in the free text it keeps (a
+  file's symbols are kept as written), unless you ask for them with
+  `-show-accounts` or `-raw`. See
   [docs/store.md](docs/store.md#privacy).
 - Once the MCP server exists, what its tools return also goes to your AI
   assistant's model, which for most assistants runs on the provider's

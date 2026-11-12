@@ -274,9 +274,9 @@ func readLot(w *wtx, id int64, r schwabfile.RealizedRow, day nytime.Date, seen t
 		st_txn_gain_cents, st_txn_gain_pct, coarse, fine, problems)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, r.Ordinal, r.Line, r.Raw, r.Symbol, free(r.Name), nullString(string(r.Closed)), nullString(string(r.Opened)),
-		r.OpenedText, keep(r.Quantity, microsOfCell), r.Quantity.Canon(), float(r.ProceedsPerShare), float(r.CostPerShare),
+		mask.Text(r.OpenedText), keep(r.Quantity, microsOfCell), r.Quantity.Canon(), float(r.ProceedsPerShare), float(r.CostPerShare),
 		keep(r.Proceeds, centsOfCell), keep(r.CostBasis, centsOfCell), keep(r.Gain, centsOfCell), nullString(r.GainPct),
-		keep(r.LTGain, centsOfCell), keep(r.STGain, centsOfCell), nullString(r.Term), keep(r.UnadjustedCostBasis, centsOfCell),
+		keep(r.LTGain, centsOfCell), keep(r.STGain, centsOfCell), free(r.Term), keep(r.UnadjustedCostBasis, centsOfCell),
 		wash, keep(r.DisallowedLoss, centsOfCell), nullString(string(r.TxnClosed)), keep(r.TxnCostBasis, centsOfCell),
 		keep(r.TxnGain, centsOfCell), nullString(r.TxnGainPct), keep(r.LTTxnGain, centsOfCell), nullString(r.LTTxnGainPct),
 		keep(r.STTxnGain, centsOfCell), nullString(r.STTxnGainPct), coarse[:], fine[:], string(problems)); err != nil {
