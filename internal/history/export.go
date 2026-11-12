@@ -403,17 +403,10 @@ const (
 	joinNumber    = ` LEFT JOIN account xa ON xa.account_id = v.account_id`
 )
 
-// exportRows reads table t's rows into memory.
-func exportRows(r *rtx, t exportTable, o ExportOptions, account sql.NullInt64) (ExportedTable, error) {
-	view := t.view
-	if o.All && t.allView != "" {
-		view = t.allView
-	}
-	ext := "." + o.Format
-	if o.Format == "" {
-		ext = ".csv"
-	}
-	et := ExportedTable{Name: t.name, View: view, File: t.name + ext}
+// exportQuery returns the query that reads table t's rows, from its view
+// named v, and its arguments. Only -raw and -show-accounts make it read
+// more than the view: the raw bytes, and the account's number.
+func exportQuery(t exportTable, o ExportOptions, account sql.NullInt64) (string, []any) {
 	columns := []string{"v.*"}
 	joins := ""
 	if o.Raw {
@@ -441,7 +434,26 @@ func exportRows(r *rtx, t exportTable, o ExportOptions, account sql.NullInt64) (
 		order[i] = "v." + c
 	}
 	where, args := exportFilter(t, o, account)
-	rows, err := r.query("SELECT "+strings.Join(columns, ", ")+" FROM "+view+" v"+joins+where+" ORDER BY "+strings.Join(order, ", "), args...)
+	return "SELECT " + strings.Join(columns, ", ") + " FROM " + t.viewFor(o) + " v" + joins + where + " ORDER BY " + strings.Join(order, ", "), args
+}
+
+// viewFor returns the view that table t reads under the options o.
+func (t exportTable) viewFor(o ExportOptions) string {
+	if o.All && t.allView != "" {
+		return t.allView
+	}
+	return t.view
+}
+
+// exportRows reads table t's rows into memory.
+func exportRows(r *rtx, t exportTable, o ExportOptions, account sql.NullInt64) (ExportedTable, error) {
+	ext := "." + o.Format
+	if o.Format == "" {
+		ext = ".csv"
+	}
+	et := ExportedTable{Name: t.name, View: t.viewFor(o), File: t.name + ext}
+	query, args := exportQuery(t, o, account)
+	rows, err := r.query(query, args...)
 	if err != nil {
 		return et, err
 	}

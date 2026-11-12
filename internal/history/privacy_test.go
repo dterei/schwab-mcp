@@ -1,6 +1,7 @@
 package history
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -137,9 +138,12 @@ var composedIdentifiers = regexp.MustCompile(`\b(?:[ATSFCL]~?[0-9a-fA-F][0-9A-Za
 // masking would mask (a file's label is masked as a file name, which keeps
 // schwab.com's stamp; a flag's detail may compose identifiers); (c) every
 // view column has a kind in viewColumns, viewColumns names no other, and
-// no column of identifiers holds what was planted, masked; and (d) with SQLite's authorizer on a connection of its own, preparing
-// each view reads no account number, no raw column and no imported file's
-// name or content.
+// no column of identifiers holds what was planted, masked; (d) with
+// SQLite's authorizer on a connection of its own, preparing each view reads
+// no account number, no raw column and no imported file's name or content;
+// and (e) an export of every table, every row included, reads none of
+// those either unless -raw or -show-accounts asks, and holds no number in
+// CSV or in JSON Lines.
 func TestViewsHoldNoAccountNumber(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -285,4 +289,56 @@ func TestViewsHoldNoAccountNumber(t *testing.T) {
 			t.Errorf("the view %s reads %q", v, got)
 		}
 	}
+
+	// An export reads more than its view only when asked, and what it
+	// writes holds no number.
+	account := sql.NullInt64{Int64: storeInt(t, s, "SELECT account_id FROM account WHERE number = ?", fileAccount), Valid: true}
+	for _, o := range []ExportOptions{
+		{What: []string{"all"}},
+		{What: []string{"all"}, All: true, From: "2026-01-01", To: "2026-12-31"},
+		{What: []string{"all"}, Raw: true},
+		{What: []string{"all"}, ShowAccounts: true},
+	} {
+		tables, err := o.tables()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tb := range tables {
+			query, _ := exportQuery(tb, o, account)
+			got := prepare(query)
+			want := o.Raw && tb.raw != rawNone || o.ShowAccounts && !tb.noAccount
+			if len(got) > 0 != want {
+				t.Errorf("exporting %s with %+v reads %q", tb.name, o, got)
+			}
+		}
+	}
+	e, err := s.Export(ctx, ExportOptions{What: []string{"all"}, All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Tables) != len(exportTables) || e.HoldsNumbers {
+		t.Fatalf("the export holds %d tables of %d, numbers %v", len(e.Tables), len(exportTables), e.HoldsNumbers)
+	}
+	rows := 0
+	for _, format := range []string{"csv", "jsonl"} {
+		for _, tb := range e.Tables {
+			rows += tb.Rows
+			var b strings.Builder
+			if err := tb.write(&b, format); err != nil {
+				t.Fatal(err)
+			}
+			joined := strings.Map(func(r rune) rune {
+				if separator(r) {
+					return -1
+				}
+				return r
+			}, b.String())
+			for _, n := range numbers {
+				if strings.Contains(joined, n) {
+					t.Errorf("the export's %s in %s holds the number %s", tb.Name, format, mask.Number(n))
+				}
+			}
+		}
+	}
+	t.Logf("%d rows of %d tables exported", rows/2, len(e.Tables))
 }
