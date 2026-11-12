@@ -90,7 +90,11 @@ func find(w *wtx, ref, account string) (Target, error) {
 		only = sql.NullInt64{Int64: id, Valid: true}
 	}
 	lower := strings.ToLower(given)
-	shown := mask.Text(given)
+	// shown is the ref as a message shows it: as given, once it reads as a
+	// ref, since refs are identifiers, never masked (5.3 of the design);
+	// but the free text of a key of a symbol, and what is not a ref, are
+	// masked.
+	shown := given
 	var targets []Target
 	// add appends the targets that query returns, each its ref, subject and
 	// account, of the account asked for.
@@ -115,6 +119,7 @@ func find(w *wtx, ref, account string) (Target, error) {
 	case strings.HasPrefix(lower, "k:"):
 		what = "instrument key"
 		key := given[2:]
+		shown = given[:2] + shownKey(key)
 		err = add(TargetKey, `SELECT 'K:' || key, 'k:' || key, NULL FROM instrument_key WHERE key = ?1
 			UNION SELECT 'K:' || key, 'k:' || key, NULL FROM instrument_key WHERE lower(key) = lower(?1)
 				AND NOT EXISTS (SELECT 1 FROM instrument_key WHERE key = ?1) ORDER BY 1`, key)
@@ -150,7 +155,7 @@ func find(w *wtx, ref, account string) (Target, error) {
 		}
 		err = add(TargetFile, "SELECT ?, ?, account_id FROM file_fields WHERE file_id = ?", fref, "f:"+sha, id)
 	default:
-		return Target{}, fmt.Errorf("%q is not a ref: a ref is A3, T73508261941, C3a9e21b0.17, F3a9e21b0, L5c1d2e3f.4, S812 or K:i:1973757747", shown)
+		return Target{}, fmt.Errorf("%q is not a ref: a ref is A3, T73508261941, C3a9e21b0.17, F3a9e21b0, L5c1d2e3f.4, S812 or K:i:1973757747", mask.Text(given))
 	}
 	if err != nil {
 		return Target{}, err
@@ -184,6 +189,26 @@ func find(w *wtx, ref, account string) (Target, error) {
 		return Target{}, fmt.Errorf("%s fits several %ss, %s; say which account with -account", shown, what, joinAnd(names))
 	}
 	return Target{}, fmt.Errorf("%s fits several %ss, %s; give more of it", shown, what, joinAnd(names))
+}
+
+// shownKey returns an instrument key typed as a ref, as a message shows
+// it: a key of a symbol (s:…) with its symbol masked as free text is, and
+// the date of a file's export after an @ kept; any other key as it is,
+// since its id or CUSIP is no account number.
+func shownKey(key string) string {
+	rest, ok := strings.CutPrefix(key, "s:")
+	if !ok {
+		if rest, ok = strings.CutPrefix(key, "S:"); !ok {
+			return key
+		}
+	}
+	text, day := rest, ""
+	if i := strings.LastIndex(rest, "@"); i >= 0 {
+		if _, err := time.Parse(time.DateOnly, rest[i+1:]); err == nil {
+			text, day = rest[:i], rest[i:]
+		}
+	}
+	return key[:2] + mask.Text(text) + day
 }
 
 // isDigits reports whether s is one or more ASCII digits.
