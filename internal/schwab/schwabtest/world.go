@@ -42,7 +42,14 @@ func (a *account) numberJSON() string {
 	if a.NumberJSON != "" {
 		return a.NumberJSON
 	}
-	return `{"accountNumber":` + string(jsonString(a.Number)) + `,"hashValue":` + string(jsonString(a.Hash)) + `}`
+	b, err := json.Marshal(struct {
+		AccountNumber string `json:"accountNumber"`
+		HashValue     string `json:"hashValue"`
+	}{a.Number, a.Hash})
+	if err != nil {
+		panic("schwabtest: encoding an account number: " + err.Error())
+	}
+	return string(b)
 }
 
 // details returns the account's element of GET /accounts, with its
