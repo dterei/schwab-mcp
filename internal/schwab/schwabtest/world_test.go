@@ -525,3 +525,29 @@ func TestLoadRecording(t *testing.T) {
 		t.Errorf("LoadRecording with no recordings: %q", errs)
 	}
 }
+
+// An account's element of GET /accounts/accountNumbers is its number and
+// hash as JSON strings, escaped as encoding/json escapes them, so that a
+// number holding a quote cannot end its string early.
+func TestNumberJSON(t *testing.T) {
+	for _, tc := range []struct {
+		number, hash, want string
+	}{
+		{"12345678", "H1", `{"accountNumber":"12345678","hashValue":"H1"}`},
+		{`12"34`, `a\b`, `{"accountNumber":"12\"34","hashValue":"a\\b"}`},
+		{"1<2>&\u2028", "", `{"accountNumber":"1\u003c2\u003e\u0026\u2028","hashValue":""}`},
+	} {
+		a := &account{Account: Account{Number: tc.number, Hash: tc.hash}}
+		got := a.numberJSON()
+		if got != tc.want {
+			t.Errorf("numberJSON(%q, %q) = %s, want %s", tc.number, tc.hash, got, tc.want)
+		}
+		var back struct {
+			AccountNumber string `json:"accountNumber"`
+			HashValue     string `json:"hashValue"`
+		}
+		if err := json.Unmarshal([]byte(got), &back); err != nil || back.AccountNumber != tc.number || back.HashValue != tc.hash {
+			t.Errorf("numberJSON(%q, %q) = %s, which reads back as %+v, %v", tc.number, tc.hash, got, back, err)
+		}
+	}
+}
