@@ -27,11 +27,16 @@ import (
 
 // TestMain makes this test binary act as schwabtx when it is run the way the
 // scheduler scripts in schedule/ run schwabtx, as `<binary> snapshot`, so
-// that their tests can use it. `go test` never runs it like that.
+// that their tests can use it, and as the process that writes to the store
+// beside TestImportGlobOfStoreDir (childWriter). `go test` never runs it
+// like that.
 func TestMain(m *testing.M) {
 	if len(os.Args) == 2 && os.Args[1] == "snapshot" {
 		main()
 		os.Exit(0)
+	}
+	if os.Getenv(writerEnv) != "" {
+		os.Exit(childWriter())
 	}
 	os.Exit(m.Run())
 }

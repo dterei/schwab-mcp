@@ -1,0 +1,32 @@
+{
+  "Kind": "snapshots",
+  "Layout": "snapshots-v1",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": false,
+  "LazyQuotes": false,
+  "AccountHint": "",
+  "NameDigits": "",
+  "ExportedAt": "",
+  "StatedFrom": "",
+  "StatedTo": "",
+  "Snapshots": [
+    {
+      "Line": 1,
+      "FetchedAt": "2026-11-05T21:05:00Z",
+      "Accounts": [
+        "{\"securitiesAccount\":{\"type\":\"CASH\",\"accountNumber\":\"11110123\",\"positions\":[],\"currentBalances\":{\"cashBalance\":10.5}},\"aggregatedBalance\":{\"liquidationValue\":10.5},\"note\":\"A \\u0026 B\\u2028\"}"
+      ]
+    },
+    {
+      "Line": 2,
+      "FetchedAt": "2026-11-06T21:05:00Z",
+      "Accounts": [
+        "{\"securitiesAccount\":{\"type\":\"CASH\",\"accountNumber\":\"11110123\",\"positions\":[],\"currentBalances\":{\"cashBalance\":11}},\"aggregatedBalance\":{\"liquidationValue\":11},\"note\":\"A & B\u2028\"}"
+      ]
+    }
+  ],
+  "SnapshotSkips": {
+    "version 2": 1
+  }
+}

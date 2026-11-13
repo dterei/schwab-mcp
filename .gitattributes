@@ -3,3 +3,6 @@
 # The fake Schwab serves its fixtures byte for byte, so they keep the bytes
 # they were written with in every checkout.
 internal/schwab/schwabtest/testdata/** -text
+# schwabfile's fixtures are schwab.com's files as written, byte order marks,
+# line ends and Windows-1252 included, which a checkout must not change.
+internal/history/schwabfile/testdata/** -text

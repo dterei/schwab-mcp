@@ -1,0 +1,91 @@
+{
+  "FromDate": "01/15/2026",
+  "ToDate": "02/15/2026",
+  "TotalTransactionsAmount": "$1,105.17",
+  "BrokerageTransactions": [
+    {
+      "Date": "02/13/2026",
+      "Action": "Buy",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "5",
+      "Price": "$10.00",
+      "Fees & Comm": "",
+      "Amount": "-$50.00",
+      "ItemIssueId": "71234567",
+      "AcctgRuleCd": "2"
+    },
+    {
+      "Date": "02/13/2026",
+      "Action": "Buy",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "5",
+      "Price": "$10.00",
+      "Fees & Comm": "",
+      "Amount": "-$50.00",
+      "ItemIssueId": "71234567",
+      "AcctgRuleCd": "2"
+    },
+    {
+      "Date": "02/10/2026",
+      "Action": "Qualified Dividend",
+      "Symbol": "ABCD",
+      "Description": "ABCD INC",
+      "Quantity": "",
+      "Price": "",
+      "Fees & Comm": "",
+      "Amount": "$3.21",
+      "ItemIssueId": "81234567",
+      "AcctgRuleCd": "2"
+    },
+    {
+      "Date": "02/09/2026",
+      "Action": "Qualified Dividend",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "",
+      "Price": "",
+      "Fees & Comm": "",
+      "Amount": "$1.11",
+      "ItemIssueId": "71234567",
+      "AcctgRuleCd": "2"
+    },
+    {
+      "Date": "02/03/2026",
+      "Action": "Sell",
+      "Symbol": "ABCD",
+      "Description": "ABCD INC",
+      "Quantity": "1,200",
+      "Price": "$12.00",
+      "Fees & Comm": "$0.05",
+      "Amount": "$14,399.95",
+      "ItemIssueId": "81234567",
+      "AcctgRuleCd": "2"
+    },
+    {
+      "Date": "01/20/2026",
+      "Action": "Buy",
+      "Symbol": "ABCD",
+      "Description": "ABCD INC",
+      "Quantity": "1,200",
+      "Price": "$11.00",
+      "Fees & Comm": "",
+      "Amount": "-$13,200.00",
+      "ItemIssueId": "81234567",
+      "AcctgRuleCd": "2"
+    },
+    {
+      "Date": "01/16/2026 as of 01/15/2026",
+      "Action": "Bank Interest",
+      "Symbol": "",
+      "Description": "BANK INT 121625-011526 SCHWAB BANK",
+      "Quantity": "",
+      "Price": "",
+      "Fees & Comm": "",
+      "Amount": "$0.90",
+      "ItemIssueId": "0",
+      "AcctgRuleCd": "1"
+    }
+  ]
+}

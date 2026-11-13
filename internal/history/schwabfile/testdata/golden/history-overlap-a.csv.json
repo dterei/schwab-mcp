@@ -1,0 +1,126 @@
+{
+  "Kind": "history_csv",
+  "Layout": "history-current",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": false,
+  "LazyQuotes": false,
+  "AccountHint": "123",
+  "NameDigits": "123",
+  "ExportedAt": "2026-02-15T14:30:00Z",
+  "StatedFrom": "",
+  "StatedTo": "",
+  "History": [
+    {
+      "Ordinal": 1,
+      "Line": 2,
+      "Raw": "\"02/13/2026\",\"Buy\",\"XYZ\",\"XYZ CORP\",\"5\",\"$10.00\",\"\",\"-$50.00\"",
+      "Posted": "2026-02-13",
+      "AsOf": "",
+      "Action": "Buy",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "5 => 5",
+      "Price": "$10.00 => 10",
+      "Fees": "",
+      "Amount": "-$50.00 => -50"
+    },
+    {
+      "Ordinal": 2,
+      "Line": 3,
+      "Raw": "\"02/13/2026\",\"Buy\",\"XYZ\",\"XYZ CORP\",\"5\",\"$10.00\",\"\",\"-$50.00\"",
+      "Posted": "2026-02-13",
+      "AsOf": "",
+      "Action": "Buy",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "5 => 5",
+      "Price": "$10.00 => 10",
+      "Fees": "",
+      "Amount": "-$50.00 => -50"
+    },
+    {
+      "Ordinal": 3,
+      "Line": 4,
+      "Raw": "\"02/10/2026\",\"Qualified Dividend\",\"ABCD\",\"ABCD INC\",\"\",\"\",\"\",\"$3.21\"",
+      "Posted": "2026-02-10",
+      "AsOf": "",
+      "Action": "Qualified Dividend",
+      "Symbol": "ABCD",
+      "Description": "ABCD INC",
+      "Quantity": "",
+      "Price": "",
+      "Fees": "",
+      "Amount": "$3.21 => 3.21"
+    },
+    {
+      "Ordinal": 4,
+      "Line": 5,
+      "Raw": "\"02/09/2026\",\"Qualified Dividend\",\"XYZ\",\"XYZ CORP\",\"\",\"\",\"\",\"$1.11\"",
+      "Posted": "2026-02-09",
+      "AsOf": "",
+      "Action": "Qualified Dividend",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "",
+      "Price": "",
+      "Fees": "",
+      "Amount": "$1.11 => 1.11"
+    },
+    {
+      "Ordinal": 5,
+      "Line": 6,
+      "Raw": "\"02/03/2026\",\"Sell\",\"ABCD\",\"ABCD INC\",\"1,200\",\"$12.00\",\"$0.05\",\"$14399.95\"",
+      "Posted": "2026-02-03",
+      "AsOf": "",
+      "Action": "Sell",
+      "Symbol": "ABCD",
+      "Description": "ABCD INC",
+      "Quantity": "1,200 => 1200",
+      "Price": "$12.00 => 12",
+      "Fees": "$0.05 => 0.05",
+      "Amount": "$14399.95 => 14399.95"
+    },
+    {
+      "Ordinal": 6,
+      "Line": 7,
+      "Raw": "\"01/20/2026\",\"Buy\",\"ABCD\",\"ABCD INC\",\"1,200\",\"$11.00\",\"\",\"-$13200.00\"",
+      "Posted": "2026-01-20",
+      "AsOf": "",
+      "Action": "Buy",
+      "Symbol": "ABCD",
+      "Description": "ABCD INC",
+      "Quantity": "1,200 => 1200",
+      "Price": "$11.00 => 11",
+      "Fees": "",
+      "Amount": "-$13200.00 => -13200"
+    },
+    {
+      "Ordinal": 7,
+      "Line": 8,
+      "Raw": "\"01/16/2026 as of 01/15/2026\",\"Bank Interest\",\"\",\"BANK INT 121625-011526 SCHWAB BANK\",\"\",\"\",\"\",\"$0.90\"",
+      "Posted": "2026-01-16",
+      "AsOf": "2026-01-15",
+      "Action": "Bank Interest",
+      "Symbol": "",
+      "Description": "BANK INT 121625-011526 SCHWAB BANK",
+      "Quantity": "",
+      "Price": "",
+      "Fees": "",
+      "Amount": "$0.90 => 0.9"
+    }
+  ],
+  "Coverage": {
+    "RangeFrom": "2026-01-16",
+    "RangeTo": "2026-02-13",
+    "Source": "rows",
+    "From": "2026-01-16",
+    "To": "2026-02-13",
+    "Warnings": [
+      {
+        "Code": "coverage_from_rows",
+        "Detail": "it states no range, and none was given: its range is its rows', 2026-01-16 to 2026-02-13"
+      }
+    ]
+  }
+}

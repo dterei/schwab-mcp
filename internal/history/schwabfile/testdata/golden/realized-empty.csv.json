@@ -1,0 +1,32 @@
+{
+  "Kind": "realized_csv",
+  "Layout": "realized-lots",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": false,
+  "LazyQuotes": false,
+  "AccountHint": "456",
+  "NameDigits": "0456",
+  "ExportedAt": "2026-10-30T20:02:45Z",
+  "StatedFrom": "2026-10-01",
+  "StatedTo": "2026-10-30",
+  "Warnings": [
+    {
+      "Code": "empty",
+      "Detail": "no rows"
+    }
+  ],
+  "Coverage": {
+    "RangeFrom": "2026-10-01",
+    "RangeTo": "2026-10-30",
+    "Source": "stated",
+    "From": "",
+    "To": "",
+    "Warnings": [
+      {
+        "Code": "coverage_clipped",
+        "Detail": "empty: it holds no rows, as an export over a limit is reported to"
+      }
+    ]
+  }
+}

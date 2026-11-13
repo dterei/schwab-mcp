@@ -1,0 +1,27 @@
+{
+  "Kind": "history_csv",
+  "Layout": "history-current",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": false,
+  "LazyQuotes": false,
+  "AccountHint": "123",
+  "NameDigits": "123",
+  "ExportedAt": "2026-11-01T15:00:00Z",
+  "StatedFrom": "",
+  "StatedTo": "",
+  "Warnings": [
+    {
+      "Code": "empty",
+      "Detail": "no rows"
+    }
+  ],
+  "Coverage": {
+    "RangeFrom": "",
+    "RangeTo": "",
+    "Source": "",
+    "From": "",
+    "To": "",
+    "Warnings": null
+  }
+}

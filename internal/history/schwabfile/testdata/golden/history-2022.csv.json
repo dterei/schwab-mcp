@@ -1,0 +1,71 @@
+{
+  "Kind": "history_csv",
+  "Layout": "history-banner-12h",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": true,
+  "LazyQuotes": false,
+  "AccountHint": "456",
+  "NameDigits": "456",
+  "ExportedAt": "2022-05-03T18:21:05Z",
+  "StatedFrom": "",
+  "StatedTo": "",
+  "StatedTotal": "-$2,484.92 => -2484.92",
+  "History": [
+    {
+      "Ordinal": 1,
+      "Line": 3,
+      "Raw": "\"05/02/2022\",\"Buy\",\"XYZ\",\"XYZ CORP\",\"100\",\"$25.00\",\"\",\"-$2500.00\"",
+      "Posted": "2022-05-02",
+      "AsOf": "",
+      "Action": "Buy",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "100 => 100",
+      "Price": "$25.00 => 25",
+      "Fees": "",
+      "Amount": "-$2500.00 => -2500"
+    },
+    {
+      "Ordinal": 2,
+      "Line": 4,
+      "Raw": "\"04/29/2022\",\"Qualified Dividend\",\"XYZ\",\"XYZ CORP\",\"\",\"\",\"\",\"$15.00\"",
+      "Posted": "2022-04-29",
+      "AsOf": "",
+      "Action": "Qualified Dividend",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "",
+      "Price": "",
+      "Fees": "",
+      "Amount": "$15.00 => 15"
+    },
+    {
+      "Ordinal": 3,
+      "Line": 5,
+      "Raw": "\"04/18/2022 as of 04/15/2022\",\"Bank Interest\",\"\",\"BANK INT 031622-041522 SCHWAB BANK\",\"\",\"\",\"\",\"$0.08\"",
+      "Posted": "2022-04-18",
+      "AsOf": "2022-04-15",
+      "Action": "Bank Interest",
+      "Symbol": "",
+      "Description": "BANK INT 031622-041522 SCHWAB BANK",
+      "Quantity": "",
+      "Price": "",
+      "Fees": "",
+      "Amount": "$0.08 => 0.08"
+    }
+  ],
+  "Coverage": {
+    "RangeFrom": "2022-04-18",
+    "RangeTo": "2022-05-02",
+    "Source": "rows",
+    "From": "2022-04-18",
+    "To": "2022-05-02",
+    "Warnings": [
+      {
+        "Code": "coverage_from_rows",
+        "Detail": "it states no range, and none was given: its range is its rows', 2022-04-18 to 2022-05-02"
+      }
+    ]
+  }
+}

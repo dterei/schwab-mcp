@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
@@ -59,7 +60,7 @@ func fetchRecent(ctx context.Context, c *client, accounts []schwab.AccountNumber
 	for _, acct := range accounts {
 		txs, err := fetchAccount(ctx, c, acct, opt)
 		if err != nil {
-			return nil, fmt.Errorf("account %s: %w", maskAccount(acct.AccountNumber), err)
+			return nil, fmt.Errorf("account %s: %w", mask.Number(acct.AccountNumber), err)
 		}
 		all = append(all, txs...)
 	}
@@ -103,7 +104,7 @@ func fetchAccount(ctx context.Context, c *client, acct schwab.AccountNumber, opt
 					continue
 				}
 				opt.Warn(fmt.Sprintf("account %s: Schwab refused transactions before about %s, so older ones are missing (%v)",
-					maskAccount(acct.AccountNumber), end.Format("2006-01-02"), err))
+					mask.Number(acct.AccountNumber), end.Format("2006-01-02"), err))
 				break
 			}
 			return nil, err
@@ -151,11 +152,24 @@ func fetchRange(ctx context.Context, c *client, hash schwab.AccountHash, start, 
 
 // problemsWarning returns a warning about records with problems, values of
 // a type that Schwab has not sent before, keys that it has always sent and
-// left out, or objects and arrays sent twice, or "" if there were none. noun names one record, such as
-// "transaction". It names the first few places, with one problem each,
-// since one change at Schwab tends to repeat on every record.
+// left out, or objects and arrays sent twice, or "" if there were none.
+// noun names one record, such as "transaction". It names the places that
+// problemPlaces does.
 func problemsWarning(noun string, problems [][]schwab.Problem) string {
-	records := 0
+	records, places := problemPlaces(problems)
+	if records == 0 {
+		return ""
+	}
+	if records != 1 {
+		noun += "s"
+	}
+	return fmt.Sprintf("%d %s differed from what Schwab has sent before (%s)", records, noun, places)
+}
+
+// problemPlaces returns how many of the records have problems, and names
+// the first few places, with one problem each, since one change at Schwab
+// tends to repeat on every record.
+func problemPlaces(problems [][]schwab.Problem) (records int, places string) {
 	var first []schwab.Problem
 	seen := map[string]bool{}
 	for _, ps := range problems {
@@ -169,9 +183,6 @@ func problemsWarning(noun string, problems [][]schwab.Problem) string {
 			}
 		}
 	}
-	if records == 0 {
-		return ""
-	}
 	const show = 3
 	more := ""
 	if len(first) > show {
@@ -182,8 +193,5 @@ func problemsWarning(noun string, problems [][]schwab.Problem) string {
 	for i, p := range first {
 		described[i] = p.String()
 	}
-	if records != 1 {
-		noun += "s"
-	}
-	return fmt.Sprintf("%d %s differed from what Schwab has sent before (%s%s)", records, noun, strings.Join(described, "; "), more)
+	return records, strings.Join(described, "; ") + more
 }

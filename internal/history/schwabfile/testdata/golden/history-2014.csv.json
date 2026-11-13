@@ -1,0 +1,71 @@
+{
+  "Kind": "history_csv",
+  "Layout": "history-banner-24h",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": true,
+  "LazyQuotes": false,
+  "AccountHint": "1234",
+  "NameDigits": "",
+  "ExportedAt": "2014-12-21T02:16:49Z",
+  "StatedFrom": "",
+  "StatedTo": "",
+  "StatedTotal": "-$196.50 => -196.5",
+  "History": [
+    {
+      "Ordinal": 1,
+      "Line": 3,
+      "Raw": "\"12/19/2014\",\"Buy                 \",\"XYZ\",\"XYZ CORP\",\"10\",\"$20.00\",\"$8.95\",\"-$208.95\",",
+      "Posted": "2014-12-19",
+      "AsOf": "",
+      "Action": "Buy",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "10 => 10",
+      "Price": "$20.00 => 20",
+      "Fees": "$8.95 => 8.95",
+      "Amount": "-$208.95 => -208.95"
+    },
+    {
+      "Ordinal": 2,
+      "Line": 4,
+      "Raw": "\"12/17/2014 as of 12/15/2014\",\"Bank Interest\",\"\",\"BANK INT 111514-121514 SCHWAB BANK\",\"\",\"\",\"\",\"$0.05\",",
+      "Posted": "2014-12-17",
+      "AsOf": "2014-12-15",
+      "Action": "Bank Interest",
+      "Symbol": "",
+      "Description": "BANK INT 111514-121514 SCHWAB BANK",
+      "Quantity": "",
+      "Price": "",
+      "Fees": "",
+      "Amount": "$0.05 => 0.05"
+    },
+    {
+      "Ordinal": 3,
+      "Line": 5,
+      "Raw": "\"12/12/2014\",\"Qualified Dividend\",\"ABCD\",\"ABCD INC\",\"\",\"\",\"\",\"$12.40\",",
+      "Posted": "2014-12-12",
+      "AsOf": "",
+      "Action": "Qualified Dividend",
+      "Symbol": "ABCD",
+      "Description": "ABCD INC",
+      "Quantity": "",
+      "Price": "",
+      "Fees": "",
+      "Amount": "$12.40 => 12.4"
+    }
+  ],
+  "Coverage": {
+    "RangeFrom": "2014-12-12",
+    "RangeTo": "2014-12-19",
+    "Source": "rows",
+    "From": "2014-12-12",
+    "To": "2014-12-19",
+    "Warnings": [
+      {
+        "Code": "coverage_from_rows",
+        "Detail": "it states no range, and none was given: its range is its rows', 2014-12-12 to 2014-12-19"
+      }
+    ]
+  }
+}

@@ -11,15 +11,18 @@ GOVULNCHECK ?= go run golang.org/x/vuln/cmd/govulncheck@latest
 # make test RACE=
 RACE ?= -race
 
-# How long make fuzz fuzzes each target.
+# How long make fuzz fuzzes each target, and the packages whose targets it
+# fuzzes.
 FUZZTIME ?= 30s
+FUZZPKGS := ./internal/schwab ./internal/mask ./internal/history/schwabfile
 
-.PHONY: all check build test fuzz cover lint fmt tidy vuln clean help
+.PHONY: all check build test volume fuzz cover lint libc fmt tidy vuln clean help
 
 all: check
 
 check: ## Everything CI checks
 	go mod tidy -diff
+	$(MAKE) --no-print-directory libc
 	$(MAKE) --no-print-directory lint
 	go test $(RACE) -shuffle=on ./...
 	$(GOVULNCHECK) ./...
@@ -30,17 +33,23 @@ build: ## Build the commands into bin/
 test: ## Run the tests with the race detector
 	go test $(RACE) -shuffle=on ./...
 
+volume: ## Run the store's property test with many more seeds and operations than CI, and its test of volume
+	go test ./internal/history -run '^TestIncrementalEqualsRebuild$$' -history.seeds=50 -history.ops=30
+	go test ./internal/history -run '^TestVolume$$' -history.volume -v -timeout 30m
+
 # Needs Go 1.27. On Go 1.26, a FAIL whose only message is "context deadline
 # exceeded" comes from the fuzzing engine at the -fuzztime deadline
 # (go.dev/issue/75804), not from a target. The targets come from go test
 # -list, whose own failure, as when the tests do not build, ends the run, as
-# does the first target that fails. A failing input is saved under
-# internal/schwab/testdata/fuzz, to commit with the fix.
-fuzz: ## Fuzz each target in internal/schwab in turn
-	@targets=$$(go test -list '^Fuzz' ./internal/schwab) || { echo "$$targets"; exit 1; }; \
-	targets=$$(echo "$$targets" | grep '^Fuzz') || { echo "no fuzz targets in internal/schwab"; exit 1; }; \
-	for t in $$targets; do \
-		go test ./internal/schwab -run '^$$' -fuzz "^$$t$$" -fuzztime $(FUZZTIME) -fuzzminimizetime 2s || exit 1; \
+# does the first target that fails. A failing input is saved under the
+# package's testdata/fuzz, to commit with the fix.
+fuzz: ## Fuzz each target in internal/schwab, internal/mask and schwabfile in turn
+	@for p in $(FUZZPKGS); do \
+		targets=$$(go test -list '^Fuzz' $$p) || { echo "$$targets"; exit 1; }; \
+		targets=$$(echo "$$targets" | grep '^Fuzz') || { echo "no fuzz targets in $$p"; exit 1; }; \
+		for t in $$targets; do \
+			go test $$p -run '^$$' -fuzz "^$$t$$" -fuzztime $(FUZZTIME) -fuzzminimizetime 2s || exit 1; \
+		done; \
 	done
 
 cover: ## Run the tests and print coverage per function
@@ -51,6 +60,19 @@ lint: ## Run the linters, go vet, the format check and ShellCheck
 	$(GOLANGCI_LINT) run
 	@if command -v shellcheck >/dev/null; then shellcheck cmd/schwabtx/schedule/*.sh; \
 	else echo "shellcheck not found; skipping the shell scripts"; fi
+
+# modernc.org/sqlite builds only with the libc its own go.mod requires, so
+# the two move together (.github/dependabot.yml ignores libc). CI's lint job
+# runs this too.
+libc: ## Check that modernc.org/libc is the one modernc.org/sqlite requires
+	@sqlite=$$(go list -m -f '{{.Version}}' modernc.org/sqlite) && \
+	want=$$(go mod graph | awk -v m="modernc.org/sqlite@$$sqlite" \
+		'$$1 == m && $$2 ~ /^modernc\.org\/libc@/ { sub(/.*@/, "", $$2); print $$2 }') && \
+	have=$$(go list -m -f '{{.Version}}' modernc.org/libc) && \
+	if [ "$$have" != "$$want" ]; then \
+		echo "go.mod has modernc.org/libc $$have, but modernc.org/sqlite $$sqlite requires $${want:-no libc}; set libc to that version" >&2; \
+		exit 1; \
+	fi
 
 fmt: ## Format the code (gofumpt and goimports)
 	$(GOLANGCI_LINT) fmt

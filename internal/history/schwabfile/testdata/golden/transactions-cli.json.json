@@ -1,0 +1,17 @@
+{
+  "Kind": "api_json",
+  "Layout": "api-json",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": false,
+  "LazyQuotes": false,
+  "AccountHint": "",
+  "NameDigits": "",
+  "ExportedAt": "",
+  "StatedFrom": "",
+  "StatedTo": "",
+  "APIRows": [
+    "{\"activityId\":91000000001,\"time\":\"2026-10-30T14:30:27+0000\",\"accountNumber\":\"11110123\",\"type\":\"TRADE\",\"status\":\"VALID\",\"subAccount\":\"CASH\",\"tradeDate\":\"2026-10-30T14:30:27+0000\",\"positionId\":91000000002,\"orderId\":91000000003,\"netAmount\":-123.46,\"transferItems\":[{\"instrument\":{\"assetType\":\"EQUITY\",\"status\":\"ACTIVE\",\"symbol\":\"XYZ\",\"instrumentId\":71234567,\"closingPrice\":12.5,\"type\":\"COMMON_STOCK\"},\"amount\":10.0,\"cost\":-123.46,\"price\":12.3456,\"positionEffect\":\"OPENING\"}]}",
+    "{\"activityId\":91000000004,\"time\":\"2026-10-29T21:00:00+0000\",\"accountNumber\":\"11110123\",\"type\":\"DIVIDEND_OR_INTEREST\",\"status\":\"VALID\",\"subAccount\":\"CASH\",\"tradeDate\":\"2026-10-29T00:00:00+0000\",\"description\":\"QUALIFIED DIVIDEND~XYZ\",\"netAmount\":4.56,\"transferItems\":[{\"instrument\":{\"assetType\":\"CURRENCY\",\"status\":\"ACTIVE\",\"symbol\":\"CURRENCY_USD\",\"description\":\"USD currency\",\"instrumentId\":1,\"closingPrice\":0.0},\"amount\":4.56,\"cost\":0.0,\"feeType\":null}]}"
+  ]
+}

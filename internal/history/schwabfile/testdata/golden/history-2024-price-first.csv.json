@@ -1,0 +1,56 @@
+{
+  "Kind": "history_csv",
+  "Layout": "history-current",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": false,
+  "LazyQuotes": false,
+  "AccountHint": "123",
+  "NameDigits": "123",
+  "ExportedAt": "2024-01-18T17:00:00Z",
+  "StatedFrom": "",
+  "StatedTo": "",
+  "History": [
+    {
+      "Ordinal": 1,
+      "Line": 2,
+      "Raw": "\"01/17/2024\",\"Buy\",\"XYZ\",\"XYZ CORP\",\"$21.50\",\"3\",\"\",\"-$64.50\"",
+      "Posted": "2024-01-17",
+      "AsOf": "",
+      "Action": "Buy",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "3 => 3",
+      "Price": "$21.50 => 21.5",
+      "Fees": "",
+      "Amount": "-$64.50 => -64.5"
+    },
+    {
+      "Ordinal": 2,
+      "Line": 3,
+      "Raw": "\"01/16/2024\",\"Sell\",\"ABCD\",\"ABCD INC\",\"$30.25\",\"2\",\"$0.01\",\"$60.49\"",
+      "Posted": "2024-01-16",
+      "AsOf": "",
+      "Action": "Sell",
+      "Symbol": "ABCD",
+      "Description": "ABCD INC",
+      "Quantity": "2 => 2",
+      "Price": "$30.25 => 30.25",
+      "Fees": "$0.01 => 0.01",
+      "Amount": "$60.49 => 60.49"
+    }
+  ],
+  "Coverage": {
+    "RangeFrom": "2024-01-16",
+    "RangeTo": "2024-01-17",
+    "Source": "rows",
+    "From": "2024-01-16",
+    "To": "2024-01-17",
+    "Warnings": [
+      {
+        "Code": "coverage_from_rows",
+        "Detail": "it states no range, and none was given: its range is its rows', 2024-01-16 to 2024-01-17"
+      }
+    ]
+  }
+}

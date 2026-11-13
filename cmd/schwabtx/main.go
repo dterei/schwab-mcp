@@ -1,12 +1,23 @@
 // Command schwabtx connects to the Charles Schwab Trader API. It prints the
-// most recent transactions across every account linked to the login, and
-// saves snapshots of their positions and balances.
+// accounts linked to the login, their positions and balances, and the most
+// recent transactions across them, and saves snapshots of their positions
+// and balances. It keeps a store of your history, from those snapshots and
+// from the exports of schwab.com, which it imports, reports on and exports
+// without a login.
 //
 // Usage:
 //
 //	schwabtx login           one-time browser login (repeat every 7 days)
 //	schwabtx [flags]         print the most recent transactions
+//	schwabtx accounts        list the accounts with their nicknames and values
+//	schwabtx positions       print each account's positions
+//	schwabtx balances        print each account's value, cash and buying power
 //	schwabtx snapshot        append today's positions and balances to a file
+//	schwabtx import          import snapshots and schwab.com's exports into the store
+//	schwabtx status          what the store holds, and what waits for you
+//	schwabtx edit            record your decisions about the store's transactions and files
+//	schwabtx export          write the store's ledger and views as CSV or JSON Lines
+//	schwabtx store           check, rebuild, back up or restore the store
 package main
 
 import (
@@ -89,7 +100,18 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	switch cmd {
 	case "login":
-		if len(args) > 0 {
+		// login has no flags, but -h says so, as the usage promises.
+		fs := flag.NewFlagSet("schwabtx login", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		fs.Usage = func() {
+			fmt.Fprint(fs.Output(), "Usage of schwabtx login: it takes no flags. It prints a link to log in at\n"+
+				"Schwab and tick the accounts to share, then asks for the address that your\n"+
+				"browser lands on.\n")
+		}
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if fs.NArg() > 0 {
 			return errors.New("login takes no arguments")
 		}
 		cfg, err := loadConfig()
@@ -105,6 +127,18 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return runTransactions(ctx, args, stdout, stderr)
 	case "snapshot":
 		return runSnapshot(ctx, args, stdout, stderr)
+	case "accounts", "balances", "positions":
+		return runLookup(ctx, cmd, args, stdout, stderr)
+	case "import":
+		return runImport(ctx, args, stdout, stderr)
+	case "status":
+		return runStatus(ctx, args, stdout, stderr)
+	case "edit":
+		return runEdit(ctx, args, stdout, stderr)
+	case "export":
+		return runExport(ctx, args, stdout, stderr)
+	case "store":
+		return runStoreCommand(ctx, args, stdout, stderr)
 	case "help":
 		usage(stdout)
 		return nil
@@ -115,15 +149,28 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 }
 
 func usage(w io.Writer) {
-	fmt.Fprint(w, `schwabtx prints your most recent Charles Schwab transactions and saves
-snapshots of your positions and balances.
+	fmt.Fprint(w, `schwabtx prints your Charles Schwab accounts, positions, balances and most
+recent transactions, and saves snapshots of your positions and balances.
 
   schwabtx login        one-time browser login (Schwab makes you repeat it every 7 days)
   schwabtx [flags]      print the most recent transactions across all accounts
+  schwabtx accounts     list your accounts with their nicknames, types and values
+  schwabtx positions    print what each account holds, with cost and open profit or loss
+  schwabtx balances     print each account's value, cash and buying power
   schwabtx snapshot     save today's positions and balances of all accounts to a file
 
-Run "schwabtx -h" or "schwabtx snapshot -h" for flags. Credentials come from
-SCHWAB_APP_KEY and SCHWAB_APP_SECRET; see README.md.
+It keeps your history in a store, a file on this computer, which these
+commands use without a login:
+
+  schwabtx import       import snapshot files and schwab.com's History and Realized exports
+  schwabtx status       what the store holds, what waits for you (-review), or one thing (REF)
+  schwabtx edit         record your decisions: a category, a match, a file's account
+  schwabtx export       write the ledger and the store's other views as CSV or JSON Lines
+  schwabtx store        check, rebuild, back up or restore the store
+
+Run "schwabtx -h" or "schwabtx <command> -h" for flags. Credentials come from
+SCHWAB_APP_KEY and SCHWAB_APP_SECRET, and the store is SCHWAB_STORE_FILE or
+-store; see README.md.
 `)
 }
 
@@ -135,7 +182,7 @@ func runTransactions(ctx context.Context, args []string, stdout, stderr io.Write
 	window := fs.Int("window", 60, "days per API request, at most 365")
 	types := fs.String("types", "", "comma-separated transaction types (default: all)")
 	asJSON := fs.Bool("json", false, "print Schwab's raw JSON instead of a table (includes full account numbers)")
-	showAccounts := fs.Bool("show-accounts", false, "print full account numbers in the table instead of the last 4 digits")
+	showAccounts := fs.Bool("show-accounts", false, "print full account numbers in the table instead of the last 3 digits")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

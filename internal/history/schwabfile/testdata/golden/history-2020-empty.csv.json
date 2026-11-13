@@ -1,0 +1,32 @@
+{
+  "Kind": "history_csv",
+  "Layout": "history-banner-24h",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": true,
+  "LazyQuotes": false,
+  "AccountHint": "1234",
+  "NameDigits": "",
+  "ExportedAt": "2020-11-30T23:00:00Z",
+  "StatedFrom": "2020-11-16",
+  "StatedTo": "2020-11-30",
+  "Warnings": [
+    {
+      "Code": "empty",
+      "Detail": "no rows"
+    }
+  ],
+  "Coverage": {
+    "RangeFrom": "2020-11-16",
+    "RangeTo": "2020-11-30",
+    "Source": "stated",
+    "From": "",
+    "To": "",
+    "Warnings": [
+      {
+        "Code": "coverage_clipped",
+        "Detail": "empty: it holds no rows, as an export over a limit is reported to"
+      }
+    ]
+  }
+}

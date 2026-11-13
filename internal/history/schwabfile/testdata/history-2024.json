@@ -1,0 +1,27 @@
+{
+  "FromDate": "05/30/2024",
+  "ToDate": "06/05/2024",
+  "TotalTransactionsAmount": "-$57.50",
+  "BrokerageTransactions": [
+    {
+      "Date": "06/03/2024",
+      "Action": "Buy",
+      "Symbol": "XYZ",
+      "Description": "XYZ CORP",
+      "Quantity": "2",
+      "Price": "$30.00",
+      "Fees & Comm": "",
+      "Amount": "-$60.00"
+    },
+    {
+      "Date": "05/31/2024 as of 05/30/2024",
+      "Action": "Cash Dividend",
+      "Symbol": "ABCD",
+      "Description": "ABCD INC",
+      "Quantity": "",
+      "Price": "",
+      "Fees & Comm": "",
+      "Amount": "$2.50"
+    }
+  ]
+}

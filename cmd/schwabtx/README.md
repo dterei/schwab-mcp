@@ -1,9 +1,12 @@
 # schwabtx
 
 A small CLI that logs in to the Charles Schwab Trader API, prints your most
-recent transactions across every account you share with it, and saves
-snapshots of those accounts' positions and balances. It uses only the Go
-standard library, and golang.org/x/sys for file locks on Windows.
+recent transactions across every account you share with it, looks up those
+accounts' positions and balances, and saves snapshots of them. It keeps a
+store of your history from those snapshots and the exports of schwab.com,
+and exports it for a calculator. It uses the Go standard library,
+golang.org/x/sys for file locks on Windows, and modernc.org/sqlite, SQLite
+in pure Go, for the store.
 
 Before the first run, set up a Schwab developer app as described in the
 [top-level README](../../README.md#one-time-setup).
@@ -19,6 +22,9 @@ set -a; . ./.env; set +a
 
 go run ./cmd/schwabtx login      # opens nothing itself: follow the printed steps
 go run ./cmd/schwabtx            # the 100 most recent transactions, all accounts
+go run ./cmd/schwabtx accounts   # your accounts, with their nicknames and values
+go run ./cmd/schwabtx positions  # what each account holds
+go run ./cmd/schwabtx balances   # each account's value, cash and buying power
 go run ./cmd/schwabtx snapshot   # save today's positions and balances
 ```
 
@@ -35,7 +41,7 @@ and your browser lands on `https://127.0.0.1/?code=...` with a connection
 error. That is expected. Paste that whole address back into the terminal
 within about 30 seconds.
 
-Flags:
+The transactions command, the default, takes these flags:
 
 ```
 -n 100             how many transactions to print
@@ -44,7 +50,7 @@ Flags:
 -types TRADE,...   only these transaction types (default: all)
 -json              Schwab's raw JSON instead of a table (best input for calculators;
                    includes full account numbers)
--show-accounts     full account numbers in the table instead of the last 4 digits
+-show-accounts     full account numbers in the table instead of the last 3 digits
 ```
 
 The login token is stored in your user config directory under
@@ -70,6 +76,130 @@ in your user cache directory, `schwabtx/rate-` followed by a hash of the app
 key; it holds only two times. Another program that uses the same key, or the
 key used on another computer, draws from Schwab's 120 too, which the 20 left
 over leave room for.
+
+## Accounts, positions and balances
+
+Three commands look up what your accounts hold, as Schwab reports it when
+you ask. They only read, and save nothing.
+
+```sh
+schwabtx accounts                               # each account's nickname, type and value
+schwabtx balances                               # each account's value, cash and buying power
+schwabtx positions                              # what each account holds
+schwabtx positions -account 135                 # one account, by the last digits of its number
+schwabtx balances -account "Options & Margin"   # or by its whole nickname on schwab.com
+```
+
+They take the same flags:
+
+```
+-account X       only the account whose number ends in the digits X (...135, as
+                 the tables print it, and 2947-0135 work too), or whose whole
+                 nickname is X, as the tables print it, in any case
+-json            Schwab's raw JSON for the accounts instead of a table (includes
+                 full account numbers)
+-show-accounts   full account numbers in the table instead of the last 3 digits,
+                 and nicknames and descriptions as Schwab sent them
+```
+
+A nickname or a description is free text: the tables, warnings and errors
+mask a run of 8 digits in it, which may be an account number, as the store
+does (`Joint 6180 3398` reads `Joint ...398`). `-account` takes a nickname
+as Schwab sent it or as the tables print it.
+
+Every figure is as of the moment you ask: in the evening, and again from
+Sunday evening, Schwab values holdings at extended-hours prices, so the
+values are not the day's close.
+
+```
+$ schwabtx balances
+ACCOUNT  NAME              TYPE       VALUE     CASH  BUYING POWER
+...135   Individual        CASH     6997.68  1532.17       1532.17
+...398   Options & Margin  MARGIN   5503.84  5210.44       8258.84
+TOTAL                              12501.52  6742.61
+```
+
+- **VALUE** is what Schwab calls the account's liquidation value: its cash
+  and holdings at their current prices, short positions subtracted.
+- **CASH** is the account's cash, not counting money market funds, which
+  Schwab holds as positions. A margin account with a loan or short
+  positions can keep its cash in its margin and short balances, and CASH is
+  then their sum: negative while you owe more than your short sales
+  brought in. Schwab's figures have always added up, the value being the
+  cash and the holdings' market values; where they do not, as when part of
+  the account's money is in a figure that the tool does not take for cash,
+  such as `savings`, which has been 0 in every answer seen, CASH is `-`,
+  with a warning.
+- **BUYING POWER** is, for a margin account, Schwab's buying power for
+  stock that it can buy on margin, which counts what you can borrow, so it
+  can exceed the account's value; options and most mutual funds can use
+  less (`buyingPowerNonMarginableTrade` in `-json`). For a cash account it
+  is the cash available to trade. It has no total, since buying power does
+  not pass between accounts.
+- **TYPE** is CASH or MARGIN. An IRA is one of the two: the API does not say
+  which accounts are retirement accounts, though their nicknames usually
+  do.
+- `accounts` prints ACCOUNT, NAME, TYPE and VALUE: NAME is the account's
+  nickname on schwab.com.
+- `-` is a figure Schwab did not send, or sent in a form the tool could not
+  read, and a warning says which. A total with a `-` in its column is `-`
+  too, rather than a total that leaves an account out.
+
+```
+$ schwabtx positions -account 135
+4 positions in 1 account, not counting cash (see schwabtx balances)
+ACCOUNT  SYMBOL         QTY  AVG COST    VALUE     COST  OPEN P/L  DESCRIPTION
+...135   00507V109       10     81.50     0.00   815.00   -815.00
+...135   AAPL        2.1788    190.20   495.70   414.41     81.29
+...135   SWVXX      1220.89      1.00  1220.89  1220.89      0.00  SCHWAB VALUE ADVANTAGE MONEY FUND
+...135   VTI             12  251.3075  3748.92  3015.69    733.23  VANGUARD TOTAL STOCK MARKET ETF
+TOTAL                                  5465.51  5465.99     -0.48
+```
+
+- Positions are listed account by account, and by symbol within an
+  account, so that an option usually comes straight after its underlying
+  stock.
+- **QTY** is negative for a short position.
+- **AVG COST** is Schwab's average cost per share, fees included, or for a
+  short position what each share brought in, fees taken out. For an option
+  it is the premium per share, so a contract of 100 shares costs 100 times
+  it. No answer seen holds a bond or a CD, whose AVG COST is as Schwab sends
+  it.
+- **VALUE** is the market value, negative for a short position.
+- **OPEN P/L** is the profit or loss since the position was opened, positive
+  for a gain whether long or short.
+- **COST** is VALUE less OPEN P/L: what a long position cost, fees included,
+  or for a short one the proceeds, as a negative amount. So VALUE - COST =
+  OPEN P/L on every row and in the totals.
+- The totals are of the positions alone. Cash is not a position, so they
+  are not the accounts' value: `balances` shows the cash and the value.
+- A figure is `-` as in `balances`, and so is a COST that needs it. An
+  account whose positions could not be read has one row, with the symbol
+  `?`, and the count before the table says how many such accounts it
+  leaves out.
+- Today's profit or loss is left out. For some stocks and ETFs, Schwab's
+  figure counts the whole cost basis as the day's loss, and a position sold
+  to open that day can show its whole value (see
+  [the API notes](../../docs/schwab-api.md#positions-and-balances)). Prices
+  are left out too: positions do not carry them.
+- A security that is no longer listed can come back under its CUSIP as its
+  symbol, like the first row above.
+- A long DESCRIPTION is cut short, an option's at its start, so that its
+  expiration, strike and type show.
+
+For a table, `accounts` and `balances` make two requests. The first is for
+the accounts and their balances, and the second is for your preferences,
+which hold the nicknames; if those cannot be read, the table shows no
+nicknames and a warning says why. With `-json` they make the first alone,
+and `positions` makes one request, for the accounts with their positions;
+either reads your preferences too only when `-account` names a nickname,
+or names no account or several, to list them by their names. `-account`
+picks from the answer, so one account costs no more than all of them.
+
+`-json` prints each account as Schwab sent it, re-indented. For `positions`
+it includes the account's positions, as a snapshot keeps them. For
+`accounts` and `balances` it leaves them out, so those two print the same
+JSON, without nicknames, which come from your preferences.
 
 ## Snapshots
 
@@ -122,6 +252,208 @@ about to lapse or has, and when a run fails. Even so, check now and then that
 the newest snapshot is recent: the last line of the snapshot file starts with
 its `fetched_at`.
 
+## The store
+
+`schwabtx` keeps your history in a store: one SQLite file, `history.db`, in
+your user config directory under `schwabtx/` (on Windows in
+`%LocalAppData%\schwabtx\`, which does not roam). Choose another file with
+`-store` or `SCHWAB_STORE_FILE`. It holds the snapshots, Schwab's API rows,
+the files you export from schwab.com, and your decisions about them, and
+keeps all of them; what it derives from them, such as each transaction's
+category and whether it counts, it can derive again. None of these commands
+logs in or reaches the network. [docs/store.md](../../docs/store.md) is the
+reference, with a walk-through of what each command prints.
+
+```sh
+schwabtx import                    # the snapshot file that schwabtx snapshot writes
+schwabtx import ~/Downloads/Individual_XXX398_Transactions_20261111-120000.json
+schwabtx status                    # what each account's sources cover, and what waits for you
+schwabtx status -review            # what waits for you, each with the command that settles it
+schwabtx status C3a9e21b0.17       # one thing in full
+schwabtx edit T73508261949 -category fee
+schwabtx export > ledger.csv       # the counted transactions, as a calculator reads them
+schwabtx store backup ~/history-backup.db
+```
+
+The workflow: import your snapshots, which the store can take as often as
+you like; import `schwabtx transactions -json` output, which gives the store
+Schwab's own rows until `schwabtx sync` exists; export History from
+schwab.com as JSON, every type and no symbol, in ranges of under a year
+([Schwab's exports](../../docs/schwab-exports.md) says how), and import it;
+then `schwabtx status -review`, and settle what it lists with
+`schwabtx edit`. A transaction that several exports hold, or that Schwab's
+API rows hold, counts once; one that only a file holds, on days the API's
+rows cover, waits for you to say what it is.
+
+Flags may come before or after the arguments
+(`schwabtx edit T73508261949 -category fee` and
+`schwabtx edit -category fee T73508261949` are one). Every command takes
+`-store PATH`. Refs name what the store holds: `A3` an account,
+`T73508261941` an API transaction, `C3a9e21b0.17` a transaction of History
+files, `F3a9e21b0` an imported file, `L5c1d2e3f.4` a closed lot, `S812` a
+snapshot, `K:i:1973757747` a security's key; any start of the hex that names
+one thing will do. `-account` takes `A3`, the last digits of the number, or
+the nickname.
+
+### schwabtx import
+
+```
+schwabtx import [-store PATH] [-account ACCOUNT] [-from DATE] [-to DATE]
+                [-all-types | -filtered] [-dry-run] [-force] [FILE...]
+schwabtx import [-store PATH] -forget FREF [-undo]
+```
+
+Imports each FILE, all of them or none: a snapshot file, a History export of
+schwab.com in CSV or JSON, a Realized Gain/Loss export's Lot Details, or the
+output of `schwabtx transactions -json`, each known by its content. Any other
+file is refused, and then nothing is imported; so is one of the store's own
+files, before any file is read. With no FILE it imports the snapshot file.
+It makes the store if there is none.
+
+```
+-store PATH       the store's file (default: $SCHWAB_STORE_FILE, else history.db in
+                  schwabtx's folder of your config directory, %LocalAppData% on
+                  Windows)
+-account ACCOUNT  the account the exports are for, when their names do not say
+-from DATE        the first day the History exports cover, for those that state none
+-to DATE          the last day they cover (DATE is YYYY-MM-DD or MM/DD/YYYY)
+-all-types        the History exports hold every type and no symbol: they are complete
+-filtered         the History exports were filtered by type or symbol
+-dry-run          report what the import would do, and save nothing
+-force            import an export whose name's digits are not its account's (a renamed file)
+-forget FREF      set aside an imported file: its transactions that no other file
+                  holds leave the ledger
+-undo             with -forget, bring the file back
+```
+
+### schwabtx status
+
+```
+schwabtx status [-store PATH] [-account ACCOUNT] [-show-accounts]
+schwabtx status [-store PATH] [-account ACCOUNT] -review [-all]
+schwabtx status [-store PATH] [-account ACCOUNT] REF
+```
+
+Prints what each account's API rows, exports and snapshots cover, and what
+waits for you; with `-review`, what waits for you, grouped, each with the
+command that settles it; with a REF, that one thing in full. It is a report,
+and exits 0 whatever it finds.
+
+```
+-store PATH       the store's file
+-account ACCOUNT  only this account
+-review           list what waits for you, each with the command that settles it
+-all              with -review, list what is flagged for information too
+-show-accounts    full account numbers instead of the last 3 digits
+```
+
+### schwabtx edit
+
+```
+schwabtx edit [-store PATH] [-account ACCOUNT] [-note TEXT] REF OPTION...
+schwabtx edit [-store PATH] [-note TEXT] -action LABEL -policy count|hold|auto
+```
+
+Records your decisions about REF, which the store applies after its own
+rules, and prints what each changed. Each option's value `auto` withdraws
+your decision.
+
+```
+-store PATH          the store's file
+-account ACCOUNT     the account REF is of, when two share it; with a file (F…),
+                     the account the file is for, or auto
+-note TEXT           why, kept with the decision
+-category C          a transaction's category: deposit, withdrawal, transfer_in,
+                     transfer_out, journal, buy, sell, dividend, interest, fee, tax, other
+-count yes|no        whether a transaction counts
+-pair REF2|none      the transaction it is paired with: a journal between your
+                     accounts, a sweep, a reversal
+-security K:…        a transaction's security
+-link T…[,T…]|none   the API transactions a file transaction (C…) is, or none
+                     (count it from the file)
+-reject T…           an API transaction a file transaction is not
+-completeness complete|filtered
+                     whether a file (F…) holds every type and symbol
+-from DATE           with -to, the first day a file covers
+-to DATE             with -from, the last day a file covers
+-range auto          give a file back the range it states, or its import gave
+-same K:…            another key of the same security (REF is a key, K:…)
+-differ K:…          another key of a different security
+-auto                withdraw your -same and -differ decisions on a key
+-kind TEXT           an account's kind (taxable, ira, roth, ...)
+-action LABEL        a History action, such as "Bank Interest", for -policy
+-policy count|hold   whether the action's held-out file rows count
+```
+
+### schwabtx export
+
+```
+schwabtx export [-store PATH] [-what WHAT] [-format csv|jsonl] [-account ACCOUNT]
+                [-from DATE] [-to DATE] [-all] [-raw] [-show-accounts] [-o FILE | -dir DIR]
+```
+
+Writes the ledger, the counted transactions from the API and from files,
+which is what a calculator reads, or another table of the store, as CSV or
+JSON Lines: to stdout, to a file with `-o`, or each to a file of its own in a
+folder with `-dir`, with a `manifest.json`. Files it writes are readable only
+by you. A summary of what it wrote, and of what each account's sources
+cover, goes to stderr. The tables (`-what`): `ledger`, `entries`,
+`transactions`, `legs`, `file-transactions`, `imports`, `snapshots`,
+`positions`, `balances`, `lots`, `gaps`, `flags`, `coverage` and
+`securities`; [docs/store.md](../../docs/store.md#exports) has their columns.
+
+```
+-store PATH       the store's file
+-what WHAT        a table, a comma-separated list of tables, or all (a list or
+                  all needs -dir); default ledger
+-format FORMAT    csv (the default), or jsonl for JSON Lines
+-account ACCOUNT  only this account
+-from DATE        only rows of this day or later
+-to DATE          only rows of this day or earlier
+-all              every entry and leg, counted or not
+-raw              add each row's raw bytes as Schwab or the file had them
+                  (includes full account numbers)
+-show-accounts    add each row's full account number
+-o FILE           write to FILE instead of stdout
+-dir DIR          write each table to a file of its own in DIR, with manifest.json
+```
+
+### schwabtx store
+
+```
+schwabtx store [-store PATH] check
+schwabtx store [-store PATH] rebuild
+schwabtx store [-store PATH] backup FILE
+schwabtx store [-store PATH] restore [-dry-run] BACKUP
+```
+
+`check` checks the store, SQLite's integrity and foreign keys and what the
+derived data must hold, and exits 1 on any problem; `rebuild` derives
+everything again from what the store holds; `backup` copies the store, as
+of now, to a new file readable only by you, while others go on using it;
+`restore` replaces what the store holds with what a backup holds, through
+SQLite, and makes the store if there is none.
+
+```
+-store PATH       the store's file
+-dry-run          with restore, say what the store and the backup hold, and
+                  change nothing
+```
+
+### Privacy and the store's files
+
+Account numbers show as `...` and their last three digits everywhere, as
+Schwab shows them, and so does any run of 8 digits or more in the text the
+store keeps. Only `status -show-accounts`, `export -show-accounts` and
+`export -raw` (which adds Schwab's JSON and the files' rows as they were)
+show full numbers, and `export` says so when it does.
+
+The store is its file, `history.db-wal` and `history.db-shm` together: never
+copy, move or delete one of them without the others, and never copy them
+while `schwabtx` runs. Copy the store with `store backup`, and put a copy
+back with `store restore`. Keep the store on a local disk, not in a synced
+folder: a store on a network file system is refused.
+
 ## How it fetches
 
 - It covers **brokerage accounts**, not Schwab Bank checking or savings.
@@ -160,9 +492,14 @@ through the fake's authorize page, from the link the tool prints, token
 refresh, paging backwards through windows, windows older than an account's
 history answered with an empty list, as Schwab was seen to answer them,
 merging accounts, splitting truncated responses however the fake caps them,
-Schwab's own error answers, rate-limit retries and snapshots. They also run
-the scheduler scripts as a scheduler would: `snapshot.sh` on Linux and
-macOS, `snapshot.ps1` with each PowerShell on Windows.
+Schwab's own error answers, rate-limit retries, snapshots, and the lookups'
+tables and JSON of the fixtures' accounts, and the store's commands on
+stores copied from a new one: imports of snapshots, `-json` output and
+History exports, what status reviews and edit settles, exports, backups and
+restores, the store's own files refused as inputs and outputs, and no full
+account number in their output. They also run the scheduler
+scripts as a scheduler would: `snapshot.sh` on Linux and macOS,
+`snapshot.ps1` with each PowerShell on Windows.
 
 ## Open questions
 
@@ -197,9 +534,26 @@ macOS, `snapshot.ps1` with each PowerShell on Windows.
 - "differed from what Schwab has sent before" (a warning): Schwab sent a
   value in a form it has not sent before, such as a string where a number
   belongs, left out a key that it has always sent, or sent an object or
-  array twice. The table may show such a field as 0 or blank or, for one
+  array twice. The table may show such a field as 0, blank or `-` or, for one
   sent twice, as a mix of the copies; `-json` prints Schwab's own JSON, and
   the snapshot keeps it. The warning names the fields.
+- "Schwab sent no current value" (a warning), or no cash or buying power:
+  Schwab's answer lacks the figure for that account, as answers of 2024 did
+  for some margin accounts. The table shows `-` for it, and for its total.
+- "Schwab's cash for ... is not its value less its holdings" (a warning):
+  Schwab's figures for the account do not add up as they always have: part
+  of its money may be in a figure that the tool does not take for cash,
+  such as `savings`. CASH shows `-`; `-json` prints Schwab's figures.
+- "the table leaves out the accounts' nicknames" (a warning): your
+  preferences, which hold the nicknames, could not be read. The rest of the
+  table is complete.
+- `no account matches -account`: the error lists the accounts this login
+  shares. An account you did not tick at `schwabtx login` is not among them;
+  log in again and tick it.
+- `-account "..." matches 2 accounts`: give the nickname of the one you
+  want, or more digits of its number, which
+  `schwabtx accounts -show-accounts` prints; when two accounts share a
+  nickname, give the last digits of the number instead.
 - "Invalid account number" (`HTTP 400`): Schwab refused an account that it
   had just listed, for a reason not known. Run the command again; if it
   keeps failing, write to Schwab with the correlation ID.

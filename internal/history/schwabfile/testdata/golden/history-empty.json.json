@@ -1,0 +1,33 @@
+{
+  "Kind": "history_json",
+  "Layout": "history-json",
+  "Encoding": "utf-8",
+  "BOM": false,
+  "CRLF": false,
+  "LazyQuotes": false,
+  "AccountHint": "123",
+  "NameDigits": "123",
+  "ExportedAt": "2026-11-01T17:00:00Z",
+  "StatedFrom": "2026-10-01",
+  "StatedTo": "2026-10-31",
+  "StatedTotal": "$0.00 => 0",
+  "Warnings": [
+    {
+      "Code": "empty",
+      "Detail": "no rows"
+    }
+  ],
+  "Coverage": {
+    "RangeFrom": "2026-10-01",
+    "RangeTo": "2026-10-31",
+    "Source": "stated",
+    "From": "",
+    "To": "",
+    "Warnings": [
+      {
+        "Code": "coverage_clipped",
+        "Detail": "empty: it holds no rows, as an export over a limit is reported to"
+      }
+    ]
+  }
+}

@@ -32,13 +32,24 @@ func (c *client) accountNumbers(ctx context.Context) ([]schwab.AccountNumber, er
 	return accounts, nil
 }
 
-// accounts returns every account with its balances and positions.
-func (c *client) accounts(ctx context.Context) ([]schwab.Account, error) {
-	accounts, err := c.api.Accounts(ctx, schwab.AccountFieldPositions)
+// accounts returns every account with its balances and the fields asked
+// for.
+func (c *client) accounts(ctx context.Context, fields ...schwab.AccountField) ([]schwab.Account, error) {
+	accounts, err := c.api.Accounts(ctx, fields...)
 	if err != nil {
 		return nil, hint(err)
 	}
 	return accounts, nil
+}
+
+// preferences returns the user's preferences, which hold the accounts'
+// nicknames.
+func (c *client) preferences(ctx context.Context) (schwab.UserPreference, error) {
+	prefs, err := c.api.UserPreference(ctx)
+	if err != nil {
+		return schwab.UserPreference{}, hint(err)
+	}
+	return prefs, nil
 }
 
 // transactions returns one account's transactions of the given types between

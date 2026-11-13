@@ -1,0 +1,6 @@
+"Transactions  for account XXXX-1234 as of 12/20/2014 21:16:49 ET"
+"Date","Action","Symbol","Description","Quantity","Price","Fees & Comm","Amount",
+"12/19/2014","Buy                 ","XYZ","XYZ CORP","10","$20.00","$8.95","-$208.95",
+"12/17/2014 as of 12/15/2014","Bank Interest","","BANK INT 111514-121514 SCHWAB BANK","","","","$0.05",
+"12/12/2014","Qualified Dividend","ABCD","ABCD INC","","","","$12.40",
+Transactions Total,"","","","","","",-$196.50

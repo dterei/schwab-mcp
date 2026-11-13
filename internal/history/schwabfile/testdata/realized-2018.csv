@@ -1,0 +1,5 @@
+"Realized Gain/Loss - Lot Details for XXXX-1234 as of Wed Apr 11 09:15:02 EDT 2018 from 01/01/2018 to 04/11/2018","","","","","","","","","","","","","","","","","","","","","","","",""
+"Symbol","Name","Closed Date","Opened Date","Quantity","Proceeds Per Share","Cost Per Share","Proceeds","Cost Basis","Gain/Loss ($)","Gain/Loss (%)","Long Term Gain/Loss","Short Term Gain/Loss","Term","Unadjusted Cost Basis","Wash Sale?","Disallowed Loss","Transaction Closed Date","Transaction Cost Basis","Total Transaction Gain/Loss ($)","Total Transaction Gain/Loss (%)","LT Transaction Gain/Loss ($)","LT Transaction Gain/Loss (%)","ST Transaction Gain/Loss ($)","ST Transaction Gain/Loss (%)"
+"XYZ","XYZ CORP","03/29/2018","02/01/2017","20","$15.00","$10.00","$300.00","$200.00","$100.00","50.000000000000%","$100.00","","Long Term","$200.00","No","","03/29/2018","","","","","","",""
+"ABCD","ABCD INC","03/12/2018","01/10/2018","3","$40.00","$45.00","$120.00","$135.00","-$15.00","-11.111111111111%","","-$15.00","Short Term","$135.00","No","","03/12/2018","","","","","","",""
+"Total","","","","","","","$420.00","$335.00","$85.00","","","","","","","","","","","","","","",""
