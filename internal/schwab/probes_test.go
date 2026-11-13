@@ -961,7 +961,7 @@ const (
 
 // An orderSeen is an order of an answer of Schwab's orders, as the probes
 // read it: its id, when it was entered, its status, and when it was
-// filled, by its first execution or else its closeTime, if it was.
+// filled, by its first fill or else its closeTime, if it was.
 type orderSeen struct {
 	id      string
 	entered time.Time
@@ -970,7 +970,10 @@ type orderSeen struct {
 }
 
 // readOrder reads raw, one order, leniently: an order without some of what
-// orderSeen holds still counts.
+// orderSeen holds still counts. Only the legs of an activity whose
+// executionType is FILL are fills: Schwab answers a cancel with an
+// activity of executionType CANCELED whose leg has a time too, and a price
+// of 0.
 func readOrder(raw json.RawMessage) orderSeen {
 	var o struct {
 		OrderID     json.Number     `json:"orderId"`
@@ -978,7 +981,8 @@ func readOrder(raw json.RawMessage) orderSeen {
 		CloseTime   json.RawMessage `json:"closeTime"`
 		Status      string          `json:"status"`
 		Activities  []struct {
-			Legs []struct {
+			ExecutionType string `json:"executionType"`
+			Legs          []struct {
 				Time json.RawMessage `json:"time"`
 			} `json:"executionLegs"`
 		} `json:"orderActivityCollection"`
@@ -995,6 +999,9 @@ func readOrder(raw json.RawMessage) orderSeen {
 	}
 	seen := orderSeen{id: o.OrderID.String(), entered: at(o.EnteredTime), status: o.Status}
 	for _, act := range o.Activities {
+		if act.ExecutionType != "FILL" {
+			continue
+		}
 		for _, leg := range act.Legs {
 			if t := at(leg.Time); !t.IsZero() && (seen.filled.IsZero() || t.Before(seen.filled)) {
 				seen.filled = t
@@ -1544,12 +1551,18 @@ func TestPlanFilter(t *testing.T) {
 }
 
 // An order is read for its id, when it was entered, its status and when it
-// was filled: by its first execution, whichever activity holds it, of the
-// legs whose time can be read, or, for one filled without them, its
-// closeTime.
+// was filled: by its first fill, whichever activity holds it, of the legs
+// of FILL executions whose time can be read, or, for one filled without
+// them, its closeTime. A cancel's leg is not a fill.
 func TestReadOrder(t *testing.T) {
-	legs := `"orderActivityCollection":[{"executionLegs":[{"time":"2026-03-13T13:56:10+0000"}]},` +
-		`{"executionLegs":[{"time":"2026-03-13T13:55:09+0000"},{"time":"not a time"}]}]`
+	legs := `"orderActivityCollection":[{"executionType":"FILL","executionLegs":[{"time":"2026-03-13T13:56:10+0000"}]},` +
+		`{"executionType":"FILL","executionLegs":[{"time":"2026-03-13T13:55:09+0000"},{"time":"not a time"}]}]`
+	canceled := `"orderActivityCollection":[{"activityType":"EXECUTION","executionType":"CANCELED",` +
+		`"executionLegs":[{"price":0.0,"quantity":1.0,"time":"2026-03-13T13:52:00+0000"}]}]`
+	partly := `"orderActivityCollection":[{"activityType":"EXECUTION","executionType":"CANCELED",` +
+		`"executionLegs":[{"price":0.0,"quantity":1.0,"time":"2026-03-13T13:52:00+0000"}]},` +
+		`{"activityType":"EXECUTION","executionType":"FILL","executionLegs":[{"price":603.4,"quantity":1.0,"time":"2026-03-13T13:55:09+0000"}]},` +
+		`{"activityType":"EXECUTION","executionLegs":[{"time":"2026-03-13T13:51:00+0000"}]}]`
 	for _, tc := range []struct {
 		body string
 		want orderSeen
@@ -1565,6 +1578,14 @@ func TestReadOrder(t *testing.T) {
 		{
 			`{"orderId":8,"status":"WORKING","enteredTime":"2026-03-13T13:50:09+0000"}`,
 			orderSeen{id: "8", status: "WORKING", entered: time.Date(2026, 3, 13, 13, 50, 9, 0, time.UTC)},
+		},
+		{
+			`{"orderId":9,"status":"CANCELED","enteredTime":"2026-03-13T13:50:09+0000","closeTime":"2026-03-13T13:52:00+0000",` + canceled + `}`,
+			orderSeen{id: "9", status: "CANCELED", entered: time.Date(2026, 3, 13, 13, 50, 9, 0, time.UTC)},
+		},
+		{
+			`{"orderId":10,"status":"CANCELED","enteredTime":"2026-03-13T13:50:09+0000","closeTime":"2026-03-13T13:56:00+0000",` + partly + `}`,
+			orderSeen{id: "10", status: "CANCELED", entered: time.Date(2026, 3, 13, 13, 50, 9, 0, time.UTC), filled: time.Date(2026, 3, 13, 13, 55, 9, 0, time.UTC)},
 		},
 		{`{"orderId":"x","enteredTime":7}`, orderSeen{}},
 		{`[1]`, orderSeen{}},
