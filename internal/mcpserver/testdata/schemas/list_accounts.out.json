@@ -1,0 +1,135 @@
+{
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "warnings": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "accounts": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "account_hash": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nickname": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "store_ref": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "primary": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "value": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "cash": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "not_shared_since": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "account",
+          "account_hash",
+          "nickname",
+          "store_ref",
+          "type",
+          "kind",
+          "primary",
+          "value",
+          "cash",
+          "not_shared_since"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "total_value": {
+      "type": [
+        "null",
+        "number"
+      ]
+    },
+    "total_cash": {
+      "type": [
+        "null",
+        "number"
+      ]
+    }
+  },
+  "required": [
+    "source",
+    "as_of",
+    "warnings",
+    "accounts",
+    "total_value",
+    "total_cash"
+  ],
+  "additionalProperties": false
+}

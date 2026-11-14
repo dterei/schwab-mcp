@@ -1,0 +1,53 @@
+{
+  "source": "schwab",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [
+    {
+      "code": "extended_hours",
+      "message": "Values are as of now, outside the regular session, at extended-hours prices."
+    },
+    {
+      "code": "cash_differs",
+      "message": "Schwab's cash for ...135 (Individual) is not its value less its holdings, so it is null."
+    },
+    {
+      "code": "figures_missing",
+      "message": "Schwab sent no current value or cash for ...783 (Contributory)."
+    }
+  ],
+  "cut": [],
+  "accounts": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "nickname": "Individual",
+      "type": "CASH",
+      "value": 6997.68,
+      "cash": null,
+      "buying_power": 1532.17,
+      "buying_power_is": "cash_available_for_trading"
+    },
+    {
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "nickname": "Options & Margin",
+      "type": "MARGIN",
+      "value": 5503.84,
+      "cash": 5210.44,
+      "buying_power": 8258.84,
+      "buying_power_is": "margin_buying_power"
+    },
+    {
+      "account": "...783",
+      "account_hash": "8C2F1DD750834DC72D2B65A2497B6A003E30CF6559B79586433150D303FDC9DA",
+      "nickname": "Contributory",
+      "type": "MARGIN",
+      "value": null,
+      "cash": null,
+      "buying_power": 8710.00,
+      "buying_power_is": "margin_buying_power"
+    }
+  ],
+  "total_value": null,
+  "total_cash": null
+}
