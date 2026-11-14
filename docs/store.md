@@ -2268,10 +2268,14 @@ what a rebuild does; it runs in CI with 4 seeds of 8 operations under
 operations, by hand, and `TestVolume` (behind `-history.volume`): a year
 of History exports of 3,000 rows a quarter and five years of snapshots,
 imported, rebuilt, checked and exported (about 50 s, without `-race`).
-`TestToolExport` is the only test of the exports for Portfolio Performance
-and Ghostfolio from a store: one store, whose build takes 1.8 s, serves
-every export of both tools, in full, of one account, refused, and in a
-chain of `-since` exports with imports and decisions between them, each
-imported into the tools' models. It takes 4.2 to 4.7 s under `-race`,
-alone on 4 CPUs, and runs beside the package's other tests; a store for
-each part would take more of the package's time than the one test does.
+`TestToolExport` is the only test that takes the exports for Portfolio
+Performance and Ghostfolio through every step on a store, each imported
+into the tools' models: one store, whose build takes 1.8 s, serves every
+export of both tools, in full, of one account, refused, and in a chain of
+`-since` exports with imports and decisions between them.
+(`TestViewsHoldNoAccountNumber` and the command's
+`TestStoreCommandsMaskNumbers` export from a store too, to check that no
+account number gets out and what the command writes.) It takes 4.2 to
+4.7 s under `-race`, alone on 4 CPUs, and runs beside the package's other
+tests; a store for each part would take more of the package's time than
+the one test does.

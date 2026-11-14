@@ -377,6 +377,13 @@ skips the other accounts' activities as existing; and name it in the next
 `-since`. When the account has no activity, the dialog cannot import the
 file: send it by `POST /api/v1/import`, or set the account's cash by hand.
 
+**After a store is made again**, no export of it goes on from one of the
+old store (`-since` refuses it as another store's), and its accounts may be
+numbered otherwise: skip the `-since` step and redo every account. Delete
+each account's activities, then the account; import one full export of the
+new store, which makes every account again with its balances; and name it
+in the next `-since`.
+
 ## What the manifest asks of you
 
 Each left-out row of the manifest's `left_out` has an `advice`, and a
