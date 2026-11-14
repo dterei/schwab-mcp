@@ -1039,6 +1039,84 @@ func TestReaderRefusesMissing(t *testing.T) {
 	}
 }
 
+// A store moved away while it is being opened, after checkPath saw it and
+// before identify reads it, leaves no store at the path. Its -wal, which a
+// killed writer left and which a read-only connection cannot recover, makes
+// identify open the path again to recover it, and that open makes no file
+// in the store's place, of which SQLite would take the -wal: the moved
+// store keeps what the writer committed. So it is when OpenReader opens,
+// and when Open does. Left in place, the store is recovered, and a Reader
+// reads what the writer committed.
+func TestIdentifyMakesNoStoreInAMovedOnesPlace(t *testing.T) {
+	t.Parallel()
+	path := copyTemplate(t)
+	c := startChild(t, "commit", "HISTORY_TEST_STORE="+path)
+	c.expect(t, "committed")
+	if err := c.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.cmd.Wait()
+	// More stores as the writer left them.
+	copyStore := func() string {
+		to := filepath.Join(t.TempDir(), "history.db")
+		for _, suffix := range []string{"", "-wal", "-shm"} {
+			b, err := os.ReadFile(path + suffix)
+			if err != nil {
+				t.Fatalf("the killed writer left no %s: %v", filepath.Base(path+suffix), err)
+			}
+			if err := os.WriteFile(to+suffix, b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return to
+	}
+	inPlace, second := copyStore(), copyStore()
+
+	r := openReader(t, inPlace)
+	numbers, err := r.AccountNumbers(t.Context())
+	if err != nil || !slices.ContainsFunc(numbers, func(a NumberedAccount) bool { return a.Number == "committed" }) {
+		t.Errorf("in place, a Reader reads the accounts %+v, %v; want the one that the killed writer committed", numbers, err)
+	}
+
+	for _, tc := range []struct {
+		name      string
+		path      string
+		mustExist bool
+	}{
+		{"OpenReader", path, true},
+		{"Open", second, false},
+	} {
+		s := &Store{path: tc.path, o: Options{
+			Path: tc.path, MustExist: tc.mustExist, Now: fixedNow, Warn: func(string) {}, Waiting: func(string) {},
+			BusyTimeout: time.Second, LockWait: time.Second, disk: localDisk,
+		}}
+		if err := s.checkPath(); err != nil {
+			t.Fatalf("%s: checkPath: %v", tc.name, err)
+		}
+		away := filepath.Join(t.TempDir(), "history.db")
+		if err := os.Rename(tc.path, away); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.identify(t.Context()); err == nil {
+			t.Errorf("%s: identify found a store at the path that it was moved from", tc.name)
+		}
+		if _, err := os.Lstat(tc.path); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s: identify made %s: %v", tc.name, filepath.Base(tc.path), err)
+		}
+		// The -wal and -shm follow the database, as the store's advice for
+		// a damaged store moves them, and the store holds the writer's
+		// account.
+		for _, suffix := range []string{"-wal", "-shm"} {
+			if err := os.Rename(tc.path+suffix, away+suffix); err != nil {
+				t.Fatalf("%s: moving the %s: %v", tc.name, suffix, err)
+			}
+		}
+		if n := queryInt(t, rawDB(t, away), "SELECT count(*) FROM account WHERE number = 'committed'"); n != 1 {
+			t.Errorf("%s: the moved store holds %d accounts that the killed writer committed, want 1", tc.name, n)
+		}
+	}
+}
+
 // A store that a newer schwabtx derived with newer rules is read, and
 // NewerRules says so, also of a Reader opened before the rules were raised,
 // from its next read on; one that a newer schwabtx migrated to a newer

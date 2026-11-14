@@ -430,9 +430,13 @@ func (s *Store) identify(ctx context.Context) error {
 	}
 	if err != nil && journalNeedsRecovery(err) && exists(s.path+"-wal") {
 		// A read-only connection cannot recover a WAL that a killed writer
-		// left. Without mode=ro, and still with no pragma, SQLite recovers
-		// the journal that it wrote itself, and writes nothing else.
-		id, version, empty, err = s.probe(ctx)
+		// left. With mode=rw, and still with no pragma, SQLite recovers the
+		// journal that it wrote itself, and writes nothing else. mode=rw
+		// never creates the file: were the store moved away since checkPath
+		// saw it, a connection that may create one would make an empty
+		// database in its place, and SQLite would delete the -wal beside it,
+		// which holds what the writer committed.
+		id, version, empty, err = s.probe(ctx, "mode=rw")
 	}
 	if code(err) == sqlite3.SQLITE_READONLY_ROLLBACK {
 		// A rollback journal to recover, which a store, always in WAL mode,
