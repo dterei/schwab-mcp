@@ -1,8 +1,16 @@
 package history
 
 import (
+	"bytes"
 	"database/sql"
+	"flag"
+	"maps"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
+	"testing"
 	"time"
 
 	"github.com/dterei/schwab-mcp/internal/nytime"
@@ -11,8 +19,8 @@ import (
 // The cases of the tool exports: one toolInput for each category of the
 // mapping and each hard case of the design (3.3 and 4), each named for what
 // it holds, with what toolEvents makes of every row of it for each tool.
-// TestToolMapping runs them; the renderers' golden tests write each.
-// Every value is made up: the accounts, refs, securities, CUSIPs and
+// TestToolMapping runs them; TestToolCases writes each as an export of each
+// tool. Every value is made up: the accounts, refs, securities, CUSIPs and
 // amounts.
 
 // A toolCase is a named toolInput, and what toolEvents makes of each of
@@ -47,6 +55,109 @@ func toolCaseNamed(name string) toolCase {
 		panic("no tool case " + name)
 	}
 	return toolCases()[i]
+}
+
+// update rewrites the golden files of TestToolCases from what the exports
+// write: go test ./internal/history -run TestToolCases -history.update.
+// Read the diff before committing it.
+var update = flag.Bool("history.update", false, "TestToolCases: rewrite its golden files under testdata/tools/cases")
+
+// TestToolCases writes each case of toolCases as an export of each tool and
+// requires the golden files of testdata/tools/cases (11.2 of the design): a
+// folder for each tool, named as -format names it, holds the files that
+// every export of the tool writes alike, and a folder for each case, which
+// holds the files that the case's export writes. Each export must also read
+// and import into a model of its tool as the case means it to (ppCase,
+// gfCase).
+func TestToolCases(t *testing.T) {
+	t.Parallel()
+	for _, tool := range []struct {
+		name string
+		// alike are the files that every export of the tool writes alike,
+		// by name: PP's configurations.
+		alike map[string][]byte
+		// check writes case c as an export of the tool, requires that the
+		// folder golden hold what it writes (toolGolden), and checks what
+		// the tool makes of it.
+		check func(t *testing.T, c toolCase, golden string)
+	}{
+		{toolPP, ppConfigurations(), ppCase},
+		{toolGF, nil, gfCase},
+	} {
+		t.Run(tool.name, func(t *testing.T) {
+			t.Parallel()
+			dir := filepath.Join("testdata", "tools", "cases", tool.name)
+			toolGolden(t, dir, tool.alike)
+			for _, c := range toolCases() {
+				t.Run(c.name, func(t *testing.T) {
+					t.Parallel()
+					tool.check(t, c, filepath.Join(dir, c.name))
+				})
+			}
+		})
+	}
+}
+
+// toolGolden requires that the folder golden hold files, each byte for
+// byte, and no other file, or with -history.update writes them there and
+// removes any other file. It leaves the folders in golden alone: a tool's
+// folder holds one for each case.
+func toolGolden(t *testing.T, golden string, files map[string][]byte) {
+	t.Helper()
+	if *update {
+		if err := os.MkdirAll(golden, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := os.ReadDir(golden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if _, ok := files[e.Name()]; ok || e.IsDir() {
+			continue
+		}
+		if !*update {
+			t.Errorf("%s holds %s, which the export does not write (-history.update removes it)", golden, e.Name())
+		} else if err := os.Remove(filepath.Join(golden, e.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		path := filepath.Join(golden, name)
+		if *update {
+			if err := os.WriteFile(path, files[name], 0o644); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		want, err := os.ReadFile(path)
+		switch {
+		case err != nil:
+			t.Errorf("%v (-history.update writes it)", err)
+		case !bytes.Equal(files[name], want):
+			t.Errorf("%s differs from what the export writes (-history.update rewrites it):\n%s", path, firstDiff(want, files[name]))
+		}
+	}
+}
+
+// firstDiff says where got, which differs from want, first differs from it:
+// the line, with its number, or that only the line ends at their end differ.
+func firstDiff(want, got []byte) string {
+	w, g := strings.Split(string(want), "\n"), strings.Split(string(got), "\n")
+	for i := range max(len(w), len(g)) {
+		var wl, gl string
+		if i < len(w) {
+			wl = w[i]
+		}
+		if i < len(g) {
+			gl = g[i]
+		}
+		if wl != gl {
+			return "line " + strconv.Itoa(i+1) + ": want " + wl + "\n got " + gl
+		}
+	}
+	return "only the line ends at the end differ"
 }
 
 // The securities of the cases, by key.

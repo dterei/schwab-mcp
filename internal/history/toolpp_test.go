@@ -3,7 +3,6 @@ package history
 import (
 	"bytes"
 	"encoding/csv"
-	"flag"
 	"maps"
 	"os"
 	"path/filepath"
@@ -13,36 +12,16 @@ import (
 	"time"
 )
 
-// ppUpdate rewrites the golden files of TestToolCasesPP from what ppFiles
-// writes: go test ./internal/history -run TestToolCasesPP
-// -history.update-pp. Read the diff before committing it.
-var ppUpdate = flag.Bool("history.update-pp", false, "TestToolCasesPP: rewrite its golden files under testdata/tools/pp")
-
-// ppGoldenDir is the folder of TestToolCasesPP's golden files: the
-// configurations, which every PP export writes alike, and in cases/ a folder
-// of each case's files.
-var ppGoldenDir = filepath.Join("testdata", "tools", "pp")
-
-// ppGolden requires that data be the golden file path, or with
-// -history.update-pp rewrites it.
-func ppGolden(t *testing.T, path string, data []byte) {
-	t.Helper()
-	if *ppUpdate {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
+// ppConfigurations returns the configurations, by name, that every PP
+// export writes alike.
+func ppConfigurations() map[string][]byte {
+	files := map[string][]byte{}
+	for _, f := range ppFiles(&toolInput{tool: toolPP}, nil) {
+		if f.kind == ppConfiguration {
+			files[f.name] = f.data
 		}
-		if err := os.WriteFile(path, data, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return
 	}
-	want, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(data, want) {
-		t.Errorf("%s is written as\n%s\nwant\n%s", path, data, want)
-	}
+	return files
 }
 
 // ppNamesOf returns the names of the accounts that the export of in
@@ -67,76 +46,44 @@ func ppWrite(t *testing.T, dir string, files []ppFile) {
 	}
 }
 
-// TestToolCasesPP writes each case of toolCases as a PP export and requires
-// the golden files of testdata/tools/pp (11.2 of the design): the three
-// configurations there, and each case's securities and records in
-// cases/<case>; and that PP 0.90.0 read each export as it means (ppCheck),
-// and that a model of PP into which it is imported, in the order of its
-// files and with no row ticked, hold the ledger's cash and shares of each
-// account (ppReconcile): no row of the cases is one that PP marks as
-// existing but the second half of a transfer, which must stay unticked.
-func TestToolCasesPP(t *testing.T) {
-	t.Parallel()
-	t.Run("configurations", func(t *testing.T) {
-		t.Parallel()
-		for _, f := range ppFiles(&toolInput{tool: toolPP}, nil) {
-			if f.kind == ppConfiguration {
-				ppGolden(t, filepath.Join(ppGoldenDir, f.name), f.data)
+// ppCase writes case c as a PP export (TestToolCases) and requires that the
+// folder golden hold its securities and records, byte for byte; that PP
+// 0.90.0 read the export as it means (ppCheck); and that a model of PP into
+// which it is imported, in the order of its files and with no row ticked,
+// hold the ledger's cash and shares of each account (ppReconcile): no row
+// of the cases is one that PP marks as existing but the second half of a
+// transfer, which must stay unticked.
+func ppCase(t *testing.T, c toolCase, golden string) {
+	in, events, outcomes := mapCase(c, toolPP)
+	files := ppFiles(in, events)
+	written := map[string][]byte{}
+	for _, f := range files {
+		if f.kind != ppConfiguration {
+			written[f.name] = f.data
+		}
+	}
+	toolGolden(t, golden, written)
+
+	dir := t.TempDir()
+	ppWrite(t, dir, files)
+	names := ppNamesOf(in)
+	ppCheck(t, dir, names)
+	m := newPPModel(names...)
+	for _, f := range files {
+		if f.kind == ppConfiguration {
+			continue
+		}
+		marked, refused := m.importFile(dir, f.name, f.account.name(), nil)
+		for _, r := range refused {
+			t.Error(r)
+		}
+		for _, line := range marked {
+			if typ := ppCell(t, f, line, "Type"); !strings.HasPrefix(typ, "Transfer (") {
+				t.Errorf("PP marks row %d of %s, a %s, as existing", line, f.name, typ)
 			}
 		}
-	})
-	for _, c := range toolCases() {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			in, events, outcomes := mapCase(c, toolPP)
-			files := ppFiles(in, events)
-			golden := filepath.Join(ppGoldenDir, "cases", c.name)
-			if *ppUpdate {
-				if err := os.RemoveAll(golden); err != nil {
-					t.Fatal(err)
-				}
-			}
-			var written []string
-			for _, f := range files {
-				if f.kind != ppConfiguration {
-					ppGolden(t, filepath.Join(golden, f.name), f.data)
-					written = append(written, f.name)
-				}
-			}
-			entries, err := os.ReadDir(golden)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var held []string
-			for _, e := range entries {
-				held = append(held, e.Name())
-			}
-			if slices.Sort(written); !slices.Equal(held, written) {
-				t.Errorf("%s holds %q, but the export writes %q", golden, held, written)
-			}
-
-			dir := t.TempDir()
-			ppWrite(t, dir, files)
-			names := ppNamesOf(in)
-			ppCheck(t, dir, names)
-			m := newPPModel(names...)
-			for _, f := range files {
-				if f.kind == ppConfiguration {
-					continue
-				}
-				marked, refused := m.importFile(dir, f.name, f.account.name(), nil)
-				for _, r := range refused {
-					t.Error(r)
-				}
-				for _, line := range marked {
-					if typ := ppCell(t, f, line, "Type"); !strings.HasPrefix(typ, "Transfer (") {
-						t.Errorf("PP marks row %d of %s, a %s, as existing", line, f.name, typ)
-					}
-				}
-			}
-			ppReconcile(t, m, in, events, outcomes)
-		})
 	}
+	ppReconcile(t, m, in, events, outcomes)
 }
 
 // ppCell returns the cell of the column labelled label in row line (from 1,

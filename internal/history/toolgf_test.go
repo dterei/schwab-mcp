@@ -2,123 +2,93 @@ package history
 
 import (
 	"bytes"
-	"flag"
 	"math/big"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 )
 
-// updateGF rewrites the golden files of TestToolCasesGF from what the
-// export writes for Ghostfolio of each case: go test ./internal/history
-// -run TestToolCasesGF -history.update-gf. Read the diff before committing
-// it.
-var updateGF = flag.Bool("history.update-gf", false, "rewrite the golden files of TestToolCasesGF")
+// gfCase writes case c for Ghostfolio, as an export writes ghostfolio.json
+// (TestToolCases), and requires that the folder golden hold it, byte for
+// byte. The file must pass gfCheck, and import into a user who holds
+// nothing as the case means it to: refused only when it holds no activity,
+// and else with every activity new; each account's cash the latest
+// balance; the activities' cash, per account, the cash of the rows
+// written, a delivery's at its value; the shares of each asset in each
+// account those that the records move; nothing new when the file is
+// imported again, on its own instance or on one where another user holds
+// its ids and symbols; every fee off net performance; and no holding with
+// a dividend and no investment, since each case buys what it is paid a
+// dividend on before the dividend.
+func gfCase(t *testing.T, c toolCase, golden string) {
+	in, events, outcomes := mapCase(c, toolGF)
+	x := gfRender(in, events)
+	path := filepath.Join(t.TempDir(), gfFileName)
+	if err := writePrivate(path, x.file.write); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolGolden(t, golden, map[string][]byte{gfFileName: got})
+	gfCheck(t, path, gfDeliveries(events))
 
-// TestToolCasesGF writes each case of toolCases for Ghostfolio, as an
-// export writes ghostfolio.json, and requires the bytes of
-// testdata/tools/gf/<case>/ghostfolio.json (11.2 of the design). Each file
-// must pass gfCheck, and import into a user who holds nothing as the case
-// means it to: refused only when it holds no activity, and else with every
-// activity new; each account's cash the latest balance; the activities'
-// cash, per account, the cash of the rows written, a delivery's at its
-// value; the shares of each asset in each account those that the records
-// move; nothing new when the file is imported again, on its own instance
-// or on one where another user holds its ids and symbols; every fee off
-// net performance; and no holding with a dividend and no investment, since
-// each case buys what it is paid a dividend on before the dividend.
-func TestToolCasesGF(t *testing.T) {
-	t.Parallel()
-	for _, c := range toolCases() {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			in, events, outcomes := mapCase(c, toolGF)
-			x := gfRender(in, events)
-			path := filepath.Join(t.TempDir(), gfFileName)
-			if err := writePrivate(path, x.file.write); err != nil {
-				t.Fatal(err)
+	m := newGFModel()
+	n, err := gfImport(m, got)
+	switch {
+	case len(x.file.Activities) == 0:
+		if err == nil {
+			t.Errorf("a file with no activity imported, %d activities", n)
+		}
+		return
+	case err != nil:
+		t.Fatalf("Ghostfolio refuses the file: %v", err)
+	case n != len(x.file.Activities):
+		t.Errorf("imported %d activities of %d", n, len(x.file.Activities))
+	}
+	for _, a := range x.file.Accounts {
+		cash, ok := m.cash(a.Name)
+		if len(a.Balances) == 0 {
+			if ok {
+				t.Errorf("%s has cash %s without a balance", a.Name, cash.FloatString(2))
 			}
-			got, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			golden := filepath.Join("testdata", "tools", "gf", c.name, gfFileName)
-			if *updateGF {
-				if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(golden, got, 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
-			want, err := os.ReadFile(golden)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(got, want) {
-				t.Errorf("%s differs from what the export writes (-history.update-gf rewrites it):\n%s", golden, gfFirstDiff(want, got))
-			}
-			gfCheck(t, path, gfDeliveries(events))
-
-			m := newGFModel()
-			n, err := gfImport(m, got)
-			switch {
-			case len(x.file.Activities) == 0:
-				if err == nil {
-					t.Errorf("a file with no activity imported, %d activities", n)
-				}
-				return
-			case err != nil:
-				t.Fatalf("Ghostfolio refuses the file: %v", err)
-			case n != len(x.file.Activities):
-				t.Errorf("imported %d activities of %d", n, len(x.file.Activities))
-			}
-			for _, a := range x.file.Accounts {
-				cash, ok := m.cash(a.Name)
-				if len(a.Balances) == 0 {
-					if ok {
-						t.Errorf("%s has cash %s without a balance", a.Name, cash.FloatString(2))
-					}
-					continue
-				}
-				if last := a.Balances[len(a.Balances)-1].Value; !ok || cash.FloatString(2) != gfRat(t, string(last)).FloatString(2) {
-					t.Errorf("%s has cash %v, not its latest balance %s", a.Name, cash, last)
-				}
-			}
-			gfReconcile(t, in, events, outcomes, m)
-			if n, err := gfImport(m, got); err == nil {
-				t.Errorf("imported again, %d activities are new", n)
-			}
-			// Where another user holds every id and symbol of the file, the
-			// import makes fresh ones; imported again, the file finds each
-			// account and asset by its name, and every activity is one the
-			// user has.
-			shared := newGFModel()
-			for _, a := range x.file.Accounts {
-				shared.otherAccounts[a.ID] = true
-			}
-			for _, p := range x.file.AssetProfiles {
-				shared.otherSymbols[p.Symbol] = true
-			}
-			if n, err := gfImport(shared, got); err != nil || n != len(x.file.Activities) {
-				t.Fatalf("on a shared instance: %d imported, %v", n, err)
-			}
-			accounts, profiles := len(shared.accounts), len(shared.profiles)
-			if n, err := gfImport(shared, got); err == nil || len(shared.accounts) != accounts || len(shared.profiles) != profiles {
-				t.Errorf("on a shared instance, imported again: %d new activities, %d accounts and %d profiles, were %d and %d",
-					n, len(shared.accounts), len(shared.profiles), accounts, profiles)
-			}
-			p := m.performance()
-			if p.offNet.Cmp(p.fees) != 0 || len(p.unvalued) > 0 {
-				t.Errorf("fees %s, of which net performance takes off %s; not valued: %v", p.fees.FloatString(2), p.offNet.FloatString(2), p.unvalued)
-			}
-			if len(p.noInvestment) > 0 {
-				t.Errorf("dividends with no investment, which set the dividend yield to 0: %v", p.noInvestment)
-			}
-		})
+			continue
+		}
+		if last := a.Balances[len(a.Balances)-1].Value; !ok || cash.FloatString(2) != gfRat(t, string(last)).FloatString(2) {
+			t.Errorf("%s has cash %v, not its latest balance %s", a.Name, cash, last)
+		}
+	}
+	gfReconcile(t, in, events, outcomes, m)
+	if n, err := gfImport(m, got); err == nil {
+		t.Errorf("imported again, %d activities are new", n)
+	}
+	// Where another user holds every id and symbol of the file, the import
+	// makes fresh ones; imported again, the file finds each account and
+	// asset by its name, and every activity is one the user has.
+	shared := newGFModel()
+	for _, a := range x.file.Accounts {
+		shared.otherAccounts[a.ID] = true
+	}
+	for _, p := range x.file.AssetProfiles {
+		shared.otherSymbols[p.Symbol] = true
+	}
+	if n, err := gfImport(shared, got); err != nil || n != len(x.file.Activities) {
+		t.Fatalf("on a shared instance: %d imported, %v", n, err)
+	}
+	accounts, profiles := len(shared.accounts), len(shared.profiles)
+	if n, err := gfImport(shared, got); err == nil || len(shared.accounts) != accounts || len(shared.profiles) != profiles {
+		t.Errorf("on a shared instance, imported again: %d new activities, %d accounts and %d profiles, were %d and %d",
+			n, len(shared.accounts), len(shared.profiles), accounts, profiles)
+	}
+	p := m.performance()
+	if p.offNet.Cmp(p.fees) != 0 || len(p.unvalued) > 0 {
+		t.Errorf("fees %s, of which net performance takes off %s; not valued: %v", p.fees.FloatString(2), p.offNet.FloatString(2), p.unvalued)
+	}
+	if len(p.noInvestment) > 0 {
+		t.Errorf("dividends with no investment, which set the dividend yield to 0: %v", p.noInvestment)
 	}
 }
 
@@ -202,25 +172,6 @@ func gfRat(t testing.TB, s string) *big.Rat {
 	return r
 }
 
-// gfFirstDiff returns the first line where got differs from want, with its
-// number.
-func gfFirstDiff(want, got []byte) string {
-	w, g := strings.Split(string(want), "\n"), strings.Split(string(got), "\n")
-	for i := range max(len(w), len(g)) {
-		var wl, gl string
-		if i < len(w) {
-			wl = w[i]
-		}
-		if i < len(g) {
-			gl = g[i]
-		}
-		if wl != gl {
-			return "line " + strconv.Itoa(i+1) + ": want " + wl + "\n got " + gl
-		}
-	}
-	return "(no line differs)"
-}
-
 // TestGFRender checks what the golden files cannot show of gfRender: the
 // symbols that Ghostfolio's import asks Yahoo about and those that Yahoo
 // may no longer know; what each profile is, and whether an activity uses
@@ -296,7 +247,7 @@ func TestGFRender(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !bytes.Equal(got.Bytes(), want.Bytes()) {
-				t.Errorf("%s: the records in another order write another file:\n%s", c.name, gfFirstDiff(want.Bytes(), got.Bytes()))
+				t.Errorf("%s: the records in another order write another file:\n%s", c.name, firstDiff(want.Bytes(), got.Bytes()))
 			}
 		}
 	})
