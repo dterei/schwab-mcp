@@ -184,6 +184,24 @@ runs included. There are no downgrades: to go back to an older `schwabtx`,
 restore with it a backup made before the newer one changed the store, such
 as the `history.db.schema<N>.<time>.bak` it made.
 
+**Reading without writing.** A program that must never change the store,
+such as the MCP server, opens it with `history.OpenReader`. That never makes
+a store or its folder, never writes, never changes the store's schema,
+derived data, journal mode or permissions, and reads only through
+connections that refuse a write and never create a file, so that a store
+moved aside while it reads is not made again empty. It refuses a missing
+store, and a store that a newer `schwabtx` wrote, as above. A store that an
+older `schwabtx` last wrote, or one not in WAL mode, it refuses until a
+`schwabtx` of this version opens it, which brings it up to date:
+
+```
+error: the store at PATH was last brought up to date by an older schwabtx (schema N, rules R, calendar C); any schwabtx command of this version that opens it, such as schwabtx status, brings it up to date
+```
+
+A store that a newer `schwabtx` derived with newer rules or a newer calendar
+it reads as it is. A store that others can read it reports, and leaves as it
+is; any `schwabtx` command that opens it makes it readable only by you.
+
 ## A walk-through
 
 These are the commands as a first session uses them, with what they printed
@@ -1175,6 +1193,20 @@ maps every key ever seen to today's `security_key`.
 Each column is `free`, text masked when it was stored, or `id`, which cannot
 hold an account number.
 
+A `history.Reader` reads these views, and the accounts' full numbers in one
+read of its own, for a program that masks them. `Reader.Ledger` is the paged
+read of the ledger: newest first, by day, time, ref and account, which is a
+total order, since a ref is unique within an account only, so that a page
+that starts after the last row of the one before repeats and skips no row.
+It chooses in the same read transaction which accounts it reads (an account
+can be read only when its `api` and `file` coverage, merged where runs meet
+or overlap, holds every day asked), and gives their rows' totals per
+category over every page, their coverage and what waits for you.
+`history.DeriveAPIEntries` derives, by the ledger's own rules, what the store
+would derive of a read of transactions that it has not recorded: each row's
+ref, category, amount, fees, quantity, price, symbol and the rules' flags,
+before pairing, matching and your decisions.
+
 ### `accounts`
 
 One row per account.
@@ -1678,14 +1710,16 @@ new version of the rules and a rebuild.
 ## Tests and their time
 
 The store's tests run on copies of a store made once per test binary, each
-in its own folder, in parallel; most of the derivation is a pure function
-and is tested without SQLite. SQLite is about 20 to 40 times slower under
-the race detector, so the tests are held to a budget on CI's 4-CPU runners,
-under `-race`:
+in its own folder, in parallel: an empty one, and for the `Reader`'s tests
+one of 28 entries, which the first of them makes; most of the derivation is
+a pure function and is tested without SQLite. SQLite is about 20 to 40
+times slower under the race detector, so the tests are held to a budget on
+CI's 4-CPU runners, under `-race`:
 
 | Package | Budget | Measured (4 vCPU, `-race`, go1.26.0 and go1.27.3) |
 | --- | --- | --- |
 | `internal/history` | 45 s of wall time | 35 to 43 s |
+| `internal/history`'s `Reader` tests (`reader_test.go`, and the `Reader`'s reads in `TestViewsHoldNoAccountNumber`) | within the package's 45 s | about 4.5 s more CPU time, 62 s against 58 s, a second of it making their store; the package took 26 to 31 s with them and 22 to 27 s without, back to back on a busy 4-vCPU machine |
 | `cmd/schwabtx`, the store's commands' tests | 15 s, run one after another | about 15 s, of the package's 43 to 49 s |
 | `internal/nytime`, `internal/nyse`, `internal/mask`, `internal/history/schwabfile` | 5 s together | 1.0 to 2.8 s each, 6.7 to 7.0 s together, run side by side |
 | the whole `go test -race ./...` | no more than 20 s longer than before | (`internal/schwab`, the longest, takes 93 to 113 s) |

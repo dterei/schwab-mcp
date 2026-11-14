@@ -342,7 +342,7 @@ func (s *Store) Status(ctx context.Context, o StatusOptions) (Status, error) {
 			coalesce(sum(counted_why = 'linked'), 0) FROM entries WHERE ?1 IS NULL OR account_id = ?1`, only).Scan(&st.FromAPI, &st.FromFiles, &st.Linked); err != nil {
 			return err
 		}
-		if err := countWaiting(w, only, &st); err != nil {
+		if err := countWaiting(w, only, "", "", &st); err != nil {
 			return err
 		}
 		if st.ItemIssueBoth, st.ItemIssueAgree, err = itemIssueAgreement(w, only); err != nil {
@@ -354,19 +354,73 @@ func (s *Store) Status(ctx context.Context, o StatusOptions) (Status, error) {
 	return st, err
 }
 
+// What waits for you, as countWaiting and countWaitingOf count it: the
+// uncertain and held-out entries, whose days ?2 and ?3 bound unless ?2 is
+// NULL; the flags that need you, but attentionOther's (?2 to ?5) and the
+// settled ones; and the files that may be filtered.
+const (
+	waitingEntries = `coalesce(sum(e.counted_why = 'uncertain'), 0), coalesce(sum(e.counted_why = 'held_out'), 0)
+		FROM entries e WHERE (?2 IS NULL OR e.day BETWEEN ?2 AND ?3)`
+	waitingAttention = `FROM flags WHERE severity = 'attention' AND code NOT IN (?2, ?3, ?4, ?5) AND ` + settledFlags
+	waitingFiltered  = `FROM flags WHERE code IN ('looks_filtered', 'lacks_rows')`
+)
+
 // countWaiting counts into st what waits for you, of the account, or of
-// every account when it is not valid.
-func countWaiting(w *wtx, only sql.NullInt64, st *Status) error {
-	if err := w.tx.QueryRowContext(w.ctx, `SELECT coalesce(sum(counted_why = 'uncertain'), 0), coalesce(sum(counted_why = 'held_out'), 0)
-		FROM entries WHERE ?1 IS NULL OR account_id = ?1`, only).Scan(&st.Uncertain, &st.HeldOut); err != nil {
+// every account when it is not valid: the uncertain and held-out entries
+// of the days from to to, both included, or of every day when from is "";
+// and the flags and the files that wait, whatever their days.
+func countWaiting(w *wtx, only sql.NullInt64, from, to nytime.Date, st *Status) error {
+	if err := w.tx.QueryRowContext(w.ctx, `SELECT `+waitingEntries+` AND (?1 IS NULL OR e.account_id = ?1)`,
+		only, nullString(string(from)), string(to)).Scan(&st.Uncertain, &st.HeldOut); err != nil {
 		return err
 	}
-	if err := w.tx.QueryRowContext(w.ctx, `SELECT count(*) FROM flags WHERE severity = 'attention' AND code NOT IN (?2, ?3, ?4, ?5)
-		AND (?1 IS NULL OR account_id = ?1) AND `+settledFlags, only, attentionOther[0], attentionOther[1], attentionOther[2], attentionOther[3]).Scan(&st.Attention); err != nil {
+	if err := w.tx.QueryRowContext(w.ctx, `SELECT count(*) `+waitingAttention+` AND (?1 IS NULL OR account_id = ?1)`,
+		only, attentionOther[0], attentionOther[1], attentionOther[2], attentionOther[3]).Scan(&st.Attention); err != nil {
 		return err
 	}
-	return w.tx.QueryRowContext(w.ctx, `SELECT count(DISTINCT subject_ref) FROM flags WHERE code IN ('looks_filtered', 'lacks_rows')
-		AND (?1 IS NULL OR account_id = ?1)`, only).Scan(&st.Filtered)
+	return w.tx.QueryRowContext(w.ctx, `SELECT count(DISTINCT subject_ref) `+waitingFiltered+` AND (?1 IS NULL OR account_id = ?1)`,
+		only).Scan(&st.Filtered)
+}
+
+// countWaitingOf counts what countWaiting counts of each account of ids, a
+// JSON list, by account, in one pass of each count rather than one pass of
+// each for each account: no account's filter searches an index of the
+// flags view, so that each pass reads every flag. An account of which
+// nothing waits has none.
+func countWaitingOf(w *wtx, ids string, from, to nytime.Date) (map[int64]Status, error) {
+	out := map[int64]Status{}
+	if err := queryEach(w, func(rows *sql.Rows) error {
+		var id int64
+		var st Status
+		err := rows.Scan(&id, &st.Uncertain, &st.HeldOut)
+		out[id] = st
+		return err
+	}, `SELECT e.account_id, `+waitingEntries+` AND e.account_id IN (SELECT value FROM json_each(?1)) GROUP BY e.account_id`,
+		ids, nullString(string(from)), string(to)); err != nil {
+		return nil, err
+	}
+	in := ` AND account_id IN (SELECT value FROM json_each(?1)) GROUP BY account_id`
+	if err := queryEach(w, func(rows *sql.Rows) error {
+		var id int64
+		var n int
+		err := rows.Scan(&id, &n)
+		st := out[id]
+		st.Attention = n
+		out[id] = st
+		return err
+	}, `SELECT account_id, count(*) `+waitingAttention+in, ids, attentionOther[0], attentionOther[1], attentionOther[2], attentionOther[3]); err != nil {
+		return nil, err
+	}
+	err := queryEach(w, func(rows *sql.Rows) error {
+		var id int64
+		var n int
+		err := rows.Scan(&id, &n)
+		st := out[id]
+		st.Filtered = n
+		out[id] = st
+		return err
+	}, `SELECT account_id, count(DISTINCT subject_ref) `+waitingFiltered+in, ids)
+	return out, err
 }
 
 // accountStatus returns the status of account id, its full number too when

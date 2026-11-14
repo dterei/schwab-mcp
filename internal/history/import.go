@@ -194,7 +194,7 @@ func (s *Store) Import(ctx context.Context, files []FileInput, o ImportOptions) 
 			}
 		}
 		var st Status
-		if err := countWaiting(w, sql.NullInt64{}, &st); err != nil {
+		if err := countWaiting(w, sql.NullInt64{}, "", "", &st); err != nil {
 			return err
 		}
 		report.Waiting = st.Waiting()

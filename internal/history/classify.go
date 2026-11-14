@@ -17,6 +17,10 @@ var categories = []string{
 	"buy", "sell", "dividend", "interest", "fee", "tax", "other",
 }
 
+// Categories returns what an entry can be booked as, in the store's order,
+// as a copy that the caller may change.
+func Categories() []string { return slices.Clone(categories) }
+
 // knownWordings are the descriptions that Schwab's answers have been seen
 // to hold, with ~SYM for the symbol after a tilde and # for digits. They
 // must agree with schwabDescriptions in internal/schwab's wording_test.go,
