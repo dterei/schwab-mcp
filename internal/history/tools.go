@@ -229,9 +229,9 @@ type ToolChange struct {
 	Was, NoteRef, Transfer string
 	// Now is, for a row changed, what the export writes of it, in Was's
 	// form; Why is, for a row gone, what became of it: uncounted with the
-	// store's reason, linked to the row that counts in its place, no longer
-	// in the store, left out with its reason, or now cash, which
-	// Ghostfolio's balances carry.
+	// store's reason, linked to the row that counts in its place, dated
+	// after -to with its day now, no longer in the store, left out with its
+	// reason, or now cash, which Ghostfolio's balances carry.
 	Now, Why string
 }
 

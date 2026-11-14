@@ -1,6 +1,7 @@
 package history
 
 import (
+	"cmp"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -363,6 +364,9 @@ func toolLines(in *toolInput) map[string][]string {
 	for _, u := range in.uncounted {
 		add("uncounted", new(toolLine).word(u.ref).word(account(u.account)).word(u.why).text("matched_with", u.matchedWith))
 	}
+	for _, l := range in.later {
+		add("later", new(toolLine).word(l.ref).word(account(l.account)).word(string(l.day)))
+	}
 	return out
 }
 
@@ -388,8 +392,9 @@ func (ts *toolStore) lines(in *toolInput) map[string][]string {
 // account up to to and those without a day; the legs of those of its rows
 // that have a day up to to; the positions of every account up to to; the
 // account's snapshots of every day; the rows of the account up to to that
-// wait for you; the coverage and the uncounted entries of the account; and
-// all the accounts, securities and names.
+// wait for you; the coverage and the uncounted entries of the account; its
+// rows dated after to, by their account and ref; and all the accounts,
+// securities and names.
 func toolSelected(in *toolInput, account int64, to nytime.Date) *toolInput {
 	out := *in
 	out.account, out.to = account, to
@@ -409,6 +414,15 @@ func toolSelected(in *toolInput, account int64, to nytime.Date) *toolInput {
 	out.waiting = slices.DeleteFunc(slices.Clone(in.waiting), func(w toolWaiting) bool { return !of(w.account) || !upTo(w.day) })
 	out.coverage = slices.DeleteFunc(slices.Clone(in.coverage), func(c ExportCoverage) bool { return !of(c.AccountID) })
 	out.uncounted = slices.DeleteFunc(slices.Clone(in.uncounted), func(u toolUncounted) bool { return !of(u.account) })
+	out.later = nil
+	for _, r := range in.rows {
+		if of(r.account) && r.day != "" && !upTo(r.day) {
+			out.later = append(out.later, toolLaterRow{r.ref, r.account, r.day})
+		}
+	}
+	slices.SortFunc(out.later, func(a, b toolLaterRow) int {
+		return cmp.Or(cmp.Compare(a.account, b.account), strings.Compare(a.ref, b.ref))
+	})
 	return &out
 }
 

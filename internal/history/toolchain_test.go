@@ -941,6 +941,7 @@ func TestToolChain(t *testing.T) {
 				rcCash("T74400106", 1, "2025-06-02 15:00:00", "DIVIDEND_OR_INTEREST", "Ordinary Dividend~XYZ", "dividend", 400),
 				rcTrade("T74400107", 1, "2025-06-02 16:00:00", "buy", keyXYZ, "XYZ", 1_000_000, 50, -5004, 0),
 				rcCash("T74400108", 1, "2025-06-03 10:00:00", "JOURNAL", "SERVICE FEE", "fee", -250),
+				rcTrade("T74400109", 1, "2025-06-06 10:00:00", "buy", keyXYZ, "XYZ", 1_000_000, 50, -5005, 0),
 				shares,
 			},
 			snapshots: []toolSnapshot{rcSnapshot(1, "2025-06-06", 100_000)},
@@ -954,7 +955,7 @@ func TestToolChain(t *testing.T) {
 		later.rows[4].category = "deposit"       // now cash
 		later.rows[5].day = ""                   // no_day
 		later.rows = slices.DeleteFunc(later.rows, func(r toolRow) bool {
-			return r.ref == "T74400101" || r.ref == "T74400102" || r.ref == "T74400104" || r.ref == "T74400108"
+			return r.ref == "T74400101" || r.ref == "T74400102" || r.ref == "T74400104" || r.ref == "T74400108" || r.ref == "T74400109"
 		})
 		later.rows[len(later.rows)-1].category = "other"
 		later.rows = append(later.rows, tcInput(toolInput{rows: []toolRow{cash}}).rows[0])
@@ -963,6 +964,9 @@ func TestToolChain(t *testing.T) {
 			{ref: "T74400102", account: 1, why: "linked", matchedWith: "C7440000.1,C7440000.2"},
 			{ref: "T74400108", account: 1, why: "user"},
 		}
+		// A revision dated T74400109 after -to: an export up to that day
+		// writes it again.
+		later.later = []toolLaterRow{{ref: "T74400109", account: 1, day: "2026-11-13"}}
 		for _, c := range []struct {
 			tool string
 			want []string
@@ -975,6 +979,7 @@ func TestToolChain(t *testing.T) {
 				"T74400108 uncounted: user: account 2025-06-03 Fees 2.50",
 				"C7440000.3 combined with C7440000.4: portfolio 2025-06-04 Sell 0.00",
 				"T74400101 uncounted: user: portfolio 2025-06-05 Buy 50.00",
+				"T74400109 dated after -to: 2026-11-13: portfolio 2025-06-06 Buy 50.05",
 			}},
 			{toolGF, []string{
 				"T74400102 linked to C7440000.1, C7440000.2: 2025-06-02 BUY 50.01",
@@ -985,6 +990,7 @@ func TestToolChain(t *testing.T) {
 				"T74400108 uncounted: user: 2025-06-03 FEE 2.50",
 				"C7440000.3 combined with C7440000.4: 2025-06-04 SELL 0.00",
 				"T74400101 uncounted: user: 2025-06-05 BUY 50.00",
+				"T74400109 dated after -to: 2026-11-13: 2025-06-06 BUY 50.05",
 			}},
 		} {
 			e1 := chainStepOf(t, first, c.tool, nil, rcAt1)

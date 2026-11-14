@@ -171,11 +171,13 @@ and the types' names, whatever PP's language and locale.
    The export writes what changed whatever its day: a row that came late or
    that you decided since, a journal paired once its other side arrived, a
    revision, a ref that changed. A row that you uncount after it was
-   exported comes back under gone, to delete; a file row that waits for you
-   comes in a later export once you decide it; and the left-out rows and
-   holdings that an earlier export listed are marked `before`, so that you
-   are not asked twice. Never name an export that you have not imported:
-   the next one would take for granted what it gave PP.
+   exported comes back under gone, to delete, and so does one that a
+   revision dates after `-to`, which an export up to its new day writes
+   again; a file row that waits for you comes in a later export once you
+   decide it; and the left-out rows and holdings that an earlier export
+   listed are marked `before`, so that you are not asked twice. Never name
+   an export that you have not imported: the next one would take for
+   granted what it gave PP.
 
    A second full export of days that PP holds already is not safe: PP takes
    every changed row for a new one beside the old, and marks new rows equal

@@ -1616,19 +1616,21 @@ whatever its day:
   transfer;
 - a row given that this export neither writes nor gives is listed under
   `gone`, with why: uncounted (and the store's reason), linked to another
-  ref, no longer in the store, combined with another row's sale, left out
-  (and the reason), or, in Ghostfolio, now cash in the balances. In PP, a
-  gone row alike in everything PP keeps to a row written under a new ref
-  (a file row now linked to its API row) is `same_as`: nothing to delete
-  or tick, and the new row's entry keeps, as `note_ref`, the ref that the
-  Note PP holds names. A row of an entry whose Note names a row that this
-  export writes under its own Note (a file row counted again beside the API
-  row that took its place) is `changed` too, its form alike: you delete the
-  one that PP holds, and the export writes both, so that no two of PP's
-  transactions have Notes of one row. A transfer's entries and lists carry
-  `transfer`, the head of the Note that PP holds of it, paying side first:
-  of the transfer of its paying side now, which may name the receiving side
-  that the transfer was first written with;
+  ref, dated after `-to` (and its day now: a revision moved it, and an
+  export up to that day writes it again), no longer in the store, combined
+  with another row's sale, left out (and the reason), or, in Ghostfolio,
+  now cash in the balances. In PP, a gone row alike in everything PP keeps
+  to a row written under a new ref (a file row now linked to its API row)
+  is `same_as`: nothing to delete or tick, and the new row's entry keeps,
+  as `note_ref`, the ref that the Note PP holds names. A row of an entry
+  whose Note names a row that this export writes under its own Note (a file
+  row counted again beside the API row that took its place) is `changed`
+  too, its form alike: you delete the one that PP holds, and the export
+  writes both, so that no two of PP's transactions have Notes of one row. A
+  transfer's entries and lists carry `transfer`, the head of the Note that
+  PP holds of it, paying side first: of the transfer of its paying side
+  now, which may name the receiving side that the transfer was first
+  written with;
 - for PP, `tick` replays PP's duplicate check over the files in their import
   order, from what the chain gave less what changed and went, and lists each
   new row that PP will mark as existing, but the second half of a transfer;

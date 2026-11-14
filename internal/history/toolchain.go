@@ -246,8 +246,9 @@ type chainChanged struct {
 // writes nor gives (3.8 of the design): delete it in the tool. NoteRef and
 // Transfer are as a chainChanged's. Why says what became of it: uncounted
 // with the store's counted_why, linked to the row that the store counts in
-// its place, no longer in the store, left out with its reason, or, for
-// Ghostfolio, now cash, which its balances carry.
+// its place, dated after -to with its day now, no longer in the store,
+// left out with its reason, or, for Ghostfolio, now cash, which its
+// balances carry.
 type chainGone struct {
 	Ref      string `json:"ref"`
 	Account  string `json:"account"`
@@ -871,9 +872,10 @@ func (c *chainResult) labelOrder(label string) int64 {
 }
 
 // whyGone returns why the row k, which the earlier export gave and which
-// this export does not select, went (Q10): uncounted, with the store's
-// counted_why; linked to the rows that the store counts in its place; or no
-// longer in the store.
+// this export does not select, went: uncounted, with the store's
+// counted_why, or linked to the rows that the store counts in its place
+// (Q10); dated after -to, with its day now, which an export up to that day
+// writes again (Q11); or no longer in the store.
 func (c *chainResult) whyGone(k rowKey) string {
 	for _, u := range c.in.uncounted {
 		if u.account != k.account || u.ref != k.ref {
@@ -883,6 +885,11 @@ func (c *chainResult) whyGone(k rowKey) string {
 			return "linked to " + strings.ReplaceAll(u.matchedWith, ",", ", ")
 		}
 		return "uncounted: " + u.why
+	}
+	for _, l := range c.in.later {
+		if l.account == k.account && l.ref == k.ref {
+			return "dated after -to: " + string(l.day)
+		}
 	}
 	return "no longer in the store"
 }

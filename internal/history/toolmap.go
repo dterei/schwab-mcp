@@ -267,7 +267,7 @@ func (k eventKind) gfType() string { return eventKinds[k].gfType }
 func (k eventKind) shareSign() int64 { return eventKinds[k].shares }
 
 // A toolInput is what a tool export reads of the store (2 of the design),
-// Q0 to Q10, as plain values, with the export's options: everything that
+// Q0 to Q11, as plain values, with the export's options: everything that
 // toolEvents and the functions beside it read. Days are New York dates as
 // the store writes them, "" for none; instants are the zero time for none;
 // money is in whole cents and quantities in whole millionths, as the store
@@ -276,10 +276,11 @@ type toolInput struct {
 	// tool is the tool that the export is for: toolPP or toolGF.
 	tool string
 	// account is the account that the export selects, by its id (A<id>);
-	// 0 selects every account. Q2, Q3, Q7, Q8 and Q10 hold only its rows.
+	// 0 selects every account. Q2, Q3, Q7, Q8, Q10 and Q11 hold only its
+	// rows.
 	account int64
 	// to is the last day that the export selects (-to): Q2, Q3, Q6 and Q8
-	// end there.
+	// end there, and Q11 begins after it.
 	to nytime.Date
 	// manual are the symbols that -manual names for Ghostfolio, with those
 	// that the chain's earlier exports named, each as given.
@@ -313,8 +314,10 @@ type toolInput struct {
 	// (Q9).
 	coverage []ExportCoverage
 	// uncounted are the selected accounts' entries that the store does not
-	// count (Q10), which say why a row that a tool holds went.
+	// count (Q10), and later the rows that it counts but dates after to
+	// (Q11), none for no to: they say why a row that a tool holds went.
 	uncounted []toolUncounted
+	later     []toolLaterRow
 }
 
 // selected reports whether the export selects the account of id.
@@ -537,6 +540,15 @@ type toolUncounted struct {
 	ref              string
 	account          int64
 	why, matchedWith string
+}
+
+// A toolLaterRow is a row of a selected account that the store counts and
+// dates after the export's to (Q11), on day: a revision may have moved a
+// row that an earlier export took there.
+type toolLaterRow struct {
+	ref     string
+	account int64
+	day     nytime.Date
 }
 
 // A toolEvent is one record that a tool export writes: a row of a PP file
