@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
+	"math/rand/v2"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -97,6 +100,8 @@ func TestMaskJSON(t *testing.T) {
 		// Schwab's own masked form stays.
 		{"accountNumber", `"12345678"`, `"...678"`, "AccountNumbers"},
 		{"accountNumber", `12345678`, `"...678"`, "AccountNumbers"},
+		{"accountNumber", `12345678.0`, `"...678"`, "AccountNumbers"},
+		{"accountNumber", `1.2345678E7`, `"...678"`, "AccountNumbers"},
 		{"accountNumber", `"61803398"`, `"...398"`, "AccountNumbers"},
 		{"accountNumber", `"...678"`, `"...678"`, ""},
 		{"accountNumber", `"12"`, `"..."`, "AccountNumbers"},
@@ -109,6 +114,7 @@ func TestMaskJSON(t *testing.T) {
 		{"hashValue", `"` + hash + `"`, `"` + hash + `"`, ""},
 		{"hashValue", `"ACCT29470135"`, `"ACCT...135"`, "AccountNumbers"},
 		{"hashValue", `29470135`, `"...135"`, "AccountNumbers"},
+		{"hashValue", `2.9470135e7`, `"...135"`, "AccountNumbers"},
 
 		// Identifiers, times and amounts, kept but for known numbers.
 		{"activityId", `73508261946`, `73508261946`, ""},
@@ -117,7 +123,11 @@ func TestMaskJSON(t *testing.T) {
 		{"orderId", `87654321`, `87654321`, ""},
 		{"orderId", `29470135`, `"...135"`, "AccountNumbers"},
 		{"orderId", `-29470135`, `"...135"`, "AccountNumbers"},
-		{"orderId", `29470135.0`, `29470135.0`, ""},
+		{"orderId", `29470135.0`, `"...135"`, "AccountNumbers"},
+		{"orderId", `2.9470135E7`, `"...135"`, "AccountNumbers"},
+		{"orderId", `29470135e0`, `"...135"`, "AccountNumbers"},
+		{"orderId", `29470135.5`, `29470135.5`, ""},
+		{"orderId", `2.94701355E7`, `2.94701355E7`, ""},
 		{"symbol", `"ACCT29470135 TRF"`, `"ACCT...135 TRF"`, "AccountNumbers"},
 		{"symbol", `"0AMZN.TK12300000"`, `"0AMZN.TK12300000"`, ""},
 		{"symbol", `"AAPL  240517C00100000"`, `"AAPL  240517C00100000"`, ""},
@@ -126,11 +136,13 @@ func TestMaskJSON(t *testing.T) {
 		{"cusip", `"922908769"`, `"922908769"`, ""},
 		{"time", `"2024-06-06T13:46:03+0000"`, `"2024-06-06T13:46:03+0000"`, ""},
 		{"time", `1712246167000`, `1712246167000`, ""},
+		{"time", `294701350e-1`, `"...135"`, "AccountNumbers"},
 		{"time", `"2024-06-06T13:46:03.123456789Z"`, `"2024-06-06T13:46:03....789Z"`, "AccountNumbers"},
 		{"netAmount", `1.50`, `1.50`, ""},
 		{"netAmount", `-0.0`, `-0.0`, ""},
 		{"netAmount", `1.0E-4`, `1.0E-4`, ""},
 		{"price", `29470135`, `"...135"`, "AccountNumbers"},
+		{"price", `29470135.00`, `"...135"`, "AccountNumbers"},
 		{"price", `false`, `false`, ""},
 
 		// Free text, masked by pattern, then by known number; HTML is not
@@ -143,6 +155,7 @@ func TestMaskJSON(t *testing.T) {
 		{"description", `"VANGUARD TOTAL BOND MARKET ETF"`, `"VANGUARD TOTAL BOND MARKET ETF"`, ""},
 		{"description", `87654321`, `87654321`, ""},
 		{"description", `29470135`, `"...135"`, "AccountNumbers"},
+		{"description", `0.29470135e8`, `"...135"`, "AccountNumbers"},
 
 		// A tag: Schwab's platform's kept, a TA_ tag reduced to its origin,
 		// any other withheld.
@@ -161,6 +174,7 @@ func TestMaskJSON(t *testing.T) {
 		{"withheld", `"Jane"`, `"[withheld]"`, "Withheld"},
 		{"withheld", `12345678`, `null`, "Withheld"},
 		{"withheld", `1.5`, `null`, "Withheld"},
+		{"withheld", `2.9470135E7`, `null`, "Withheld"},
 		{"withheld", `"[withheld]"`, `"[withheld]"`, ""},
 		{"withheld", `true`, `true`, ""},
 		{"withheld", `null`, `null`, ""},
@@ -202,8 +216,13 @@ func TestMaskJSON(t *testing.T) {
 		{"newKey", `7654321`, `7654321`, ""},
 		{"newKey", `1004517688777`, `1004517688777`, ""},
 		{"newKey", `1712246167000`, `1712246167000`, ""},
-		{"newKey", `87654321.0`, `87654321.0`, ""},
-		{"newKey", `8.7654321E7`, `8.7654321E7`, ""},
+		{"newKey", `87654321.0`, `"...321"`, "UnknownIntegers"},
+		{"newKey", `8.7654321E7`, `"...321"`, "UnknownIntegers"},
+		{"newKey", `2.9470135e7`, `"...135"`, "UnknownIntegers"},
+		{"newKey", `1.234567E6`, `"...567"`, "UnknownIntegers"},
+		{"newKey", `87654321.5`, `87654321.5`, ""},
+		{"newKey", `1.0E13`, `1.0E13`, ""},
+		{"newKey", `1e999999`, `1e999999`, ""},
 		{"newKey", `0`, `0`, ""},
 		{"newKey", `false`, `false`, ""},
 		{"newKey", `null`, `null`, ""},
@@ -236,6 +255,91 @@ func TestMaskJSON(t *testing.T) {
 		again, r, err := JSON(got, testClass, testKnown())
 		if err != nil || !bytes.Equal(again, got) || !reflect.DeepEqual(r, Report{}) {
 			t.Errorf("JSON(%s) = %s, and JSON of that = %s, %+v, %v", in, got, again, r, err)
+		}
+	}
+}
+
+// integerDigits takes a number for its value, however JSON writes it: the
+// digits of an integer, as math/big reads it, written with a fraction of
+// zeros or an exponent or neither; and no integer for a fraction, or for a
+// number whose exponent adds zeros to it past 64 digits.
+func TestIntegerDigits(t *testing.T) {
+	for _, tc := range []struct{ n, want string }{ // want "" for no integer
+		{"29470135", "29470135"},
+		{"-29470135", "29470135"},
+		{"29470135.0", "29470135"},
+		{"29470135.000", "29470135"},
+		{"2.9470135E7", "29470135"},
+		{"2.9470135e+7", "29470135"},
+		{"29470135e0", "29470135"},
+		{"294701350e-1", "29470135"},
+		{"2947013500E-2", "29470135"},
+		{"0.29470135e8", "29470135"},
+		{"0.0000029470135e13", "29470135"},
+		{"-0.29470135E+8", "29470135"},
+		{"2947013.5", ""},
+		{"2.94701355E7", ""},
+		{"29470135e-1", ""},
+		{"1e-1", ""},
+		{"0.5", ""},
+		{"5e-9999999999", ""},
+		{"0", "0"},
+		{"-0", "0"},
+		{"0.0", "0"},
+		{"0e5", "0"},
+		{"0E-5", "0"},
+		{"1e63", "1" + strings.Repeat("0", 63)},
+		{"1.5e63", "15" + strings.Repeat("0", 62)},
+		{"1e64", ""},
+		{"1e999999", ""},
+		{strings.Repeat("9", 80), strings.Repeat("9", 80)},
+		{strings.Repeat("9", 80) + ".0", strings.Repeat("9", 80)},
+	} {
+		got, ok := integerDigits(json.Number(tc.n))
+		if ok != (tc.want != "") || got != tc.want {
+			t.Errorf("integerDigits(%s) = %q, %v; want %q", tc.n, got, ok, tc.want)
+		}
+	}
+
+	// Numbers written every way that JSON writes one, read by math/big.
+	r := rand.New(rand.NewPCG(1, 2))
+	digits := func(n int) string {
+		var b strings.Builder
+		for range n {
+			b.WriteByte(byte('0' + r.IntN(10)))
+		}
+		return b.String()
+	}
+	for range 5000 {
+		var n strings.Builder
+		if r.IntN(2) == 0 {
+			n.WriteString("-")
+		}
+		if r.IntN(4) == 0 {
+			n.WriteString("0")
+		} else {
+			n.WriteString(strconv.Itoa(1+r.IntN(9)) + digits(r.IntN(12)))
+		}
+		if r.IntN(2) == 0 {
+			n.WriteString("." + strings.Repeat("0", r.IntN(3)) + digits(1+r.IntN(6)) + strings.Repeat("0", r.IntN(3)))
+		}
+		if r.IntN(2) == 0 {
+			n.WriteString([]string{"e", "E", "e+", "E-", "e-"}[r.IntN(5)] + strconv.Itoa(r.IntN(30)))
+		}
+		lit := n.String()
+		if !json.Valid([]byte(lit)) {
+			t.Fatalf("%s is no JSON number", lit)
+		}
+		v, ok := new(big.Rat).SetString(lit)
+		if !ok {
+			t.Fatalf("math/big does not read %s", lit)
+		}
+		want := ""
+		if v.IsInt() {
+			want = new(big.Int).Abs(v.Num()).String()
+		}
+		if got, ok := integerDigits(json.Number(lit)); ok != v.IsInt() || got != want {
+			t.Fatalf("integerDigits(%s) = %q, %v; want %q, %v", lit, got, ok, want, v.IsInt())
 		}
 	}
 }
@@ -468,14 +572,17 @@ func checkMasked(t *testing.T, doc string) {
 // under Withheld it holds no text and no number, under AccountNumber and
 // Tag only their masks, and under an unknown key no text but times, codes
 // and masks and no integer of 8 or 9 digits; and masking it again changes
-// nothing and reports nothing. Each document is checked as it is and planted
-// under a key of every class and in a user object, beside known numbers.
-// The seeds hold what a second pass of the rules as first written changed:
-// the mask of an 8- or 9-digit integer and of a known 7-digit one under an
-// unknown key, and that of an account number under accountNumber.
+// nothing and reports nothing. A number is an integer by its value, however
+// it is written. Each document is checked as it is and planted under a key
+// of every class and in a user object, beside known numbers. The seeds hold
+// what a second pass of the rules as first written changed: the mask of an
+// 8- or 9-digit integer and of a known 7-digit one under an unknown key, and
+// that of an account number under accountNumber; and integers written with
+// a fraction or an exponent, which those rules kept.
 func FuzzMaskJSON(f *testing.F) {
 	for _, s := range []string{
 		`{"newNumber":87654321}`, `{"newNumber":987654321}`, `{"newNumber":1234567}`, `{"newNumber":123456789}`,
+		`{"orderId":29470135.0}`, `{"newKey":2.9470135E7}`, `{"newKey":8.7654321E7}`, `{"accountNumber":1.2345678e7}`,
 		`{"accountNumber":"12345678"}`, `{"accountNumber":12345678}`, `{"accountNumber":"...678"}`,
 		`{"newKey":"...321"}`, `{"newKey":"[withheld]"}`,
 		prototypeIn, prototypeOut,

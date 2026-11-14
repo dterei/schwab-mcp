@@ -7,14 +7,17 @@ import (
 	"io"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // A Class is what the values at a key path of Schwab's JSON hold, as far as
 // masking goes. JSON masks each value as its class says, and keeps true,
-// false and null under every class. A Class that is none of those below is
-// masked as Unknown.
+// false and null under every class. It takes a number for its value,
+// however it is written: 12345678, 12345678.0 and 1.2345678E7 are all the
+// integer 12345678. A Class that is none of those below is masked as
+// Unknown.
 type Class int
 
 // The classes, each with what JSON makes of its values.
@@ -25,19 +28,21 @@ const (
 	// of six digits: the shape of Schwab's codes) or an account number
 	// already masked ("..." and three digits); a time that holds a known
 	// number is withheld too. An integer of 8 or 9 digits, or one that is a
-	// known number, becomes Number of it, a string; any other number is
-	// kept, so that a 13-digit ID or a time in milliseconds comes through.
+	// known number, becomes Number of its digits, a string; any other
+	// number is kept, so that a 13-digit ID or a time in milliseconds comes
+	// through.
 	Unknown Class = iota
 	// AccountNumber is a full account number, as a string or a number: it
-	// becomes Number of it, a string, so that "12345678" and 12345678 read
-	// "...678", and Schwab's own masked "...678" stays as it is.
+	// becomes Number of it, a string, so that "12345678", 12345678 and
+	// 12345678.0 read "...678", and Schwab's own masked "...678" stays as it
+	// is.
 	AccountNumber
 	// Hash is an account's hash, which the next request passes back;
 	// Identifier an ID, a symbol, a CUSIP or one of Schwab's codes; Time a
 	// time or date in one of Schwab's forms; Amount money, a quantity or a
 	// price. Each is kept, but a known number that a string holds is masked
 	// as Known.Text masks it, which keeps a hash whole, and an integer that
-	// is a known number becomes Number of it, a string.
+	// is a known number becomes Number of its digits, a string.
 	Hash
 	Identifier
 	Time
@@ -234,10 +239,13 @@ func (w *jsonWriter) rule(c Class, tok json.Token) (json.Token, *int) {
 		digits, integer := integerDigits(v)
 		switch c {
 		case AccountNumber:
+			if integer {
+				return Number(digits), &r.AccountNumbers
+			}
 			return Number(string(v)), &r.AccountNumbers
 		case Hash, Identifier, Time, Amount, FreeText:
 			if integer && w.known.has(digits) {
-				return Number(string(v)), &r.AccountNumbers
+				return Number(digits), &r.AccountNumbers
 			}
 			return v, nil
 		case Tag:
@@ -246,7 +254,7 @@ func (w *jsonWriter) rule(c Class, tok json.Token) (json.Token, *int) {
 			return nil, &r.Withheld
 		}
 		if integer && (len(digits) == 8 || len(digits) == 9 || w.known.has(digits)) {
-			return Number(string(v)), &r.UnknownIntegers
+			return Number(digits), &r.UnknownIntegers
 		}
 		return v, nil
 	}
@@ -332,10 +340,48 @@ func tagOrigin(tag string) string {
 	return withheld
 }
 
-// integerDigits returns the digits of n, without its sign, and whether n is
-// written as an integer: digits alone, after a minus sign or not, as Schwab
-// writes an ID or an account number, never with a fraction or an exponent.
+// maxIntegerDigits is the most digits that integerDigits writes out for a
+// number whose exponent adds zeros to it.
+const maxIntegerDigits = 64
+
+// integerDigits returns the digits of n's value, without its sign or
+// leading zeros, and whether that value is an integer, however JSON writes
+// it: 29470135, -29470135, 29470135.0, 2.9470135E7 and 294701350e-1 all
+// give "29470135", while 2947013.5 is no integer. A number whose exponent
+// adds zeros to it past 64 digits, such as 1e999999, is taken for no
+// integer, so that they are never written out: no account number has so
+// many.
 func integerDigits(n json.Number) (string, bool) {
-	digits := strings.TrimPrefix(string(n), "-")
-	return digits, digits != "" && strings.Trim(digits, "0123456789") == ""
+	s := strings.TrimPrefix(string(n), "-")
+	if s != "" && strings.Trim(s, "0123456789") == "" {
+		return s, true // digits alone, as Schwab writes an ID or an account number
+	}
+	var exp int64
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		e, err := strconv.ParseInt(s[i+1:], 10, 32)
+		if err != nil {
+			return "", false
+		}
+		s, exp = s[:i], e
+	}
+	whole, frac, _ := strings.Cut(s, ".")
+	if whole == "" || strings.Trim(whole, "0123456789") != "" || strings.Trim(frac, "0123456789") != "" {
+		return "", false // not a number as JSON writes one
+	}
+	// The value is digits times ten to the power exp.
+	digits := strings.TrimLeft(whole+frac, "0")
+	exp -= int64(len(frac))
+	switch {
+	case digits == "":
+		return "0", true
+	case exp < 0:
+		point := int64(len(digits)) + exp // where the decimal point falls in digits
+		if point <= 0 || strings.Trim(digits[point:], "0") != "" {
+			return "", false
+		}
+		return digits[:point], true
+	case exp > 0 && int64(len(digits))+exp > maxIntegerDigits:
+		return "", false
+	}
+	return digits + strings.Repeat("0", int(exp)), true
 }
