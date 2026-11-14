@@ -191,6 +191,45 @@ func exportedEntries(t *testing.T, s *Store, o ExportOptions, keys map[int64]str
 	return out
 }
 
+// Accounts returns each account as the accounts view shows it, by id: its
+// ref, its number masked, its nickname from the preferences, the kind that
+// your decision gives it, its type from its latest snapshot, its latest
+// hash, whether it is the primary account, since when Schwab has not shared
+// it, and whether the store holds anything of it. On a copy of readerStore,
+// ...398 is decided an IRA, ...783 is no longer shared, and an account of
+// which the store holds nothing is added.
+func TestReaderAccounts(t *testing.T) {
+	t.Parallel()
+	path := readerCopy(t)
+	ctx := t.Context()
+	s := openStoreAt(t, path)
+	decide(t, s, Decision{Kind: "account", Subject: "acct:2", Value: "kind=ira"})
+	since := time.Date(2026, 9, 30, 14, 0, 0, 0, time.UTC)
+	if err := s.SetNotShared(ctx, empty, since); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.withWrite(ctx, "adding an account", func(w *wtx) error { return insertAccount(w, "12345678") }); err != nil {
+		t.Fatal(err)
+	}
+	got, err := openReader(t, path).Accounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ReaderAccount{
+		{ID: 1, Ref: "A1", Masked: "...135", Nickname: "Individual", Type: "CASH", Hash: schwabtest.HashFor(individual), Primary: true, Used: true},
+		{ID: 2, Ref: "A2", Masked: "...398", Nickname: "Options & Margin", Kind: "ira", Hash: schwabtest.HashFor(options), Used: true},
+		{ID: 3, Ref: "A3", Masked: "...783", Nickname: "Contributory", Hash: schwabtest.HashFor(empty), NotSharedSince: since, Used: true},
+		{ID: 4, Ref: "A4", Masked: "...678"},
+	}
+	if !slices.EqualFunc(got, want, func(a, b ReaderAccount) bool {
+		at, bt := a.NotSharedSince, b.NotSharedSince
+		a.NotSharedSince, b.NotSharedSince = time.Time{}, time.Time{}
+		return a == b && at.Equal(bt)
+	}) {
+		t.Errorf("Accounts() =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
 // Pages of 3 rebuild exactly the ledger that Export reads, every row once
 // and in the ledger's order, whatever the filters: every entry, the
 // categories, Schwab's types, a symbol in any case and the days. The two
