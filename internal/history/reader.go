@@ -57,17 +57,21 @@ type Reader struct {
 }
 
 // OpenReader opens the store at o.Path for reading only. It never creates
-// a store or its folder, never changes its schema, derived data, journal
-// mode or files' permissions, and holds no writer: a Reader has no method
-// that writes. A missing or empty store is ErrNoStore; a store with a
-// schema newer than this build's is ErrNewer; one that an older schwabtx
-// last derived (an older schema, rules or calendar), or that is not in WAL
-// mode, is ErrNeedsUpdate. A store that a newer schwabtx derived with newer
-// rules or a newer calendar, but whose schema is this build's, is read, as
-// the store's own rule allows, and NewerRules says so. Network file
-// systems, damage, files that are not a store and orphan journals are
-// refused as Open refuses them. A store that others can read is reported
-// through o.Warn, never made private.
+// a store or its folder, never changes its schema, derived data or journal
+// mode, never changes a file's permissions itself, and holds no writer: a
+// Reader has no method that writes. A missing or empty store is
+// ErrNoStore; a store with a schema newer than this build's is ErrNewer;
+// one that an older schwabtx last derived (an older schema, rules or
+// calendar), or that is not in WAL mode, is ErrNeedsUpdate. A store that a
+// newer schwabtx derived with newer rules or a newer calendar, but whose
+// schema is this build's, is read, as the store's own rule allows, and
+// NewerRules says so. Network file systems, damage, files that are not a
+// store and orphan journals are refused as Open refuses them. A store that
+// others can read is reported through o.Warn, and the Reader never makes
+// it private. SQLite, though, gives an empty -wal or -shm the database's
+// permissions when any connection opens it, so an empty -wal that others
+// could read beside a private database is made private, with no warning:
+// it holds nothing.
 func OpenReader(ctx context.Context, o ReaderOptions) (*Reader, error) {
 	so := Options{
 		Path: o.Path, MustExist: true, Now: time.Now, Warn: o.Warn, Waiting: func(string) {},
@@ -156,8 +160,10 @@ func (s *Store) needsUpdate(v versions) error {
 }
 
 // warnLoose warns once if others can read the store, its -wal or its
-// -shm, by path: a Reader leaves them as they are, and schwabtx makes them
-// private when it opens the store. Windows gives files their folder's
+// -shm, by path, as they are once the Reader's connections have opened
+// them: a Reader never changes their permissions itself, but SQLite gives
+// an empty -wal or -shm the database's when it opens one. schwabtx makes
+// them private when it opens the store. Windows gives files their folder's
 // permissions instead.
 func (s *Store) warnLoose() {
 	if runtime.GOOS == "windows" {

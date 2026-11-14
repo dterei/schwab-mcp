@@ -1071,6 +1071,56 @@ func TestReaderWarnsOfLooseFiles(t *testing.T) {
 	}
 }
 
+// SQLite, not the Reader, changes the permissions of an empty -wal or
+// -shm: it gives one the database's when a connection opens it, as
+// OpenReader says, and the Reader warns of the files as they are then.
+// Beside a private database, an empty -wal and -shm that anyone can read
+// are made private, and nothing is warned of, since they hold nothing;
+// beside a database that its group can read, an empty private -wal and
+// -shm are made as readable, and the database is warned of.
+func TestEmptyJournalsTakeTheDatabasesMode(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows gives files their folder's permissions")
+	}
+	const loose = "history.db can be read by others; any schwabtx command that opens it, such as schwabtx status, makes it readable only by you"
+	for _, tc := range []struct {
+		db, journals fs.FileMode
+		warned       []string // without the folder
+	}{{0o600, 0o604, nil}, {0o640, 0o600, []string{loose}}} {
+		path := copyTemplate(t)
+		if err := os.Chmod(path, tc.db); err != nil {
+			t.Fatal(err)
+		}
+		for _, j := range []string{path + "-wal", path + "-shm"} {
+			if err := os.WriteFile(j, nil, tc.journals); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(j, tc.journals); err != nil { // whatever the umask took off
+				t.Fatal(err)
+			}
+		}
+		var warned []string
+		r, err := OpenReader(t.Context(), ReaderOptions{Path: path, Warn: func(m string) {
+			warned = append(warned, strings.TrimPrefix(m, filepath.Dir(path)+string(filepath.Separator)))
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, j := range []string{"-wal", "-shm"} {
+			if m := mode(t, path+j); m != tc.db {
+				t.Errorf("beside a database of mode %v, an empty history.db%s of mode %v is now of mode %v, want the database's",
+					tc.db, j, tc.journals, m)
+			}
+		}
+		r.Close()
+		if !slices.Equal(warned, tc.warned) {
+			t.Errorf("beside a database of mode %v, with an empty -wal and -shm of mode %v, the reader warned %q, want %q",
+				tc.db, tc.journals, warned, tc.warned)
+		}
+	}
+}
+
 // holdOpen opens the store at path until the test ends, and commits a write
 // to it, which stays in the -wal while the store is open: SQLite gives an
 // empty -wal the database's permissions when it opens it.

@@ -187,25 +187,29 @@ as the `history.db.schema<N>.<time>.bak` it made.
 **Reading without writing.** A program that must never change the store,
 such as the MCP server, opens it with `history.OpenReader`. That never
 makes a store or its folder, never writes a row, never changes the store's
-schema, derived data, journal mode or permissions, and reads only through
-connections that refuse a write and never create the store's database, so
-that a store moved aside while it reads is not made again empty. SQLite
-makes the `-wal` and `-shm` beside the database while it reads, as it does
-for any reader of a store in WAL mode, so the store's folder must be
-writable; and the last connection to close, of whichever process, copies
-the `-wal`'s committed pages into the database, which changes no row. It
-refuses a missing store, and a store that a newer `schwabtx` wrote, as
-above. A store that an older `schwabtx` last wrote, or one not in WAL
-mode, it refuses until a `schwabtx` of this version opens it, which brings
-it up to date:
+schema, derived data or journal mode, never changes a file's permissions
+itself, and reads only through connections that refuse a write and never
+create the store's database, so that a store moved aside while it reads is
+not made again empty. SQLite makes the `-wal` and `-shm` beside the
+database while it reads, as it does for any reader of a store in WAL mode,
+so the store's folder must be writable; it gives an empty `-wal` or `-shm`
+the database's permissions when it opens one; and the last connection to
+close, of whichever process, copies the `-wal`'s committed pages into the
+database, which changes no row. It refuses a missing store, and a store that
+a newer `schwabtx` wrote, as above. A store that an older `schwabtx` last
+wrote, or one not in WAL mode, it refuses until a `schwabtx` of this version
+opens it, which brings it up to date:
 
 ```
 error: the store at PATH was last brought up to date by an older schwabtx (schema N, rules R, calendar C); any schwabtx command of this version that opens it, such as schwabtx status, brings it up to date
 ```
 
 A store that a newer `schwabtx` derived with newer rules or a newer calendar
-it reads as it is. A store that others can read it reports, and leaves as it
-is; any `schwabtx` command that opens it makes it readable only by you.
+it reads as it is. A store that others can read it reports, and never makes
+private itself; any `schwabtx` command that opens it makes it readable only
+by you. An empty `-wal` that others could read beside a private database is
+not reported: SQLite makes it private as it opens it, as above, and it holds
+nothing.
 
 ## A walk-through
 
