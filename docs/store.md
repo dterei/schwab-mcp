@@ -1592,7 +1592,12 @@ whatever its day:
 - a row not given before is written; those dated on or before DIR's `-to`
   are counted on stderr, as having come late or been decided since, but
   those `same_as` a row gone (below);
-- a row given with the same `fp` is given, and not written again;
+- a row given with the same `fp` is given, and not written again; but in
+  PP, a transfer's side whose transfer you delete with its other side of
+  before, which changed or went, is written again, listed nowhere, when no
+  record of this export makes the transfer that it is of now (its other
+  side now is given too, as after you pair two transfers of one day again
+  by hand): PP then holds that transfer again;
 - a row given otherwise is written, and listed under `changed`, with what
   the tool shows of it (`was`), to delete there before importing: a journal
   paired after its first side went in by its sign is one, the pair now a
@@ -1609,7 +1614,9 @@ whatever its day:
   row that took its place) is `changed` too, its form alike: you delete the
   one that PP holds, and the export writes both, so that no two of PP's
   transactions have Notes of one row. A transfer's entries and lists carry
-  `transfer`, the head of the Note that PP holds of it, paying side first;
+  `transfer`, the head of the Note that PP holds of it, paying side first:
+  of the transfer of its paying side now, which may name the receiving side
+  that the transfer was first written with;
 - for PP, `tick` replays PP's duplicate check over the files in their import
   order, from what the chain gave less what changed and went, and lists each
   new row that PP will mark as existing, but the second half of a transfer;

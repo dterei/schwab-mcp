@@ -138,7 +138,9 @@ and the types' names, whatever PP's language and locale.
    it lists as changed or gone, each transfer once: deleting either half of
    a transfer in PP deletes both. Each is listed with how its note begins;
    a transfer's note names its paying side first, in both accounts
-   (`schwabtx A2 ...398 T73600000101 to A1 ...135 T73600000102`). A row
+   (`schwabtx A2 ...398 T73600000101 to A1 ...135 T73600000102`), and once
+   you have paired transfers of one day again, perhaps another receiving
+   side than the row's: delete the transfer whose note is quoted. A row
    listed as changed in the same form is one that PP holds under the note of
    a row that has come back since, such as a file row counted again beside
    the API row that took its place: delete it, and the export writes both,

@@ -720,9 +720,23 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 			noted[rowKey{k.account, o.given.NoteRef}] = k
 		}
 	}
+	// The sides of the transfers that this export writes, for PP, the paying
+	// sides first.
+	var sides []int
+	if in.tool == toolPP {
+		for _, kind := range []eventKind{evTransferOut, evTransferIn} {
+			for i := range in.rows {
+				if rs := records[i]; len(rs) > 0 && rs[0].kind == kind {
+					sides = append(sides, i)
+				}
+			}
+		}
+	}
 	for {
 		// The rows that PP will hold under their own Note: those written now
-		// that no gone row is the same as, and those changed.
+		// that no gone row is the same as, and those changed. (A row given
+		// that is written again below is not one whose Note an entry names:
+		// the entry that named it was changed when it came back.)
 		paired := map[int]bool{}
 		for _, j := range pairs {
 			paired[j] = true
@@ -784,6 +798,25 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 				delete(pairs, g)
 				again = true
 			}
+		}
+		// A transfer's side given whose transfer you delete with another
+		// row's, its other side of then having changed or gone, of which no
+		// record of this export makes the transfer that it is of now: its
+		// other side now is given too, or is not in this export. It is
+		// written again, and listed nowhere, since PP holds nothing of it
+		// once you delete: its record makes the transfer.
+		for _, i := range sides {
+			e := records[i][0]
+			k := rowKey{e.account.id, e.ref}
+			if c.outcomes[i].outcome != outcomeGiven || !c.deleted[c.kept[k].Transfer] {
+				continue
+			}
+			if j, ok := rows[rowKey{e.pair.id, e.pairRef}]; ok && c.outcomes[j].outcome == outcomeWritten {
+				continue
+			}
+			c.outcomes[i].outcome = outcomeWritten
+			delete(c.kept, k)
+			again = true
 		}
 		if !again {
 			break
@@ -858,8 +891,10 @@ func (c *chainResult) whyGone(k rowKey) string {
 // given, and a new entry of each row written, which for PP keeps, of a row
 // the same as a gone one, the ref that the Note PP holds names, and of a
 // transfer, the PP transaction that it is of (txOf). A transfer's side given
-// whose transaction you delete with its other half, which changed or went,
-// is of the transfer that its new other half makes (txOf).
+// is of the transfer that it makes now with its other side, whichever that
+// is (txOf): its paying side's, which PP holds still, or that a record
+// written now makes, under its Note; with another name, its entry names no
+// other row's Note.
 func (c *chainResult) nextGiven(records map[int][]*toolEvent) {
 	for i, o := range c.outcomes {
 		r := &c.in.rows[i]
@@ -869,10 +904,10 @@ func (c *chainResult) nextGiven(records map[int][]*toolEvent) {
 		switch o.outcome {
 		case outcomeGiven:
 			g = c.kept[k]
-			if g.Transfer != "" && c.deleted[g.Transfer] {
-				// The record that PP imports now makes it again, under its
-				// Note, which names the row by its ref.
-				g.Transfer, g.NoteRef = c.txOf(records[i][0]), ""
+			if e := records[i][0]; c.in.tool == toolPP && (e.kind == evTransferOut || e.kind == evTransferIn) {
+				if tx := c.txOf(e); tx != g.Transfer {
+					g.Transfer, g.NoteRef = tx, ""
+				}
 			}
 		case outcomeWritten:
 			g = chainGiven{Day: r.day, As: chainAs(c.in.tool, records[i]), FP: fingerprint(c.in.tool, records[i]), With: o.with}
