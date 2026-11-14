@@ -82,12 +82,16 @@ type chainManual struct {
 }
 
 // A chainAccount is an account of the manifest (8.1 of the design): one that
-// this export writes, or that an earlier export of its chain wrote. Exported
-// says that this export writes it: a PP record of it, or Ghostfolio's account
-// in the file; new that no earlier export of the chain wrote it. For
-// Ghostfolio, its id there, how many balances the file holds and of which
-// days, or why it holds none, and its latest snapshot's cash, which you set in
-// Ghostfolio after its first import (6.3).
+// this export writes or names, or that an earlier export of its chain wrote
+// or named. Exported says that this export writes it: a PP record of it, or
+// Ghostfolio's account in the file; new that no earlier export of the chain
+// wrote or named it, so that you make it in PP before this import. A PP
+// transfer names the account of its other side as its Offset Account, which
+// PP must hold even when this export writes nothing of that account: its
+// side is dated after the export's last day. For Ghostfolio, its id there,
+// how many balances the file holds and of which days, or why it holds none,
+// and its latest snapshot's cash, which you set in Ghostfolio after its first
+// import (6.3).
 type chainAccount struct {
 	Label        string         `json:"label"`
 	Account      string         `json:"account"`
@@ -1043,13 +1047,17 @@ func chainJSON(c *chainResult, exportedAt string, unused []string) chainManifest
 }
 
 // accounts returns the accounts of the manifest, by id: each that this
-// export writes, and each that an earlier export of the chain wrote.
+// export writes or names as a transfer's Offset Account, and each that an
+// earlier export of the chain wrote or named.
 func (c *chainResult) accounts() []chainAccount {
-	exported := map[int64]bool{}
+	exported, named := map[int64]bool{}, map[int64]bool{}
 	last := map[int64]nytime.Date{}
 	for _, e := range c.written {
 		exported[e.account.id] = true
 		last[e.account.id] = max(last[e.account.id], e.day)
+		if e.kind == evTransferOut || e.kind == evTransferIn {
+			named[e.pair.id] = true
+		}
 	}
 	var balances map[int64][]toolBalance
 	if c.in.tool == toolGF {
@@ -1070,12 +1078,13 @@ func (c *chainResult) accounts() []chainAccount {
 	}
 	out := []chainAccount{}
 	for _, a := range c.in.accounts {
-		if !exported[a.id] && !before[a.label()] {
+		listed := exported[a.id] || named[a.id]
+		if !listed && !before[a.label()] {
 			continue
 		}
 		ca := chainAccount{
 			Label: a.label(), Account: a.masked, Nickname: a.nickname, Name: a.name(),
-			Exported: exported[a.id], New: exported[a.id] && !before[a.label()],
+			Exported: exported[a.id], New: listed && !before[a.label()],
 		}
 		if d, ok := last[a.id]; ok {
 			ca.LastDay = &d

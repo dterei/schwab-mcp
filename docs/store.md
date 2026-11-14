@@ -1438,7 +1438,12 @@ then started over.
   (`pair_outside`). An unpaired journal is, as far as the store knows, a
   move from outside your accounts. A transfer's Offset Account names only
   an account of the export, since PP sends a transfer whose account it
-  cannot find to the review page's first, even the transfer's own.
+  cannot find to the review page's first, even the transfer's own. When
+  the other side is dated after `-to`, the side up to `-to` is still the
+  transfer, which PP books whole at the paying side's day: the export
+  names the other account among its accounts all the same, stderr lists
+  it to make, and the next export writes the other side, which PP marks as
+  existing and you leave unticked.
 - **Ghostfolio** has no cash activities: its cash is each account's
   balances, from every snapshot's cash, signed, one per market date, in
   every file whatever `-to` says, since Ghostfolio takes them only in the
@@ -1543,7 +1548,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `filters` | `account` (its label, or null), `to`, `manual` (masked), and `since`, the `exported_at` of the export this one goes on from, or null |
 | `chain` | `id`, the `exported_at` of the chain's first export; `account`, `A<id>` or null for every account; `manual`, each with `unused` when nothing used it; and `to` |
 | `files` | the files to import, in order, each with its `kind`, its `configuration` for PP, its `account`, `rows`, and for PP how many rows to `tick` |
-| `accounts` | each account written, and each that the chain wrote before: `label`, `account`, `nickname`, `name`, `exported`, `last_day`, `new`, and for Ghostfolio its `ghostfolio_id`, its `balances` (how many, the first and last, or why none) and its latest `cash` |
+| `accounts` | each account written or named, and each that the chain wrote or named before: `label`, `account`, `nickname`, `name`, `exported`, `last_day`, `new`, and for Ghostfolio its `ghostfolio_id`, its `balances` (how many, the first and last, or why none) and its latest `cash`. A PP transfer names the account of its other side, which may have no row up to `-to`; `new` says that the chain had not listed it, and stderr lists it to make |
 | `units` | how each value is written |
 | `written` | the ledger rows written, and the records per Type |
 | `given` | per account and ref, what the tool holds of each row once this export is imported: `day`, `as` (what the tool shows), `fp` (a hash of what it keeps), `with` (the shares row that it carries), and for PP `keys` (the hashes of what its duplicate check compares), `note_ref` (the ref that its Note names, when not its own) and `transfer` |

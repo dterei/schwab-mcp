@@ -941,10 +941,16 @@ type ppTx struct {
 func newPPModel(names ...string) *ppModel {
 	m := &ppModel{}
 	for _, n := range names {
-		m.accounts = append(m.accounts, &ppOwner{name: n})
-		m.portfolios = append(m.portfolios, &ppOwner{name: n})
+		m.make(n)
 	}
 	return m
+}
+
+// make makes in m a deposit account in US dollars and a securities account
+// named name, as you make them in PP before an import that names them.
+func (m *ppModel) make(name string) {
+	m.accounts = append(m.accounts, &ppOwner{name: name})
+	m.portfolios = append(m.portfolios, &ppOwner{name: name})
 }
 
 // ppOwnerNamed returns the account or securities account of owners named

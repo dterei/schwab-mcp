@@ -71,9 +71,10 @@ type ToolExport struct {
 	// portfolio file; for Ghostfolio, ghostfolio.json. WriteDir writes PP's
 	// three configurations and manifest.json beside them.
 	Files []ToolFile
-	// Accounts are the accounts that the export writes, and those that the
-	// earlier exports of its chain wrote, in the order of their ids, those
-	// that the store does not hold last.
+	// Accounts are the accounts that the export writes or names, and those
+	// that the earlier exports of its chain wrote or named, in the order of
+	// their ids, those that the store does not hold last: a PP transfer
+	// names the account of its other side, which PP must hold.
 	Accounts []ToolAccount
 	// Coverage is the days that each source covers of the accounts that it
 	// selects.
@@ -171,7 +172,8 @@ type ToolFile struct {
 }
 
 // A ToolAccount is an account of a tool export (8.1 of the design): one
-// that the export writes, or that an earlier export of its chain wrote.
+// that the export writes or names, or that an earlier export of its chain
+// wrote or named.
 type ToolAccount struct {
 	// Label is how the export names it, as "A1 ...135"; Account its number
 	// masked; Nickname its nickname at Schwab, masked free text, "" for
@@ -179,9 +181,10 @@ type ToolAccount struct {
 	// them, as "Schwab A1 ...135". Only Label is set for an account of the
 	// chain that the store does not hold.
 	Label, Account, Nickname, Name string
-	// Exported says that the export writes it, New that no earlier export
-	// of its chain did, and LastDay is the last day of its records in the
-	// export, "" for none.
+	// Exported says that the export writes it; New that no earlier export
+	// of its chain wrote or named it, so that you make it in the tool
+	// before this import (for PP, by the name that stderr lists); and
+	// LastDay is the last day of its records in the export, "" for none.
 	Exported, New bool
 	LastDay       nytime.Date
 	// For Ghostfolio: GhostfolioID is its id there. Balances counts the

@@ -90,7 +90,7 @@ func chainStepFrom(t *testing.T, e *ToolExport, dir string) *chainStep {
 	}
 	switch e.Tool {
 	case toolPP:
-		ppCheck(t, dir, ppNamesOf(e.in))
+		ppCheck(t, dir, ppAccountNames(e))
 	case toolGF:
 		path := filepath.Join(dir, gfFileName)
 		var err error
@@ -274,14 +274,20 @@ func ppDeleteRow(t *testing.T, m *ppModel, label, ref, was string) {
 	}
 }
 
-// ppApply imports s into m as the how-to has you: it deletes in PP what s
-// lists as changed or gone, then imports its files in their order, each
-// with the review page set to its account, ticking the rows that s lists to
-// tick. It requires PP to hold, before the files, what s's replay starts
-// from; to refuse nothing; and to mark exactly the rows that the replay
-// says it marks.
+// ppApply imports s into m as the how-to has you: it makes in PP the
+// accounts that s lists as new (stderr's names line), but those that m
+// holds already, as after a redo; deletes in PP what s lists as changed or
+// gone; then imports its files in their order, each with the review page set
+// to its account, ticking the rows that s lists to tick. It requires PP to
+// hold, before the files, what s's replay starts from; to refuse nothing;
+// and to mark exactly the rows that the replay says it marks.
 func ppApply(t *testing.T, m *ppModel, s *chainStep) {
 	t.Helper()
+	for _, a := range s.e.Accounts {
+		if a.New && ppOwnerNamed(m.accounts, a.Name) == nil {
+			m.make(a.Name)
+		}
+	}
 	for _, ch := range s.res.changed {
 		ppDeleteRow(t, m, ch.Account, cmp.Or(ch.NoteRef, ch.Ref), ch.Was)
 	}
@@ -1203,7 +1209,7 @@ func TestToolReimport(t *testing.T) {
 			}
 
 			if c.tool == toolPP {
-				m := newPPModel(ppNamesOf(e1.in)...)
+				m := newPPModel()
 				ppApply(t, m, e1)
 				ppApply(t, m, e2)
 				// The new row's entry keeps the ref of the Note that PP
@@ -1259,7 +1265,7 @@ func TestToolReimport(t *testing.T) {
 		t.Parallel()
 		first, _ := rcSequence1()
 		pp := chainStepOf(t, first, toolPP, nil, rcAt1)
-		m := newPPModel(ppNamesOf(pp.in)...)
+		m := newPPModel()
 		ppApply(t, m, pp)
 		cash := m.cash("Schwab A1 ...135")
 		for _, f := range pp.pp {
@@ -1306,13 +1312,13 @@ func TestToolReimport(t *testing.T) {
 		}) {
 			t.Errorf("the tick list %+v", got)
 		}
-		m := newPPModel(ppNamesOf(e1.in)...)
+		m := newPPModel()
 		ppApply(t, m, e1)
 		ppApply(t, m, e2)
 		ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
 
 		// Left unticked, the second trade is lost.
-		lost := newPPModel(ppNamesOf(e1.in)...)
+		lost := newPPModel()
 		ppApply(t, lost, e1)
 		for _, f := range e2.pp {
 			if _, refused := lost.importFile(e2.dir, f.name, f.account.name(), nil); len(refused) > 0 && f.kind != ppConfiguration {
@@ -1335,7 +1341,7 @@ func TestToolReimport(t *testing.T) {
 		if got := rcMarks(e2); !slices.Equal(got, []string{"account-transactions-A1-135.csv:1 T74000103 tick", "account-transactions-A2-398.csv:1 T74000204"}) {
 			t.Errorf("the late pair: PP marks %q", got)
 		}
-		m := newPPModel(ppNamesOf(e1.in)...)
+		m := newPPModel()
 		ppApply(t, m, e1)
 		ppReconcile(t, m, e1.in, e1.events, e1.outcomes)
 		ppApply(t, m, e2)
@@ -1389,7 +1395,7 @@ func TestToolReimport(t *testing.T) {
 		if a, b := e2.res.given["A2 ...398"]["T74100201"].Transfer, e2.res.given["A1 ...135"]["T74100101"].Transfer; a != "A2 ...398 T74100201" || a != b {
 			t.Errorf("the transfer's records are of %q and %q", a, b)
 		}
-		m := newPPModel(ppNamesOf(e1.in)...)
+		m := newPPModel()
 		ppApply(t, m, e1)
 		ppApply(t, m, e2)
 		ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
@@ -1440,11 +1446,67 @@ func TestToolReimport(t *testing.T) {
 		if a, b := e3.res.given["A2 ...398"]["T74200201"], e3.res.given["A1 ...135"]["T74200101"]; a.NoteRef != "C74200001.1" || a.Transfer != "A2 ...398 C74200001.1" || b.Transfer != a.Transfer {
 			t.Errorf("the transfer's entries %+v and %+v", a, b)
 		}
-		m := newPPModel(ppNamesOf(e1.in)...)
+		m := newPPModel()
 		for _, s := range []*chainStep{e1, e2, e3} {
 			ppApply(t, m, s)
 		}
 		ppReconcile(t, m, e3.in, e3.events, e3.outcomes)
+	})
+
+	t.Run("a transfer split by -to, of an account with no other row", func(t *testing.T) {
+		t.Parallel()
+		// The side of the transfer that the first export holds is written
+		// as the transfer, which names the other account although that
+		// account has no row up to -to: the export names it to make, and
+		// PP books both sides at the paying side's day. The other side,
+		// written the next time, is of the transaction that PP holds.
+		deposit := rcCash("T74300100", 1, "2026-11-02 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 500_000)
+		for _, c := range []struct {
+			what          string
+			first, second toolRow
+			next          string
+		}{
+			{
+				"the paying side first",
+				rcJournal("T74300101", 1, "2026-11-12 15:00:00", "JOURNAL TO ...783", -100_000, "T74300301", 3),
+				rcJournal("T74300301", 3, "2026-11-13 09:00:00", "JOURNAL FRM ...135", 100_000, "T74300101", 1),
+				"account-transactions-A3-783.csv:1 T74300301",
+			},
+			{
+				"the receiving side first",
+				rcJournal("T74300102", 1, "2026-11-12 15:00:00", "JOURNAL FRM ...783", 100_000, "T74300302", 3),
+				rcJournal("T74300302", 3, "2026-11-13 09:00:00", "JOURNAL TO ...135", -100_000, "T74300102", 1),
+				"account-transactions-A3-783.csv:1 T74300302",
+			},
+		} {
+			alone := c.first
+			alone.partner = toolPartner{
+				day: "2026-11-13", time: c.second.time, amount: c.second.amount, counted: true, category: "journal",
+				kind: c.second.kind, description: c.second.description,
+			}
+			first := tcInput(toolInput{to: "2026-11-12", rows: []toolRow{deposit, alone}})
+			later := tcInput(toolInput{to: "2026-11-13", rows: []toolRow{deposit, c.first, c.second}})
+			e1 := chainStepOf(t, first, toolPP, nil, rcAt1)
+			var accounts []string
+			for _, a := range e1.e.Accounts {
+				accounts = append(accounts, fmt.Sprintf("%s exported %v new %v", a.Name, a.Exported, a.New))
+			}
+			if want := []string{"Schwab A1 ...135 exported true new true", "Schwab A3 ...783 exported false new true"}; !slices.Equal(accounts, want) {
+				t.Errorf("%s: the first export's accounts %q, want %q", c.what, accounts, want)
+			}
+			e2 := chainStepOf(t, later, toolPP, e1, rcAt2)
+			if w, m := e2.refs(outcomeWritten), rcMarks(e2); !slices.Equal(w, []string{c.second.ref}) || !slices.Equal(m, []string{c.next}) {
+				t.Errorf("%s: the next export writes %q, PP marks %q", c.what, w, m)
+			}
+			if a := e2.e.Accounts; len(a) != 2 || a[0].New || a[1].New {
+				t.Errorf("%s: the next export's accounts %+v", c.what, a)
+			}
+			m := newPPModel()
+			ppApply(t, m, e1)
+			ppReconcile(t, m, e1.in, e1.events, e1.outcomes)
+			ppApply(t, m, e2)
+			ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
+		}
 	})
 
 	t.Run("5 a redo", func(t *testing.T) {
@@ -1454,11 +1516,11 @@ func TestToolReimport(t *testing.T) {
 		first, later := rcSequence4()
 		e1 := chainStepOf(t, first, toolPP, nil, rcAt1)
 		e2 := chainStepOf(t, later, toolPP, e1, rcAt2)
-		m := newPPModel(ppNamesOf(e1.in)...)
+		m := newPPModel()
 		ppApply(t, m, e1)
 		ppApply(t, m, e2)
 		redo := chainStepOf(t, later, toolPP, nil, rcAt3)
-		for _, name := range ppNamesOf(redo.in) {
+		for _, name := range ppAccountNames(redo.e) {
 			m.deleteAccount(name)
 		}
 		ppApply(t, m, redo)
@@ -1531,7 +1593,7 @@ func TestToolReimport(t *testing.T) {
 				t.Errorf("%s: accounts %q", tool, labels)
 			}
 			if tool == toolPP {
-				m := newPPModel(ppNamesOf(e2.in)...)
+				m := newPPModel()
 				ppApply(t, m, e1)
 				ppApply(t, m, e2)
 				ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
@@ -1726,7 +1788,7 @@ func TestToolReimport(t *testing.T) {
 		if part.Chain.Account == nil || *part.Chain.Account != "A2" || len(part.Accounts) != 1 || part.Accounts[0].Nickname != "Trading" || part.Accounts[0].New {
 			t.Errorf("the chain %+v, accounts %+v", part.Chain, part.Accounts)
 		}
-		m := newPPModel(ppNamesOf(e2.in)...)
+		m := newPPModel()
 		ppApply(t, m, e1)
 		ppApply(t, m, e2)
 		ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
@@ -1778,7 +1840,7 @@ func TestToolReimport(t *testing.T) {
 			// The opening position, added by hand in the tool after the
 			// first import, and the later exports imported.
 			if tool == toolPP {
-				m := newPPModel(ppNamesOf(&s1)...)
+				m := newPPModel()
 				ppApply(t, m, steps[0])
 				f := ppFolderOf(toolInput{tool: toolPP})
 				f["portfolio-transactions-A1-135.csv"] = ppMade(ppPortfolio, map[string]string{

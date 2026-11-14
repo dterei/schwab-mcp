@@ -489,7 +489,7 @@ func TestToolExport(t *testing.T) {
 			t.Errorf("%s: the spread is %q, want %q", tool, got, spread)
 		}
 
-		m := &toolModels{pp: newPPModel(ppNamesOf(s.in)...), gf: newGFModel()}
+		m := &toolModels{pp: newPPModel(), gf: newGFModel()}
 		models[tool] = m
 		m.apply(t, s, len(s.res.written))
 		if tool == toolGF {
@@ -545,7 +545,7 @@ func TestToolExport(t *testing.T) {
 			(i < 0 || s.res.outcomes[i].outcome != outcomeWritten || !slices.Equal(s.res.outcomes[i].caveats, []string{"pair_outside"})) {
 			t.Errorf("pp: one account's journal is not written by its sign, caveat pair_outside")
 		}
-		pm := &toolModels{pp: newPPModel(ppNamesOf(s.in)...), gf: newGFModel()}
+		pm := &toolModels{pp: newPPModel(), gf: newGFModel()}
 		pm.apply(t, s, len(s.res.written))
 
 		// An export that goes on from it selects its account, by its ref:

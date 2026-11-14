@@ -22,13 +22,16 @@ func ppConfigurations() map[string][]byte {
 	return files
 }
 
-// ppNamesOf returns the names of the accounts that the export of in
-// selects, by which their PP accounts are found.
-func ppNamesOf(in *toolInput) []string {
+// ppAccountNames returns the names of the accounts of the PP export e, as
+// its manifest lists them (8.1 of the design): each that it writes or names
+// as a transfer's Offset Account, and each of its chain. Those are the
+// accounts that PP holds once you have made those that stderr lists, and
+// the only ones that a transfer may name.
+func ppAccountNames(e *ToolExport) []string {
 	var names []string
-	for _, a := range in.accounts {
-		if in.selected(a.id) {
-			names = append(names, a.name())
+	for _, a := range e.Accounts {
+		if a.Name != "" {
+			names = append(names, a.Name)
 		}
 	}
 	return names
@@ -55,7 +58,7 @@ func ppCase(t *testing.T, c toolCase, golden string) {
 	}
 	toolGolden(t, golden, files)
 
-	m := newPPModel(ppNamesOf(e.in)...)
+	m := newPPModel()
 	ppApply(t, m, s)
 	for _, mk := range s.marks {
 		if k := mk.record.kind; mk.tick || k != evTransferIn && k != evTransferOut {
@@ -68,7 +71,9 @@ func ppCase(t *testing.T, c toolCase, golden string) {
 // ppReconcile requires that model m, into which the PP export of in was
 // imported, hold what the ledger holds of each account of the export (11.4
 // of the design): its cash, the cash of each row written, but a
-// delivery's, which PP books without its cash (cash_not_written); and of
+// delivery's, which PP books without its cash (cash_not_written), and of
+// the other side of a transfer written whose own row is not, being dated
+// after the export's last day, which PP makes from the side written; and of
 // each security, the shares that the rows written and combined move, their
 // quantities, or their legs', times the security's multiplier. The model
 // finds each security by the identifiers the export writes for it, as PP
@@ -77,6 +82,12 @@ func ppCase(t *testing.T, c toolCase, golden string) {
 func ppReconcile(t *testing.T, m *ppModel, in *toolInput, events []toolEvent, outcomes []toolOutcome) {
 	t.Helper()
 	ix := newToolIndex(in)
+	written := map[rowKey]bool{}
+	for i, o := range outcomes {
+		if o.outcome == outcomeWritten {
+			written[rowKey{in.rows[i].account, in.rows[i].ref}] = true
+		}
+	}
 	cash := map[int64]int64{}
 	type holding struct {
 		account int64
@@ -99,6 +110,11 @@ func ppReconcile(t *testing.T, m *ppModel, in *toolInput, events []toolEvent, ou
 		})
 		if o.outcome == outcomeWritten && !delivery {
 			cash[r.account] += r.amount.Int64
+		}
+		for _, e := range eventsOf(events, i) {
+			if (e.kind == evTransferOut || e.kind == evTransferIn) && !written[rowKey{e.pair.id, e.pairRef}] {
+				cash[e.pair.id] -= r.amount.Int64
+			}
 		}
 		if legs := ix.legsOf(r); !r.quantity.Valid && len(legs) >= 2 {
 			for _, l := range legs {
