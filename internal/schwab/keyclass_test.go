@@ -185,6 +185,8 @@ func TestKeyClassesAgreeWithScrubPolicy(t *testing.T) {
 		{"transferItems.instrument.expirationDate", "keep a time", mask.Time},
 		{"Transferitems.Instrument.Description", "keep a security's name", mask.FreeText},
 		{"user.login", "", mask.Withheld},
+		{"User.Login", "", mask.Withheld},
+		{"USER.firstName", "", mask.Withheld},
 	} {
 		keys := strings.Split(tc.path, ".")
 		r, ok := transactionTable.rule(keys)
@@ -277,7 +279,8 @@ func ruleName(r rule, ok bool) string {
 // The fixtures' transactions come through mask.JSON by their key classes
 // with nothing withheld and no key unknown: every value as it was, but each
 // account number, masked, and the descriptions, masked by pattern; and a
-// user object, as Schwab's spec has it, withheld whole.
+// user object, as Schwab's spec has it, withheld whole, its key in any
+// case.
 func TestTransactionKeyClassShowsTheFixtures(t *testing.T) {
 	raw := readTestdata(t, "transactions.json")
 	got, r, err := mask.JSON(raw, TransactionKeyClass, nil)
@@ -317,5 +320,11 @@ func TestTransactionKeyClassShowsTheFixtures(t *testing.T) {
 		`"userId":null,"systemUserName":"[withheld]","firstName":"[withheld]","lastName":"[withheld]","brokerRepCode":"[withheld]"}}`
 	if err != nil || string(got) != want || r.Withheld != 8 {
 		t.Errorf("a user object comes through as %s, %+v, %v; want %s", got, r, err, want)
+	}
+	for _, key := range []string{"User", "USER"} {
+		got, r, err = mask.JSON([]byte(strings.Replace(user, `"user"`, `"`+key+`"`, 1)), TransactionKeyClass, nil)
+		if want := strings.Replace(want, `"user"`, `"`+key+`"`, 1); err != nil || string(got) != want || r.Withheld != 8 || r.UnknownIntegers != 0 {
+			t.Errorf("a user object under %q comes through as %s, %+v, %v; want %s", key, got, r, err, want)
+		}
 	}
 }

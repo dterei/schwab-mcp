@@ -1398,14 +1398,20 @@ func TestAuthScrub(t *testing.T) {
 	if got := e.Scrub("lapsed, and the rest"); got != "[token], and the rest" {
 		t.Errorf("with an empty access token: %q", got)
 	}
-	// A secret that starts with another, or holds it, is replaced whole.
-	for _, key := range []string{testSecret + "-key", "key-" + testSecret + "-0"} {
-		b, err := NewAuth(Config{AppKey: key, AppSecret: testSecret, TokenFile: filepath.Join(t.TempDir(), "token.json")})
+	// A secret that holds another is replaced whole, the longer first: the
+	// key holds the secret in the first two cases, and in the last the
+	// secret starts with the key, which Scrub lists first.
+	for _, app := range []struct{ key, secret string }{
+		{testSecret + "-key", testSecret},
+		{"key-" + testSecret + "-0", testSecret},
+		{"made-up-app-key", "made-up-app-key-and-more-secret"},
+	} {
+		b, err := NewAuth(Config{AppKey: app.key, AppSecret: app.secret, TokenFile: filepath.Join(t.TempDir(), "token.json")})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, want := b.Scrub(key+", "+testSecret), "[app key], [app secret]"; got != want {
-			t.Errorf("a key that holds the secret: %q, want %q", got, want)
+		if got, want := b.Scrub(app.key+", "+app.secret), "[app key], [app secret]"; got != want {
+			t.Errorf("a key %q and a secret %q: %q, want %q", app.key, app.secret, got, want)
 		}
 	}
 }
