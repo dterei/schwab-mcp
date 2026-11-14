@@ -565,6 +565,9 @@ func TestDefaultRateFile(t *testing.T) {
 	if name := filepath.Base(one.limit.path); len(name) != len("rate-")+16 || !strings.HasPrefix(name, "rate-") || strings.Contains(name, testKey) {
 		t.Errorf("rate file named %s, want rate- and 16 hex digits of a hash of the key", name)
 	}
+	if want, err := resolve(DefaultRateFile(testKey, one.auth.tokenFile)); err != nil || one.limit.path != want {
+		t.Errorf("rate file %s, but DefaultRateFile says %s (%v)", one.limit.path, want, err)
+	}
 
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("HOME", "")
@@ -580,6 +583,9 @@ func TestDefaultRateFile(t *testing.T) {
 	}
 	if got := filepath.Dir(c.limit.path); got != filepath.Dir(resolvedToken) {
 		t.Errorf("without a cache directory, the rate file is %s, want it next to %s", c.limit.path, resolvedToken)
+	}
+	if want := DefaultRateFile(testKey, resolvedToken); c.limit.path != want {
+		t.Errorf("without a cache directory, the rate file is %s, but DefaultRateFile says %s", c.limit.path, want)
 	}
 }
 

@@ -140,7 +140,7 @@ func cutShort(rows []Transaction, pageCap int) bool {
 func schwabSays(err error) string {
 	se, ok := errors.AsType[*Error](err)
 	switch {
-	case ok && se.says() != "":
+	case ok && se.Said() != "":
 		return fmt.Sprintf("HTTP %d, %s", se.Status, errorSays(se))
 	case ok:
 		return fmt.Sprintf("HTTP %d", se.Status)

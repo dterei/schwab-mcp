@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -372,22 +373,14 @@ type Status struct {
 	Rejected error
 }
 
-// Status reads the token file and describes the login in it. It makes no
-// request to Schwab, and does not wait for a refresh in progress.
+// Status reads the token file and describes the login in it, as StatusOf
+// does, with whether Schwab refused it when this process last tried to
+// refresh it. It makes no request to Schwab, and does not wait for a
+// refresh in progress.
 func (a *Auth) Status() (Status, error) {
-	st := Status{TokenFile: a.tokenFile}
-	t, err := a.read()
-	if errors.Is(err, ErrNotLoggedIn) {
-		return st, nil
-	}
-	if err != nil {
+	st, t, err := statusOf(a.tokenFile, a.warn)
+	if t == nil {
 		return st, err
-	}
-	st.LoggedIn = true
-	st.Scope = t.Scope
-	if !t.RefreshObtainedAt.IsZero() {
-		st.LoginAt = t.RefreshObtainedAt
-		st.ExpiresAt = t.RefreshObtainedAt.Add(LoginLifetime)
 	}
 	a.mu.Lock()
 	if t.RefreshToken == a.refused {
@@ -395,6 +388,72 @@ func (a *Auth) Status() (Status, error) {
 	}
 	a.mu.Unlock()
 	return st, nil
+}
+
+// StatusOf reads the token file at tokenFile and describes the login in
+// it, as Auth.Status does, for a caller without the app key and secret that
+// NewAuth needs, such as one that only reports on the login. Empty means
+// DefaultTokenFile. It makes no request to Schwab, and leaves Rejected nil:
+// only the Auth that refreshes a login learns that Schwab refused it. warn,
+// which may be nil, is told what Config.Warn is, such as that a token file
+// that others could read is now private.
+func StatusOf(tokenFile string, warn func(string)) (Status, error) {
+	if tokenFile == "" {
+		var err error
+		if tokenFile, err = DefaultTokenFile(); err != nil {
+			return Status{}, err
+		}
+	}
+	path, err := resolve(tokenFile)
+	if err != nil {
+		return Status{}, fmt.Errorf("finding the token file: %w", err)
+	}
+	st, _, err := statusOf(path, warn)
+	return st, err
+}
+
+// statusOf is StatusOf for path, a token file already resolved, which also
+// returns the login that it read, or nil when there is none.
+func statusOf(path string, warn func(string)) (Status, *token, error) {
+	st := Status{TokenFile: path}
+	t, err := readPrivate(path, warn)
+	if errors.Is(err, ErrNotLoggedIn) {
+		return st, nil, nil
+	}
+	if err != nil {
+		return st, nil, err
+	}
+	st.LoggedIn = true
+	st.Scope = t.Scope
+	if !t.RefreshObtainedAt.IsZero() {
+		st.LoginAt = t.RefreshObtainedAt
+		st.ExpiresAt = t.RefreshObtainedAt.Add(LoginLifetime)
+	}
+	return st, t, nil
+}
+
+// Scrub returns s with the app key, the app secret, and the access and
+// refresh tokens that a last read or saved, replaced by "[app key]", "[app
+// secret]" and "[token]": for text from elsewhere, such as an error's
+// message, that a log line or an answer will show. A caller scrubs text
+// with it, rather than with a copy of the secrets, which stay inside a.
+func (a *Auth) Scrub(s string) string {
+	a.mu.Lock()
+	pairs := [][2]string{{a.cfg.AppKey, "[app key]"}, {a.cfg.AppSecret, "[app secret]"}}
+	if a.tok != nil {
+		pairs = append(pairs, [2]string{a.tok.AccessToken, "[token]"}, [2]string{a.tok.RefreshToken, "[token]"})
+	}
+	a.mu.Unlock()
+	// The longest first, so that a secret that holds another is replaced
+	// whole; a Replacer tries its strings in the order given.
+	slices.SortStableFunc(pairs, func(x, y [2]string) int { return len(y[0]) - len(x[0]) })
+	var olds []string
+	for _, p := range pairs {
+		if p[0] != "" {
+			olds = append(olds, p[0], p[1])
+		}
+	}
+	return strings.NewReplacer(olds...).Replace(s)
 }
 
 // AccessToken returns an access token for Schwab's API. When the last one
@@ -954,18 +1013,25 @@ func (a *Auth) held(l *filelock.Lock, err error) (func(), error) {
 	return nil, err
 }
 
-// read reads the token file. On Linux and macOS a file that others can read,
-// such as one copied in by hand, is made private, with a warning.
-func (a *Auth) read() (*token, error) {
-	t, err := readToken(a.tokenFile)
+// read reads the token file, as readPrivate does.
+func (a *Auth) read() (*token, error) { return readPrivate(a.tokenFile, a.warn) }
+
+// readPrivate reads the token file at path. On Linux and macOS a file that
+// others can read, such as one copied in by hand, is made private, and
+// warn, unless it is nil, is told.
+func readPrivate(path string, warn func(string)) (*token, error) {
+	t, err := readToken(path)
 	if err != nil || runtime.GOOS == "windows" {
 		return t, err
 	}
-	if info, err := os.Stat(a.tokenFile); err == nil && info.Mode().Perm()&0o077 != 0 {
-		if err := os.Chmod(a.tokenFile, 0o600); err != nil {
-			a.warn(fmt.Sprintf("%s can be read by others and could not be made private: %v", a.tokenFile, err))
+	if warn == nil {
+		warn = func(string) {}
+	}
+	if info, err := os.Stat(path); err == nil && info.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(path, 0o600); err != nil {
+			warn(fmt.Sprintf("%s can be read by others and could not be made private: %v", path, err))
 		} else {
-			a.warn(a.tokenFile + " could be read by others; it is now readable only by you")
+			warn(path + " could be read by others; it is now readable only by you")
 		}
 	}
 	return t, nil

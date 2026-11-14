@@ -81,7 +81,7 @@ func (e *Error) Error() string {
 	if e.Tries > 1 {
 		fmt.Fprintf(&b, " after %d tries", e.Tries)
 	}
-	switch said := e.says(); {
+	switch said := e.Said(); {
 	case said != "" && e.Code != "":
 		fmt.Fprintf(&b, ": %s (%s)", said, e.Code)
 	case said != "":
@@ -115,11 +115,13 @@ func (e *Error) Is(target error) bool {
 	return false
 }
 
-// says returns what the body says, short: the message and errors, else what
-// an HTML page is about, else the start of the body. An OAuth error's
-// description is never shown, since it may quote a digest of the token; a
-// message or errors beside its code are.
-func (e *Error) says() string {
+// Said returns what the body says, short, as Error shows it: the message
+// and errors, else what an HTML page is about, else the start of the body.
+// An OAuth error's description is never shown, since it may quote a digest
+// of the token; a message or errors beside its code are. The text is
+// Schwab's, which may quote what the request sent, such as an account
+// number, so a caller that shows it masks it as free text (mask.Text).
+func (e *Error) Said() string {
 	parts := make([]string, 0, 1+len(e.Errors))
 	if e.Message != "" {
 		parts = append(parts, e.Message)

@@ -1243,3 +1243,168 @@ func TestRelativeTokenFileThroughALink(t *testing.T) {
 		t.Errorf("a path that does not exist yet: %s, %v; want %s", st.TokenFile, err, filepath.Join(want, "new.json"))
 	}
 }
+
+// StatusOf reads a token file as Status does, without the app key that an
+// Auth needs: it says the same of every file, makes one that others can
+// read private with the same warning, resolves the file's path the same
+// way, and leaves Rejected to the Auth that refreshes the login.
+func TestStatusOfAgreesWithStatus(t *testing.T) {
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	dir := t.TempDir()
+	logged := filepath.Join(dir, "logged", "token.json")
+	if err := newTestAuth(t, f, logged, c).Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := filepath.Join(dir, "corrupt.json")
+	newer := filepath.Join(dir, "newer.json")
+	for path, content := range map[string]string{corrupt: "{", newer: `{"version":9,"refresh_token":"r"}`} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths := []string{filepath.Join(dir, "none.json"), logged, corrupt, newer}
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(dir, "link")
+		if err := os.Symlink(filepath.Dir(logged), link); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, filepath.Join(link, "token.json"))
+	}
+	for _, path := range paths {
+		var told []string
+		a, err := NewAuth(Config{
+			AppKey: testKey, AppSecret: testSecret, BaseURL: f.URL(), TokenFile: path, Now: c.Now,
+			Warn: func(msg string) { told = append(told, "Status: "+msg) },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if runtime.GOOS != "windows" && path == logged {
+			if err := os.Chmod(logged, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want, wantErr := a.Status()
+		if runtime.GOOS != "windows" && path == logged {
+			if err := os.Chmod(logged, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := StatusOf(path, func(msg string) { told = append(told, "StatusOf: "+msg) })
+		if !sameStatus(got, want) || fmt.Sprint(err) != fmt.Sprint(wantErr) {
+			t.Errorf("%s: StatusOf = %+v, %v; Status = %+v, %v", path, got, err, want, wantErr)
+		}
+		if path == logged && runtime.GOOS != "windows" {
+			if len(told) != 2 || strings.TrimPrefix(told[0], "Status: ") != strings.TrimPrefix(told[1], "StatusOf: ") ||
+				told[1] != "StatusOf: "+got.TokenFile+" could be read by others; it is now readable only by you" {
+				t.Errorf("%s: told %q, want the same warning from each", path, told)
+			}
+			if info, err := os.Stat(logged); err != nil || info.Mode().Perm() != 0o600 {
+				t.Errorf("after StatusOf the token file's mode is %v (%v), want 0600", info.Mode().Perm(), err)
+			}
+		} else if len(told) != 0 {
+			t.Errorf("%s: told %q", path, told)
+		}
+		if path == logged && (!got.LoggedIn || !got.ExpiresAt.Equal(testNow.Add(LoginLifetime))) {
+			t.Errorf("the login: %+v", got)
+		}
+	}
+	// StatusOf does not know that Schwab refused the login, which the Auth
+	// that tried to refresh it does.
+	lapsed := filepath.Join(dir, "lapsed.json")
+	writeTestToken(t, lapsed, token{AccessToken: "old", RefreshToken: "lapsed", AccessExpiresAt: testNow.Add(-time.Hour), RefreshObtainedAt: testNow.Add(-8 * 24 * time.Hour)})
+	a := newTestAuth(t, f, lapsed, c)
+	if _, err := a.AccessToken(t.Context()); !errors.Is(err, ErrLoginExpired) {
+		t.Fatalf("AccessToken: %v, want ErrLoginExpired", err)
+	}
+	st, err := a.Status()
+	if err != nil || !errors.Is(st.Rejected, ErrLoginExpired) {
+		t.Fatalf("Status: %+v, %v", st, err)
+	}
+	st.Rejected = nil
+	if got, err := StatusOf(lapsed, nil); err != nil || !sameStatus(got, st) {
+		t.Errorf("StatusOf = %+v, %v; want %+v", got, err, st)
+	}
+}
+
+// sameStatus reports whether a and b describe the same login, with their
+// times at the same instants and the same refusal, or none.
+func sameStatus(a, b Status) bool {
+	return a.TokenFile == b.TokenFile && a.LoggedIn == b.LoggedIn && a.LoginAt.Equal(b.LoginAt) && a.ExpiresAt.Equal(b.ExpiresAt) &&
+		a.Scope == b.Scope && fmt.Sprint(a.Rejected) == fmt.Sprint(b.Rejected)
+}
+
+// StatusOf of no file reads the default token file, as an Auth does.
+func TestStatusOfTheDefaultTokenFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)            // macOS
+	t.Setenv("XDG_CONFIG_HOME", home) // Linux and other Unix systems
+	t.Setenv("AppData", home)         // Windows
+	a, err := NewAuth(Config{AppKey: testKey, AppSecret: testSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := a.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := StatusOf("", nil); err != nil || !sameStatus(got, want) || got.LoggedIn {
+		t.Errorf("StatusOf = %+v, %v; want %+v", got, err, want)
+	}
+}
+
+// Auth.Scrub replaces the app key and secret, and the tokens that the Auth
+// last read or saved, the longest first, and leaves the rest of the text as
+// it is.
+func TestAuthScrub(t *testing.T) {
+	f := newFakeOAuth(t)
+	c := &clock{now: testNow}
+	a := newTestAuth(t, f, filepath.Join(t.TempDir(), "token.json"), c)
+	line := func(n int) string {
+		return "key " + testKey + ", secret " + testSecret + ", tokens " + schwabtest.AccessToken(n) + " and " + schwabtest.RefreshToken(n)
+	}
+	// Before a login there are no tokens to know.
+	if got, want := a.Scrub(line(1)), "key [app key], secret [app secret], tokens "+schwabtest.AccessToken(1)+" and "+schwabtest.RefreshToken(1); got != want {
+		t.Errorf("before a login: %q, want %q", got, want)
+	}
+	if err := a.Login(t.Context(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := a.Scrub(line(1)), "key [app key], secret [app secret], tokens [token] and [token]"; got != want {
+		t.Errorf("after the login: %q, want %q", got, want)
+	}
+	f.SetRotate(true)
+	c.advance(time.Hour)
+	if tok, err := a.AccessToken(t.Context()); err != nil || tok != schwabtest.AccessToken(2) {
+		t.Fatalf("AccessToken: %q, %v", tok, err)
+	}
+	if got, want := a.Scrub(line(2)), "key [app key], secret [app secret], tokens [token] and [token]"; got != want {
+		t.Errorf("after a refresh: %q, want %q", got, want)
+	}
+	for _, s := range []string{"", "nothing secret", "[token]"} {
+		if got := a.Scrub(s); got != s {
+			t.Errorf("Scrub(%q) = %q", s, got)
+		}
+	}
+	// A token that the file holds empty replaces nothing.
+	empty := filepath.Join(t.TempDir(), "token.json")
+	writeTestToken(t, empty, token{RefreshToken: "lapsed", AccessExpiresAt: testNow.Add(-time.Hour), RefreshObtainedAt: testNow.Add(-8 * 24 * time.Hour)})
+	e := newTestAuth(t, f, empty, c)
+	if _, err := e.AccessToken(t.Context()); !errors.Is(err, ErrLoginExpired) {
+		t.Fatalf("AccessToken: %v, want ErrLoginExpired", err)
+	}
+	if got := e.Scrub("lapsed, and the rest"); got != "[token], and the rest" {
+		t.Errorf("with an empty access token: %q", got)
+	}
+	// A secret that starts with another, or holds it, is replaced whole.
+	for _, key := range []string{testSecret + "-key", "key-" + testSecret + "-0"} {
+		b, err := NewAuth(Config{AppKey: key, AppSecret: testSecret, TokenFile: filepath.Join(t.TempDir(), "token.json")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := b.Scrub(key+", "+testSecret), "[app key], [app secret]"; got != want {
+			t.Errorf("a key that holds the secret: %q, want %q", got, want)
+		}
+	}
+}

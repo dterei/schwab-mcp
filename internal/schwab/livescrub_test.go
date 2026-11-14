@@ -864,17 +864,17 @@ func errorCode(code string) string {
 // parameter, header or attributes at fault.
 var errorSource = regexp.MustCompile(`^(.+) \((parameter|header|at) (.+)\)$`)
 
-// errorSays returns what e says, as says gives it, for the report: a
+// errorSays returns what e says, as Said gives it, for the report: a
 // message of Schwab's wording as it is, since it names no one, and any
 // other text, its message, its errors or what its page says, marked by said,
 // as Schwab's own words that can quote a nickname or a symbol. The words
-// that says and errorList put around Schwab's stay outside the marks, as
+// that Said and errorList put around Schwab's stay outside the marks, as
 // the run's own do, so that a nickname or a symbol spelled as one of them
 // never shows as a label in words a reader knows: "an HTML page" before
 // what a page is about, and "(parameter", "(header" or "(at" before the
 // source at fault after an entry's detail, with its ")".
 func errorSays(e *Error) string {
-	says := e.says()
+	says := e.Said()
 	var parts []string
 	if e.Message != "" {
 		parts = append(parts, e.Message)

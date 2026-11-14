@@ -2,6 +2,7 @@ package schwab
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -209,5 +210,37 @@ func TestErrorKeepsTheHeader(t *testing.T) {
 	}
 	if header.Get("Set-Cookie") == "" {
 		t.Error("the response's own header lost its cookie")
+	}
+}
+
+// Said is what Error shows of Schwab's words: the message and errors, what
+// a page is about or the start of the body, and never an OAuth error's
+// description, which may quote a digest of the token.
+func TestSaid(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, said string
+		status           int
+	}{
+		{
+			"a message and errors", `{"message":"Invalid date range","errors":["startDate must be before endDate"]}`,
+			"Invalid date range; startDate must be before endDate", http.StatusBadRequest,
+		},
+		{
+			"Market Data's errors", `{"errors":[{"status":"400","detail":"Missing header","source":{"header":"Authorization"}}]}`,
+			"Missing header (header Authorization)", http.StatusBadRequest,
+		},
+		{"an OAuth error", `{"error":"invalid_grant","error_description":"Exception [tokenDigest=abc]"}`, "", http.StatusBadRequest},
+		{"a message beside an OAuth code", `{"error":"invalid_client","message":"Unauthorized"}`, "Unauthorized", http.StatusUnauthorized},
+		{"an HTML page", string(schwabtest.Fixture(t, "errors/akamai_403.html")), "an HTML page, Access Denied", http.StatusForbidden},
+		{"plain text", "  oops  ", "oops", http.StatusInternalServerError},
+		{"no body", "", "", http.StatusServiceUnavailable},
+	} {
+		e := newError(tc.status, http.Header{}, []byte(tc.body))
+		if got := e.Said(); got != tc.said {
+			t.Errorf("%s: Said() = %q, want %q", tc.name, got, tc.said)
+		}
+		if tc.said != "" && !strings.HasPrefix(e.Error(), fmt.Sprintf("HTTP %d from Schwab: %s", tc.status, tc.said)) {
+			t.Errorf("%s: Error() = %q, which does not show %q", tc.name, e.Error(), tc.said)
+		}
 	}
 }

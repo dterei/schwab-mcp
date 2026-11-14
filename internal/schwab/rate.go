@@ -205,11 +205,11 @@ func limiterFor(path string) *limiter {
 	return l
 }
 
-// defaultRateFile returns where the rate limit for appKey is kept: in the
-// user cache directory, which stays on this computer where the config
-// directory may roam, named by a hash of the key. Without a cache directory
-// it is kept next to tokenFile.
-func defaultRateFile(appKey, tokenFile string) string {
+// DefaultRateFile returns where the rate limit for appKey is kept unless
+// ClientConfig says otherwise: in the user cache directory, which stays on
+// this computer where the config directory may roam, named by a hash of the
+// key. Without a cache directory it is kept next to tokenFile.
+func DefaultRateFile(appKey, tokenFile string) string {
 	sum := sha256.Sum256([]byte(appKey))
 	name := "rate-" + hex.EncodeToString(sum[:8])
 	if dir, err := os.UserCacheDir(); err == nil {

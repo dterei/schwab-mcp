@@ -37,8 +37,8 @@ type ClientConfig struct {
 	// a minute's worth, RatePerMinute + 1. Zero means DefaultBurst.
 	Burst int
 	// RateFile is where the processes keep the rate limit they share. Empty
-	// means a file named for the app key in the user cache directory,
-	// schwabtx/rate-<hash>.
+	// means DefaultRateFile: a file named for the app key in the user cache
+	// directory, schwabtx/rate-<hash>.
 	RateFile string
 	// Tries is how many times a read is sent before its failure is returned.
 	// Zero means 4.
@@ -84,7 +84,7 @@ func NewClient(a *Auth, cfg ClientConfig) *Client {
 	burst = min(burst, rate+1) // a tolerance of at most a minute, as maxLead takes
 	rateFile := cfg.RateFile
 	if rateFile == "" {
-		rateFile = defaultRateFile(a.cfg.AppKey, a.tokenFile)
+		rateFile = DefaultRateFile(a.cfg.AppKey, a.tokenFile)
 	}
 	if resolved, err := resolve(rateFile); err == nil {
 		rateFile = resolved
