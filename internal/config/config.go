@@ -106,9 +106,10 @@ func (e *RelativePathError) Error() string {
 // Read reads the config file at path. A missing file is the zero File and
 // ErrMissing. A file of a newer version is ErrNewer. A file with a
 // relative path in it is a *RelativePathError, and the File is the rest of
-// the file, without those paths, for a caller that can use it. The file's
-// text is never in an error, and neither is the path, which the caller
-// holds.
+// the file, without those paths, for a caller that can use it. A field's
+// name matches in any case, as encoding/json matches it, so that
+// "Token_File" is token_file. The file's text is never in an error, and
+// neither is the path, which the caller holds.
 func Read(path string) (File, error) {
 	var b []byte
 	err := retry(func() (err error) {
@@ -131,8 +132,13 @@ func Read(path string) (File, error) {
 	if err := json.Unmarshal(b, &f.other); err != nil {
 		return File{}, notRead(err)
 	}
-	for _, name := range fields {
-		delete(f.other, name)
+	// encoding/json reads a known field under its name in any case, as
+	// "Token_File", so that name is the field's, not one to keep beside it,
+	// which Save would write after the field and the next Read take for it.
+	for name := range f.other {
+		if slices.ContainsFunc(fields, func(field string) bool { return strings.EqualFold(field, name) }) {
+			delete(f.other, name)
+		}
 	}
 	for _, v := range []*string{&f.AppKey, &f.AppSecret, &f.BaseURL, &f.TokenFile, &f.StoreFile, &f.RateFile} {
 		*v = strings.TrimSpace(*v)

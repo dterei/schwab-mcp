@@ -182,6 +182,24 @@ func TestSetupKeepsTheSavedApp(t *testing.T) {
 	if got := readSaved(t); got.AppKey != testKey || got.AppSecret != testSecret || !filepath.IsAbs(got.TokenFile) {
 		t.Errorf("saved %+v", got)
 	}
+
+	// A field that config.json spells in another case, as a file edited by
+	// hand may, is that field, which setup replaces: schwabtx then reads the
+	// secret that setup saved, and the server the token file.
+	if err := os.WriteFile(configPath(t), []byte(`{"version":1,"App_Key":"`+testKey+`","App_Secret":"old-secret","Token_File":"token.json"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCHWAB_APP_SECRET", testSecret)
+	if _, _, err := runTx(t, "setup"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCHWAB_APP_SECRET", "")
+	if cfg, err := loadConfig(); err != nil || cfg.AppKey != testKey || cfg.AppSecret != testSecret {
+		t.Errorf("after setup over App_Secret: %v, the key %q and the secret %q", err, cfg.AppKey, cfg.AppSecret)
+	}
+	if c := configfile.ForServer(func(string) string { return "" }, configPath(t)); !filepath.IsAbs(c.TokenFile.Value) || c.TokenFile.From != configfile.FromFile || len(c.Problems) != 0 {
+		t.Errorf("after setup over Token_File, the server would read %+v", c)
+	}
 }
 
 // setup refuses, and saves nothing, without a key and secret, over a file

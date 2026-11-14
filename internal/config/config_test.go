@@ -124,7 +124,8 @@ func equalFiles(a, b File) bool {
 }
 
 // A field that this build does not know, as a newer schwabtx of the same
-// version may write, is kept by Save, as it was, after the known ones.
+// version may write, is kept by Save, as it was, after the known ones; a
+// known field spelled in another case is not one of them.
 func TestSaveKeepsUnknownFields(t *testing.T) {
 	path := writeConfig(t, `{"zone":"a<b>&c","version":1,"d":4,"app_key":"`+testKey+`","later":{"list":[1,2],"on":true},"b":2,"c":3}`)
 	f, err := Read(path)
@@ -160,6 +161,35 @@ func TestSaveKeepsUnknownFields(t *testing.T) {
 	}
 	if again, err := Read(path); err != nil || !equalFiles(again, f) || len(again.other) != 5 {
 		t.Errorf("read back %+v, %v; want %+v", again, err, f)
+	}
+
+	// A known field's name in another case, as a file edited by hand may
+	// spell it, is that field, as encoding/json matches names, and not a
+	// field to keep beside it: Save writes it once, by its own name, so that
+	// what was saved is what is read back.
+	rate := filepath.Join(t.TempDir(), "rate-3f9a0c1d2e4b5a69")
+	path = writeConfig(t, `{"version":1,"App_Secret":"old-secret","Token_File":"token.json","RATE_FILE":"`+quoted(rate)+`","later":1}`)
+	f, err = Read(path)
+	if rel, ok := errors.AsType[*RelativePathError](err); !ok || rel.Paths["token_file"] != "token.json" || f.AppSecret != "old-secret" ||
+		f.RateFile != rate || len(f.other) != 1 {
+		t.Fatalf("Read: %+v, %v; want the secret, the rate file, a RelativePathError of token_file and one field it does not know", f, err)
+	}
+	f.AppSecret, f.TokenFile, f.RateFile = testSecret, filepath.Join(t.TempDir(), "token.json"), ""
+	if err := Save(path, f); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Read(path)
+	if err != nil || !equalFiles(again, f) {
+		t.Errorf("read back %+v, %v; want %+v", again, err, f)
+	}
+	b, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, old := range []string{"App_Secret", "old-secret", "Token_File", "RATE_FILE", "rate-3f9a0c1d2e4b5a69"} {
+		if bytes.Contains(b, []byte(old)) {
+			t.Errorf("Save wrote\n%s\nwhich holds %s", b, old)
+		}
 	}
 }
 
