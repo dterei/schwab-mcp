@@ -421,9 +421,12 @@ func totalsText(totals []CategoryTotal) string {
 // 2025-01-20 and its API from 2025-01-14 to 2026-08-03, and ...783's API
 // 2025-02-03 to 2025-12-30. The coverage, waiting counts and last reads of
 // every listed account come back either way, and an account not marked is
-// read whatever its coverage. An account's last read is that of its
-// transactions that Schwab answered, which neither a later read of another
-// endpoint nor a later refusal moves.
+// read whatever its coverage. An account's last read is the latest answer
+// to a read of its transactions, or the latest import of a -json file of
+// them: ...135's is the read answered on 2025-07-01, though one answered
+// before it was recorded after it, and ...783's the -json file imported
+// now. Neither a later read of another endpoint nor a later refusal moves
+// it.
 func TestLedgerChoosesWhole(t *testing.T) {
 	t.Parallel()
 	path := readerCopy(t)
@@ -434,12 +437,21 @@ func TestLedgerChoosesWhole(t *testing.T) {
 		`INSERT INTO api_read (endpoint, account_id, window_start, window_end, sent_at, answered_at, outcome, http_status)
 			VALUES ('transactions', 2, '2026-01-01T05:00:00.000Z', '2026-02-01T05:00:00.000Z', '2026-11-02T00:00:00.000Z',
 			'2026-11-02T00:00:01.000Z', 'refused', 400)`,
+		`INSERT INTO api_read (endpoint, account_id, window_start, window_end, sent_at, answered_at, outcome)
+			VALUES ('transactions', 1, '2025-06-01T04:00:00.000Z', '2025-07-01T04:00:00.000Z', '2025-07-01T00:00:00.000Z',
+			'2025-07-01T00:00:01.000Z', 'answered')`,
+		`INSERT INTO api_read (endpoint, account_id, window_start, window_end, sent_at, answered_at, outcome)
+			VALUES ('transactions', 1, '2025-06-01T04:00:00.000Z', '2025-06-15T04:00:00.000Z', '2025-06-15T00:00:00.000Z',
+			'2025-06-15T00:00:01.000Z', 'answered')`,
 	} {
 		if _, err := db.ExecContext(t.Context(), q); err != nil {
 			t.Fatal(err)
 		}
 	}
 	db.Close()
+	// ...783's -json file, of a row that the store holds.
+	importFiles(t, openStoreAt(t, path), ImportOptions{}, "transactions.json", cliJSON(t, readerRaw(empty, 7770003,
+		time.Date(2025, 6, 30, 21, 0, 0, 0, nytime.NewYork()), "DIVIDEND_OR_INTEREST", 0.123, "Free Balance Interest Adjustment", "")))
 	r := openReader(t, path)
 	accounts, ids := readerAccounts(t, r, true)
 	for _, tc := range []struct {
@@ -496,9 +508,9 @@ func TestLedgerChoosesWhole(t *testing.T) {
 		t.Errorf("the coverage is %+v and read %v; want %+v and the first and last accounts", p.Coverage, p.Read, want)
 	}
 	wantReads := []AccountRead{
-		{ids[individual], day(2025, 6, 3).Add(time.Second)},
+		{ids[individual], day(2025, 7, 1).Add(time.Second)},
 		{ids[options], day(2026, 8, 5).Add(time.Second)},
-		{ids[empty], day(2026, 1, 2).Add(time.Second)},
+		{ids[empty], testNow},
 	}
 	if !slices.EqualFunc(p.Reads, wantReads, func(a, b AccountRead) bool { return a.AccountID == b.AccountID && a.AnsweredAt.Equal(b.AnsweredAt) }) {
 		t.Errorf("the last reads are %+v, want %+v", p.Reads, wantReads)
