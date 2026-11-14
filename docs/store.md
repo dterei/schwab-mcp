@@ -1374,6 +1374,10 @@ and the export after you decide one writes it.
   (Schwab sends a delisted security's CUSIP for its symbol, and files write
   bonds and a corporate action's old side under one). A security is
   **delisted** when its latest symbol is a CUSIP but it had a ticker before.
+  The latest symbol is the one seen last; of two seen at one instant, the
+  ticker, since a History file dates every symbol it holds by its export,
+  so that a spin-off's first row, under its CUSIP, and its later ones,
+  under its ticker, tie, while the security trades under the ticker.
   Class shares take Yahoo's form, which both tools' feeds use (`BRK.B`,
   `BRK/B` and `BRK B` are `BRK-B`).
 - **CUSIP**, written as PP's WKN, which is how PP's own importers of US
@@ -1396,17 +1400,21 @@ and the export after you decide one writes it.
 - **One security under several keys.** The store joins two keys only when
   they had one symbol at times that overlap, so a security that a History
   file's rows and the API's rows name stays two when their years do not
-  meet, often with a CUSIP under one of them only, and only the API's key
-  learns that it was renamed or delisted. The exports take for one the
-  store's securities that share a CUSIP, the options of one OCC symbol, and
-  those that have had a ticker alike in Yahoo's form, when those that had
-  it know one CUSIP at most, and write each key's rows with what they have
-  had together: the latest ticker, the CUSIP, delisted when any key is, the
-  description seen first. Each tool then holds it as one: one row of PP's
-  `securities.csv`, found by one ticker or WKN, one Ghostfolio asset, one
-  holding to check. A ticker that securities of two CUSIPs have had joins
-  none of them, and each is known by its CUSIP; `schwabtx edit K:… -same
-  K:…` joins two keys in the store itself, when the export cannot tell.
+  meet, often with a CUSIP under one of them only, and one key alone learns
+  that it was renamed or delisted: the API's, or a later History file's. The
+  exports take for one the store's securities that share a CUSIP, the
+  options of one OCC symbol, and those that have had a ticker alike in
+  Yahoo's form, when those that had it know one CUSIP at most, and write
+  each key's rows with what they have had together: the CUSIP, the
+  description seen first, and the symbols, each as of when any key saw it
+  last, so that the ticker is the one that any key saw last, and the
+  security is delisted when the symbol that any key saw last is a CUSIP,
+  never because one key alone reads so. Each tool then holds it as one: one
+  row of PP's `securities.csv`, found by one ticker or WKN, one Ghostfolio
+  asset, one holding to check. A ticker that securities of two CUSIPs have
+  had joins none of them, and each is known by its CUSIP; `schwabtx edit K:…
+  -same K:…` joins two keys in the store itself, when the export cannot
+  tell.
 - **Options.** In PP an option's ticker is its OCC symbol in compact form,
   `XYZ250221P00040000`, the form Yahoo uses, and a futures option's is its
   symbol; in Ghostfolio every option is a MANUAL asset, since Yahoo's search

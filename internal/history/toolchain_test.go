@@ -2130,14 +2130,14 @@ func TestToolReimport(t *testing.T) {
 
 	t.Run("a security of two keys delisted", func(t *testing.T) {
 		t.Parallel()
-		// Bought under a History file's key and sold under the API's, which
-		// knows the CUSIP; then the API's key is delisted, as only it
-		// learns, and pays a dividend. Ghostfolio's two rows, of one YAHOO
+		// Bought under a History file's key, of a file exported before the
+		// API's rows, and sold under the API's, which knows the CUSIP; then
+		// the API's key is delisted, as only it learns, and pays a dividend. Ghostfolio's two rows, of one YAHOO
 		// asset before, are changed to one MANUAL asset, and the dividend is
 		// of it too, whose investment it has; PP finds both by their WKN, as
 		// before, and holds them as they were.
-		before := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106"}.toolCase().in
-		after := twoKeys{api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106"}.toolCase().in
+		before := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", filed: tcFiledEarly}.toolCase().in
+		after := twoKeys{api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", filed: tcFiledEarly}.toolCase().in
 		before.to, before.positions, before.snapshots = "2026-03-31", nil, nil
 		dividend := rcCash("T61002898", 1, "2026-09-15 10:00:00", "DIVIDEND_OR_INTEREST", "Ordinary Dividend~ZZJ12K106", "dividend", 300)
 		dividend.securityKey, dividend.symbol = keyTwoAPI, "ZZJ12K106"

@@ -700,8 +700,8 @@ type toolSecurity struct {
 	// assetType is Schwab's asset type of it, "" for none; OPTION for a row
 	// without a key whose symbol names a contract.
 	assetType string
-	// symbols are every symbol it has had, the latest first, and tickers
-	// those of them that are not CUSIPs.
+	// symbols are every symbol it has had, the latest first (symbolOrder),
+	// and tickers those of them that are not CUSIPs.
 	symbols, tickers []string
 	// cusip is its CUSIP, "" when the store knows none.
 	cusip string
@@ -985,6 +985,22 @@ func newToolIndex(in *toolInput) *toolIndex {
 // file or you spell it.
 func symbolForm(symbol string) string { return yahooForm(strings.ToUpper(strings.TrimSpace(symbol))) }
 
+// symbolOrder orders names of kind symbol as the export takes a security's
+// symbols, the latest first (3.5 of the design; Q5's order): by when each
+// was seen last; of one instant, a ticker before a CUSIP, since a History
+// file dates every name that it holds by its export, so that the CUSIP of a
+// spin-off's first row and the ticker of its later rows tie, and the
+// security trades under the ticker; then by value.
+func symbolOrder(a, b toolName) int {
+	cusip := func(n toolName) int {
+		if schwab.IsCUSIP(n.value) {
+			return 1
+		}
+		return 0
+	}
+	return cmp.Or(b.lastSeen.Compare(a.lastSeen), cmp.Compare(cusip(a), cusip(b)), cmp.Compare(a.value, b.value))
+}
+
 // A rowKey names a ledger row: its account's id and its ref.
 type rowKey struct {
 	account int64
@@ -1061,9 +1077,7 @@ func (ix *toolIndex) base(key, symbol string) *toolSecurity {
 				}
 			}
 		}
-		slices.SortFunc(symbols, func(a, b toolName) int {
-			return cmp.Or(b.lastSeen.Compare(a.lastSeen), cmp.Compare(a.value, b.value))
-		})
+		slices.SortFunc(symbols, symbolOrder)
 		for _, n := range symbols {
 			if !slices.Contains(s.symbols, n.value) {
 				s.symbols = append(s.symbols, n.value)
@@ -1100,7 +1114,7 @@ func (ix *toolIndex) base(key, symbol string) *toolSecurity {
 	if schwab.IsCUSIP(row.cusip) {
 		s.cusip = row.cusip
 	}
-	s.delisted = schwab.IsCUSIP(s.symbol) && len(s.tickers) > 0
+	s.delisted = len(s.symbols) > 0 && schwab.IsCUSIP(s.symbols[0]) && len(s.tickers) > 0
 	s.bond = s.assetType == "FIXED_INCOME" || s.assetType == "" && allCUSIPs
 	if s.name == "" && len(s.tickers) == 0 && s.cusip == "" {
 		s.name = s.symbol
@@ -1129,10 +1143,13 @@ func (ix *toolIndex) base(key, symbol string) *toolSecurity {
 
 // join returns a security of its own made from b, as base makes it, with
 // what the store's securities of its group have had (groupAll), so that each
-// of them is written alike: their symbols and tickers, the first's first,
-// their CUSIP and asset type, delisted when any of them is, a bond by those,
-// and the description that the store saw first of any of them; and whether
-// its ticker is one that a security of another group has had too.
+// of them is written alike: their symbols and tickers, in the order of one
+// security's, each by when any of them saw it last, so that the latest
+// ticker is the one that any of them saw last; their CUSIP and asset type;
+// delisted when the latest of those symbols is a CUSIP, as of one security,
+// never because one of them alone reads so; a bond by those; and the
+// description that the store saw first of any of them; and whether its
+// ticker is one that a security of another group has had too.
 func (ix *toolIndex) join(b *toolSecurity) *toolSecurity {
 	ix.groupAll()
 	s := new(toolSecurity)
@@ -1144,25 +1161,49 @@ func (ix *toolIndex) join(b *toolSecurity) *toolSecurity {
 	}
 	s.rep = members[0]
 	if len(members) > 1 {
-		s.symbols, s.tickers, s.cusip, s.assetType, s.delisted = nil, nil, "", "", false
+		s.symbols, s.tickers, s.cusip, s.assetType = nil, nil, "", ""
 		var named *toolSecurity
 		for _, m := range members {
-			for _, sym := range m.symbols {
-				if !slices.Contains(s.symbols, sym) {
-					s.symbols = append(s.symbols, sym)
-				}
-			}
-			for _, t := range m.tickers {
-				if !slices.Contains(s.tickers, t) {
-					s.tickers = append(s.tickers, t)
-				}
-			}
-			s.cusip, s.assetType, s.delisted = cmp.Or(s.cusip, m.cusip), cmp.Or(s.assetType, m.assetType), s.delisted || m.delisted
+			s.cusip, s.assetType = cmp.Or(s.cusip, m.cusip), cmp.Or(s.assetType, m.assetType)
 			if m.described && (named == nil || m.nameSeen.Before(named.nameSeen) || m.nameSeen.Equal(named.nameSeen) && m.name < named.name) {
 				named = m
 			}
 		}
-		s.bond = s.assetType == "FIXED_INCOME" || s.assetType == "" && !slices.ContainsFunc(s.symbols, func(sym string) bool { return !schwab.IsCUSIP(sym) })
+		// Their symbols in the order of one security's (symbolOrder), each
+		// by when any of them saw it last; a symbol that none has a name of
+		// stands, unseen, after those seen.
+		last := map[string]time.Time{}
+		for _, m := range members {
+			seen := false
+			if m.key != "" {
+				for _, n := range ix.names[m.key] {
+					if n.kind == "symbol" {
+						seen = true
+						if t, ok := last[n.value]; !ok || n.lastSeen.After(t) {
+							last[n.value] = n.lastSeen
+						}
+					}
+				}
+			}
+			for _, sym := range m.symbols {
+				if _, ok := last[sym]; !ok && !seen {
+					last[sym] = time.Time{}
+				}
+			}
+		}
+		symbols := make([]toolName, 0, len(last))
+		for v, t := range last {
+			symbols = append(symbols, toolName{value: v, lastSeen: t})
+		}
+		slices.SortFunc(symbols, symbolOrder)
+		for _, n := range symbols {
+			s.symbols = append(s.symbols, n.value)
+			if !schwab.IsCUSIP(n.value) {
+				s.tickers = append(s.tickers, n.value)
+			}
+		}
+		s.delisted = len(s.symbols) > 0 && schwab.IsCUSIP(s.symbols[0]) && len(s.tickers) > 0
+		s.bond = s.assetType == "FIXED_INCOME" || s.assetType == "" && len(s.tickers) == 0
 		// Every security of a group has a ticker or a CUSIP, which it joins
 		// by, so none is named by its symbol for want of both.
 		s.name, s.described = "", false

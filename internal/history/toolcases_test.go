@@ -1476,18 +1476,28 @@ func toolCaseIdle() toolCase {
 // A twoKeys is a variant of the case two_keys: the symbols that the API's
 // key and the file's key have had, oldest first; the CUSIP that the store
 // knows of each key, "" for none; their descriptions, "" for the case's;
-// the symbol that -manual names, "" for none; and what the one security of
-// the two keys is: its identity, why Ghostfolio gets it as a MANUAL asset
-// ("" for YAHOO), and whether its symbol has changed.
+// when the History file was exported, which dates every name of the file's
+// key, the zero time for the case's 2026-11-11; the symbol that -manual
+// names, "" for none; and what the one security of the two keys is: its
+// identity, why Ghostfolio gets it as a MANUAL asset ("" for YAHOO), and
+// whether its symbol has changed. A file names its rows by the ticker of
+// its export, so a security that only the API's key saw renamed or
+// delisted is of a file exported before that.
 type twoKeys struct {
 	name                string
 	api, file           []string
 	apiCUSIP, fileCUSIP string
 	apiName, fileName   string
+	filed               time.Time
 	manual              string
 	identity, why       string
 	changed             bool
 }
+
+// tcFiledEarly is when a twoKeys variant's History file is exported when it
+// comes before every name of the API's key, which the API's key saw first on
+// the day of its sale, 2026-03-16.
+var tcFiledEarly = tcNY("2026-01-15 09:00:00")
 
 // toolCase returns the case two_keys with v's symbols, CUSIPs, descriptions
 // and -manual: the API's key had its first symbol on the day of its sale
@@ -1510,7 +1520,7 @@ func (v twoKeys) toolCase() toolCase {
 		}
 	}
 	c.in.names = slices.DeleteFunc(slices.Clone(c.in.names), func(n toolName) bool { return n.key == keyTwoAPI || n.key == keyTwoFile })
-	sold, filed := tcNY("2026-03-16 10:00:00"), tcNY("2026-11-11 09:00:00")
+	sold, filed := tcNY("2026-03-16 10:00:00"), cmp.Or(v.filed, tcNY("2026-11-11 09:00:00"))
 	for i, s := range v.api {
 		seen := sold.AddDate(0, i, 0)
 		c.in.names = append(c.in.names, toolName{key: keyTwoAPI, kind: "symbol", value: s, firstSeen: seen, lastSeen: seen})
