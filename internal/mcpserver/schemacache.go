@@ -14,31 +14,71 @@ import (
 type toolSchemas struct {
 	in, out       *jsonschema.Schema
 	inRes, outRes *jsonschema.Resolved
-	// args are the definition's rules, kept so that the map, whose address
-	// is in the key, is not freed and its address used again.
+	// args are the rules the schemas were built from, which a definition's
+	// must equal, by value, for these to be its schemas.
 	args map[string]argRule
 }
 
-// A schemaKey names a tool's schemas: its name, its types and its rules'
-// map, by address.
+// A schemaKey names a tool's schemas but for its rules: its name and its
+// types.
 type schemaKey struct {
 	name    string
 	in, out reflect.Type
-	args    uintptr
 }
 
-// builtSchemas are the schemas built so far, by schemaKey. A definition's
-// schemas are the same for every server, and building them costs more than
-// the rest of New: the tests, which make a server each, build each tool's
-// once.
-var builtSchemas sync.Map
+// A schemaCache holds the schemas built so far, by schemaKey, each with the
+// rules they were built from. Rules are compared by value, not by their
+// map: a tool file may make its rules anew for each server, as
+// registerAccounts makes get_positions', bounds' pointers and all.
+type schemaCache struct {
+	mu sync.Mutex
+	m  map[schemaKey][]*toolSchemas
+}
+
+// builtSchemas are the schemas built so far. A definition's schemas are the
+// same for every server, and building them costs more than the rest of New:
+// the tests, which make a server each, build each tool's once.
+var builtSchemas schemaCache
+
+// built returns the schemas of k built from rules equal to args, or nil.
+func (sc *schemaCache) built(k schemaKey, args map[string]argRule) *toolSchemas {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.find(k, args)
+}
+
+// keep keeps sch as the schemas of k built from sch.args, unless another
+// server kept equal ones first, and returns the schemas it keeps.
+func (sc *schemaCache) keep(k schemaKey, sch *toolSchemas) *toolSchemas {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	if kept := sc.find(k, sch.args); kept != nil {
+		return kept
+	}
+	if sc.m == nil {
+		sc.m = map[schemaKey][]*toolSchemas{}
+	}
+	sc.m[k] = append(sc.m[k], sch)
+	return sch
+}
+
+// find returns the schemas of k built from rules equal to args, or nil. It
+// is called with sc.mu held.
+func (sc *schemaCache) find(k schemaKey, args map[string]argRule) *toolSchemas {
+	for _, sch := range sc.m[k] {
+		if reflect.DeepEqual(sch.args, args) {
+			return sch
+		}
+	}
+	return nil
+}
 
 // schemasOf returns the schemas of a tool of def, In and Out, built once,
 // or why the tool is bad.
 func schemasOf[In, Out any](def toolDef) (*toolSchemas, error) {
-	k := schemaKey{name: def.name, in: reflect.TypeFor[In](), out: reflect.TypeFor[Out](), args: reflect.ValueOf(def.args).Pointer()}
-	if v, ok := builtSchemas.Load(k); ok {
-		return v.(*toolSchemas), nil
+	k := schemaKey{name: def.name, in: reflect.TypeFor[In](), out: reflect.TypeFor[Out]()}
+	if sch := builtSchemas.built(k, def.args); sch != nil {
+		return sch, nil
 	}
 	in, err := inputSchema[In](def)
 	if err != nil {
@@ -75,6 +115,5 @@ func schemasOf[In, Out any](def toolDef) (*toolSchemas, error) {
 	if sch.outRes, err = out.Resolve(nil); err != nil {
 		return nil, fmt.Errorf("resolving the output schema of %s: %w", def.name, err)
 	}
-	v, _ := builtSchemas.LoadOrStore(k, sch)
-	return v.(*toolSchemas), nil
+	return builtSchemas.keep(k, sch), nil
 }
