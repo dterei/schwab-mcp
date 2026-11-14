@@ -218,6 +218,8 @@ const (
 	keyBondT  = "i:1000010"
 	keyOptCU  = "i:1000011"
 	keyClass2 = "i:1000012"
+	keySix    = "i:1000014"
+	keySeven  = "i:1000015"
 	// One security that the store holds under two keys, a History file's
 	// and the API's, as it does when nothing joins them (two_keys).
 	keyTwoFile = "x:66000017"
@@ -310,6 +312,10 @@ func tcSecurities() ([]toolSecurityRow, []toolName) {
 		{toolSecurityRow{key: keyBondT, assetType: "FIXED_INCOME"}, []string{"ZZTB"}, []string{"EXAMPLE BABY BOND 6.5% 2031"}},
 		withCUSIP,
 		{toolSecurityRow{key: keyClass2, assetType: "EQUITY"}, []string{"ABD.B", "ABD/B"}, []string{"ABD CORP CL B"}},
+		// Tickers of six letters, the most that Ghostfolio asks Yahoo
+		// about, and of seven.
+		{toolSecurityRow{key: keySix, assetType: "EQUITY"}, []string{"ABCDEF"}, []string{"SIX LETTER TICKER INC"}},
+		{toolSecurityRow{key: keySeven, assetType: "EQUITY"}, []string{"ABCDEFG"}, []string{"SEVEN LETTER TICKER INC"}},
 	}
 	var rows []toolSecurityRow
 	var names []toolName
@@ -587,9 +593,11 @@ func toolLegs(ref string, putCost, callCost int64, putPrice, callPrice float64) 
 }
 
 // toolCaseMultiLeg holds trades of two option legs: one whose fees go to
-// its larger leg, one whose legs do not add up, one with a leg's cost off
-// the grid, one with fees off the grid and one whose legs cost alike; and a
-// trade of one leg whose quantity is off the grid.
+// its larger leg, the first, and one to its second; one whose legs do not
+// add up, one with a leg's cost off the grid, one with fees off the grid,
+// one whose legs cost alike, and one of an option and a future, which no
+// tool takes, so that none of its cash is written; and a trade of one leg
+// whose quantity is off the grid.
 func toolCaseMultiLeg() toolCase {
 	spread := func(ref, clock string, amount int64, fees sql.NullInt64, flags ...string) toolRow {
 		return toolRow{
@@ -604,6 +612,12 @@ func toolCaseMultiLeg() toolCase {
 	legs = append(legs, toolLegs("T61001404", -20_000, 12_000, 2, 1.2)...)
 	legs = append(legs, toolLegs("T61001405", -10_000, 10_000, 1, 1)...)
 	legs = append(legs, toolLeg{account: 2, ref: "T61001406", leg: 4, symbol: symPut, securityKey: keyPut, cost: centsOf(-10_000), price: tcPrice(1)})
+	legs = append(legs, toolLegs("T61001407", -5000, 8000, 0.5, 0.8)...)
+	future := toolLegs("T61001408", -10_000, 0, 1, 0)
+	future[1].symbol, future[1].securityKey, future[1].quantity, future[1].cost, future[1].price = symFuture, keyFuture, centsOf(1_000_000), centsOf(0), tcPrice(5050)
+	legs = append(legs, future...)
+	credit := spread("T61001407", "2025-01-16 10:00:00", 2868, centsOf(132))
+	credit.category = "sell"
 	return toolCase{
 		name: "multi_leg",
 		in: tcInput(toolInput{
@@ -614,6 +628,8 @@ func toolCaseMultiLeg() toolCase {
 				spread("T61001404", "2025-01-13 10:00:00", -8137, sql.NullInt64{}, "inexact"),
 				spread("T61001405", "2025-01-14 10:00:00", -130, centsOf(130)),
 				spread("T61001406", "2025-01-15 10:00:00", -10_000, centsOf(0), "inexact"),
+				credit,
+				spread("T61001408", "2025-01-17 10:00:00", -10_000, centsOf(0)),
 			},
 			legs: legs,
 		}),
@@ -624,6 +640,8 @@ func toolCaseMultiLeg() toolCase {
 			{"T61001404", "Buy 201.37 shares 100 leg 4; Sell 120.00 shares 100 leg 5 [fees_unknown]", "BUY 201.37 shares 100 leg 4; SELL 120.00 shares 100 leg 5 [fees_unknown]"},
 			{"T61001405", "Buy 101.30 fees 1.30 shares 100 leg 4; Sell 100.00 shares 100 leg 5", "BUY 101.30 fees 1.30 shares 100 leg 4; SELL 100.00 shares 100 leg 5"},
 			{"T61001406", "left_out no_quantity", "left_out no_quantity"},
+			{"T61001407", "Buy 50.00 shares 100 leg 4; Sell 78.68 fees 1.32 shares 100 leg 5", "BUY 50.00 shares 100 leg 4; SELL 78.68 fees 1.32 shares 100 leg 5"},
+			{"T61001408", "left_out future", "left_out future"},
 		},
 	}
 }
@@ -716,10 +734,12 @@ func toolCaseTwoRow() toolCase {
 // none, valued on the day it was delivered; deliveries in and out of either
 // category and sign; a bond's, priced per 100 of face; one priced at 0.00,
 // valued from a snapshot; one with no price at all, one that moved cash
-// too, one whose cash is off the grid, an option's, a journal of two
-// securities, and three left out. The last journal pair's sides are of one
-// second, a SELL in one account and a BUY in the other, which Ghostfolio
-// must not get at one instant.
+// too, one whose cash is off the grid, an option's, a file's option with
+// no multiplier, a journal of two securities, and four left out, one of
+// them a journal of two legs one of which has no security, so that no leg
+// is written. The last journal pair's sides are of one second, a SELL in
+// one account and a BUY in the other, which Ghostfolio must not get at one
+// instant.
 func toolCaseDeliveries() toolCase {
 	journal := func(ref string, account int64, clock, key, symbol string, quantity int64, price sql.NullFloat64, pair string, pairAccount int64) toolRow {
 		return toolRow{
@@ -756,6 +776,9 @@ func toolCaseDeliveries() toolCase {
 		ref: "T61001505", account: 2, source: "api", time: tcNY("2026-08-20 10:00:00"), kind: "JOURNAL", description: "JOURNALED SHARES",
 		amount: centsOf(0), category: "journal",
 	}
+	oneUnknown := twoSecurities
+	oneUnknown.ref, oneUnknown.time = "T61001510", tcNY("2026-08-21 10:00:00")
+	fileOption := file("Cb0c1d2e3.12", "2026-08-18", "Security Transfer", "transfer_in", keyFileOp, symFileOp, 1_000_000, 2.5)
 	return toolCase{
 		name: "deliveries",
 		in: tcInput(toolInput{
@@ -776,13 +799,16 @@ func toolCaseDeliveries() toolCase {
 				file("Cb0c1d2e3.9", "2026-08-15", "Journaled Shares", "transfer_in", "", "", 1_000_000, 30),
 				noAmount,
 				file("Cb0c1d2e3.11", "2026-08-17", "Journaled Shares", "transfer_in", keyFuture, symFuture, 1_000_000, 5050),
-				twoSecurities,
+				fileOption, twoSecurities, oneUnknown,
 				journal("T61001506", 1, "2026-09-01 10:00:00", keyEFGH, "EFGH", -1_000_000, sql.NullFloat64{}, "T61001507", 2),
 				journal("T61001507", 2, "2026-09-01 10:00:00", keyEFGH, "EFGH", 1_000_000, tcPrice(30.5), "T61001506", 1),
 			},
 			legs: []toolLeg{
 				{account: 2, ref: "T61001505", leg: 1, symbol: "XYZ", securityKey: keyXYZ, quantity: centsOf(-2_000_000), price: tcPrice(52)},
 				{account: 2, ref: "T61001505", leg: 2, symbol: "EFGH", securityKey: keyEFGH, quantity: centsOf(-3_000_000), price: tcPrice(31)},
+				// A journal of two legs, one of no security: none is written.
+				{account: 2, ref: "T61001510", leg: 1, symbol: "XYZ", securityKey: keyXYZ, quantity: centsOf(-1_000_000), price: tcPrice(52)},
+				{account: 2, ref: "T61001510", leg: 2, quantity: centsOf(-1_000_000), price: tcPrice(10)},
 			},
 			positions: []toolPosition{
 				{key: keyXYZ, account: 2, marketDate: "2026-07-24", fetchedAt: tcNY("2026-07-24 18:00:00"), long: centsOf(5_000_000), short: centsOf(0), marketValue: tcPrice(262.5)},
@@ -807,7 +833,9 @@ func toolCaseDeliveries() toolCase {
 			{"Cb0c1d2e3.9", "left_out no_security", "left_out no_security"},
 			{"Cb0c1d2e3.10", "Delivery (Inbound) 30.00 shares 1", "BUY 30.00 shares 1"},
 			{"Cb0c1d2e3.11", "left_out future", "left_out future"},
+			{"Cb0c1d2e3.12", "Delivery (Inbound) 250.00 shares 100 [assumed_multiplier]", "BUY 250.00 shares 100 [assumed_multiplier]"},
 			{"T61001505", "Delivery (Outbound) 104.00 shares 2 leg 1; Delivery (Outbound) 93.00 shares 3 leg 2", "SELL 104.00 shares 2 leg 1; SELL 93.00 shares 3 leg 2"},
+			{"T61001510", "left_out no_security", "left_out no_security"},
 			{"T61001506", "Delivery (Outbound) 30.50 shares 1", "SELL 30.50 shares 1"},
 			{"T61001507", "Delivery (Inbound) 30.50 shares 1", "BUY 30.50 shares 1"},
 		},
@@ -894,7 +922,8 @@ func toolCaseIncome() toolCase {
 // assignment, an exercise and an Exchange or Exercise; the API's
 // expiration and another receive-and-deliver; an option whose multiplier
 // is not whole, traded and expired; a future; an expiration that moved
-// cash, and an option's split, which no rule closes.
+// cash, and an option's split, which no rule closes; and an expiration of
+// so many contracts that their shares overflow.
 func toolCaseOptions() toolCase {
 	api := func(ref, clock, kind, description, category, key, symbol string, quantity int64, price float64, amount, fees int64) toolRow {
 		r := toolRow{
@@ -921,6 +950,8 @@ func toolCaseOptions() toolCase {
 	withCash := file("Cd0e1f2a3.8", "2025-06-04", "Expired", "other", keyCall, symCall, -1_000_000)
 	withCash.amount = centsOf(100)
 	split := file("Cd0e1f2a3.9", "2025-06-05", "Options Frwd Split Adj", "other", keyCall, symCall, 1_000_000)
+	// A close of so many contracts that their shares overflow.
+	overflow := file("Cd0e1f2a3.10", "2025-06-06", "Expired", "other", keyCall, symCall, -100_000_000_000_000_000)
 	return toolCase{
 		name: "options",
 		in: tcInput(toolInput{rows: []toolRow{
@@ -936,7 +967,7 @@ func toolCaseOptions() toolCase {
 			expired, exchange,
 			api("T61001704", "2025-06-02 10:00:00", "TRADE", "", "buy", keyBadM, symBadM, 1_000_000, 1, -100, 0),
 			file("Cd0e1f2a3.7", "2025-06-03", "Expired", "other", keyBadM, symBadM, -1_000_000),
-			withCash, split,
+			withCash, split, overflow,
 		}}),
 		want: []toolWant{
 			{"T61001705", "Buy 1052.82 fees 2.82 shares 50", "BUY 1052.82 fees 2.82 shares 50"},
@@ -954,6 +985,7 @@ func toolCaseOptions() toolCase {
 			{"Cd0e1f2a3.7", "left_out multiplier", "left_out multiplier"},
 			{"Cd0e1f2a3.8", "left_out other", "left_out other"},
 			{"Cd0e1f2a3.9", "left_out other", "left_out other"},
+			{"Cd0e1f2a3.10", "left_out no_quantity", "left_out no_quantity"},
 		},
 	}
 }

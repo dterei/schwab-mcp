@@ -10,4 +10,5 @@ Date,Time,Type,Value,Transaction Currency,Shares,Fees,Ticker Symbol,WKN,Security
 2026-08-12,,Delivery (Outbound),30.00,USD,1,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 Cb0c1d2e3.6: SHARES,,Schwab A1 ...135
 2026-08-13,,Delivery (Inbound),30.00,USD,1,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 Cb0c1d2e3.7: SHARES,,Schwab A1 ...135
 2026-08-16,,Delivery (Inbound),30.00,USD,1,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 Cb0c1d2e3.10: SHARES,,Schwab A1 ...135
+2026-08-18,,Delivery (Inbound),250.00,USD,100,,XYZ250321C00045000,,CALL XYZ CORP $45 EXP 03/21/25,schwabtx A1 ...135 Cb0c1d2e3.12: SHARES; multiplier 100 assumed,,Schwab A1 ...135
 2026-09-01,10:00,Delivery (Outbound),30.50,USD,1,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 T61001506: JOURNALED SHARES,,Schwab A1 ...135

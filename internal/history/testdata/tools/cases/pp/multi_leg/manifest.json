@@ -31,7 +31,7 @@
       "kind": "portfolio",
       "configuration": "pp-portfolio-transactions.json",
       "account": "A2 ...398",
-      "rows": 6,
+      "rows": 8,
       "tick": 0
     }
   ],
@@ -42,7 +42,7 @@
       "nickname": "Options & Margin",
       "name": "Schwab A2 ...398",
       "exported": true,
-      "last_day": "2025-01-14",
+      "last_day": "2025-01-16",
       "new": true
     }
   ],
@@ -56,10 +56,10 @@
     "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
   },
   "written": {
-    "rows": 3,
+    "rows": 4,
     "types": {
-      "Buy": 3,
-      "Sell": 3
+      "Buy": 4,
+      "Sell": 4
     }
   },
   "given": {
@@ -95,6 +95,17 @@
           "1d091b6ac8516027",
           "0c3053e240da7c80",
           "7ab6991c7d824ee0"
+        ]
+      },
+      "T61001407": {
+        "day": "2025-01-16",
+        "as": "portfolio 2025-01-16 Buy 50.00; portfolio 2025-01-16 Sell 78.68",
+        "fp": "81ab9309404e5285",
+        "keys": [
+          "847cd05d15fd1cd3",
+          "83cd22058f555f8b",
+          "d051f7a483ae8c21",
+          "dd48402407eaebb4"
         ]
       }
     }
@@ -159,6 +170,20 @@
       "quantity": null,
       "amount": -100.00,
       "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "T61001408",
+      "account": "A2 ...398",
+      "day": "2025-01-17",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "",
+      "quantity": null,
+      "amount": -100.00,
+      "reason": "future",
       "advice": "by_hand",
       "command": ""
     }

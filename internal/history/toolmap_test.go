@@ -445,6 +445,9 @@ func TestToolMapping(t *testing.T) {
 			{keyBondT, "", want{"ZZTB", uuid8(toolNamespace, "security ticker:ZZTB"), "bond", "EXAMPLE BABY BOND 6.5% 2031", "Bond (ZZTB)", true, false}},
 			{keyOptCU, "", want{"XYZ250620C00055000", uuid8(toolNamespace, "security cusip:ZZO55C106"), "option", "XYZ 06/20/2025 55.00 C", "XYZ 2025-06-20 55 call (ZZO55C106)", true, false}},
 			{keyClass2, "", want{"ABD-B", "ABD-B", "", "ABD CORP CL B", "Security (ABD-B)", false, false}},
+			// Ghostfolio asks Yahoo about a ticker of up to six letters.
+			{keySix, "", want{"ABCDEF", "ABCDEF", "", "SIX LETTER TICKER INC", "Security (ABCDEF)", false, false}},
+			{keySeven, "", want{"ABCDEFG", uuid8(toolNamespace, "security ticker:ABCDEFG"), "not_plain", "SEVEN LETTER TICKER INC", "Security (ABCDEFG)", false, false}},
 		} {
 			s := toolSecurityOf(&in, c.key, c.symbol)
 			got := want{s.ppTicker(), s.gfSymbol(), s.manual, s.name, s.gfName(), s.ppManual(), s.symbolsChanged()}

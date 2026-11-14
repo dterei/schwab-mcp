@@ -225,6 +225,20 @@
       "reason": "other",
       "advice": "split",
       "command": ""
+    },
+    {
+      "ref": "Cd0e1f2a3.10",
+      "account": "A2 ...398",
+      "day": "2025-06-06",
+      "category": "other",
+      "kind": "Expired",
+      "description": "OPTION",
+      "symbol": "XYZ   260918C00050000",
+      "quantity": -100000000000,
+      "amount": 0.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
     }
   ],
   "caveats": [

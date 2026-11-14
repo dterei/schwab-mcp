@@ -22,7 +22,7 @@
     {
       "file": "ghostfolio.json",
       "kind": "ghostfolio",
-      "rows": 18
+      "rows": 19
     }
   ],
   "accounts": [
@@ -64,9 +64,9 @@
     "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
   },
   "written": {
-    "rows": 17,
+    "rows": 18,
     "types": {
-      "BUY": 10,
+      "BUY": 11,
       "SELL": 8
     }
   },
@@ -81,6 +81,11 @@
         "day": "2026-08-16",
         "as": "2026-08-16 BUY 30.00",
         "fp": "78b696a040b68ef0"
+      },
+      "Cb0c1d2e3.12": {
+        "day": "2026-08-18",
+        "as": "2026-08-18 BUY 250.00",
+        "fp": "4f5f71d845000bcb"
       },
       "Cb0c1d2e3.2": {
         "day": "2026-06-02",
@@ -191,6 +196,14 @@
       "ghostfolio_symbol": "ba345aa5-3811-8e9a-a46e-f3543f5b9b1f",
       "data_source": "MANUAL",
       "name": "XYZ 2027-01-15 45 put (XYZ270115P00045000)"
+    },
+    {
+      "security_key": "s:FILE:XYZ 03/21/2025 45.00 C@2025-04-01",
+      "symbol": "XYZ 03/21/2025 45.00 C",
+      "identity": "XYZ250321C00045000",
+      "ghostfolio_symbol": "c372d22f-593b-8d1b-aea7-377ad9b9af74",
+      "data_source": "MANUAL",
+      "name": "XYZ 2025-03-21 45 call (XYZ250321C00045000)"
     }
   ],
   "changed": [],
@@ -237,6 +250,20 @@
       "reason": "future",
       "advice": "by_hand",
       "command": ""
+    },
+    {
+      "ref": "T61001510",
+      "account": "A2 ...398",
+      "day": "2026-08-21",
+      "category": "journal",
+      "kind": "JOURNAL",
+      "description": "JOURNALED SHARES",
+      "symbol": "",
+      "quantity": null,
+      "amount": 0.00,
+      "reason": "no_security",
+      "advice": "set_security",
+      "command": "schwabtx edit T61001510 -security K:…"
     }
   ],
   "caveats": [
@@ -269,6 +296,12 @@
       "account": "A1 ...135",
       "day": "2026-08-10",
       "caveat": "cash_not_written"
+    },
+    {
+      "ref": "Cb0c1d2e3.12",
+      "account": "A1 ...135",
+      "day": "2026-08-18",
+      "caveat": "assumed_multiplier"
     }
   ],
   "combined": [],
@@ -308,6 +341,11 @@
         "security_key": "i:219900001",
         "symbol": "XYZ   270115P00045000",
         "why": "option"
+      },
+      {
+        "security_key": "s:FILE:XYZ 03/21/2025 45.00 C@2025-04-01",
+        "symbol": "XYZ 03/21/2025 45.00 C",
+        "why": "option"
       }
     ],
     "profiles": [
@@ -319,6 +357,11 @@
       {
         "symbol": "ba345aa5-3811-8e9a-a46e-f3543f5b9b1f",
         "name": "XYZ 2027-01-15 45 put (XYZ270115P00045000)",
+        "status": "used"
+      },
+      {
+        "symbol": "c372d22f-593b-8d1b-aea7-377ad9b9af74",
+        "name": "XYZ 2025-03-21 45 call (XYZ250321C00045000)",
         "status": "used"
       }
     ]

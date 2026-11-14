@@ -32,6 +32,13 @@
       "dataSource": "MANUAL",
       "name": "XYZ 2027-01-15 45 put (XYZ270115P00045000)",
       "symbol": "ba345aa5-3811-8e9a-a46e-f3543f5b9b1f"
+    },
+    {
+      "comment": "CALL XYZ CORP $45 EXP 03/21/25",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "name": "XYZ 2025-03-21 45 call (XYZ250321C00045000)",
+      "symbol": "c372d22f-593b-8d1b-aea7-377ad9b9af74"
     }
   ],
   "activities": [
@@ -202,6 +209,18 @@
       "symbol": "EFGH",
       "type": "BUY",
       "unitPrice": 30
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb0c1d2e3.12",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2026-08-18T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 100,
+      "symbol": "c372d22f-593b-8d1b-aea7-377ad9b9af74",
+      "type": "BUY",
+      "unitPrice": 2.5
     },
     {
       "accountId": "2a1620c1-a41c-8592-88fc-7092e7c386d4",

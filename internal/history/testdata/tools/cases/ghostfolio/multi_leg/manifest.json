@@ -22,7 +22,7 @@
     {
       "file": "ghostfolio.json",
       "kind": "ghostfolio",
-      "rows": 6
+      "rows": 8
     }
   ],
   "accounts": [
@@ -32,7 +32,7 @@
       "nickname": "Options & Margin",
       "name": "Schwab A2 ...398",
       "exported": true,
-      "last_day": "2025-01-14",
+      "last_day": "2025-01-16",
       "new": true,
       "ghostfolio_id": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
       "balances": {
@@ -50,10 +50,10 @@
     "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
   },
   "written": {
-    "rows": 3,
+    "rows": 4,
     "types": {
-      "BUY": 3,
-      "SELL": 3
+      "BUY": 4,
+      "SELL": 4
     }
   },
   "given": {
@@ -72,6 +72,11 @@
         "day": "2025-01-14",
         "as": "2025-01-14 BUY 100.00 fee 1.30; 2025-01-14 SELL 100.00",
         "fp": "2fb0a11ff37c41fb"
+      },
+      "T61001407": {
+        "day": "2025-01-16",
+        "as": "2025-01-16 BUY 50.00; 2025-01-16 SELL 80.00 fee 1.32",
+        "fp": "2a12c6137c0bf0a7"
       }
     }
   },
@@ -135,6 +140,20 @@
       "quantity": null,
       "amount": -100.00,
       "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "T61001408",
+      "account": "A2 ...398",
+      "day": "2025-01-17",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "",
+      "quantity": null,
+      "amount": -100.00,
+      "reason": "future",
       "advice": "by_hand",
       "command": ""
     }

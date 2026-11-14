@@ -23,7 +23,7 @@
       "file": "securities.csv",
       "kind": "securities",
       "configuration": "pp-securities.json",
-      "rows": 4,
+      "rows": 5,
       "tick": 0
     },
     {
@@ -31,7 +31,7 @@
       "kind": "portfolio",
       "configuration": "pp-portfolio-transactions.json",
       "account": "A1 ...135",
-      "rows": 12,
+      "rows": 13,
       "tick": 0
     },
     {
@@ -73,9 +73,9 @@
     "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
   },
   "written": {
-    "rows": 17,
+    "rows": 18,
     "types": {
-      "Delivery (Inbound)": 10,
+      "Delivery (Inbound)": 11,
       "Delivery (Outbound)": 8
     }
   },
@@ -95,6 +95,14 @@
         "fp": "fcfa8094050935a8",
         "keys": [
           "b8c449c67797a203"
+        ]
+      },
+      "Cb0c1d2e3.12": {
+        "day": "2026-08-18",
+        "as": "portfolio 2026-08-18 Delivery (Inbound) 250.00",
+        "fp": "2f3130443d914e44",
+        "keys": [
+          "b76c560565925132"
         ]
       },
       "Cb0c1d2e3.2": {
@@ -251,6 +259,13 @@
       "identity": "XYZ270115P00045000",
       "ticker": "XYZ270115P00045000",
       "name": "XYZ 01/15/2027 45.00 P"
+    },
+    {
+      "security_key": "s:FILE:XYZ 03/21/2025 45.00 C@2025-04-01",
+      "symbol": "XYZ 03/21/2025 45.00 C",
+      "identity": "XYZ250321C00045000",
+      "ticker": "XYZ250321C00045000",
+      "name": "CALL XYZ CORP $45 EXP 03/21/25"
     }
   ],
   "changed": [],
@@ -299,6 +314,20 @@
       "reason": "future",
       "advice": "by_hand",
       "command": ""
+    },
+    {
+      "ref": "T61001510",
+      "account": "A2 ...398",
+      "day": "2026-08-21",
+      "category": "journal",
+      "kind": "JOURNAL",
+      "description": "JOURNALED SHARES",
+      "symbol": "",
+      "quantity": null,
+      "amount": 0.00,
+      "reason": "no_security",
+      "advice": "set_security",
+      "command": "schwabtx edit T61001510 -security K:…"
     }
   ],
   "caveats": [
@@ -331,6 +360,12 @@
       "account": "A1 ...135",
       "day": "2026-08-10",
       "caveat": "cash_not_written"
+    },
+    {
+      "ref": "Cb0c1d2e3.12",
+      "account": "A1 ...135",
+      "day": "2026-08-18",
+      "caveat": "assumed_multiplier"
     }
   ],
   "combined": [],

@@ -96,6 +96,30 @@
       "symbol": "9e712930-c660-8164-bdf1-0ce397bc9e39",
       "type": "SELL",
       "unitPrice": 1
+    },
+    {
+      "accountId": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "comment": "schwabtx A2 ...398 T61001407 leg 4",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-01-16T12:01:12.000Z",
+      "fee": 0.00,
+      "quantity": 100,
+      "symbol": "fc94e404-4c85-87f0-962e-bb88e7134119",
+      "type": "BUY",
+      "unitPrice": 0.5
+    },
+    {
+      "accountId": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "comment": "schwabtx A2 ...398 T61001407 leg 5",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-01-16T12:01:12.001Z",
+      "fee": 1.32,
+      "quantity": 100,
+      "symbol": "9e712930-c660-8164-bdf1-0ce397bc9e39",
+      "type": "SELL",
+      "unitPrice": 0.8
     }
   ]
 }
