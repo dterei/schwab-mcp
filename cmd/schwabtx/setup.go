@@ -19,10 +19,11 @@ import (
 // from SCHWAB_APP_KEY and SCHWAB_APP_SECRET or as the file had them, and
 // the token file, the store and the rate file as schwabtx resolves them in
 // this shell, made absolute, the token file with every link followed, as
-// login saves to it, so that the server uses the same files whatever
-// environment its client gives it. With -print it says what it
-// would save, and saves nothing. The secret is never printed, and the key
-// only as its last three characters.
+// login saves to it, so that the server uses the same files whatever its
+// client's working directory and environment, but for the variables that
+// config.ForServer takes first. With -print it says what it would save,
+// and saves nothing. The secret is never printed, and the key only as its
+// last three characters.
 func runSetup(_ context.Context, args []string, stdout, stderr io.Writer) error {
 	fl := flag.NewFlagSet("schwabtx setup", flag.ContinueOnError)
 	fl.SetOutput(stderr)

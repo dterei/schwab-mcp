@@ -83,10 +83,15 @@ over leave room for.
 `config.json` for the MCP server: the app key and secret, from
 `SCHWAB_APP_KEY` and `SCHWAB_APP_SECRET` or as `config.json` has them
 already, and the token file, the store and the rate file as `schwabtx`
-finds them in that terminal, each as an absolute path. The server reads it
-all from there, so that a client's configuration holds no secret and the
-server uses the same files as `schwabtx`, whatever environment its client
-gives it. `SCHWAB_BASE_URL` is saved too when it names another server than
+finds them in that terminal, each as an absolute path, the token file's
+with every link in it followed, as `schwabtx login` takes it. The server
+reads it all from there, so that a client's configuration holds no secret
+and the server uses the files that `schwabtx` found in that terminal,
+whatever the client's working directory and the rest of its environment,
+`XDG_*` included. Only four variables of the client's environment win over
+`config.json`: `SCHWAB_APP_KEY` and `SCHWAB_APP_SECRET`, and
+`SCHWAB_TOKEN_FILE` and `SCHWAB_STORE_FILE` when they hold an absolute
+path. `SCHWAB_BASE_URL` is saved too when it names another server than
 Schwab's, as it does to run against the tests' fake; the server takes the
 API's address from `config.json` alone.
 

@@ -4,9 +4,12 @@
 // token file, the store and the rate file, made absolute as that terminal
 // resolved them. A client starts the server with --config and the file's
 // path, so that no secret sits in the client's configuration, and the
-// server finds the files that schwabtx uses whatever environment the
-// client gives it. schwabtx itself reads only the key and secret from the
-// file, and only when the environment has none.
+// server finds the files that schwabtx found in that terminal whatever the
+// client's working directory and the rest of its environment, XDG_*
+// included: only SCHWAB_APP_KEY and SCHWAB_APP_SECRET, and SCHWAB_TOKEN_FILE
+// and SCHWAB_STORE_FILE when they hold an absolute path, win over the file
+// (ForServer). schwabtx itself reads only the key and secret from the file,
+// each when its variable is not set.
 //
 // The file is readable only by the user on Linux and macOS. No error of
 // this package holds the file's text, and none holds its path, which the
