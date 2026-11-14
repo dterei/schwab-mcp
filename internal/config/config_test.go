@@ -297,6 +297,14 @@ func TestForServer(t *testing.T) {
 			token: Setting{token, FromFile}, store: Setting{store, FromFile}, rate: Setting{rate, FromFile},
 		},
 		{
+			name: "values with white space around them",
+			content: `{"version":1,"app_key":" ` + testKey + ` ","app_secret":"\t` + testSecret + `\n","base_url":" https://127.0.0.1:41234/ ",` +
+				`"token_file":" ` + quoted(token) + ` ","store_file":"\n` + quoted(store) + `","rate_file":"` + quoted(rate) + ` "}`,
+			getenv: env(),
+			key:    Setting{testKey, FromFile}, secret: Setting{testSecret, FromFile}, base: Setting{"https://127.0.0.1:41234", FromFile},
+			token: Setting{token, FromFile}, store: Setting{store, FromFile}, rate: Setting{rate, FromFile},
+		},
+		{
 			name: "the environment first", content: full,
 			getenv: env("SCHWAB_APP_KEY", " other-key ", "SCHWAB_APP_SECRET", "other-secret", "SCHWAB_TOKEN_FILE", other+".json",
 				"SCHWAB_STORE_FILE", other+".db", "SCHWAB_BASE_URL", "http://example.com", "SCHWAB_RATE_FILE", other),
@@ -429,6 +437,28 @@ func TestForServerDefaultFile(t *testing.T) {
 	c = ForServer(env(), filepath.Join("schwabtx", "config.json"))
 	if want := []Problem{{CodeRelativePath, "config_file", filepath.Join("schwabtx", "config.json")}}; c.File != "" || !slices.Equal(c.Problems, want) {
 		t.Errorf("a relative config file: %+v, want the problem %+v", c, want)
+	}
+
+	// A relative user folder, as a relative HOME gives, makes every default
+	// relative, which names a file only from some working directory: the
+	// default file, the token file and the store are each a problem, and
+	// none is used.
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(k, "")
+	}
+	for _, k := range []string{"HOME", "AppData", "LocalAppData"} {
+		t.Setenv(k, "home")
+	}
+	path, perr := DefaultFile()
+	token, terr := schwab.DefaultTokenFile()
+	store, serr := defaultStore()
+	if perr != nil || terr != nil || serr != nil || filepath.IsAbs(path) || filepath.IsAbs(token) || filepath.IsAbs(store) {
+		t.Fatalf("with a relative HOME, the defaults are %q, %q and %q (%v, %v, %v)", path, token, store, perr, terr, serr)
+	}
+	c = ForServer(env(), "")
+	want := []Problem{{CodeRelativePath, "config_file", path}, {CodeRelativePath, "token_file", token}, {CodeRelativePath, "store_file", store}}
+	if c.File != "" || !slices.Equal(c.Problems, want) || c.TokenFile != (Setting{}) || c.StoreFile != (Setting{}) {
+		t.Errorf("with a relative HOME: %+v, want no token file, no store and the problems %+v", c, want)
 	}
 }
 

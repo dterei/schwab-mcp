@@ -210,6 +210,10 @@ func TestSetupKeepsTheSavedApp(t *testing.T) {
 func TestSetupRefuses(t *testing.T) {
 	_, tokenFile := setup(t)
 	path := configPath(t)
+	rate, err := filepath.Abs(schwab.DefaultRateFile(testKey, loginFile(t, tokenFile)))
+	if err != nil {
+		t.Fatal(err)
+	}
 	type refusal struct {
 		name string
 		env  []string // pairs of a variable and its value
@@ -221,6 +225,7 @@ func TestSetupRefuses(t *testing.T) {
 		{"no secret", []string{"SCHWAB_APP_SECRET", " "}, nil, "SCHWAB_APP_KEY and SCHWAB_APP_SECRET must be set for schwabtx setup"},
 		{"a store that is the token file", nil, []string{"-store", tokenFile}, "the token file, " + tokenFile + ", is the store at"},
 		{"a store that is config.json", nil, []string{"-store", path}, "config.json, " + path + ", is the store at"},
+		{"a store that is the rate file", nil, []string{"-store", rate}, "the rate file, " + rate + ", is the store at"},
 		{"plain http to another computer", []string{"SCHWAB_BASE_URL", "http://example.com"}, nil, `the base URL "http://example.com" is plain http`},
 		{"an argument", nil, []string{"now"}, `unexpected argument "now"`},
 	}
@@ -357,6 +362,10 @@ func TestCredentialsFromConfig(t *testing.T) {
 		t.Errorf("with SCHWAB_APP_SECRET set: %v, the key %q and the secret %q; want the variable's secret", err, cfg.AppKey, cfg.AppSecret)
 	}
 	t.Setenv("SCHWAB_APP_SECRET", "")
+	t.Setenv("SCHWAB_APP_KEY", "another-app-key")
+	if cfg, err := loadConfig(); err != nil || cfg.AppKey != "another-app-key" || cfg.AppSecret != testSecret {
+		t.Errorf("with SCHWAB_APP_KEY set: %v, the key %q and the secret %q; want the variable's key", err, cfg.AppKey, cfg.AppSecret)
+	}
 
 	t.Setenv("SCHWAB_APP_KEY", "")
 	t.Setenv("SCHWAB_APP_SECRET", "")
@@ -642,9 +651,19 @@ func TestStoreCommandsWarnOfAnotherStore(t *testing.T) {
 			t.Errorf("%q warned\n%s\nwant once\n%s", args, stderr, warning)
 		}
 	}
-	// The store that config.json names, by -store or by SCHWAB_STORE_FILE.
+	// The store that config.json names, by -store or by SCHWAB_STORE_FILE,
+	// or under another name, through a link to its folder.
 	if stderr := warned("status", "-store", other); strings.Contains(stderr, "MCP server") {
 		t.Errorf("status -store of the server's store warned %q", stderr)
+	}
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(filepath.Dir(other), link); err != nil {
+			t.Fatal(err)
+		}
+		if stderr := warned("status", "-store", filepath.Join(link, filepath.Base(other))); strings.Contains(stderr, "MCP server") {
+			t.Errorf("status -store of the server's store through a link warned %q", stderr)
+		}
 	}
 	t.Setenv("SCHWAB_STORE_FILE", other)
 	if stderr := warned("store", "check"); strings.Contains(stderr, "MCP server") {
