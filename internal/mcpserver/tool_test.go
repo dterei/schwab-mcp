@@ -498,7 +498,7 @@ func withFit() envOption {
 // many, and the warning list_cut says so. One that is no fitter, or has
 // nothing left to cut, is too_big. An answer within the cap is untouched.
 var _ = addSizeCases(sizeCase{name: "fitter", opts: []envOption{withFit()}, run: sizeFitter},
-	sizeCase{name: "margin", opts: []envOption{withBackstopAllowed(), withRows()}, run: sizeMargin})
+	sizeCase{name: "margin", opts: []envOption{withRows()}, run: sizeMargin})
 
 // sizeFitter is TestSizeCap's case of a fitter.
 func sizeFitter(t *testing.T, e *env) {

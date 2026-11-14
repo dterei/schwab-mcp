@@ -120,10 +120,14 @@ func TestEveryToolCovered(t *testing.T) {
 }
 
 // A leakWorld is TestNoAccountNumberLeaks' world, which each tool's
-// plantings add to.
+// plantings add to. The core's planting runs first, its file's name being
+// first, and sets store.
 type leakWorld struct {
 	// home is the server's home folder, whose name holds a planted number.
 	home string
+	// store is the store that the server reads, a copy of the shared store
+	// under home, which a planting may add to.
+	store string
 	// opts set up the env, after the world's own.
 	opts []envOption
 	// planted are the numbers planted beyond the fixtures'.
@@ -131,6 +135,12 @@ type leakWorld struct {
 	// masked are texts that the answers must hold, so that a test that
 	// strips everything cannot pass by accident.
 	masked []string
+	// forbidden are texts beyond the numbers and the secrets that nothing
+	// sent or logged may hold, such as the names of a planted user.
+	forbidden []string
+	// checks run once the calls are done, for what a tool's own leak test
+	// must look at in the env, such as the digests of its cursors.
+	checks []func(t *testing.T, e *env)
 }
 
 // plant adds numbers to those that must never appear.
@@ -159,10 +169,11 @@ func addLeaks(plantings []func(t *testing.T, w *leakWorld), calls ...leakCall) b
 // No full account number reaches the model or the log (design 15.3): in a
 // world that plants numbers where Schwab, the store and the paths put
 // them, every leak call of every tool answers, and nothing the server sends
-// or logs holds a planted number, plainly or as mask.Text reads one, nor a
-// secret; the masked forms are there; and the fake granted no authorization
-// code while the server ran. With the backstop off, the same holds: each
-// layer above holds on its own.
+// or logs holds a planted number, plainly or as mask.Text reads one, a
+// secret, or a text a planting forbids; the masked forms are there; each
+// planting's own checks hold; and the fake granted no authorization code
+// while the server ran. With the backstop off, the same holds: each layer
+// above holds on its own.
 func TestNoAccountNumberLeaks(t *testing.T) {
 	t.Parallel()
 	for _, off := range []bool{false, true} {
@@ -195,6 +206,14 @@ func TestNoAccountNumberLeaks(t *testing.T) {
 				if !strings.Contains(sent, m) {
 					t.Errorf("no answer holds %q", m)
 				}
+			}
+			for _, f := range w.forbidden {
+				if strings.Contains(sent, f) {
+					t.Errorf("an answer or a log line holds %q", f)
+				}
+			}
+			for _, check := range w.checks {
+				check(t, e)
 			}
 			if now, _ := e.fake.Grants(); now != grants {
 				t.Errorf("the fake granted %d authorization codes while the server ran", now-grants)

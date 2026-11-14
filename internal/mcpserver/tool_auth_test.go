@@ -76,13 +76,20 @@ var _ = addLeaks([]func(t *testing.T, w *leakWorld){func(t *testing.T, w *leakWo
 		f.SetUserPreference(`{"accounts":[{"accountNumber":"29470135","nickName":"Joint 2947-0135","primaryAccount":true},` +
 			`{"accountNumber":"61803398","nickName":"Margin 61803398"},{"accountNumber":"` + nineDigits + `","nickName":"Kids ` + sevenDigits + `"}]}`)
 	}))
-	store := filepath.Join(w.home, "accounts-"+options, "history.db")
-	copyFile(t, sharedStore(t), store)
+	w.store = filepath.Join(w.home, "accounts-"+options, "history.db")
+	copyFile(t, sharedStore(t), w.store)
 	w.opts = append(w.opts,
-		withStore(store),
+		withStore(w.store),
 		withTokenFile(filepath.Join(w.home, ".config", "schwabtx", "token-"+individual+".json")),
 		withConfigFile(filepath.Join(w.home, ".config-"+options, "schwabtx", "config.json")))
 	w.masked = append(w.masked, "~/accounts-...398/history.db", "~/.config/schwabtx/token-...135.json", "~/.config-...398/schwabtx/config.json")
+	// The store's text is read only from a store that opens: one that does
+	// not would leave the store's side of the test with nothing to find.
+	w.checks = append(w.checks, func(t *testing.T, e *env) {
+		if store := storeOf(e.call("auth_status", `{}`)); store["usable"] != true {
+			t.Errorf("the leak world's store is not usable: %v", store)
+		}
+	})
 }}, leakCall{tool: "auth_status", args: `{}`})
 
 // The leak world's accounts beyond the fixtures'.
