@@ -76,7 +76,7 @@
       "T61002002": {
         "day": "2025-02-04",
         "as": "2025-02-04 BUY 250.00",
-        "fp": "a5f9966d9200dbfb"
+        "fp": "236e129356c3d073"
       },
       "T61002003": {
         "day": "2025-02-05",
@@ -116,17 +116,17 @@
     {
       "security_key": "i:1000003",
       "symbol": "ABC.B",
-      "identity": "i:1000003",
+      "identity": "ABC-B",
       "ghostfolio_symbol": "ABC-B",
       "data_source": "YAHOO"
     },
     {
       "security_key": "i:1000004",
       "symbol": "QRS.PRK",
-      "identity": "i:1000004",
-      "ghostfolio_symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1",
+      "identity": "QRS.PRK",
+      "ghostfolio_symbol": "c350a0be-2485-8df7-bb88-c7aa8d42752e",
       "data_source": "MANUAL",
-      "name": "Security (i:1000004)"
+      "name": "Security (QRS.PRK)"
     },
     {
       "security_key": "i:1000005",
@@ -139,7 +139,7 @@
     {
       "security_key": "i:1000006",
       "symbol": "PQRS",
-      "identity": "ZZR00K200",
+      "identity": "PQRS",
       "ghostfolio_symbol": "PQRS",
       "data_source": "YAHOO"
     },
@@ -154,7 +154,7 @@
     {
       "security_key": "i:1854092",
       "symbol": "XYZ",
-      "identity": "98389B100",
+      "identity": "XYZ",
       "ghostfolio_symbol": "XYZ",
       "data_source": "YAHOO"
     }
@@ -216,8 +216,8 @@
     ],
     "profiles": [
       {
-        "symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1",
-        "name": "Security (i:1000004)",
+        "symbol": "c350a0be-2485-8df7-bb88-c7aa8d42752e",
+        "name": "Security (QRS.PRK)",
         "status": "used"
       },
       {

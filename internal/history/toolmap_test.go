@@ -422,11 +422,11 @@ func TestToolMapping(t *testing.T) {
 			key, symbol string
 			want        want
 		}{
-			{keyXYZ, "", want{"XYZ", "XYZ", "", "XYZ CORP COMMON STOCK", "Security (98389B100)", false, false}},
-			{keyClass, "", want{"ABC-B", "ABC-B", "", "ABC HOLDINGS CL B", "Security (i:1000003)", false, false}},
-			{keyDot, "", want{"", uuid8(toolNamespace, "security key:"+keyDot), "not_plain", "QRS TRUST PFD SER K", "Security (i:1000004)", true, false}},
+			{keyXYZ, "", want{"XYZ", "XYZ", "", "XYZ CORP COMMON STOCK", "Security (XYZ)", false, false}},
+			{keyClass, "", want{"ABC-B", "ABC-B", "", "ABC HOLDINGS CL B", "Security (ABC-B)", false, false}},
+			{keyDot, "", want{"", uuid8(toolNamespace, "security ticker:QRS.PRK"), "not_plain", "QRS TRUST PFD SER K", "Security (QRS.PRK)", true, false}},
 			{keyGone, "", want{"", uuid8(toolNamespace, "security cusip:ZZQ00K102"), "delisted", "OLDCO INC", "Security (ZZQ00K102)", true, true}},
-			{keyRename, "", want{"PQRS", "PQRS", "", "PQR GROUP INC", "Security (ZZR00K200)", false, true}},
+			{keyRename, "", want{"PQRS", "PQRS", "", "PQR GROUP INC", "Security (PQRS)", false, true}},
 			{"", "QQQX", want{"QQQX", "QQQX", "", "", "Security (QQQX)", false, false}},
 			{keyNoTick, "", want{"", uuid8(toolNamespace, "security cusip:ZZC99X101"), "no_ticker", "EXAMPLE PRIVATE PLACEMENT UNITS", "Security (ZZC99X101)", true, false}},
 			{keyPut, "", want{"XYZ250221P00040000", "fc94e404-4c85-87f0-962e-bb88e7134119", "option", "XYZ 02/21/2025 40.00 P", "XYZ 2025-02-21 40 put (XYZ250221P00040000)", true, false}},
@@ -440,9 +440,9 @@ func TestToolMapping(t *testing.T) {
 			// A bond with a ticker is a bond all the same; an option whose
 			// CUSIP the store knows is known by it; a class share spelled
 			// two ways has not changed its symbol.
-			{keyBondT, "", want{"ZZTB", uuid8(toolNamespace, "security key:"+keyBondT), "bond", "EXAMPLE BABY BOND 6.5% 2031", "Bond (i:1000010)", true, false}},
+			{keyBondT, "", want{"ZZTB", uuid8(toolNamespace, "security ticker:ZZTB"), "bond", "EXAMPLE BABY BOND 6.5% 2031", "Bond (ZZTB)", true, false}},
 			{keyOptCU, "", want{"XYZ250620C00055000", uuid8(toolNamespace, "security cusip:ZZO55C106"), "option", "XYZ 06/20/2025 55.00 C", "XYZ 2025-06-20 55 call (ZZO55C106)", true, false}},
-			{keyClass2, "", want{"ABD-B", "ABD-B", "", "ABD CORP CL B", "Security (i:1000012)", false, false}},
+			{keyClass2, "", want{"ABD-B", "ABD-B", "", "ABD CORP CL B", "Security (ABD-B)", false, false}},
 		} {
 			s := toolSecurityOf(&in, c.key, c.symbol)
 			got := want{s.ppTicker(), s.gfSymbol(), s.manual, s.name, s.gfName(), s.ppManual(), s.symbolsChanged()}
@@ -477,7 +477,7 @@ func TestToolMapping(t *testing.T) {
 			{keyFuture, "", 1, false, false, false, "FUTURE", "", keyFuture},
 			{keyBondB, "", 1, false, false, true, "", "ZZT10A109", "ZZT10A109"},
 			{"", "ZZT10A109", 1, false, false, true, "", "ZZT10A109", "ZZT10A109"},
-			{keyABCD, "", 1, false, false, false, "EQUITY", "ZZB123458", "ZZB123458"},
+			{keyABCD, "", 1, false, false, false, "EQUITY", "ZZB123458", "ABCD"},
 		} {
 			s := toolSecurityOf(&in, c.key, c.symbol)
 			if s.multiplier != c.m || s.assumed != c.assumed || s.badMultiplier != c.bad || s.bond != c.bond || s.assetType != c.assetType || s.cusip != c.cusip || s.identity() != c.ident {
@@ -488,18 +488,41 @@ func TestToolMapping(t *testing.T) {
 			t.Errorf("no key and no symbol give %+v", s)
 		}
 		// The names whose UUIDs are MANUAL assets' symbols in Ghostfolio:
-		// by CUSIP, else OCC form, else key, else a row's symbol.
+		// by the ticker in Yahoo's form, whatever CUSIP the store knows,
+		// but for an option, a future, a delisted security and a bond with
+		// a CUSIP; else CUSIP, else OCC form, else key, else a row's
+		// symbol.
 		for _, c := range []struct{ key, symbol, want string }{
-			{keyXYZ, "", "security cusip:98389B100"},
+			{keyXYZ, "", "security ticker:XYZ"},
+			{keyRename, "", "security ticker:PQRS"},
+			{keyGone, "", "security cusip:ZZQ00K102"},
+			{keyBondA, "", "security cusip:9128ZZQ15"},
+			{keyBondT, "", "security ticker:ZZTB"},
+			{keyNoTick, "", "security cusip:ZZC99X101"},
 			{keyOptCU, "", "security cusip:ZZO55C106"},
 			{keyPut, "", "security option:XYZ250221P00040000"},
 			{"", symPut, "security option:XYZ250221P00040000"},
 			{keyFutOpt, "", "security key:" + keyFutOpt},
-			{"", "QQQX", "security symbol:QQQX"},
+			{keyFuture, "", "security key:" + keyFuture},
+			{keyClass, "", "security ticker:ABC-B"},
+			{"", "QQQX", "security ticker:QQQX"},
+			{"", "ZZT10A109", "security cusip:ZZT10A109"},
 		} {
 			if got := toolSecurityOf(&in, c.key, c.symbol).uuidName(); got != c.want {
 				t.Errorf("%s%s: %q, want %q", c.key, c.symbol, got, c.want)
 			}
+		}
+		// A bond with a ticker whose CUSIP the store knows is known by the
+		// CUSIP.
+		bondCUSIP := in
+		bondCUSIP.securities = slices.Clone(in.securities)
+		for i := range bondCUSIP.securities {
+			if bondCUSIP.securities[i].key == keyBondT {
+				bondCUSIP.securities[i].cusip = "ZZT65B101"
+			}
+		}
+		if s := toolSecurityOf(&bondCUSIP, keyBondT, ""); s.identity() != "ZZT65B101" || s.uuidName() != "security cusip:ZZT65B101" || s.gfName() != "Bond (ZZT65B101)" {
+			t.Errorf("a bond with a ticker and a CUSIP: %q, %q, %q", s.identity(), s.uuidName(), s.gfName())
 		}
 		// A security's Ghostfolio name and symbol come from its identity
 		// alone, the same whichever description the store saw first or
@@ -980,6 +1003,157 @@ func TestToolMapping(t *testing.T) {
 		in.positions = append(in.positions, toolPosition{key: keyEFGH, account: 1, marketDate: "2026-11-10", fetchedAt: tcNY("2026-11-10 18:05:00"), long: centsOf(1_000_000), marketValue: tcPrice(31)})
 		if got := yahooIdle(in, events); len(got) != 0 {
 			t.Errorf("idle though held: %+v", got)
+		}
+	})
+
+	t.Run("two keys", func(t *testing.T) {
+		t.Parallel()
+		// One security that the store holds under two keys, a History
+		// file's and the API's, is one security of each tool: one MANUAL
+		// asset that both its rows are of, -manual naming it; one row of
+		// PP's securities; one holding that the snapshot's shares match.
+		in, events, _ := mapCase(toolCaseNamed("two_keys"), toolGF)
+		profiles, assets := gfAssets(in, events)
+		if len(profiles) != 1 || len(assets) != 1 || len(assets[0].securities) != 2 || profiles[0].Name != "Security (JKLM)" {
+			t.Fatalf("assets: %+v", profiles)
+		}
+		for _, e := range events {
+			if e.security.gfSymbol() != profiles[0].Symbol {
+				t.Errorf("%s is of %s, not of the asset %s", e.ref, e.security.gfSymbol(), profiles[0].Symbol)
+			}
+		}
+		// The asset is used when a row of either key is, and has the
+		// prices of either, those of a date of the first key that has one.
+		priced := toolCaseNamed("two_keys")
+		priced.in.rows = priced.in.rows[:1]
+		priced.in.positions = append(priced.in.positions,
+			rcPosition("2025-06-02", keyTwoFile, 10_000_000, 1400), rcPosition("2026-11-10", keyTwoFile, 1_000_000, 181))
+		in2, events2, _ := mapCase(priced, toolGF)
+		profiles2, assets2 := gfAssets(in2, events2)
+		var prices []string
+		for _, p := range profiles2[0].MarketData {
+			prices = append(prices, p.Date+" "+string(p.MarketPrice))
+		}
+		if !assets2[0].used || !slices.Equal(prices, []string{"2025-06-02T00:00:00.000Z 140", "2026-11-10T00:00:00.000Z 180"}) {
+			t.Errorf("used %v, prices %q", assets2[0].used, prices)
+		}
+		inPP, eventsPP, _ := mapCase(toolCaseNamed("two_keys"), toolPP)
+		if f := ppFileNamed(t, ppFiles(inPP, eventsPP), ppSecuritiesFile); f.rows != 1 {
+			t.Errorf("PP's securities: %d rows", f.rows)
+		}
+		// PP finds a security by its WKN, the CUSIP, whatever its ticker,
+		// and by its name when it has neither: renamed under one key, or
+		// with a ticker that PP takes none of, it is one security still.
+		for _, v := range []struct{ name, apiSymbol, fileSymbol, cusip, description string }{
+			{"renamed", "JKLN", "JKLM", "ZZJ12K106", ""},
+			{"dotted", "JKL.PRA", "JKL.PRA", "", "JKL TRUST PFD SER A"},
+		} {
+			c := toolCaseNamed("two_keys")
+			symbols := map[string]string{keyTwoAPI: v.apiSymbol, keyTwoFile: v.fileSymbol}
+			for i := range c.in.securities {
+				if r := &c.in.securities[i]; symbols[r.key] != "" {
+					r.symbol, r.cusip = symbols[r.key], v.cusip
+				}
+			}
+			for i := range c.in.names {
+				switch n := &c.in.names[i]; {
+				case symbols[n.key] != "" && n.kind == "symbol":
+					n.value = symbols[n.key]
+				case symbols[n.key] != "" && v.description != "":
+					n.value = v.description
+				}
+			}
+			for i := range c.in.rows {
+				c.in.rows[i].symbol = symbols[c.in.rows[i].securityKey]
+			}
+			in, events, _ := mapCase(c, toolPP)
+			if f := ppFileNamed(t, ppFiles(in, events), ppSecuritiesFile); f.rows != 1 {
+				t.Errorf("%s: PP's securities: %d rows", v.name, f.rows)
+			}
+			if diffs, _ := holdingsCheck(in, events); len(diffs) != 0 {
+				t.Errorf("%s: differences %+v", v.name, diffs)
+			}
+			// PP reads the files so, and holds the shares of both keys in
+			// that one security.
+			e := caseExport(t, c, toolPP)
+			m := newPPModel()
+			ppApply(t, m, chainStepFrom(t, e, t.TempDir()))
+			ppReconcile(t, m, e.in, e.events, e.outcomes)
+		}
+		for _, c := range []struct {
+			tool   string
+			in     *toolInput
+			events []toolEvent
+		}{{toolGF, in, events}, {toolPP, inPP, eventsPP}} {
+			if diffs, _ := holdingsCheck(c.in, c.events); len(diffs) != 0 {
+				t.Errorf("%s: differences %+v", c.tool, diffs)
+			}
+		}
+		// Five shares held of the seven written, with a row of the symbol
+		// without a key, is one difference, of the least key, which names
+		// both keys.
+		short := toolCaseNamed("two_keys")
+		short.in.positions[0].long = centsOf(5_000_000)
+		short.in.rows = append(short.in.rows, toolRow{
+			ref: "Cf7a8b9c0.2", account: 1, source: "file", posted: "2026-04-01", day: "2026-04-01", kind: "Buy", description: "JKLM SMALL CAP VALUE ETF",
+			category: "buy", symbol: "JKLM", quantity: centsOf(1_000_000), price: tcPrice(160), amount: centsOf(-16_000), fees: centsOf(0), gross: centsOf(-16_000),
+		})
+		for _, tool := range []string{toolPP, toolGF} {
+			in, events, _ := mapCase(short, tool)
+			diffs, _ := holdingsCheck(in, events)
+			if len(diffs) != 1 || diffs[0].key != keyTwoAPI || !slices.Equal(diffs[0].keys, []string{keyTwoAPI, keyTwoFile}) ||
+				diffs[0].symbol != "JKLM" || diffs[0].snapshotShares != 5_000_000 || diffs[0].writtenShares != 7_000_000 {
+				t.Errorf("%s: differences %+v", tool, diffs)
+			}
+			e := caseExport(t, short, tool)
+			if h := e.res.holdings; len(h) != 1 || h[0].SecurityKey != keyTwoAPI || !slices.Equal(h[0].SecurityKeys, []string{keyTwoAPI, keyTwoFile}) {
+				t.Errorf("%s: the manifest's differences %+v", tool, h)
+			}
+		}
+		// The symbol for Yahoo is one too: a row of either key in the year
+		// before the export's last day, or a position of either key, says
+		// that it is not idle; else the least key is named, with the day
+		// of the last row of either.
+		yahoo := toolCaseNamed("two_keys")
+		yahoo.in.manual = nil
+		in, events, _ = mapCase(yahoo, toolGF)
+		if got := yahooIdle(in, events); len(got) != 0 {
+			t.Errorf("idle though sold in the year: %+v", got)
+		}
+		in.rows = in.rows[:1]
+		if got := yahooIdle(in, events[:1]); len(got) != 0 {
+			t.Errorf("idle though held under the other key: %+v", got)
+		}
+		// A leg of a trade of several is a row of the symbol too.
+		legged := toolCaseNamed("two_keys")
+		legged.in.manual, legged.in.positions = nil, nil
+		legged.in.rows = append(legged.in.rows[:1], toolRow{
+			ref: "T61002802", account: 1, source: "api", time: tcNY("2026-09-01 10:00:00"), day: "2026-09-01", kind: "TRADE", category: "buy",
+			amount: centsOf(-16_700), fees: centsOf(0), gross: centsOf(-16_700), flags: []string{"mixed_legs"},
+		})
+		legged.in.legs = []toolLeg{
+			{account: 1, ref: "T61002802", leg: 0, symbol: "JKLM", securityKey: keyTwoAPI, quantity: centsOf(1_000_000), cost: centsOf(-17_000), price: tcPrice(170)},
+			{account: 1, ref: "T61002802", leg: 1, symbol: symCall, securityKey: keyCall, quantity: centsOf(-1_000_000), cost: centsOf(300), price: tcPrice(3)},
+		}
+		in, events, _ = mapCase(legged, toolGF)
+		if got := yahooIdle(in, events); len(got) != 0 {
+			t.Errorf("idle though bought in a trade of two legs in the year: %+v", got)
+		}
+		// Idle, the symbol names the least key of its rows, whichever row
+		// comes first or last, with the day of the last row of any.
+		late := toolCaseNamed("two_keys")
+		late.in.manual, late.in.positions, late.in.to = nil, nil, "2027-06-01"
+		late.in.rows = append([]toolRow{{
+			ref: "Cf7a8b9c0.3", account: 1, source: "file", posted: "2023-06-01", day: "2023-06-01", kind: "Buy", description: "JKLM SMALL CAP VALUE ETF",
+			category: "buy", symbol: "JKLM", quantity: centsOf(1_000_000), price: tcPrice(120), amount: centsOf(-12_000), fees: centsOf(0), gross: centsOf(-12_000),
+		}}, late.in.rows...)
+		late.in.rows = append(late.in.rows, toolRow{
+			ref: "Cf7a8b9c0.4", account: 1, source: "file", posted: "2026-04-01", day: "2026-04-01", kind: "Buy", description: "JKLM SMALL CAP VALUE ETF",
+			category: "buy", securityKey: keyTwoFile, symbol: "JKLM", quantity: centsOf(1_000_000), price: tcPrice(160), amount: centsOf(-16_000), fees: centsOf(0), gross: centsOf(-16_000),
+		})
+		in, events, _ = mapCase(late, toolGF)
+		if got := yahooIdle(in, events); fmt.Sprint(got) != fmt.Sprint([]toolIdle{{symbol: "JKLM", key: keyTwoAPI, last: "2026-04-01"}}) {
+			t.Errorf("idle %+v", got)
 		}
 	})
 

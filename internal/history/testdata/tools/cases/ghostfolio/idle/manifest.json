@@ -80,7 +80,7 @@
       "T61002704": {
         "day": "2025-11-11",
         "as": "2025-11-11 BUY 25.00",
-        "fp": "3689f6c2101c89fe"
+        "fp": "366f2c23667d3dd2"
       }
     }
   },
@@ -88,29 +88,29 @@
     {
       "security_key": "i:1000001",
       "symbol": "ABCD",
-      "identity": "ZZB123458",
+      "identity": "ABCD",
       "ghostfolio_symbol": "ABCD",
       "data_source": "YAHOO"
     },
     {
       "security_key": "i:1000002",
       "symbol": "EFGH",
-      "identity": "i:1000002",
+      "identity": "EFGH",
       "ghostfolio_symbol": "EFGH",
       "data_source": "YAHOO"
     },
     {
       "security_key": "i:1000004",
       "symbol": "QRS.PRK",
-      "identity": "i:1000004",
-      "ghostfolio_symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1",
+      "identity": "QRS.PRK",
+      "ghostfolio_symbol": "c350a0be-2485-8df7-bb88-c7aa8d42752e",
       "data_source": "MANUAL",
-      "name": "Security (i:1000004)"
+      "name": "Security (QRS.PRK)"
     },
     {
       "security_key": "i:1854092",
       "symbol": "XYZ",
-      "identity": "98389B100",
+      "identity": "XYZ",
       "ghostfolio_symbol": "XYZ",
       "data_source": "YAHOO"
     }
@@ -182,8 +182,8 @@
     ],
     "profiles": [
       {
-        "symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1",
-        "name": "Security (i:1000004)",
+        "symbol": "c350a0be-2485-8df7-bb88-c7aa8d42752e",
+        "name": "Security (QRS.PRK)",
         "status": "used"
       }
     ]

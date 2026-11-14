@@ -221,7 +221,7 @@
     {
       "security_key": "i:1000002",
       "symbol": "EFGH",
-      "identity": "i:1000002",
+      "identity": "EFGH",
       "ticker": "EFGH",
       "name": "EFGH TOTAL MARKET ETF"
     }

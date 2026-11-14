@@ -15,8 +15,8 @@
       "comment": "QRS TRUST PFD SER K",
       "currency": "USD",
       "dataSource": "MANUAL",
-      "name": "Security (i:1000004)",
-      "symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1"
+      "name": "Security (QRS.PRK)",
+      "symbol": "c350a0be-2485-8df7-bb88-c7aa8d42752e"
     },
     {
       "assetClass": "EQUITY",
@@ -60,7 +60,7 @@
       "date": "2025-02-04T12:01:12.000Z",
       "fee": 0.00,
       "quantity": 10,
-      "symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1",
+      "symbol": "c350a0be-2485-8df7-bb88-c7aa8d42752e",
       "type": "BUY",
       "unitPrice": 25
     },

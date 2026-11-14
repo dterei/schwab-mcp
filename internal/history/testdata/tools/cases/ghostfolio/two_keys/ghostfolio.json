@@ -1,0 +1,58 @@
+{
+  "accounts": [
+    {
+      "balances": [
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "value": 1000.00
+        }
+      ],
+      "comment": "schwabtx A1 ...135",
+      "currency": "USD",
+      "id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "name": "Schwab A1 ...135",
+      "platformId": null
+    }
+  ],
+  "assetProfiles": [
+    {
+      "comment": "JKLM SMALL-CAP VALUE ETF",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "marketData": [
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "marketPrice": 180
+        }
+      ],
+      "name": "Security (JKLM)",
+      "symbol": "c5239721-7cbf-869d-9195-739fabf1353e"
+    }
+  ],
+  "activities": [
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cf7a8b9c0.1",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2024-03-11T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 10,
+      "symbol": "c5239721-7cbf-869d-9195-739fabf1353e",
+      "type": "BUY",
+      "unitPrice": 150
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002801",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2026-03-16T12:01:12.001Z",
+      "fee": 0.00,
+      "quantity": 4,
+      "symbol": "c5239721-7cbf-869d-9195-739fabf1353e",
+      "type": "SELL",
+      "unitPrice": 170
+    }
+  ]
+}

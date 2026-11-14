@@ -398,7 +398,7 @@ func (e *ToolExport) renderPP() {
 		}
 		e.Files = append(e.Files, tf)
 	}
-	for _, l := range listSecurities(e.in, e.res.written) {
+	for _, l := range mergeListed(toolPP, listSecurities(e.in, e.res.written)) {
 		e.Securities++
 		e.Prices += len(l.prices)
 	}
@@ -868,7 +868,7 @@ func (e *ToolExport) ghostfolioEntry() *toolGhostfolioEntry {
 			status = "prices_only"
 		}
 		g.Profiles = append(g.Profiles, toolProfileEntry{Symbol: p.Symbol, Name: p.Name, Status: status})
-		if s := a.security; s != nil {
+		for _, s := range a.securities {
 			g.Manual = append(g.Manual, toolManualEntry{SecurityKey: s.key, Symbol: s.symbol, Why: s.manual})
 		}
 	}

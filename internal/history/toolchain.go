@@ -208,10 +208,12 @@ type chainHoldings struct {
 // shares signed, and, with -since, whether the export it goes on from listed
 // the same account and security with the same difference (before): the
 // snapshot's shares less the written ones, which trades the store records
-// leave as they are.
+// leave as they are. SecurityKeys are, for a security that the tool holds
+// under several of the store's keys, every one of them.
 type chainHolding struct {
 	Account        string      `json:"account"`
 	SecurityKey    string      `json:"security_key"`
+	SecurityKeys   []string    `json:"security_keys,omitempty"`
 	Symbol         string      `json:"symbol"`
 	Snapshot       nytime.Date `json:"snapshot"`
 	SnapshotShares json.Number `json:"snapshot_shares"`
@@ -992,7 +994,7 @@ func (c *chainResult) compareHoldings(events []toolEvent) {
 	}
 	for _, d := range diffs {
 		h := chainHolding{
-			Account: d.account.label(), SecurityKey: d.key, Symbol: d.symbol, Snapshot: d.snapshot,
+			Account: d.account.label(), SecurityKey: d.key, SecurityKeys: d.keys, Symbol: d.symbol, Snapshot: d.snapshot,
 			SnapshotShares: json.Number(formatMicros(d.snapshotShares)), WrittenShares: json.Number(formatMicros(d.writtenShares)),
 		}
 		h.Before = before[chainHoldingKey(h.Account, h.SecurityKey, h.Symbol, big.NewRat(d.snapshotShares-d.writtenShares, 1_000_000))]

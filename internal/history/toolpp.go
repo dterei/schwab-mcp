@@ -168,7 +168,7 @@ type ppFile struct {
 // with no row, as are the configurations.
 func ppFiles(in *toolInput, events []toolEvent) []ppFile {
 	var securities [][]string
-	for _, l := range listSecurities(in, events) {
+	for _, l := range mergeListed(toolPP, listSecurities(in, events)) {
 		ticker, wkn, name := ppIdentifiers(l.security)
 		if len(l.prices) == 0 {
 			securities = append(securities, []string{ticker, wkn, name, ppCurrency, "", ""})

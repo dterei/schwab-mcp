@@ -195,8 +195,8 @@ func TestGFRender(t *testing.T) {
 				switch {
 				case a.profile != "":
 					s += " @" + a.profile
-				case a.security != nil:
-					s += " " + a.security.manual
+				case len(a.securities) > 0:
+					s += " " + a.securities[0].manual
 				}
 				if !a.used {
 					s += " prices_only"
@@ -209,9 +209,9 @@ func TestGFRender(t *testing.T) {
 			name string
 			want []string
 		}{
-			{"manual", []string{"Security (QQQX) asked", "Security (ZZB123458) asked prices_only", "Security (i:1000003) asked", "Security (98389B100) asked"}},
+			{"manual", []string{"Security (QQQX) asked", "Security (ABCD) asked prices_only", "Security (ABC-B) asked", "Security (XYZ) asked"}},
 			{"income", []string{"Schwab fees @fees", "Schwab interest @interest", "Schwab taxes @taxes", "Bond (9128ZZQ15) bond"}},
-			{"securities", []string{"Security (i:1000004) not_plain", "Security (ZZQ00K102) delisted", "Security (ZZC99X101) no_ticker"}},
+			{"securities", []string{"Security (QRS.PRK) not_plain", "Security (ZZQ00K102) delisted", "Security (ZZC99X101) no_ticker"}},
 			{"holdings", []string{
 				"XYZ 2025-02-21 40 put (XYZ250221P00040000) option", "XYZ 2026-09-18 50 call (XYZ260918C00050000) option",
 				"XYZ 2027-01-15 45 put (XYZ270115P00045000) option",

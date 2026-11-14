@@ -105,7 +105,7 @@
     {
       "security_key": "i:1000001",
       "symbol": "ABCD",
-      "identity": "ZZB123458",
+      "identity": "ABCD",
       "ticker": "ABCD",
       "wkn": "ZZB123458",
       "name": "ABCD INDUSTRIES INC"
@@ -113,20 +113,20 @@
     {
       "security_key": "i:1000002",
       "symbol": "EFGH",
-      "identity": "i:1000002",
+      "identity": "EFGH",
       "ticker": "EFGH",
       "name": "EFGH TOTAL MARKET ETF"
     },
     {
       "security_key": "i:1000004",
       "symbol": "QRS.PRK",
-      "identity": "i:1000004",
+      "identity": "QRS.PRK",
       "name": "QRS TRUST PFD SER K"
     },
     {
       "security_key": "i:1854092",
       "symbol": "XYZ",
-      "identity": "98389B100",
+      "identity": "XYZ",
       "ticker": "XYZ",
       "wkn": "98389B100",
       "name": "XYZ CORP COMMON STOCK"

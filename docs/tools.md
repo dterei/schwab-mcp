@@ -64,11 +64,11 @@ and the types' names, whatever PP's language and locale.
 
    ```
    $ schwabtx export -format pp -dir pp-1
-   wrote 17 rows for Portfolio Performance to pp-1, up to 2026-11-13: 2 account files, 2 portfolio files, 10 securities, 6 prices
+   wrote 17 rows for Portfolio Performance to pp-1, up to 2026-11-13: 2 account files, 2 portfolio files, 9 securities, 6 prices
      A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
-   12 holdings differ from the latest snapshot (pp-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+   11 holdings differ from the latest snapshot (pp-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
    in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
      A1 ...135: Schwab A1 ...135
      A2 ...398: Schwab A2 ...398
@@ -118,11 +118,13 @@ and the types' names, whatever PP's language and locale.
    option or a short sale, that is expected. Otherwise a position was opened
    before the store's rows: stderr says that holdings differ from the latest
    snapshot, and the manifest's `holdings` lists each, with the snapshot's
-   shares and those that the export wrote. Import the History files that go
-   back to the purchase (`schwabtx import`), and the next export writes the
-   rows they add; or add the opening position in PP, a Delivery (Inbound)
-   dated before its first row. A later export marks `before` a difference
-   that the one before it listed alike, and does not count it again.
+   shares and those that the export wrote, once for a security that the
+   store holds under two keys (a History file's and the API's), as PP holds
+   it. Import the History files that go back to the purchase
+   (`schwabtx import`), and the next export writes the rows they add; or
+   add the opening position in PP, a Delivery (Inbound) dated before its
+   first row. A later export marks `before` a difference that the one
+   before it listed alike, and does not count it again.
 5. **What the manifest asks of you**: the rows left out, each with its
    reason and what to do, and the rows written with a caveat
    ([below](#what-the-manifest-asks-of-you)). A row that PP refuses for its
@@ -229,7 +231,7 @@ with its description in its comment.
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
    4 deposits, withdrawals and journals are in the accounts' balances
-   12 holdings differ from the latest snapshot (gf-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+   11 holdings differ from the latest snapshot (gf-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
    2 symbols for Yahoo have no row since 2025-11-13 and are not held (gf-1/manifest.json lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual
    Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
    next time: schwabtx export -format ghostfolio -since gf-1 -dir <a new folder>
@@ -254,7 +256,7 @@ with its description in its comment.
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
    4 deposits, withdrawals and journals are in the accounts' balances
-   12 holdings differ from the latest snapshot (gf-2/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+   11 holdings differ from the latest snapshot (gf-2/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
    1 symbol for Yahoo has no row since 2025-11-13 and is not held (gf-2/manifest.json lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual
    Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
    next time: schwabtx export -format ghostfolio -since gf-2 -dir <a new folder>
@@ -288,8 +290,11 @@ with its description in its comment.
 4. **Names.** On a shared instance such as ghostfol.io, where the export's
    ids may be another user's, Ghostfolio gives the accounts and assets new
    ids and finds them again by their names: do not rename them. An asset's
-   name is made from its CUSIP or option symbol (`XYZ 2025-02-21 40 put
-   (XYZ250221P00040000)`), and its description is in its comment.
+   name is made from what identifies the security: its ticker (`Security
+   (VBR)`), which the store's rows of it from every source share; an
+   option's symbol (`XYZ 2025-02-21 40 put (XYZ250221P00040000)`); and the
+   CUSIP of a bond or of a delisted security, whose ticker another company
+   may have taken. Its description is in its comment.
 5. **Fees and taxes** are FEE activities of the assets `Schwab fees` and
    `Schwab taxes`, which carry a price of 1 so that Ghostfolio takes them off
    net performance; their refunds are interest of the same asset, which

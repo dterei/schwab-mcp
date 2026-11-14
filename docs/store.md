@@ -541,11 +541,11 @@ it asks of you:
 
 ```
 $ schwabtx export -format pp -dir pp
-wrote 17 rows for Portfolio Performance to pp, up to 2026-11-13: 2 account files, 2 portfolio files, 10 securities, 6 prices
+wrote 17 rows for Portfolio Performance to pp, up to 2026-11-13: 2 account files, 2 portfolio files, 9 securities, 6 prices
   A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
   A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
   A3 ...783: snapshot 2026-11-02 to 2026-11-10
-12 holdings differ from the latest snapshot (pp/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+11 holdings differ from the latest snapshot (pp/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
 in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
   A1 ...135: Schwab A1 ...135
   A2 ...398: Schwab A2 ...398
@@ -557,7 +557,7 @@ wrote 13 activities for Ghostfolio to gf, up to 2026-11-13: 3 accounts with 12 b
   A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
   A3 ...783: snapshot 2026-11-02 to 2026-11-10
 4 deposits, withdrawals and journals are in the accounts' balances
-12 holdings differ from the latest snapshot (gf/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+11 holdings differ from the latest snapshot (gf/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
 2 symbols for Yahoo have no row since 2025-11-13 and are not held (gf/manifest.json lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual
 Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
 next time: schwabtx export -format ghostfolio -since gf -dir <a new folder>
@@ -1385,11 +1385,16 @@ and the export after you decide one writes it.
 - **Name**: the description that the store saw first, which changes only
   when an older History file brings an earlier one; the one seen last
   changes with whichever source saw the security last. Ghostfolio's MANUAL
-  assets are named from their identity instead, their CUSIP, else their OCC
-  symbol, else their key, after what they are (`XYZ 2025-02-21 40 put
-  (XYZ250221P00040000)`, `Bond` and its CUSIP, `Security (i:205187341)`),
-  with the description in their comment: on a shared instance Ghostfolio
-  finds such an asset again by its name alone.
+  assets are named from their identity instead, after what they are: the
+  ticker in Yahoo's form (`Security (VBR)`), but for an option, a delisted
+  security and a bond whose CUSIP the store knows; else the CUSIP
+  (`Bond` and its CUSIP), else the OCC symbol (`XYZ 2025-02-21 40 put
+  (XYZ250221P00040000)`), else the key (`Security (i:205187341)`); with the
+  description in their comment: on a shared instance Ghostfolio finds such
+  an asset again by its name alone. A security that the store holds under
+  two keys, a History file's and the API's, often with a CUSIP under one of
+  them only, has one ticker under both, so each tool holds it as one: one
+  row of PP's `securities.csv`, one Ghostfolio asset.
 - **Options.** In PP an option's ticker is its OCC symbol in compact form,
   `XYZ250221P00040000`, the form Yahoo uses, and a futures option's is its
   symbol; in Ghostfolio every option is a MANUAL asset, since Yahoo's search
@@ -1535,9 +1540,12 @@ then started over.
   and combined rows leave, up to its latest snapshot on or before `-to`,
   against that snapshot's position, and lists each difference under
   `holdings`, with the accounts that have no snapshot to check, counted on
-  stderr. Splits and corporate actions left out, and trades left out, show
-  there too. The walk-through's store shows 12, since its made-up snapshots
-  and rows were not made to agree.
+  stderr. A security is the tool's: one that the tool holds as one under
+  two of the store's keys (PP finds it by its ticker, WKN or name, and
+  Ghostfolio by its symbol) is checked once, under the least of its keys,
+  with every one of them in `security_keys`. Splits and corporate actions
+  left out, and trades left out, show there too. The walk-through's store
+  shows 11, since its made-up snapshots and rows were not made to agree.
 
 ### The manifest
 
@@ -1564,7 +1572,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `left_out`, `caveats`, `combined` | the rows left out, written with a caveat, and carried by a sale |
 | `in_balances` | Ghostfolio: per account, the cash rows that its balances carry |
 | `flagged`, `waiting` | the rows with a flag that needs you, with their flags, and the file rows that wait for you, each with the command that shows it |
-| `holdings` | each difference from the latest snapshot, and the accounts not checked |
+| `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several), and the accounts not checked |
 | `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`option`, `bond`, `no_ticker`, `delisted`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
 | `symbols_changed` | each security that a tool may hold under an earlier symbol: its key, how it is written now (`written_as`: its ticker, or `MANUAL` when the tool gets no price feed for it) and every ticker it has had (`symbols`) |
 | `coverage` | each account's coverage by source, as the manifest of `-dir` |

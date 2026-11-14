@@ -126,9 +126,11 @@ type gfExport struct {
 // security's.
 type gfAsset struct {
 	// profile is the cash profile that it is (toolEvent.profile), "" for a
-	// security's; security is the security, nil for a cash profile.
-	profile  string
-	security *toolSecurity
+	// security's; securities are the securities that it is of, nil for a
+	// cash profile: the store's securities that Ghostfolio takes for one, of
+	// one symbol (sameSecurity), the first named by the profile.
+	profile    string
+	securities []*toolSecurity
 	// used says that an activity of the file is of it. Ghostfolio makes a
 	// profile only for an activity that it imports, so one that no activity
 	// uses is written for its prices alone, which Ghostfolio applies only
@@ -200,7 +202,8 @@ func gfAccounts(in *toolInput, events []toolEvent) []gfAccount {
 // performance; then, in the order of listSecurities, each security that
 // Ghostfolio gets as a MANUAL asset and that an activity is of or a
 // selected account held, named from its identity alone, with its
-// description in its comment and its snapshot prices.
+// description in its comment and its snapshot prices: one for the store's
+// securities of one symbol, whatever their keys (mergeListed).
 func gfAssets(in *toolInput, events []toolEvent) ([]gfProfile, []gfAsset) {
 	profiles, assets := []gfProfile{}, []gfAsset{}
 	for _, c := range gfCashProfiles {
@@ -219,7 +222,7 @@ func gfAssets(in *toolInput, events []toolEvent) ([]gfProfile, []gfAsset) {
 		})
 		assets = append(assets, gfAsset{profile: c.profile, used: true})
 	}
-	for _, l := range listSecurities(in, events) {
+	for _, l := range mergeListed(toolGF, listSecurities(in, events)) {
 		s := l.security
 		if s.manual == "" {
 			continue
@@ -235,7 +238,7 @@ func gfAssets(in *toolInput, events []toolEvent) ([]gfProfile, []gfAsset) {
 			p.MarketData = append(p.MarketData, gfPrice{Date: gfMidnight(price.date), MarketPrice: json.Number(roundRat(price.price, 8))})
 		}
 		profiles = append(profiles, p)
-		assets = append(assets, gfAsset{security: s, used: l.used})
+		assets = append(assets, gfAsset{securities: l.members, used: l.used})
 	}
 	return profiles, assets
 }

@@ -136,18 +136,29 @@ func ppReconcile(t *testing.T, m *ppModel, in *toolInput, events []toolEvent, ou
 		for _, q := range held {
 			total += q
 		}
+		// The ledger's shares of each security that PP holds, which the
+		// store may hold under several keys.
 		cache := newPPCache(m.securities)
+		of := map[*ppSecurity]int64{}
+		var order []*ppSecurity
 		for _, ref := range slices.SortedFunc(maps.Keys(securities), func(a, b secRef) int {
 			return strings.Compare(a.key+" "+a.symbol, b.key+" "+b.symbol)
 		}) {
 			q := shares[holding{a.id, ref}] * 100 // millionths to PP's 10^-8
 			want += q
 			s, made, err := cache.lookup(ppIdentifiers(securities[ref]))
-			switch {
-			case err != nil || made && q != 0:
+			if err != nil || made && q != 0 {
 				t.Errorf("%s: PP holds no security %v: %v", a.name(), ref, err)
-			case held[s] != q:
-				t.Errorf("%s holds %d of %v (%s), the ledger %d (in 10^-8)", a.name(), held[s], ref, s.name, q)
+				continue
+			}
+			if _, ok := of[s]; !ok {
+				order = append(order, s)
+			}
+			of[s] += q
+		}
+		for _, s := range order {
+			if held[s] != of[s] {
+				t.Errorf("%s holds %d of %s, the ledger %d (in 10^-8)", a.name(), held[s], s.name, of[s])
 			}
 		}
 		if total != want {

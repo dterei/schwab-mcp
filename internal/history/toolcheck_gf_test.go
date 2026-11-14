@@ -466,8 +466,9 @@ func gfDayAt(form *regexp.Regexp, s string) bool {
 
 // profile checks an asset profile (6.4 of the design): MANUAL, a UUID as
 // its symbol, in USD, a name of its own; a cash profile with one price of
-// 1, a security's named for its identity, its CUSIP when it has one; each
-// price a number above 0 at midnight UTC, one per date.
+// 1, a security's named for its identity: a bond's, its CUSIP when it has
+// one; any other's, its CUSIP or its ticker then, not its key; each price
+// a number above 0 at midnight UTC, one per date.
 func (c *gfChecker) profile(where string, v any, names, symbols map[string]bool) {
 	p, ok := c.object(where, v)
 	if !ok {
@@ -512,7 +513,7 @@ func (c *gfChecker) profile(where string, v any, names, symbols map[string]bool)
 		switch {
 		case m == nil:
 			c.add("%s.name %q does not end with the security's identity in parentheses", where, name)
-		case cusip != "" && m[1] != cusip:
+		case cusip != "" && m[1] != cusip && (p["assetSubClass"] == "BOND" || strings.Contains(m[1], ":")):
 			c.add("%s.name %q names %s, not its CUSIP %s", where, name, m[1], cusip)
 		}
 	}
@@ -1598,6 +1599,10 @@ func TestToolCheckersGF(t *testing.T) {
 		}, "must have one price, of 1"},
 		{"a security named without its identity", func(top gfObject) { profile(top, bond)["name"] = "Bond" }, "does not end with the security's identity"},
 		{"a security named for another identity", func(top gfObject) { profile(top, bond)["name"] = "Bond (9128ZZQ16)" }, "not its CUSIP"},
+		{"a security named for its key though it has a CUSIP", func(top gfObject) {
+			profile(top, option)["cusip"] = "ZZO55C106"
+			profile(top, option)["name"] = "Security (" + keyPut + ")"
+		}, "not its CUSIP"},
 		{"two profiles of one symbol", func(top gfObject) { profile(top, option)["symbol"] = symbolOf(top, bond) }, "is another profile's too"},
 		{"two profiles of one name", func(top gfObject) { profile(top, option)["name"] = bond }, "Ghostfolio finds a profile by its name"},
 		{"a price of 0", func(top gfObject) {

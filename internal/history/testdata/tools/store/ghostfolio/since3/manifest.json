@@ -294,21 +294,21 @@
     {
       "security_key": "i:1854092",
       "symbol": "XYZ",
-      "identity": "98389B100",
+      "identity": "XYZ",
       "ghostfolio_symbol": "XYZ",
       "data_source": "YAHOO"
     },
     {
       "security_key": "i:1940083512",
       "symbol": "META",
-      "identity": "i:1940083512",
+      "identity": "META",
       "ghostfolio_symbol": "META",
       "data_source": "YAHOO"
     },
     {
       "security_key": "i:1973757747",
       "symbol": "AAPL",
-      "identity": "037833100",
+      "identity": "AAPL",
       "ghostfolio_symbol": "AAPL",
       "data_source": "YAHOO"
     },
@@ -355,14 +355,14 @@
     {
       "security_key": "i:4417302",
       "symbol": "BND",
-      "identity": "i:4417302",
+      "identity": "BND",
       "ghostfolio_symbol": "BND",
       "data_source": "YAHOO"
     },
     {
       "security_key": "i:4417355",
       "symbol": "VBR",
-      "identity": "i:4417355",
+      "identity": "VBR",
       "ghostfolio_symbol": "VBR",
       "data_source": "YAHOO"
     },
@@ -377,28 +377,28 @@
     {
       "security_key": "s:FILE:ABCD@2026-07-20",
       "symbol": "ABCD",
-      "identity": "s:FILE:ABCD@2026-07-20",
+      "identity": "ABCD",
       "ghostfolio_symbol": "ABCD",
       "data_source": "YAHOO"
     },
     {
       "security_key": "s:FILE:EFGH@2026-07-20",
       "symbol": "EFGH",
-      "identity": "s:FILE:EFGH@2026-07-20",
+      "identity": "EFGH",
       "ghostfolio_symbol": "EFGH",
       "data_source": "YAHOO"
     },
     {
       "security_key": "s:FILE:MNOP@2026-07-20",
       "symbol": "MNOP",
-      "identity": "s:FILE:MNOP@2026-07-20",
+      "identity": "MNOP",
       "ghostfolio_symbol": "MNOP",
       "data_source": "YAHOO"
     },
     {
       "security_key": "s:FILE:QRST@2026-07-20",
       "symbol": "QRST",
-      "identity": "s:FILE:QRST@2026-07-20",
+      "identity": "QRST",
       "ghostfolio_symbol": "QRST",
       "data_source": "YAHOO"
     },
@@ -594,18 +594,13 @@
       {
         "account": "A2 ...398",
         "security_key": "c:30303M102",
+        "security_keys": [
+          "c:30303M102",
+          "i:1940083512"
+        ],
         "symbol": "META",
         "snapshot": "2026-11-10",
         "snapshot_shares": 1,
-        "written_shares": 0,
-        "before": true
-      },
-      {
-        "account": "A2 ...398",
-        "security_key": "i:1940083512",
-        "symbol": "META",
-        "snapshot": "2026-11-10",
-        "snapshot_shares": 0,
         "written_shares": -1,
         "before": true
       },

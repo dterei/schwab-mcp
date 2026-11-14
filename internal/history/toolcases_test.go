@@ -44,7 +44,7 @@ func toolCases() []toolCase {
 		toolCaseCash(), toolCaseTransfers(), toolCaseTransferOutside(), toolCaseTrades(), toolCaseMultiLeg(),
 		toolCaseTwoRow(), toolCaseDeliveries(), toolCaseIncome(), toolCaseOptions(), toolCaseBonds(),
 		toolCaseSecurities(), toolCaseLeftOut(), toolCaseFlags(), toolCaseGFCash(), toolCaseHoldings(),
-		toolCaseGFDates(), toolCaseManual(), toolCaseIdle(),
+		toolCaseGFDates(), toolCaseManual(), toolCaseIdle(), toolCaseTwoKeys(),
 	}
 }
 
@@ -217,6 +217,10 @@ const (
 	keyBondT  = "i:1000010"
 	keyOptCU  = "i:1000011"
 	keyClass2 = "i:1000012"
+	// One security that the store holds under two keys, a History file's
+	// and the API's, as it does when nothing joins them (two_keys).
+	keyTwoFile = "x:66000017"
+	keyTwoAPI  = "i:1000013"
 )
 
 // The symbols of the cases' options.
@@ -1432,6 +1436,54 @@ func toolCaseIdle() toolCase {
 			{"T61002702", "Buy 40.00 shares 1", "BUY 40.00 shares 1"},
 			{"T61002704", "Buy 25.00 shares 1", "BUY 25.00 shares 1"},
 			{"T61002703", "Buy 50.00 shares 1", "BUY 50.00 shares 1"},
+		},
+	}
+}
+
+// toolCaseTwoKeys holds one security that the store holds under two keys,
+// a History file's and the API's, neither with a CUSIP: bought in the
+// file's rows and sold in the API's, and held under the API's key, which
+// -manual names for Ghostfolio. Each tool holds it as one security: one
+// row of PP's securities, one MANUAL asset, and one holding, which the
+// snapshot's shares match.
+func toolCaseTwoKeys() toolCase {
+	securities, names := tcSecurities()
+	securities = append(securities,
+		toolSecurityRow{key: keyTwoFile, symbol: "JKLM", description: "JKLM SMALL CAP VALUE ETF"},
+		toolSecurityRow{key: keyTwoAPI, assetType: "COLLECTIVE_INVESTMENT", symbol: "JKLM", description: "JKLM SMALL-CAP VALUE ETF"},
+	)
+	for _, n := range []struct {
+		key, kind, value string
+		seen             time.Time
+	}{
+		{keyTwoFile, "symbol", "JKLM", tcNY("2026-11-11 09:00:00")},
+		{keyTwoFile, "description", "JKLM SMALL CAP VALUE ETF", tcNY("2026-11-11 09:00:00")},
+		{keyTwoAPI, "symbol", "JKLM", tcNY("2026-03-16 10:00:00")},
+		{keyTwoAPI, "description", "JKLM SMALL-CAP VALUE ETF", tcNY("2026-03-16 10:00:00")},
+	} {
+		names = append(names, toolName{key: n.key, kind: n.kind, value: n.value, firstSeen: n.seen, lastSeen: n.seen})
+	}
+	return toolCase{
+		name: "two_keys",
+		in: tcInput(toolInput{
+			manual:     []string{"JKLM"},
+			securities: securities, names: names,
+			rows: []toolRow{
+				{
+					ref: "Cf7a8b9c0.1", account: 1, source: "file", posted: "2024-03-11", kind: "Buy", description: "JKLM SMALL CAP VALUE ETF",
+					category: "buy", securityKey: keyTwoFile, symbol: "JKLM", quantity: centsOf(10_000_000), price: tcPrice(150), amount: centsOf(-150_000),
+				},
+				{
+					ref: "T61002801", account: 1, source: "api", time: tcNY("2026-03-16 10:00:00"), kind: "TRADE", category: "sell",
+					securityKey: keyTwoAPI, symbol: "JKLM", quantity: centsOf(-4_000_000), price: tcPrice(170), amount: centsOf(68_000),
+				},
+			},
+			positions: []toolPosition{rcPosition("2026-11-10", keyTwoAPI, 6_000_000, 1080)},
+			snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 100_000)},
+		}),
+		want: []toolWant{
+			{"Cf7a8b9c0.1", "Buy 1500.00 shares 10", "BUY 1500.00 shares 10"},
+			{"T61002801", "Sell 680.00 shares 4", "SELL 680.00 shares 4"},
 		},
 	}
 }

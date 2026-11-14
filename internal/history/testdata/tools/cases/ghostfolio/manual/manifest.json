@@ -83,17 +83,17 @@
       "Ce6f7a8b9.1": {
         "day": "2025-03-03",
         "as": "2025-03-03 BUY 40.00",
-        "fp": "aa804d6db2615623"
+        "fp": "248ee7d80c90b043"
       },
       "T61002601": {
         "day": "2025-02-03",
         "as": "2025-02-03 BUY 50.00",
-        "fp": "3fb07f667cd904b4"
+        "fp": "397173b358d98b35"
       },
       "T61002602": {
         "day": "2025-02-04",
         "as": "2025-02-04 BUY 300.00",
-        "fp": "78dc62d9ac42e994"
+        "fp": "116c8fe11d5a4f2b"
       }
     }
   },
@@ -102,33 +102,33 @@
       "security_key": "",
       "symbol": "QQQX",
       "identity": "QQQX",
-      "ghostfolio_symbol": "d6098a0a-7748-81ea-ace2-377f993f63ba",
+      "ghostfolio_symbol": "b71ead58-6668-82d6-85ad-91de428d6fd3",
       "data_source": "MANUAL",
       "name": "Security (QQQX)"
     },
     {
       "security_key": "i:1000001",
       "symbol": "ABCD",
-      "identity": "ZZB123458",
-      "ghostfolio_symbol": "cf4d8574-cb21-87c1-b4d0-49a87e05fe05",
+      "identity": "ABCD",
+      "ghostfolio_symbol": "0a679070-3317-84ff-8802-24664ed16654",
       "data_source": "MANUAL",
-      "name": "Security (ZZB123458)"
+      "name": "Security (ABCD)"
     },
     {
       "security_key": "i:1000003",
       "symbol": "ABC.B",
-      "identity": "i:1000003",
-      "ghostfolio_symbol": "9f58e850-1f4b-82ff-b759-426c00467f0b",
+      "identity": "ABC-B",
+      "ghostfolio_symbol": "ce3d0c34-6112-81b6-8d8d-9f8381716687",
       "data_source": "MANUAL",
-      "name": "Security (i:1000003)"
+      "name": "Security (ABC-B)"
     },
     {
       "security_key": "i:1854092",
       "symbol": "XYZ",
-      "identity": "98389B100",
-      "ghostfolio_symbol": "74bcb546-fa1d-820b-bee2-436d6b2aa408",
+      "identity": "XYZ",
+      "ghostfolio_symbol": "271e61a4-6bbb-8a46-bb60-2e33ebd30249",
       "data_source": "MANUAL",
-      "name": "Security (98389B100)"
+      "name": "Security (XYZ)"
     }
   ],
   "changed": [],
@@ -172,23 +172,23 @@
     ],
     "profiles": [
       {
-        "symbol": "d6098a0a-7748-81ea-ace2-377f993f63ba",
+        "symbol": "b71ead58-6668-82d6-85ad-91de428d6fd3",
         "name": "Security (QQQX)",
         "status": "used"
       },
       {
-        "symbol": "cf4d8574-cb21-87c1-b4d0-49a87e05fe05",
-        "name": "Security (ZZB123458)",
+        "symbol": "0a679070-3317-84ff-8802-24664ed16654",
+        "name": "Security (ABCD)",
         "status": "prices_only"
       },
       {
-        "symbol": "9f58e850-1f4b-82ff-b759-426c00467f0b",
-        "name": "Security (i:1000003)",
+        "symbol": "ce3d0c34-6112-81b6-8d8d-9f8381716687",
+        "name": "Security (ABC-B)",
         "status": "used"
       },
       {
-        "symbol": "74bcb546-fa1d-820b-bee2-436d6b2aa408",
-        "name": "Security (98389B100)",
+        "symbol": "271e61a4-6bbb-8a46-bb60-2e33ebd30249",
+        "name": "Security (XYZ)",
         "status": "used"
       }
     ]

@@ -173,14 +173,14 @@
     {
       "security_key": "i:1000002",
       "symbol": "EFGH",
-      "identity": "i:1000002",
+      "identity": "EFGH",
       "ghostfolio_symbol": "EFGH",
       "data_source": "YAHOO"
     },
     {
       "security_key": "i:1854092",
       "symbol": "XYZ",
-      "identity": "98389B100",
+      "identity": "XYZ",
       "ghostfolio_symbol": "XYZ",
       "data_source": "YAHOO"
     },

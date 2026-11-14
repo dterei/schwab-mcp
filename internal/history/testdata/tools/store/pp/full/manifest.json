@@ -465,7 +465,7 @@
     {
       "security_key": "i:1854092",
       "symbol": "XYZ",
-      "identity": "98389B100",
+      "identity": "XYZ",
       "ticker": "XYZ",
       "wkn": "98389B100",
       "name": "XYZ CORP COMMON STOCK"
@@ -473,14 +473,14 @@
     {
       "security_key": "i:1940083512",
       "symbol": "META",
-      "identity": "i:1940083512",
+      "identity": "META",
       "ticker": "META",
       "name": "META PLATFORMS INC CLASS A"
     },
     {
       "security_key": "i:1973757747",
       "symbol": "AAPL",
-      "identity": "037833100",
+      "identity": "AAPL",
       "ticker": "AAPL",
       "wkn": "037833100"
     },
@@ -522,14 +522,14 @@
     {
       "security_key": "i:4417302",
       "symbol": "BND",
-      "identity": "i:4417302",
+      "identity": "BND",
       "ticker": "BND",
       "name": "VANGUARD TOTAL BOND MARKET ETF"
     },
     {
       "security_key": "i:4417355",
       "symbol": "VBR",
-      "identity": "i:4417355",
+      "identity": "VBR",
       "ticker": "VBR",
       "name": "VANGUARD SMALL-CAP VALUE ETF"
     },
@@ -542,25 +542,25 @@
     {
       "security_key": "s:FILE:ABCD@2026-07-20",
       "symbol": "ABCD",
-      "identity": "s:FILE:ABCD@2026-07-20",
+      "identity": "ABCD",
       "ticker": "ABCD"
     },
     {
       "security_key": "s:FILE:EFGH@2026-07-20",
       "symbol": "EFGH",
-      "identity": "s:FILE:EFGH@2026-07-20",
+      "identity": "EFGH",
       "ticker": "EFGH"
     },
     {
       "security_key": "s:FILE:MNOP@2026-07-20",
       "symbol": "MNOP",
-      "identity": "s:FILE:MNOP@2026-07-20",
+      "identity": "MNOP",
       "ticker": "MNOP"
     },
     {
       "security_key": "s:FILE:QRST@2026-07-20",
       "symbol": "QRST",
-      "identity": "s:FILE:QRST@2026-07-20",
+      "identity": "QRST",
       "ticker": "QRST"
     },
     {
@@ -762,17 +762,13 @@
       {
         "account": "A2 ...398",
         "security_key": "c:30303M102",
+        "security_keys": [
+          "c:30303M102",
+          "i:1940083512"
+        ],
         "symbol": "META",
         "snapshot": "2026-11-10",
         "snapshot_shares": 1,
-        "written_shares": 0
-      },
-      {
-        "account": "A2 ...398",
-        "security_key": "i:1940083512",
-        "symbol": "META",
-        "snapshot": "2026-11-10",
-        "snapshot_shares": 0,
         "written_shares": -1
       },
       {

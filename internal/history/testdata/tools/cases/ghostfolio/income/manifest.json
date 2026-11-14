@@ -154,7 +154,7 @@
     {
       "security_key": "i:1000002",
       "symbol": "EFGH",
-      "identity": "i:1000002",
+      "identity": "EFGH",
       "ghostfolio_symbol": "EFGH",
       "data_source": "YAHOO"
     }

@@ -795,15 +795,36 @@ func (s *toolSecurity) gfSymbol() string {
 	return yahooForm(s.ticker())
 }
 
-// identity returns what identifies the security whatever the store learns
-// of it later: its CUSIP, else its OCC compact form, else its key, else its
-// symbol.
-func (s *toolSecurity) identity() string { return cmp.Or(s.cusip, s.occ, s.key, s.symbol) }
+// identity returns what identifies the security whatever store keys it
+// has: its ticker in Yahoo's form, which Ghostfolio knows a security by
+// that it asks Yahoo about, and which one security that the store holds
+// under two keys (a History file's and the API's, one of them with a CUSIP
+// and the other without) has under both; but for an option, a future, a
+// delisted security and a bond whose CUSIP the store knows, which have
+// none (identityTicker); else its CUSIP, else its OCC compact form, else
+// its key, else its symbol.
+func (s *toolSecurity) identity() string {
+	return cmp.Or(s.identityTicker(), s.cusip, s.occ, s.key, s.symbol)
+}
+
+// identityTicker returns the ticker in Yahoo's form that is the security's
+// identity, "" when it has none: it is an option or a future, which its
+// OCC form or its key names; it is delisted, its ticker another company's
+// now perhaps; it is a bond whose CUSIP the store knows; or it has no
+// ticker.
+func (s *toolSecurity) identityTicker() string {
+	if s.occ != "" || s.assetType == "OPTION" || s.assetType == "FUTURE" || s.delisted || s.bond && s.cusip != "" {
+		return ""
+	}
+	return yahooForm(s.ticker())
+}
 
 // uuidName returns the name whose UUID is its Ghostfolio symbol as a
-// MANUAL asset (6.7 of the design).
+// MANUAL asset (6.7 of the design), made from its identity.
 func (s *toolSecurity) uuidName() string {
 	switch {
+	case s.identityTicker() != "":
+		return "security ticker:" + s.identityTicker()
 	case s.cusip != "":
 		return "security cusip:" + s.cusip
 	case s.occ != "":
@@ -1206,6 +1227,9 @@ func sharesOf(q, m int64) (int64, bool) {
 // MANUAL one.
 type toolListed struct {
 	security *toolSecurity
+	// members are, once the securities that the tool takes for one are
+	// merged (mergeListed), each of them, security first; nil before.
+	members []*toolSecurity
 	// used says that a record of the export names it; one that no record
 	// names is written for its prices alone.
 	used bool
@@ -1250,6 +1274,94 @@ func listSecurities(in *toolInput, events []toolEvent) []toolListed {
 	slices.SortFunc(out, func(a, b toolListed) int {
 		return cmp.Or(cmp.Compare(a.security.key, b.security.key), cmp.Compare(a.security.symbol, b.security.symbol))
 	})
+	return out
+}
+
+// sameSecurity returns, for each of secs by its ref, the ref of the first
+// of secs that tool takes for the same security, whatever store keys they
+// have, so that what the export writes and checks of a security is of the
+// tool's one security: for Ghostfolio, those of one data source and symbol;
+// for PP, those that one Ticker Symbol or one WKN finds, or, with neither,
+// one name, as PP finds a record's security (ppIdentifiers;
+// SecurityCache.java:65-159). One security that the store holds under two
+// keys, a History file's and the API's, has the same ticker under both.
+func sameSecurity(tool string, secs []*toolSecurity) map[secRef]secRef {
+	parent := make([]int, len(secs))
+	for i := range parent {
+		parent[i] = i
+	}
+	find := func(i int) int {
+		for parent[i] != i {
+			parent[i], i = parent[parent[i]], parent[i]
+		}
+		return i
+	}
+	first := map[string]int{}
+	join := func(i int, id string) {
+		j, ok := first[id]
+		if !ok {
+			first[id] = i
+			return
+		}
+		a, b := find(i), find(j)
+		parent[max(a, b)] = min(a, b)
+	}
+	for i, s := range secs {
+		if tool == toolGF {
+			join(i, "symbol "+s.gfDataSource()+" "+s.gfSymbol())
+			continue
+		}
+		switch ticker, wkn, name := ppIdentifiers(s); {
+		case ticker == "" && wkn == "":
+			join(i, "name "+name)
+		default:
+			if ticker != "" {
+				join(i, "ticker "+ticker)
+			}
+			if wkn != "" {
+				join(i, "wkn "+wkn)
+			}
+		}
+	}
+	out := map[secRef]secRef{}
+	for i, s := range secs {
+		out[s.ref()] = secs[find(i)].ref()
+	}
+	return out
+}
+
+// mergeListed returns the securities of listed, in their order, as tool
+// writes them (sameSecurity): one for each of the tool's securities, the
+// first of listed of it with every one of them as its members, used when
+// any of them is, and with the prices of each date from the first of them
+// that has one.
+func mergeListed(tool string, listed []toolListed) []toolListed {
+	secs := make([]*toolSecurity, len(listed))
+	for i := range listed {
+		secs[i] = listed[i].security
+	}
+	same := sameSecurity(tool, secs)
+	var out []toolListed
+	at := map[secRef]int{}
+	for _, l := range listed {
+		i, ok := at[same[l.security.ref()]]
+		if !ok {
+			i = len(out)
+			at[same[l.security.ref()]] = i
+			out = append(out, toolListed{security: l.security})
+		}
+		o := &out[i]
+		o.used = o.used || l.used
+		o.members = append(o.members, l.security)
+		for _, p := range l.prices {
+			if !slices.ContainsFunc(o.prices, func(q toolPrice) bool { return q.date == p.date }) {
+				o.prices = append(o.prices, p)
+			}
+		}
+	}
+	for i := range out {
+		slices.SortStableFunc(out[i].prices, func(a, b toolPrice) int { return cmp.Compare(a.date, b.date) })
+	}
 	return out
 }
 
@@ -2015,8 +2127,11 @@ func (m *toolMapper) charge(i int, kind eventKind, s *toolSecurity, profile stri
 type toolHolding struct {
 	account toolAccount
 	// key is the security's key, "" for a row's security without one; and
-	// symbol its latest symbol.
+	// symbol its latest symbol. When the tool takes several of the store's
+	// securities for this one (sameSecurity), key is the least of their
+	// keys, and keys are every one of them, key first.
 	key, symbol string
+	keys        []string
 	// snapshot is the market date of the snapshot.
 	snapshot nytime.Date
 	// snapshotShares and writtenShares are the shares that the snapshot
@@ -2030,9 +2145,10 @@ type toolHolding struct {
 // to the day of its latest closed-phase snapshot on or before the export's
 // last day with that snapshot's positions (4.15 of the design): a sale of a
 // position opened before the store's rows, a split left out or a trade left
-// out shows as a difference. It returns the differences, by account and
-// then security, and the accounts with rows that have no snapshot to check
-// against.
+// out shows as a difference. A security is the tool's (sameSecurity): the
+// store's securities that it holds as one, under two keys, are one. It
+// returns the differences, by account and then security, and the accounts
+// with rows that have no snapshot to check against.
 func holdingsCheck(in *toolInput, events []toolEvent) ([]toolHolding, []toolAccount) {
 	ix := newToolIndex(in)
 	accounts := map[int64]bool{}
@@ -2061,7 +2177,7 @@ func holdingsCheck(in *toolInput, events []toolEvent) ([]toolHolding, []toolAcco
 			continue
 		}
 		held, wrote := map[secRef]int64{}, map[secRef]int64{}
-		symbols := map[secRef]string{}
+		secs := map[secRef]*toolSecurity{}
 		for _, p := range in.positions {
 			if p.account != id || p.marketDate != snap.marketDate || !p.fetchedAt.Equal(snap.fetchedAt) || p.key == "" {
 				continue
@@ -2073,60 +2189,89 @@ func holdingsCheck(in *toolInput, events []toolEvent) ([]toolHolding, []toolAcco
 			long, _ := sharesOf(p.long.Int64, s.multiplier)
 			short, _ := sharesOf(p.short.Int64, s.multiplier)
 			held[s.ref()] += long - short
-			symbols[s.ref()] = s.symbol
+			secs[s.ref()] = s
 		}
 		for _, e := range events {
 			if e.account.id != id || e.security == nil || e.kind.shareSign() == 0 || e.day > snap.marketDate {
 				continue
 			}
 			wrote[e.security.ref()] += e.kind.shareSign() * e.shares
-			symbols[e.security.ref()] = e.security.symbol
+			secs[e.security.ref()] = e.security
 		}
-		refs := slices.Collect(maps.Keys(symbols))
-		slices.SortFunc(refs, func(a, b secRef) int { return cmp.Or(cmp.Compare(a.key, b.key), cmp.Compare(a.symbol, b.symbol)) })
-		for _, ref := range refs {
-			if held[ref] != wrote[ref] {
-				diffs = append(diffs, toolHolding{
-					account: ix.account(id), key: ref.key, symbol: symbols[ref], snapshot: snap.marketDate,
-					snapshotShares: held[ref], writtenShares: wrote[ref],
-				})
+		// Each of the tool's securities, from the first of the store's of it
+		// in the order of their keys, with every one's shares and key.
+		list := slices.SortedFunc(maps.Values(secs), func(a, b *toolSecurity) int {
+			return cmp.Or(cmp.Compare(a.key, b.key), cmp.Compare(a.symbol, b.symbol))
+		})
+		same := sameSecurity(in.tool, list)
+		var order []secRef
+		group := map[secRef]*toolHolding{}
+		for _, s := range list {
+			g := group[same[s.ref()]]
+			if g == nil {
+				g = &toolHolding{account: ix.account(id), symbol: s.symbol, snapshot: snap.marketDate}
+				group[same[s.ref()]] = g
+				order = append(order, same[s.ref()])
+			}
+			g.snapshotShares += held[s.ref()]
+			g.writtenShares += wrote[s.ref()]
+			if s.key != "" {
+				g.key = cmp.Or(g.key, s.key)
+				g.keys = append(g.keys, s.key)
+			}
+		}
+		for _, ref := range order {
+			if g := group[ref]; g.snapshotShares != g.writtenShares {
+				if len(g.keys) < 2 {
+					g.keys = nil
+				}
+				diffs = append(diffs, *g)
 			}
 		}
 	}
 	return diffs, unchecked
 }
 
-// A toolIdle is a security that Ghostfolio's import asks Yahoo about that
-// Yahoo may no longer know (6.6 of the design): its symbol for Yahoo, its
-// key, and the day of its last row.
+// A toolIdle is a symbol that Ghostfolio's import asks Yahoo about that
+// Yahoo may no longer know (6.6 of the design): the symbol, the least key
+// of the store's securities that the records have it for, and the day of
+// the last row of any security that Ghostfolio asks Yahoo about by it.
 type toolIdle struct {
 	symbol, key string
 	last        nytime.Date
 }
 
-// yahooIdle returns, in the order of their symbols, the securities of the
-// Ghostfolio records events that Ghostfolio asks Yahoo about, that have no
-// row that the export selects in the year before its last day and that no
-// account holds in its latest snapshot: the likeliest to have been
-// acquired, renamed or delisted since they were sold, which the store
-// learns only from a later row. It is advice, which the manifest lists
-// for you to look up before a first import.
+// yahooIdle returns, in their order, the symbols that Ghostfolio asks Yahoo
+// about for the records events, that no row that the export selects of a
+// security of the symbol has in the year before its last day and that no
+// account holds a security of in its latest snapshot: the likeliest to
+// have been acquired, renamed or delisted since they were sold, which the
+// store learns only from a later row. A symbol is Ghostfolio's: one
+// security that the store holds under two keys, a History file's and the
+// API's, is one. It is advice, which the manifest lists for you to look up
+// before a first import.
 func yahooIdle(in *toolInput, events []toolEvent) []toolIdle {
-	last := map[secRef]nytime.Date{}
+	ix := newToolIndex(in)
+	// symbolOf returns Ghostfolio's symbol of the security of key, else of
+	// symbol; "" for none. A MANUAL asset's is a UUID, which no symbol for
+	// Yahoo is.
+	symbolOf := func(key, symbol string) string {
+		if s := ix.security(key, symbol); s != nil {
+			return s.gfSymbol()
+		}
+		return ""
+	}
+	last := map[string]nytime.Date{}
 	days := map[rowKey]nytime.Date{}
 	for i := range in.rows {
 		r := &in.rows[i]
-		ref := secRef{key: r.securityKey}
-		if r.securityKey == "" {
-			ref = secRef{symbol: r.symbol}
-		}
-		last[ref] = max(last[ref], r.day)
+		sym := symbolOf(r.securityKey, r.symbol)
+		last[sym] = max(last[sym], r.day)
 		days[rowKey{r.account, r.ref}] = r.day
 	}
 	for _, l := range in.legs {
-		if ref := (secRef{key: l.securityKey}); l.securityKey != "" {
-			last[ref] = max(last[ref], days[rowKey{l.account, l.ref}])
-		}
+		sym := symbolOf(l.securityKey, "")
+		last[sym] = max(last[sym], days[rowKey{l.account, l.ref}])
 	}
 	// Each account's latest snapshot: a selected account's from its
 	// snapshots, any other's from its positions.
@@ -2154,26 +2299,29 @@ func yahooIdle(in *toolInput, events []toolEvent) []toolIdle {
 	for _, p := range in.positions {
 		if l, ok := latest[p.account]; ok && p.marketDate == l.date && p.fetchedAt.Equal(l.at) &&
 			(p.long.Valid && p.long.Int64 > 0 || p.short.Valid && p.short.Int64 > 0) {
-			held[p.key] = true
+			held[symbolOf(p.key, "")] = true
 		}
 	}
 	yearBefore := nytime.Date("")
 	if t, err := time.Parse(time.DateOnly, string(in.to)); err == nil {
 		yearBefore = nytime.Date(t.AddDate(-1, 0, 0).Format(time.DateOnly))
 	}
-	var out []toolIdle
-	seen := map[string]bool{}
+	keys := map[string]string{} // each symbol of the records, to its least key
 	for _, e := range events {
 		s := e.security
-		if s == nil || e.profile != "" || s.manual != "" || seen[s.gfSymbol()] || held[s.key] && s.key != "" {
+		if s == nil || e.profile != "" || s.manual != "" {
 			continue
 		}
-		seen[s.gfSymbol()] = true
-		if d := last[s.ref()]; d < yearBefore {
-			out = append(out, toolIdle{symbol: s.gfSymbol(), key: s.key, last: d})
+		if k, ok := keys[s.gfSymbol()]; !ok || k == "" || s.key != "" && s.key < k {
+			keys[s.gfSymbol()] = s.key
 		}
 	}
-	slices.SortFunc(out, func(a, b toolIdle) int { return cmp.Compare(a.symbol, b.symbol) })
+	var out []toolIdle
+	for _, sym := range slices.Sorted(maps.Keys(keys)) {
+		if !held[sym] && last[sym] < yearBefore {
+			out = append(out, toolIdle{symbol: sym, key: keys[sym], last: last[sym]})
+		}
+	}
 	return out
 }
 
