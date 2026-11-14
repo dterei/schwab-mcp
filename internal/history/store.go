@@ -342,17 +342,25 @@ func (s *Store) pragmas() []string {
 }
 
 // writerDSN is the writer's: one connection, whose transactions take the
-// write lock at BEGIN.
+// write lock at BEGIN. Its connections and the readers' (readerDSN) open
+// the store with mode=rw, which never creates the file: checkPath has made
+// a new store's, private, before any connection, and a store moved away
+// while Open opens it, or while it is open, must not be made again in its
+// place, empty, where SQLite would delete the -wal beside it, which may hold
+// what a writer committed.
 func (s *Store) writerDSN() string {
 	return dsn(s.path, append(s.pragmas(),
 		"_pragma=synchronous(FULL)",
 		"_pragma=journal_size_limit(67108864)",
-		"_txlock=immediate")...)
+		"_txlock=immediate",
+		"mode=rw")...)
 }
 
-// readerDSN is the readers': a write on a query_only connection fails.
+// readerDSN is the readers', a Store's and a Reader's: a write on a
+// query_only connection fails, and mode=rw never creates the file, as
+// writerDSN says.
 func (s *Store) readerDSN() string {
-	return dsn(s.path, append(s.pragmas(), "_pragma=query_only(1)")...)
+	return dsn(s.path, append(s.pragmas(), "_pragma=query_only(1)", "mode=rw")...)
 }
 
 // connect runs Open's steps that SQLITE_BUSY can interrupt, so it may run

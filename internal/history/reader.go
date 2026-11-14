@@ -109,7 +109,7 @@ func OpenReader(ctx context.Context, o ReaderOptions) (*Reader, error) {
 func (r *Reader) open(ctx context.Context) error {
 	s := r.s
 	const op = "opening the store"
-	db, err := sql.Open("sqlite", s.readOnlyDSN())
+	db, err := sql.Open("sqlite", s.readerDSN())
 	if err != nil {
 		return err
 	}
@@ -145,13 +145,6 @@ func (r *Reader) open(ctx context.Context) error {
 	}
 	r.newer.Store(v.newer())
 	return nil
-}
-
-// readOnlyDSN is a Reader's: the readers' (readerDSN), with mode=rw, so
-// that a connection that the pool opens after the store's files have gone
-// fails, rather than making an empty store in their place.
-func (s *Store) readOnlyDSN() string {
-	return dsn(s.path, append(s.pragmas(), "_pragma=query_only(1)", "mode=rw")...)
 }
 
 // needsUpdate is ErrNeedsUpdate for a store whose versions are v, older

@@ -1039,15 +1039,16 @@ func TestReaderRefusesMissing(t *testing.T) {
 	}
 }
 
-// A store moved away while it is being opened, after checkPath saw it and
-// before identify reads it, leaves no store at the path. Its -wal, which a
-// killed writer left and which a read-only connection cannot recover, makes
-// identify open the path again to recover it, and that open makes no file
-// in the store's place, of which SQLite would take the -wal: the moved
-// store keeps what the writer committed. So it is when OpenReader opens,
-// and when Open does. Left in place, the store is recovered, and a Reader
-// reads what the writer committed.
-func TestIdentifyMakesNoStoreInAMovedOnesPlace(t *testing.T) {
+// A store moved away while it is being opened leaves no store at the path,
+// whenever it moves: between checkPath and identify, as OpenReader and Open
+// open it, or, as Open opens it, between identify and its writer's first
+// connection. A -wal that a killed writer left beside the store makes
+// identify open the path again, to recover the -wal, and Open's writer then
+// opens it to set WAL mode; neither open makes a file in the store's place,
+// an empty database beside which SQLite would delete the -wal, so the moved
+// store keeps what the writer committed. Left in place, the store is
+// recovered, and a Reader reads what the writer committed.
+func TestOpeningMakesNoStoreInAMovedOnesPlace(t *testing.T) {
 	t.Parallel()
 	path := copyTemplate(t)
 	c := startChild(t, "commit", "HISTORY_TEST_STORE="+path)
@@ -1070,12 +1071,31 @@ func TestIdentifyMakesNoStoreInAMovedOnesPlace(t *testing.T) {
 		}
 		return to
 	}
-	inPlace, second := copyStore(), copyStore()
+	inPlace, second, third := copyStore(), copyStore(), copyStore()
 
 	r := openReader(t, inPlace)
 	numbers, err := r.AccountNumbers(t.Context())
 	if err != nil || !slices.ContainsFunc(numbers, func(a NumberedAccount) bool { return a.Number == "committed" }) {
 		t.Errorf("in place, a Reader reads the accounts %+v, %v; want the one that the killed writer committed", numbers, err)
+	}
+
+	// followed checks what opening the store at path, as name says, left
+	// once its database had moved to away: no file at the path, and the -wal
+	// and -shm, which follow the database as the store's advice for a
+	// damaged store moves them, give it the writer's account.
+	followed := func(name, path, away string) {
+		t.Helper()
+		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s made %s: %v", name, filepath.Base(path), err)
+		}
+		for _, suffix := range []string{"-wal", "-shm"} {
+			if err := os.Rename(path+suffix, away+suffix); err != nil {
+				t.Errorf("%s: moving the %s: %v", name, suffix, err)
+			}
+		}
+		if n := queryInt(t, rawDB(t, away), "SELECT count(*) FROM account WHERE number = 'committed'"); n != 1 {
+			t.Errorf("%s: the moved store holds %d accounts that the killed writer committed, want 1", name, n)
+		}
 	}
 
 	for _, tc := range []struct {
@@ -1100,21 +1120,37 @@ func TestIdentifyMakesNoStoreInAMovedOnesPlace(t *testing.T) {
 		if err := s.identify(t.Context()); err == nil {
 			t.Errorf("%s: identify found a store at the path that it was moved from", tc.name)
 		}
-		if _, err := os.Lstat(tc.path); !errors.Is(err, fs.ErrNotExist) {
-			t.Errorf("%s: identify made %s: %v", tc.name, filepath.Base(tc.path), err)
-		}
-		// The -wal and -shm follow the database, as the store's advice for
-		// a damaged store moves them, and the store holds the writer's
-		// account.
-		for _, suffix := range []string{"-wal", "-shm"} {
-			if err := os.Rename(tc.path+suffix, away+suffix); err != nil {
-				t.Fatalf("%s: moving the %s: %v", tc.name, suffix, err)
+		followed(tc.name+"'s identify", tc.path, away)
+	}
+
+	// Past identify, Open makes the store's files private, and says so
+	// through Options.Warn when others could read one, before its writer
+	// first connects. The store moves away from inside Warn. Windows gives
+	// files their folder's permissions, so Open warns of none there.
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if err := os.Chmod(third, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	away := filepath.Join(t.TempDir(), "history.db")
+	var warned []string
+	s, err := Open(t.Context(), Options{Path: third, Now: fixedNow, Warn: func(m string) {
+		warned = append(warned, m)
+		if len(warned) == 1 {
+			if err := os.Rename(third, away); err != nil {
+				t.Error(err)
 			}
 		}
-		if n := queryInt(t, rawDB(t, away), "SELECT count(*) FROM account WHERE number = 'committed'"); n != 1 {
-			t.Errorf("%s: the moved store holds %d accounts that the killed writer committed, want 1", tc.name, n)
-		}
+	}})
+	if err == nil {
+		s.Close()
+		t.Error("Open opened a store at the path that it was moved from")
 	}
+	if len(warned) != 1 || !strings.HasSuffix(warned[0], "history.db could be read by others; it is now readable only by you") {
+		t.Errorf("Open warned %q, want that the store could be read by others", warned)
+	}
+	followed("Open's writer", third, away)
 }
 
 // A store that a newer schwabtx derived with newer rules is read, and
