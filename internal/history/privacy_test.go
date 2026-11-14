@@ -144,9 +144,10 @@ var composedIdentifiers = regexp.MustCompile(`\b(?:[ATSFCL]~?[0-9a-fA-F][0-9A-Za
 // no column of identifiers holds what was planted, masked; (d) with
 // SQLite's authorizer on a connection of its own, preparing each view reads
 // no account number, no raw column and no imported file's name or content;
-// and (e) an export of every table, every row included, reads none of
-// those either unless -raw or -show-accounts asks, and holds no number in
-// CSV or in JSON Lines.
+// (e) an export of every table, every row included, reads none of those
+// either unless -raw or -show-accounts asks, and holds no number in CSV or
+// in JSON Lines; and (f) a tool export's reads read views alone, but for
+// when the store was made, with an account or without, up to a day or not.
 func TestViewsHoldNoAccountNumber(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -256,11 +257,16 @@ func TestViewsHoldNoAccountNumber(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	var reads []string
+	// reads are the columns read, and direct those that the statement reads
+	// itself, not through a view: of a view it names, or of a table.
+	var reads, direct []string
 	if err := conn.Raw(func(dc any) error {
-		return dc.(sqlite.AuthorizerRegisterer).RegisterAuthorizer(func(action sqlite.AuthorizerActionCode, table, column, _, _ string) sqlite.AuthorizerReturnCode {
+		return dc.(sqlite.AuthorizerRegisterer).RegisterAuthorizer(func(action sqlite.AuthorizerActionCode, table, column, _, view string) sqlite.AuthorizerReturnCode {
 			if action == sqlite.AuthRead {
 				reads = append(reads, table+"."+column)
+				if view == "" && column != "" {
+					direct = append(direct, table+"."+column)
+				}
 			}
 			return sqlite.AuthorizerOK
 		})
@@ -276,7 +282,7 @@ func TestViewsHoldNoAccountNumber(t *testing.T) {
 			table == "import_file" && (column == "name" || column == "content")
 	}
 	prepare := func(query string) []string {
-		reads = nil
+		reads, direct = nil, nil
 		stmt, err := conn.PrepareContext(ctx, query)
 		if err != nil {
 			t.Fatalf("preparing %s: %v", query, err)
@@ -312,6 +318,18 @@ func TestViewsHoldNoAccountNumber(t *testing.T) {
 			want := o.Raw && tb.raw != rawNone || o.ShowAccounts && !tb.noAccount
 			if len(got) > 0 != want {
 				t.Errorf("exporting %s with %+v reads %q", tb.name, o, got)
+			}
+		}
+	}
+	for _, q := range slices.Concat(toolQueries(0, ""), toolQueries(account.Int64, "2026-12-31")) {
+		if got := prepare(q.query); len(got) > 0 {
+			t.Errorf("the tool export's %s reads %q", q.name, got)
+		}
+		for _, d := range direct {
+			view, _, _ := strings.Cut(d, ".")
+			created := q.name == "Q0" && (d == "store.created_at" || d == "store.id")
+			if !created && !slices.Contains(views, view) {
+				t.Errorf("the tool export's %s reads %s, which is not a view's", q.name, d)
 			}
 		}
 	}

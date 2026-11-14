@@ -1,0 +1,682 @@
+package history
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/dterei/schwab-mcp/internal/nytime"
+	"github.com/dterei/schwab-mcp/internal/schwab"
+	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
+)
+
+// A toolStore is the store of the tool exports' tests (11.3 of the design),
+// with what they name of it. Every value it holds is made up: the
+// fixtures' and the files' accounts, refs, securities and amounts.
+type toolStore struct {
+	s *Store
+	// individual and options are the ids of the fixtures' accounts that
+	// hold transactions (...135 and ...398), files that of fileAccount
+	// (...398 too), which only History files hold, and empty that of the
+	// fixtures' third (...783), which only snapshots hold.
+	individual, options, files, empty int64
+	// history and matched are the History files that newToolStore imports:
+	// fileAccount's, and the individual account's, whose rows the store
+	// matches with the account's API rows.
+	history, matched string
+	// later and correction are the History files of fileAccount that
+	// importLater imports: the first holds a row "as of" a day before it
+	// was posted and a dividend, which the second corrects.
+	later, correction string
+}
+
+// The instants of the API rows that newToolStore reads after the fixtures'
+// window, in New York: a journal of cash out of the options account and
+// its other side a day later, a journal of shares out of the individual
+// account and its other side, and a spread of two options.
+var (
+	toolPaysAt     = time.Date(2026, time.September, 8, 10, 0, 0, 0, nytime.NewYork())
+	toolReceivesAt = time.Date(2026, time.September, 9, 9, 30, 0, 0, nytime.NewYork())
+	toolDeliversAt = time.Date(2026, time.September, 10, 10, 15, 0, 0, nytime.NewYork())
+	toolTakesAt    = time.Date(2026, time.September, 10, 10, 16, 0, 0, nytime.NewYork())
+	toolSpreadAt   = time.Date(2026, time.September, 15, 11, 20, 5, 0, nytime.NewYork())
+)
+
+// The evenings of newToolStore's snapshots, after the close in New York,
+// and the morning of a snapshot taken during the second evening's session.
+var (
+	toolEvening1 = time.Date(2026, time.November, 9, 18, 5, 0, 0, nytime.NewYork())
+	toolEvening2 = time.Date(2026, time.November, 10, 18, 5, 0, 0, nytime.NewYork())
+	toolMorning  = time.Date(2026, time.November, 10, 11, 0, 0, 0, nytime.NewYork())
+)
+
+// toolSharesRaw returns the raw JSON of a JOURNAL of quantity shares of
+// AAPL, the fixtures' instrument, in the account whose number is number,
+// with activity ID id, at at, priced at price when it is not "".
+func toolSharesRaw(id int64, number string, at time.Time, quantity float64, price, description string) string {
+	if price != "" {
+		price = `, "price": ` + price
+	}
+	return fmt.Sprintf(`{"activityId": %d, "time": %q, "description": %q, "accountNumber": %q, "type": "JOURNAL",
+		"status": "VALID", "subAccount": "CASH", "tradeDate": %q, "netAmount": 0.0, "transferItems": [{"instrument":
+		{"assetType": "EQUITY", "status": "ACTIVE", "symbol": "AAPL", "instrumentId": 1973757747, "closingPrice": 230.1,
+		"type": "COMMON_STOCK"}, "amount": %v, "cost": 0.0%s}]}`,
+		id, schwabTime(at), description, number, schwabTime(midnight(nytime.DateOf(at))), quantity, price)
+}
+
+// toolDividendRaw returns the raw JSON of a dividend of amount dollars of
+// symbol in the individual account, with activity ID id, at at.
+func toolDividendRaw(id int64, at time.Time, symbol string, amount float64) string {
+	return fmt.Sprintf(`{"activityId": %d, "time": %q, "description": "Ordinary Dividend~%s", "accountNumber": %q,
+		"type": "DIVIDEND_OR_INTEREST", "status": "VALID", "subAccount": "CASH", "tradeDate": %q, "netAmount": %v,
+		"transferItems": [{"instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD",
+		"description": "USD currency", "instrumentId": 1, "closingPrice": 0.0}, "amount": %v, "cost": 0.0}]}`,
+		id, schwabTime(at), symbol, individual, schwabTime(midnight(nytime.DateOf(at))), amount, amount)
+}
+
+// toolSpreadRaw is the raw JSON of a TRADE of the options account with two
+// option legs, a put bought and a put sold, and two fee legs.
+var toolSpreadRaw = fmt.Sprintf(`{"activityId": 73600000105, "time": %q, "accountNumber": %q, "type": "TRADE",
+	"status": "VALID", "subAccount": "MARGIN", "tradeDate": %q, "orderId": 1004517700105, "netAmount": -131.34,
+	"transferItems": [
+	{"instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency",
+		"instrumentId": 1, "closingPrice": 0.0}, "amount": 1.3, "cost": -1.3, "feeType": "COMMISSION"},
+	{"instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency",
+		"instrumentId": 1, "closingPrice": 0.0}, "amount": 0.04, "cost": -0.04, "feeType": "OPT_REG_FEE"},
+	{"instrument": {"assetType": "OPTION", "status": "ACTIVE", "symbol": "XYZ   261016P00045000",
+		"description": "XYZ 10/16/2026 45.00 P", "instrumentId": 219950001, "closingPrice": 2.05,
+		"expirationDate": "2026-10-16T04:00:00+0000", "optionPremiumMultiplier": 100, "putCall": "PUT",
+		"strikePrice": 45.0, "type": "VANILLA", "underlyingSymbol": "XYZ"},
+		"amount": 1.0, "cost": -210.0, "price": 2.1, "positionEffect": "OPENING"},
+	{"instrument": {"assetType": "OPTION", "status": "ACTIVE", "symbol": "XYZ   261016P00040000",
+		"description": "XYZ 10/16/2026 40.00 P", "instrumentId": 219950002, "closingPrice": 0.75,
+		"expirationDate": "2026-10-16T04:00:00+0000", "optionPremiumMultiplier": 100, "putCall": "PUT",
+		"strikePrice": 40.0, "type": "VANILLA", "underlyingSymbol": "XYZ"},
+		"amount": -1.0, "cost": 80.0, "price": 0.8, "positionEffect": "OPENING"}]}`,
+	schwabTime(toolSpreadAt), options, schwabTime(midnight(nytime.DateOf(toolSpreadAt))))
+
+// toolNoDayRaw is the raw JSON of a dividend of the options account with
+// neither a trade date nor a time, which has no day.
+var toolNoDayRaw = fmt.Sprintf(`{"activityId": 73600000106, "description": "Ordinary Dividend~META", "accountNumber": %q,
+	"type": "DIVIDEND_OR_INTEREST", "status": "VALID", "subAccount": "MARGIN", "netAmount": 0.53, "transferItems": [
+	{"instrument": {"assetType": "CURRENCY", "status": "ACTIVE", "symbol": "CURRENCY_USD", "description": "USD currency",
+	"instrumentId": 1, "closingPrice": 0.0}, "amount": 0.53, "cost": 0.0}]}`, options)
+
+// The History files of the tool exports' store. fileAccount's first holds
+// the cases that only files hold: a journal of cash that nothing pairs,
+// shares journaled in and transferred out, a bond bought under its CUSIP,
+// its coupon and more of it journaled in at a price, a file option bought
+// and expired, a cash merger's two rows, a split, a Buy and its Cancel Buy,
+// margin interest and a foreign tax reclaim, besides Buys of the
+// securities that those name.
+var (
+	toolHistory = historyCSV(
+		csvRow{"07/01/2026", "Cash Merger", "EFGH", "EFGH CORP CASH MERGER", "", "", "", "$1,200.00"},
+		csvRow{"07/01/2026", "Cash Merger Adj", "EFGH", "EFGH CORP", "-30", "", "", ""},
+		csvRow{"06/15/2026", "Stock Split", "ABCD", "ABCD INDUSTRIES INC", "6", "", "", ""},
+		csvRow{"06/01/2026", "Journaled Shares", "9128ZZQ15", "EXAMPLE TREASURY NOTE 4.25% 08/15/2034", "5,000", "$99.80", "", ""},
+		csvRow{"05/18/2026", "Expired", "XYZ 05/15/2026 50.00 C", "CALL XYZ CORP $50 EXP 05/15/26", "-2", "", "", ""},
+		csvRow{"05/15/2026", "Bond Interest", "9128ZZQ15", "EXAMPLE TREASURY NOTE 4.25% 08/15/2034", "", "", "", "$212.50"},
+		csvRow{"04/20/2026", "Foreign Tax Reclaim", "ABCD", "ABCD INDUSTRIES INC", "", "", "", "$1.25"},
+		csvRow{"04/06/2026", "Buy to Open", "XYZ 05/15/2026 50.00 C", "CALL XYZ CORP $50 EXP 05/15/26", "2", "$1.25", "$1.32", "-$251.32"},
+		csvRow{"04/01/2026", "Buy", "9128ZZQ15", "EXAMPLE TREASURY NOTE 4.25% 08/15/2034", "10,000", "$99.50", "", "-$9,962.15"},
+		csvRow{"03/20/2026", "Margin Interest", "", "MARGIN INTEREST", "", "", "", "-$4.17"},
+		csvRow{"03/16/2026", "Security Transfer", "ABCD", "ABCD INDUSTRIES INC", "-4", "", "", ""},
+		csvRow{"03/09/2026", "Journaled Shares", "ABCD", "ABCD INDUSTRIES INC", "10", "", "", ""},
+		csvRow{"03/02/2026", "Journal", "", "JOURNAL FRM ...777", "", "", "", "$250.00"},
+		csvRow{"02/24/2026", "Buy", "MNOP", "MNOP HOLDINGS INC", "12", "$41.50", "", "-$498.00"},
+		csvRow{"02/18/2026", "Cancel Buy", "QRST", "QRST INC", "5", "$20.00", "", "$100.00"},
+		csvRow{"02/17/2026", "Buy", "QRST", "QRST INC", "5", "$20.00", "", "-$100.00"},
+		csvRow{"02/10/2026", "Buy", "EFGH", "EFGH CORP", "30", "$38.00", "", "-$1,140.00"},
+	)
+	// toolMatched is the individual account's: a dividend that either of
+	// two API rows could be, which is uncertain; interest on a day that its
+	// API rows cover, which none of them is, which is held out; and a wire
+	// that an API row is, which is linked to it.
+	toolMatched = historyCSV(
+		csvRow{"09/22/2026", "Qualified Dividend", "AAPL", "APPLE INC", "", "", "", "$0.26"},
+		csvRow{"05/31/2024", "Bank Interest", "", "BANK INT 050124-053124 SCHWAB BANK", "", "", "", "$0.37"},
+		csvRow{"12/15/2023", "Wire Funds Received", "", "WIRE FUNDS RECEIVED", "", "", "", "$10,000.00"},
+	)
+	// toolLater holds a dividend posted after the first exports' last day
+	// "as of" a day before it, and a dividend of MNOP, which toolCorrection,
+	// exported later, holds with another amount: a correction, which the
+	// store flags near_duplicate on both.
+	toolLater = historyCSV(
+		csvRow{"11/16/2026 as of 11/09/2026", "Qualified Dividend", "ABCD", "ABCD INDUSTRIES INC", "", "", "", "$4.20"},
+		csvRow{"11/13/2026", "Qualified Dividend", "MNOP", "MNOP HOLDINGS INC", "", "", "", "$3.60"},
+	)
+	toolCorrection = historyCSV(csvRow{"11/13/2026", "Qualified Dividend", "MNOP", "MNOP HOLDINGS INC", "", "", "", "$3.06"})
+)
+
+// newToolStore returns the store of the tool exports' tests (11.3 of the
+// design), built once for every check of a test: the fixtures' API rows,
+// complete reads of the individual and the options accounts, with their
+// nicknames; reads of both after the fixtures' window, of a journal of cash
+// out of one and into the other a day later, a journal of shares out of
+// one and into the other, a spread of two options, two dividends and a
+// dividend with no day; fileAccount's History file, imported with
+// -account, since two accounts end in 398; and the individual account's
+// History file (toolMatched), imported in one call with snapshots of the
+// fixtures' accounts on two evenings, which price the short put and
+// 00507V109, delisted between them, with a negative balance on the second,
+// and a snapshot taken during the second evening's session. importLater
+// adds what a later export goes on to.
+func newToolStore(t *testing.T) *toolStore {
+	t.Helper()
+	s := newStore(t, Options{})
+	ctx := t.Context()
+	recordFixtures(t, s)
+	var prefs schwab.UserPreference
+	if err := json.Unmarshal(schwabtest.Fixture(t, "user_preference.json"), &prefs); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordPreferences(ctx, readAt(fixturesEnd), prefs); err != nil {
+		t.Fatal(err)
+	}
+	// Read on the second snapshot's evening, so that its AAPL and the
+	// transactions' are one security, as reads near each other make it.
+	end := time.Date(2026, time.November, 10, 23, 30, 0, 0, time.UTC)
+	record(t, s, listRead(options, fixturesEnd, end, end,
+		decodeRow(t, journalRaw(73600000101, options, toolPaysAt, -500, "JOURNAL TO ...135")),
+		decodeRow(t, toolSharesRaw(73600000104, options, toolTakesAt, 2, "", "JOURNALED SHARES FRM ...135")),
+		decodeRow(t, toolSpreadRaw),
+		decodeRow(t, toolNoDayRaw)))
+	record(t, s, listRead(individual, fixturesEnd, end, end,
+		decodeRow(t, journalRaw(73600000102, individual, toolReceivesAt, 500, "JOURNAL FRM ...398")),
+		decodeRow(t, toolSharesRaw(73600000103, individual, toolDeliversAt, -2, "230.1", "JOURNALED SHARES TO ...398")),
+		decodeRow(t, toolDividendRaw(73600000107, time.Date(2026, time.September, 21, 9, 0, 0, 0, nytime.NewYork()), "AAPL", 0.26)),
+		decodeRow(t, toolDividendRaw(73600000108, time.Date(2026, time.September, 23, 9, 0, 0, 0, nytime.NewYork()), "AAPL", 0.26))))
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260720-090000", "csv"), toolHistory)
+	snapshots := snapshotLine(t, toolEvening1,
+		fixtureAccount(t, individual, `"symbol": "00507V109"`, `"symbol": "ZZDLX"`, `"marketValue": 0.0`, `"marketValue": 12.5`),
+		fixtureAccount(t, options), fixtureAccount(t, empty)) +
+		snapshotLine(t, toolEvening2,
+			fixtureAccount(t, individual, `"marketValue": 0.0`, `"marketValue": 11.8`),
+			fixtureAccount(t, options, `"marketValue": -310.0`, `"marketValue": -290.0`,
+				`"cashBalance": 5210.44`, `"cashBalance": -12.34`, `"cashBalance": 5210.44`, `"cashBalance": -12.34`),
+			fixtureAccount(t, empty)) +
+		snapshotLine(t, toolMorning, fixtureAccount(t, options, `"marketValue": -310.0`, `"marketValue": -300.0`,
+			`"cashBalance": 5210.44`, `"cashBalance": 4000.0`, `"cashBalance": 5210.44`, `"cashBalance": 4000.0`))
+	importFiles(t, s, ImportOptions{}, "Individual_XXX135_Transactions_20261005-090000.csv", toolMatched, "snapshots.jsonl", snapshots)
+	ts := &toolStore{s: s, history: toolHistory, matched: toolMatched, later: toolLater, correction: toolCorrection}
+	for _, a := range []struct {
+		id     *int64
+		number string
+	}{{&ts.individual, individual}, {&ts.options, options}, {&ts.files, fileAccount}, {&ts.empty, empty}} {
+		*a.id = storeInt(t, s, "SELECT account_id FROM account WHERE number = ?", a.number)
+	}
+	return ts
+}
+
+// importLater imports the History files of fileAccount that a later export
+// goes on to (11.3 of the design), in one call, as complete exports: the
+// row "as of" a day before the day it was posted, and the dividend and its
+// correction.
+func (ts *toolStore) importLater(t *testing.T) {
+	t.Helper()
+	importFiles(t, ts.s, ImportOptions{Account: fileAccount, Completeness: "complete"},
+		exportName("20261120-090000", "csv"), ts.later, exportName("20261123-090000", "csv"), ts.correction)
+}
+
+// fileRefs returns how the refs of the transactions that rows of the
+// History file whose content is content opened start: C, the start of the
+// file's SHA-256 in hex, and the dot before the row's ordinal.
+func fileRefs(content string) string {
+	return "C" + fileHex([]byte(content))[:8] + "."
+}
+
+// read reads the store as a tool export of the account of id account, 0
+// for every account, up to the day to does (readToolInput), in one read
+// transaction.
+func (ts *toolStore) read(t *testing.T, account int64, to nytime.Date) *toolInput {
+	t.Helper()
+	var in *toolInput
+	if err := ts.s.withRead(t.Context(), func(r *rtx) error {
+		var err error
+		in, err = readToolInput(r, account, to)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if in.account != account || in.to != to {
+		t.Fatalf("readToolInput(%d, %q) gives an input of account %d up to %q", account, to, in.account, in.to)
+	}
+	return in
+}
+
+// toolWord writes v as a line of toolLines holds it: as it is, or quoted
+// when it holds a space or is empty.
+func toolWord(v string) string {
+	if v == "" || strings.ContainsAny(v, " \t") {
+		return strconv.Quote(v)
+	}
+	return v
+}
+
+// A toolLine builds a line of toolLines: words, and fields named, each
+// written only when it holds a value.
+type toolLine struct{ b strings.Builder }
+
+// word adds v, a word (toolWord).
+func (l *toolLine) word(v string) *toolLine { return l.add(toolWord(v)) }
+
+// add adds token as it is.
+func (l *toolLine) add(token string) *toolLine {
+	if l.b.Len() > 0 {
+		l.b.WriteByte(' ')
+	}
+	l.b.WriteString(token)
+	return l
+}
+
+// text adds the field name of text v, but for "".
+func (l *toolLine) text(name, v string) *toolLine {
+	if v != "" {
+		l.add(name + "=" + toolWord(v))
+	}
+	return l
+}
+
+// int adds the field name of whole number v, but for NULL.
+func (l *toolLine) int(name string, v sql.NullInt64) *toolLine {
+	if v.Valid {
+		l.add(name + "=" + strconv.FormatInt(v.Int64, 10))
+	}
+	return l
+}
+
+// float adds the field name of number v, but for NULL.
+func (l *toolLine) float(name string, v sql.NullFloat64) *toolLine {
+	if v.Valid {
+		l.add(name + "=" + strconv.FormatFloat(v.Float64, 'g', -1, 64))
+	}
+	return l
+}
+
+// time adds the field name of instant v in UTC, but for the zero time.
+func (l *toolLine) time(name string, v time.Time) *toolLine {
+	if !v.IsZero() {
+		l.add(name + "=" + v.UTC().Format(time.RFC3339))
+	}
+	return l
+}
+
+// toolLines returns what in holds, by the field of toolInput that holds it,
+// a line for each value, every field of the value that holds one written:
+// the input as TestToolRead compares it.
+func toolLines(in *toolInput) map[string][]string {
+	out := map[string][]string{"store": {in.store}}
+	add := func(field string, l *toolLine) { out[field] = append(out[field], l.b.String()) }
+	account := func(id int64) string { return "A" + strconv.FormatInt(id, 10) }
+	for _, a := range in.accounts {
+		add("accounts", new(toolLine).word(account(a.id)).word(a.masked).text("nickname", a.nickname))
+	}
+	for _, r := range in.rows {
+		l := new(toolLine).word(r.ref).word(account(r.account)).word(r.source).text("day", string(r.day)).
+			text("posted", string(r.posted)).time("time", r.time).text("kind", r.kind).text("description", r.description).
+			int("amount", r.amount).int("fees", r.fees).int("gross", r.gross).int("quantity", r.quantity).
+			text("as_of", string(r.quantityAsOf)).float("price", r.price).text("symbol", r.symbol).
+			text("key", r.securityKey).text("category", r.category).text("pair", r.pairKind).text("pair_ref", r.pairRef)
+		if r.pairAccount != 0 {
+			l.add("pair_account=" + account(r.pairAccount))
+		}
+		l.text("flags", strings.Join(r.flags, ";"))
+		if p := r.partner; p != (toolPartner{}) {
+			l.add("partner:").text("day", string(p.day)).time("time", p.time).int("amount", p.amount).float("price", p.price).
+				text("counted", strconv.FormatBool(p.counted)).text("category", p.category).text("kind", p.kind).
+				text("description", p.description)
+		}
+		add("rows", l)
+	}
+	for _, g := range in.legs {
+		add("legs", new(toolLine).word(account(g.account)).word(g.ref).add("leg="+strconv.Itoa(g.leg)).text("symbol", g.symbol).
+			text("key", g.securityKey).int("quantity", g.quantity).int("cost", g.cost).float("price", g.price))
+	}
+	for _, s := range in.securities {
+		add("securities", new(toolLine).word(s.key).text("asset_type", s.assetType).text("type", s.typ).text("symbol", s.symbol).
+			text("cusip", s.cusip).text("description", s.description).text("put_call", s.putCall).float("strike", s.strike).
+			text("expiration", string(s.expiration)).float("multiplier", s.multiplier).text("underlying", s.underlying))
+	}
+	for _, n := range in.names {
+		add("names", new(toolLine).word(n.key).word(n.kind).word(n.value).time("first", n.firstSeen).time("last", n.lastSeen))
+	}
+	for _, p := range in.positions {
+		add("positions", new(toolLine).word(p.key).word(account(p.account)).word(string(p.marketDate)).time("fetched", p.fetchedAt).
+			int("long", p.long).int("short", p.short).float("value", p.marketValue))
+	}
+	for _, s := range in.snapshots {
+		add("snapshots", new(toolLine).word(account(s.account)).word(string(s.marketDate)).time("fetched", s.fetchedAt).int("cash", s.cash))
+	}
+	for _, w := range in.waiting {
+		add("waiting", new(toolLine).word(w.ref).word(account(w.account)).word(string(w.day)).word(w.kind).int("amount", w.amount).word(w.why))
+	}
+	for _, c := range in.coverage {
+		add("coverage", new(toolLine).word(account(c.AccountID)).word(c.Account).word(c.Source).word(string(c.From)).word(string(c.To)))
+	}
+	for _, u := range in.uncounted {
+		add("uncounted", new(toolLine).word(u.ref).word(account(u.account)).word(u.why).text("matched_with", u.matchedWith))
+	}
+	return out
+}
+
+// lines returns toolLines of in, with the refs of the store's file
+// transactions named by their file: H for fileAccount's first History file,
+// M for the individual account's, L for the later one and R for its
+// correction, as H.3 for "C<the file's start>.3".
+func (ts *toolStore) lines(in *toolInput) map[string][]string {
+	files := strings.NewReplacer(
+		fileRefs(ts.history), "H.", fileRefs(ts.matched), "M.", fileRefs(ts.later), "L.", fileRefs(ts.correction), "R.")
+	out := toolLines(in)
+	for _, ls := range out {
+		for i, l := range ls {
+			ls[i] = files.Replace(l)
+		}
+	}
+	return out
+}
+
+// toolSelected returns what a read of the account of id account, 0 for
+// every account, up to the day to, "" for no bound, holds of in, a read of
+// every account with no bound (2 of the design): the ledger rows of the
+// account up to to and those without a day; the legs of those of its rows
+// that have a day up to to; the positions of every account up to to; the
+// account's snapshots of every day; the rows of the account up to to that
+// wait for you; the coverage and the uncounted entries of the account; and
+// all the accounts, securities and names.
+func toolSelected(in *toolInput, account int64, to nytime.Date) *toolInput {
+	out := *in
+	out.account, out.to = account, to
+	of := func(id int64) bool { return account == 0 || id == account }
+	upTo := func(d nytime.Date) bool { return to == "" || d <= to }
+	days := map[rowKey]nytime.Date{}
+	for _, r := range in.rows {
+		days[rowKey{r.account, r.ref}] = r.day
+	}
+	out.rows = slices.DeleteFunc(slices.Clone(in.rows), func(r toolRow) bool { return !of(r.account) || r.day != "" && !upTo(r.day) })
+	out.legs = slices.DeleteFunc(slices.Clone(in.legs), func(l toolLeg) bool {
+		d := days[rowKey{l.account, l.ref}]
+		return !of(l.account) || d == "" || !upTo(d)
+	})
+	out.positions = slices.DeleteFunc(slices.Clone(in.positions), func(p toolPosition) bool { return !upTo(p.marketDate) })
+	out.snapshots = slices.DeleteFunc(slices.Clone(in.snapshots), func(s toolSnapshot) bool { return !of(s.account) })
+	out.waiting = slices.DeleteFunc(slices.Clone(in.waiting), func(w toolWaiting) bool { return !of(w.account) || !upTo(w.day) })
+	out.coverage = slices.DeleteFunc(slices.Clone(in.coverage), func(c ExportCoverage) bool { return !of(c.AccountID) })
+	out.uncounted = slices.DeleteFunc(slices.Clone(in.uncounted), func(u toolUncounted) bool { return !of(u.account) })
+	return &out
+}
+
+// compareToolLines fails the test for each field of toolLines whose lines
+// in got are not those of want, in their order; what says what was read.
+func compareToolLines(t *testing.T, what string, got, want map[string][]string) {
+	t.Helper()
+	fields := slices.Sorted(maps.Keys(want))
+	for f := range got {
+		if !slices.Contains(fields, f) {
+			fields = append(fields, f)
+		}
+	}
+	for _, f := range fields {
+		if !slices.Equal(got[f], want[f]) {
+			t.Errorf("%s: %s holds\n\t%s\nwant\n\t%s", what, f, strings.Join(got[f], "\n\t"), strings.Join(want[f], "\n\t"))
+		}
+	}
+}
+
+// toolInsert returns lines with added inserted before the line before,
+// which lines must hold.
+func toolInsert(t *testing.T, lines []string, before string, added ...string) []string {
+	t.Helper()
+	i := slices.Index(lines, before)
+	if i < 0 {
+		t.Fatalf("no line %q to insert before", before)
+	}
+	return slices.Insert(slices.Clone(lines), i, added...)
+}
+
+// toolStoreLines is what a read of every account of newToolStore's store,
+// with no bound, holds, as toolStore.lines writes it, but for when the
+// store was made: every account, nickname or none; every counted row, by
+// day (a row with none first), time, account and ref, with its partner's
+// columns; the legs of the spread; the securities and their symbols and
+// descriptions; the positions of both evenings; the snapshots, one of them
+// with a negative cash balance and two with none; the rows that wait for
+// you, held out and uncertain; the coverage; and the entries that do not
+// count, the linked one with the API row it is.
+var toolStoreLines = map[string][]string{
+	"accounts": {
+		`A1 ...135 nickname=Individual`,
+		`A2 ...398 nickname="Options & Margin"`,
+		`A3 ...398`,
+		`A4 ...783`,
+	},
+	"rows": {
+		`T73600000106 A2 api kind=DIVIDEND_OR_INTEREST description="Ordinary Dividend~META" amount=53 fees=0 gross=53 symbol=META category=dividend flags=problems;unresolved_security`,
+		`T73508261953 A1 api day=2023-06-12 time=2023-06-12T14:20:31Z kind=CASH_RECEIPT description="Funds Received" amount=15000 fees=0 gross=15000 category=deposit`,
+		`T73508261952 A1 api day=2023-07-19 time=2023-07-19T07:32:10Z kind=ELECTRONIC_FUND description="ACH Credit Received" amount=250000 fees=0 gross=250000 category=deposit`,
+		`T73508261951 A1 api day=2023-12-15 time=2023-12-15T16:02:55Z kind=WIRE_IN description="Wire Incoming" amount=1000000 fees=0 gross=1000000 category=deposit`,
+		`T73508261947 A1 api day=2024-03-15 time=2024-03-15T23:36:04Z kind=TRADE description="Sell Trade" amount=8327 fees=0 gross=8327 quantity=-451300 price=184.51 symbol=VBR key=i:4417355 category=sell`,
+		`T73508261950 A1 api day=2024-04-04 time=2024-04-04T15:54:14Z kind=DIVIDEND_OR_INTEREST description="Ordinary Dividend~BND" amount=386 fees=0 gross=386 symbol=BND key=i:4417302 category=dividend`,
+		`T73508261954 A1 api day=2024-04-04 time=2024-04-04T15:54:15Z kind=JOURNAL description="W-8 Withholding~BND" amount=-116 fees=0 gross=-116 symbol=BND key=i:4417302 category=tax`,
+		`T73508261946 A1 api day=2024-04-04 time=2024-04-04T15:56:07Z kind=TRADE description="Dividend Reinvest" amount=-270 fees=0 gross=-270 quantity=37800 price=71.42857 symbol=BND key=i:4417302 category=buy`,
+		`T73508261949 A1 api day=2024-04-30 time=2024-05-01T01:18:44Z kind=DIVIDEND_OR_INTEREST description="Free Balance Interest Adjustment" amount=42 fees=0 gross=42 category=interest`,
+		`T73508261945 A2 api day=2025-01-14 time=2025-01-14T05:15:12Z kind=TRADE amount=-105282 fees=282 gross=-105000 quantity=1000000 price=21 symbol=/ESH25_P5050:XCME key=i:205187341 category=buy`,
+		`T73508261944 A2 api day=2025-01-21 time=2025-01-21T16:05:12Z kind=TRADE amount=-40067 fees=67 gross=-40000 quantity=2000000 price=2 symbol="XYZ   250221P00040000" key=i:219771034 category=buy`,
+		`T73508261943 A1 api day=2025-06-02 time=2025-06-02T14:30:27Z kind=TRADE amount=-60546 fees=0 gross=-60546 quantity=3000000 price=201.82 symbol=AAPL key=i:1973757747 category=buy`,
+		`H.17 A3 file day=2026-02-10 posted=2026-02-10 kind=Buy description="EFGH CORP" amount=-114000 fees=0 gross=-114000 quantity=30000000 as_of=2026-07-20 price=38 symbol=EFGH key=s:FILE:EFGH@2026-07-20 category=buy`,
+		`H.16 A3 file day=2026-02-17 posted=2026-02-17 kind=Buy description="QRST INC" amount=-10000 fees=0 gross=-10000 quantity=5000000 as_of=2026-07-20 price=20 symbol=QRST key=s:FILE:QRST@2026-07-20 category=buy pair=reversal pair_ref=H.15 pair_account=A3 partner: day=2026-02-18 amount=10000 price=20 counted=true category=buy kind="Cancel Buy" description="QRST INC"`,
+		`H.15 A3 file day=2026-02-18 posted=2026-02-18 kind="Cancel Buy" description="QRST INC" amount=10000 fees=0 gross=10000 quantity=-5000000 as_of=2026-07-20 price=20 symbol=QRST key=s:FILE:QRST@2026-07-20 category=buy pair=reversal pair_ref=H.16 pair_account=A3 partner: day=2026-02-17 amount=-10000 price=20 counted=true category=buy kind=Buy description="QRST INC"`,
+		`H.14 A3 file day=2026-02-24 posted=2026-02-24 kind=Buy description="MNOP HOLDINGS INC" amount=-49800 fees=0 gross=-49800 quantity=12000000 as_of=2026-07-20 price=41.5 symbol=MNOP key=s:FILE:MNOP@2026-07-20 category=buy`,
+		`H.13 A3 file day=2026-03-02 posted=2026-03-02 kind=Journal description="JOURNAL FRM ...777" amount=25000 fees=0 gross=25000 as_of=2026-07-20 category=deposit flags=unpaired_journal`,
+		`H.12 A3 file day=2026-03-09 posted=2026-03-09 kind="Journaled Shares" description="ABCD INDUSTRIES INC" amount=0 fees=0 gross=0 quantity=10000000 as_of=2026-07-20 symbol=ABCD key=s:FILE:ABCD@2026-07-20 category=transfer_in flags=unpaired_journal`,
+		`T73508261942 A2 api day=2026-03-13 time=2026-03-13T13:55:09Z kind=TRADE amount=60336 fees=4 gross=60340 quantity=-1000000 price=603.4 symbol=META key=i:1940083512 category=sell`,
+		`H.11 A3 file day=2026-03-16 posted=2026-03-16 kind="Security Transfer" description="ABCD INDUSTRIES INC" amount=0 fees=0 gross=0 quantity=-4000000 as_of=2026-07-20 symbol=ABCD key=s:FILE:ABCD@2026-07-20 category=transfer_out flags=unpaired_journal`,
+		`H.10 A3 file day=2026-03-20 posted=2026-03-20 kind="Margin Interest" description="MARGIN INTEREST" amount=-417 fees=0 gross=-417 as_of=2026-07-20 category=interest`,
+		`H.9 A3 file day=2026-04-01 posted=2026-04-01 kind=Buy description="EXAMPLE TREASURY NOTE 4.25% 08/15/2034" amount=-996215 fees=0 gross=-996215 quantity=10000000000 as_of=2026-07-20 price=99.5 symbol=9128ZZQ15 key=s:FILE:9128ZZQ15@2026-07-20 category=buy`,
+		`H.8 A3 file day=2026-04-06 posted=2026-04-06 kind="Buy to Open" description="CALL XYZ CORP $50 EXP 05/15/26" amount=-25132 fees=132 gross=-25000 quantity=2000000 as_of=2026-07-20 price=1.25 symbol="XYZ 05/15/2026 50.00 C" key="s:FILE:XYZ 05/15/2026 50.00 C@2026-07-20" category=buy`,
+		`H.7 A3 file day=2026-04-20 posted=2026-04-20 kind="Foreign Tax Reclaim" description="ABCD INDUSTRIES INC" amount=125 fees=0 gross=125 as_of=2026-07-20 symbol=ABCD key=s:FILE:ABCD@2026-07-20 category=tax`,
+		`H.6 A3 file day=2026-05-15 posted=2026-05-15 kind="Bond Interest" description="EXAMPLE TREASURY NOTE 4.25% 08/15/2034" amount=21250 fees=0 gross=21250 as_of=2026-07-20 symbol=9128ZZQ15 key=s:FILE:9128ZZQ15@2026-07-20 category=interest`,
+		`H.5 A3 file day=2026-05-18 posted=2026-05-18 kind=Expired description="CALL XYZ CORP $50 EXP 05/15/26" amount=0 fees=0 gross=0 quantity=-2000000 as_of=2026-07-20 symbol="XYZ 05/15/2026 50.00 C" key="s:FILE:XYZ 05/15/2026 50.00 C@2026-07-20" category=other`,
+		`H.4 A3 file day=2026-06-01 posted=2026-06-01 kind="Journaled Shares" description="EXAMPLE TREASURY NOTE 4.25% 08/15/2034" amount=0 fees=0 gross=0 quantity=5000000000 as_of=2026-07-20 price=99.8 symbol=9128ZZQ15 key=s:FILE:9128ZZQ15@2026-07-20 category=transfer_in flags=unpaired_journal`,
+		`H.3 A3 file day=2026-06-15 posted=2026-06-15 kind="Stock Split" description="ABCD INDUSTRIES INC" amount=0 fees=0 gross=0 quantity=6000000 as_of=2026-07-20 symbol=ABCD key=s:FILE:ABCD@2026-07-20 category=other`,
+		`H.1 A3 file day=2026-07-01 posted=2026-07-01 kind="Cash Merger" description="EFGH CORP CASH MERGER" amount=120000 fees=0 gross=120000 as_of=2026-07-20 symbol=EFGH key=s:FILE:EFGH@2026-07-20 category=sell flags=two_row_event`,
+		`H.2 A3 file day=2026-07-01 posted=2026-07-01 kind="Cash Merger Adj" description="EFGH CORP" amount=0 fees=0 gross=0 quantity=-30000000 as_of=2026-07-20 symbol=EFGH key=s:FILE:EFGH@2026-07-20 category=other flags=two_row_event`,
+		`T73508261948 A2 api day=2026-07-15 time=2026-07-15T14:40:03Z kind=DIVIDEND_OR_INTEREST description="Ordinary Dividend~XYZ" amount=2500 fees=0 gross=2500 symbol=XYZ key=i:1854092 category=dividend flags=security_by_name`,
+		`T73508261941 A2 api day=2026-08-04 time=2026-08-04T15:22:41Z kind=TRADE amount=31131 fees=69 gross=31200 quantity=-1000000 price=3.12 symbol="XYZ   260918C00050000" key=i:219834765 category=sell`,
+		`T73600000101 A2 api day=2026-09-08 time=2026-09-08T14:00:00Z kind=JOURNAL description="JOURNAL TO ...135" amount=-50000 fees=0 gross=-50000 category=journal pair=journal pair_ref=T73600000102 pair_account=A1 partner: day=2026-09-09 time=2026-09-09T13:30:00Z amount=50000 counted=true category=journal kind=JOURNAL description="JOURNAL FRM ...398"`,
+		`T73600000102 A1 api day=2026-09-09 time=2026-09-09T13:30:00Z kind=JOURNAL description="JOURNAL FRM ...398" amount=50000 fees=0 gross=50000 category=journal pair=journal pair_ref=T73600000101 pair_account=A2 partner: day=2026-09-08 time=2026-09-08T14:00:00Z amount=-50000 counted=true category=journal kind=JOURNAL description="JOURNAL TO ...135"`,
+		`T73600000103 A1 api day=2026-09-10 time=2026-09-10T14:15:00Z kind=JOURNAL description="JOURNALED SHARES TO ...398" amount=0 fees=0 gross=0 quantity=-2000000 price=230.1 symbol=AAPL key=i:1973757747 category=journal pair=journal pair_ref=T73600000104 pair_account=A2 partner: day=2026-09-10 time=2026-09-10T14:16:00Z amount=0 counted=true category=journal kind=JOURNAL description="JOURNALED SHARES FRM ...135"`,
+		`T73600000104 A2 api day=2026-09-10 time=2026-09-10T14:16:00Z kind=JOURNAL description="JOURNALED SHARES FRM ...135" amount=0 fees=0 gross=0 quantity=2000000 symbol=AAPL key=i:1973757747 category=journal pair=journal pair_ref=T73600000103 pair_account=A1 partner: day=2026-09-10 time=2026-09-10T14:15:00Z amount=0 price=230.1 counted=true category=journal kind=JOURNAL description="JOURNALED SHARES TO ...398"`,
+		`T73600000105 A2 api day=2026-09-15 time=2026-09-15T15:20:05Z kind=TRADE amount=-13134 fees=134 gross=-13000 category=buy flags=mixed_legs`,
+		`T73600000107 A1 api day=2026-09-21 time=2026-09-21T13:00:00Z kind=DIVIDEND_OR_INTEREST description="Ordinary Dividend~AAPL" amount=26 fees=0 gross=26 symbol=AAPL key=i:1973757747 category=dividend`,
+		`T73600000108 A1 api day=2026-09-23 time=2026-09-23T13:00:00Z kind=DIVIDEND_OR_INTEREST description="Ordinary Dividend~AAPL" amount=26 fees=0 gross=26 symbol=AAPL key=i:1973757747 category=dividend`,
+	},
+	"legs": {
+		`A2 T73600000105 leg=2 symbol="XYZ   261016P00045000" key=i:219950001 quantity=1000000 cost=-21000 price=2.1`,
+		`A2 T73600000105 leg=3 symbol="XYZ   261016P00040000" key=i:219950002 quantity=-1000000 cost=8000 price=0.8`,
+	},
+	"securities": {
+		`c:00507V109 asset_type=EQUITY symbol=00507V109 cusip=00507V109`,
+		`c:0XYZ..RI60045000 asset_type=OPTION type=VANILLA symbol="XYZ   260619P00045000" cusip=0XYZ..RI60045000 description="XYZ 06/19/2026 45.00 P" put_call=PUT strike=45 expiration=2026-06-19 underlying=XYZ`,
+		`c:30303M102 asset_type=EQUITY symbol=META cusip=30303M102`,
+		`c:808515779 asset_type=MUTUAL_FUND type=NO_LOAD_TAXABLE symbol=SWVXX cusip=808515779 description="SCHWAB VALUE ADVANTAGE MONEY FUND"`,
+		`c:922908769 asset_type=COLLECTIVE_INVESTMENT type=EXCHANGE_TRADED_FUND symbol=VTI cusip=922908769 description="VANGUARD TOTAL STOCK MARKET ETF"`,
+		`i:1854092 asset_type=EQUITY type=COMMON_STOCK symbol=XYZ cusip=98389B100 description="XYZ CORP COMMON STOCK"`,
+		`i:1940083512 asset_type=EQUITY type=COMMON_STOCK symbol=META description="META PLATFORMS INC CLASS A"`,
+		`i:1973757747 asset_type=EQUITY type=COMMON_STOCK symbol=AAPL cusip=037833100`,
+		`i:205187341 asset_type=OPTION type=VANILLA symbol=/ESH25_P5050:XCME description="E-MINI S&P 500 OPTIONS MAR 25 5050 PUT" put_call=PUT strike=5050 expiration=2025-03-21 multiplier=50 underlying=.ESH25:XCME`,
+		`i:219771034 asset_type=OPTION type=VANILLA symbol="XYZ   250221P00040000" description="XYZ 02/21/2025 40.00 P" put_call=PUT strike=40 expiration=2025-02-21 multiplier=100 underlying=XYZ`,
+		`i:219834765 asset_type=OPTION type=VANILLA symbol="XYZ   260918C00050000" description="XYZ 09/18/2026 50.00 C" put_call=CALL strike=50 expiration=2026-09-18 multiplier=100 underlying=XYZ`,
+		`i:219950001 asset_type=OPTION type=VANILLA symbol="XYZ   261016P00045000" description="XYZ 10/16/2026 45.00 P" put_call=PUT strike=45 expiration=2026-10-16 multiplier=100 underlying=XYZ`,
+		`i:219950002 asset_type=OPTION type=VANILLA symbol="XYZ   261016P00040000" description="XYZ 10/16/2026 40.00 P" put_call=PUT strike=40 expiration=2026-10-16 multiplier=100 underlying=XYZ`,
+		`i:4417302 asset_type=COLLECTIVE_INVESTMENT type=EXCHANGE_TRADED_FUND symbol=BND description="VANGUARD TOTAL BOND MARKET ETF"`,
+		`i:4417355 asset_type=COLLECTIVE_INVESTMENT type=EXCHANGE_TRADED_FUND symbol=VBR description="VANGUARD SMALL-CAP VALUE ETF"`,
+		`s:FILE:9128ZZQ15@2026-07-20 symbol=9128ZZQ15`,
+		`s:FILE:ABCD@2026-07-20 symbol=ABCD`,
+		`s:FILE:EFGH@2026-07-20 symbol=EFGH`,
+		`s:FILE:MNOP@2026-07-20 symbol=MNOP`,
+		`s:FILE:QRST@2026-07-20 symbol=QRST`,
+		`"s:FILE:XYZ 05/15/2026 50.00 C@2026-07-20" asset_type=OPTION symbol="XYZ 05/15/2026 50.00 C"`,
+	},
+	"names": {
+		`c:00507V109 symbol 00507V109 first=2026-11-10T23:05:00Z last=2026-11-10T23:05:00Z`,
+		`c:00507V109 symbol ZZDLX first=2026-11-09T23:05:00Z last=2026-11-09T23:05:00Z`,
+		`c:0XYZ..RI60045000 description "XYZ 06/19/2026 45.00 P" first=2026-11-09T23:05:00Z last=2026-11-10T23:05:00Z`,
+		`c:0XYZ..RI60045000 symbol "XYZ   260619P00045000" first=2026-11-09T23:05:00Z last=2026-11-10T23:05:00Z`,
+		`c:30303M102 symbol META first=2026-11-09T23:05:00Z last=2026-11-10T23:05:00Z`,
+		`c:808515779 description "SCHWAB VALUE ADVANTAGE MONEY FUND" first=2026-11-09T23:05:00Z last=2026-11-10T23:05:00Z`,
+		`c:808515779 symbol SWVXX first=2026-11-09T23:05:00Z last=2026-11-10T23:05:00Z`,
+		`c:922908769 description "VANGUARD TOTAL STOCK MARKET ETF" first=2026-11-09T23:05:00Z last=2026-11-10T23:05:00Z`,
+		`c:922908769 symbol VTI first=2026-11-09T23:05:00Z last=2026-11-10T23:05:00Z`,
+		`i:1854092 description "XYZ CORP COMMON STOCK" first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
+		`i:1854092 symbol XYZ first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
+		`i:1940083512 description "META PLATFORMS INC CLASS A" first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
+		`i:1940083512 symbol META first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
+		`i:1973757747 symbol AAPL first=2025-06-03T00:00:01Z last=2026-11-10T23:30:01Z`,
+		`i:1973757747 symbol AAPL first=2026-11-09T23:05:00Z last=2026-11-10T23:05:00Z`,
+		`i:1973757747 symbol AAPL first=2026-10-05T13:00:00Z last=2026-10-05T13:00:00Z`,
+		`i:205187341 description "E-MINI S&P 500 OPTIONS MAR 25 5050 PUT" first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
+		`i:205187341 symbol /ESH25_P5050:XCME first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
+		`i:219771034 description "XYZ 02/21/2025 40.00 P" first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
+		`i:219771034 symbol "XYZ   250221P00040000" first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
+		`i:219834765 description "XYZ 09/18/2026 50.00 C" first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
+		`i:219834765 symbol "XYZ   260918C00050000" first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
+		`i:219950001 description "XYZ 10/16/2026 45.00 P" first=2026-11-10T23:30:01Z last=2026-11-10T23:30:01Z`,
+		`i:219950001 symbol "XYZ   261016P00045000" first=2026-11-10T23:30:01Z last=2026-11-10T23:30:01Z`,
+		`i:219950002 description "XYZ 10/16/2026 40.00 P" first=2026-11-10T23:30:01Z last=2026-11-10T23:30:01Z`,
+		`i:219950002 symbol "XYZ   261016P00040000" first=2026-11-10T23:30:01Z last=2026-11-10T23:30:01Z`,
+		`i:4417302 description "VANGUARD TOTAL BOND MARKET ETF" first=2025-06-03T00:00:01Z last=2025-06-03T00:00:01Z`,
+		`i:4417302 symbol BND first=2025-06-03T00:00:01Z last=2025-06-03T00:00:01Z`,
+		`i:4417355 description "VANGUARD SMALL-CAP VALUE ETF" first=2025-06-03T00:00:01Z last=2025-06-03T00:00:01Z`,
+		`i:4417355 symbol VBR first=2025-06-03T00:00:01Z last=2025-06-03T00:00:01Z`,
+		`s:FILE:9128ZZQ15@2026-07-20 symbol 9128ZZQ15 first=2026-07-20T13:00:00Z last=2026-07-20T13:00:00Z`,
+		`s:FILE:ABCD@2026-07-20 symbol ABCD first=2026-07-20T13:00:00Z last=2026-07-20T13:00:00Z`,
+		`s:FILE:EFGH@2026-07-20 symbol EFGH first=2026-07-20T13:00:00Z last=2026-07-20T13:00:00Z`,
+		`s:FILE:MNOP@2026-07-20 symbol MNOP first=2026-07-20T13:00:00Z last=2026-07-20T13:00:00Z`,
+		`s:FILE:QRST@2026-07-20 symbol QRST first=2026-07-20T13:00:00Z last=2026-07-20T13:00:00Z`,
+		`"s:FILE:XYZ 05/15/2026 50.00 C@2026-07-20" symbol "XYZ 05/15/2026 50.00 C" first=2026-07-20T13:00:00Z last=2026-07-20T13:00:00Z`,
+	},
+	"positions": {
+		`c:00507V109 A1 2026-11-09 fetched=2026-11-09T23:05:00Z long=10000000 short=0 value=12.5`,
+		`c:00507V109 A1 2026-11-10 fetched=2026-11-10T23:05:00Z long=10000000 short=0 value=11.8`,
+		`c:0XYZ..RI60045000 A2 2026-11-09 fetched=2026-11-09T23:05:00Z long=0 short=2000000 value=-310`,
+		`c:0XYZ..RI60045000 A2 2026-11-10 fetched=2026-11-10T23:05:00Z long=0 short=2000000 value=-290`,
+		`c:30303M102 A2 2026-11-09 fetched=2026-11-09T23:05:00Z long=1000000 short=0 value=603.4`,
+		`c:30303M102 A2 2026-11-10 fetched=2026-11-10T23:05:00Z long=1000000 short=0 value=603.4`,
+		`c:808515779 A1 2026-11-09 fetched=2026-11-09T23:05:00Z long=1220890000 short=0 value=1220.89`,
+		`c:808515779 A1 2026-11-10 fetched=2026-11-10T23:05:00Z long=1220890000 short=0 value=1220.89`,
+		`c:922908769 A1 2026-11-09 fetched=2026-11-09T23:05:00Z long=12000000 short=0 value=3748.92`,
+		`c:922908769 A1 2026-11-10 fetched=2026-11-10T23:05:00Z long=12000000 short=0 value=3748.92`,
+		`i:1973757747 A1 2026-11-09 fetched=2026-11-09T23:05:00Z long=2178800 short=0 value=495.7`,
+		`i:1973757747 A1 2026-11-10 fetched=2026-11-10T23:05:00Z long=2178800 short=0 value=495.7`,
+	},
+	"snapshots": {
+		`A1 2026-11-09 fetched=2026-11-09T23:05:00Z cash=153217`,
+		`A1 2026-11-10 fetched=2026-11-10T23:05:00Z cash=153217`,
+		`A2 2026-11-09 fetched=2026-11-09T23:05:00Z cash=521044`,
+		`A2 2026-11-10 fetched=2026-11-10T23:05:00Z cash=-1234`,
+		`A4 2026-11-09 fetched=2026-11-09T23:05:00Z`,
+		`A4 2026-11-10 fetched=2026-11-10T23:05:00Z`,
+	},
+	"waiting": {
+		`M.2 A1 2024-05-31 "Bank Interest" amount=37 held_out`,
+		`M.1 A1 2026-09-22 "Qualified Dividend" amount=26 uncertain`,
+	},
+	"coverage": {
+		`A1 ...135 api 2023-06-12 2025-06-01`,
+		`A1 ...135 api 2026-09-02 2026-11-09`,
+		`A1 ...135 file_filtered 2023-12-15 2026-09-22`,
+		`A1 ...135 snapshot 2026-11-09 2026-11-10`,
+		`A2 ...398 api 2025-01-14 2026-08-03`,
+		`A2 ...398 api 2026-09-02 2026-11-09`,
+		`A2 ...398 snapshot 2026-11-09 2026-11-10`,
+		`A3 ...398 file_unknown 2026-02-10 2026-07-01`,
+		`A4 ...783 snapshot 2026-11-09 2026-11-10`,
+	},
+	"uncounted": {
+		`M.1 A1 uncertain`,
+		`M.2 A1 held_out`,
+		`M.3 A1 linked matched_with=T73508261951`,
+	},
+}
+
+// A tool export reads the store as the design says (2 of the design), from
+// the tool exports' store (newToolStore): a read of every account with no
+// bound holds every field as the store does; a read of one account, or up
+// to a day, holds what that selection takes of it (toolSelected), and
+// nothing else; a row that came later, "as of" a day before it was posted,
+// is read by that day; and a decision that a row does not count moves it
+// to the uncounted entries, beside the partner that it leaves not counted.
+func TestToolRead(t *testing.T) {
+	t.Parallel()
+	ts := newToolStore(t)
+	all := ts.read(t, 0, "")
+	want := maps.Clone(toolStoreLines)
+	want["store"] = storeStrings(t, ts.s, "SELECT created_at FROM store")
+	compareToolLines(t, "every account", ts.lines(all), want)
+	// What no read takes: a snapshot taken during a session.
+	if n := storeInt(t, ts.s, "SELECT count(*) FROM positions WHERE in_session_date IS NOT NULL"); n != 2 {
+		t.Errorf("the store holds %d positions of a snapshot taken during a session, want 2", n)
+	}
+
+	// Each bound, at a day that some of what it bounds falls on, and that
+	// some falls after: one account's rows, legs, snapshots, waiting rows,
+	// coverage and uncounted entries, and the other's, with the row without
+	// a day; the rows, the legs of the spread and the rows that wait for you
+	// up to a day; and every account's positions up to the first evening.
+	for _, c := range []struct {
+		account int64
+		to      nytime.Date
+	}{{ts.individual, "2026-09-22"}, {ts.options, "2026-09-15"}, {0, "2026-09-14"}, {ts.options, "2026-11-09"}} {
+		compareToolLines(t, fmt.Sprintf("A%d up to %s", c.account, c.to), ts.lines(ts.read(t, c.account, c.to)),
+			ts.lines(toolSelected(all, c.account, c.to)))
+	}
+
+	// The later files, read up to 2026-11-13: the row posted on 11-16 "as
+	// of" 11-09 is read by its day; their rows come after every other; and
+	// each later export's symbols are names of the security that the
+	// account's first export named.
+	ts.importLater(t)
+	want["rows"] = append(slices.Clone(want["rows"]),
+		`L.1 A3 file day=2026-11-09 posted=2026-11-16 kind="Qualified Dividend" description="ABCD INDUSTRIES INC" amount=420 fees=0 gross=420 as_of=2026-11-20 symbol=ABCD key=s:FILE:ABCD@2026-07-20 category=dividend`,
+		`L.2 A3 file day=2026-11-13 posted=2026-11-13 kind="Qualified Dividend" description="MNOP HOLDINGS INC" amount=360 fees=0 gross=360 as_of=2026-11-20 symbol=MNOP key=s:FILE:MNOP@2026-07-20 category=dividend flags=missing_from_later;near_duplicate`,
+		`R.1 A3 file day=2026-11-13 posted=2026-11-13 kind="Qualified Dividend" description="MNOP HOLDINGS INC" amount=306 fees=0 gross=306 as_of=2026-11-23 symbol=MNOP key=s:FILE:MNOP@2026-07-20 category=dividend flags=near_duplicate`)
+	want["names"] = toolInsert(t, want["names"], `s:FILE:ABCD@2026-07-20 symbol ABCD first=2026-07-20T13:00:00Z last=2026-07-20T13:00:00Z`,
+		`s:FILE:ABCD@2026-07-20 symbol ABCD first=2026-11-20T14:00:00Z last=2026-11-20T14:00:00Z`)
+	want["names"] = toolInsert(t, want["names"], `s:FILE:MNOP@2026-07-20 symbol MNOP first=2026-07-20T13:00:00Z last=2026-07-20T13:00:00Z`,
+		`s:FILE:MNOP@2026-07-20 symbol MNOP first=2026-11-23T14:00:00Z last=2026-11-23T14:00:00Z`,
+		`s:FILE:MNOP@2026-07-20 symbol MNOP first=2026-11-20T14:00:00Z last=2026-11-20T14:00:00Z`)
+	want["coverage"] = toolInsert(t, want["coverage"], `A3 ...398 file_unknown 2026-02-10 2026-07-01`, `A3 ...398 file 2026-11-13 2026-11-16`)
+	compareToolLines(t, "every account up to 2026-11-13, after the later files", ts.lines(ts.read(t, 0, "2026-11-13")), want)
+
+	// You uncount the dividend that Schwab corrected, whose correction keeps
+	// its flag; and when your decision keeps a journal paired with its
+	// other side, which you uncount, the journal reads its partner as not
+	// counted.
+	if _, err := ts.s.DecideAll(t.Context(), []Decision{
+		{Kind: "count", Subject: subjectOf(ts.later, 2), Value: "no"},
+		{Kind: "pair", Subject: fmt.Sprintf("a:%d:73600000102", ts.individual), Value: fmt.Sprintf("a:%d:73600000101", ts.options)},
+		{Kind: "count", Subject: fmt.Sprintf("a:%d:73600000101", ts.options), Value: "no"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows := want["rows"][:0:0]
+	for _, l := range want["rows"] {
+		switch {
+		case strings.HasPrefix(l, "L.2 "), strings.HasPrefix(l, "T73600000101 "):
+			continue
+		case strings.HasPrefix(l, "T73600000102 "):
+			l = strings.Replace(l, " counted=true ", " counted=false ", 1)
+		}
+		rows = append(rows, l)
+	}
+	want["rows"] = rows
+	want["uncounted"] = append(slices.Clone(want["uncounted"]), `T73600000101 A2 user`, `L.2 A3 user`)
+	compareToolLines(t, "every account after your decisions", ts.lines(ts.read(t, 0, "")), want)
+}

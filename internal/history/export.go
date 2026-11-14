@@ -601,24 +601,35 @@ func oneLine(raw string) string {
 	return b.String()
 }
 
+// coverageQuery reads the coverage of the account ?1, or of every account
+// when ?1 is NULL (scanCoverage).
+const coverageQuery = `SELECT account_id, account, source, from_date, to_date FROM coverages
+	WHERE ?1 IS NULL OR account_id = ?1 ORDER BY account_id, source, from_date`
+
 // exportCoverage returns the coverage of the account, or of every account
 // when it is not valid.
 func exportCoverage(r *rtx, account sql.NullInt64) ([]ExportCoverage, error) {
-	rows, err := r.query(`SELECT account_id, account, source, from_date, to_date FROM coverages
-		WHERE ?1 IS NULL OR account_id = ?1 ORDER BY account_id, source, from_date`, account)
+	rows, err := r.query(coverageQuery, account)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []ExportCoverage
 	for rows.Next() {
-		var c ExportCoverage
-		if err := rows.Scan(&c.AccountID, &c.Account, &c.Source, &c.From, &c.To); err != nil {
+		c, err := scanCoverage(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// scanCoverage reads a row of coverageQuery.
+func scanCoverage(rows *sql.Rows) (ExportCoverage, error) {
+	var c ExportCoverage
+	err := rows.Scan(&c.AccountID, &c.Account, &c.Source, &c.From, &c.To)
+	return c, err
 }
 
 // WriteTo writes the export's one table to w, as its format says, and
