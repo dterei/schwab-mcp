@@ -86,8 +86,8 @@ the environment has none. Give -store as the store commands take it.
 	if err != nil {
 		return err
 	}
-	baseURL := ""
-	if strings.TrimSpace(os.Getenv("SCHWAB_BASE_URL")) != "" {
+	baseURL := "" // another server than Schwab's, such as the fake, or none
+	if strings.TrimSpace(os.Getenv("SCHWAB_BASE_URL")) != "" && !schwabsAddress(cfg.BaseURL) {
 		baseURL = cfg.BaseURL
 	}
 	auth, err := schwab.NewAuth(schwab.Config{AppKey: key.value, AppSecret: secret.value, BaseURL: baseURL, TokenFile: cfg.TokenFile})
@@ -159,7 +159,11 @@ the environment has none. Give -store as the store commands take it.
 		fmt.Fprintf(&b, "  %-12s %s\n", line[0], line[1])
 	}
 	if baseURL != "" {
-		fmt.Fprintf(&b, "  %-12s %s (from SCHWAB_BASE_URL), not Schwab's\n", "api host", apiHost(baseURL))
+		host := apiHost(baseURL) + " (from SCHWAB_BASE_URL)"
+		if u, err := url.Parse(baseURL); err != nil || !strings.EqualFold(u.Hostname(), schwabHost) {
+			host += ", not Schwab's"
+		}
+		fmt.Fprintf(&b, "  %-12s %s\n", "api host", host)
 	}
 	if *dryRun {
 		b.WriteString("nothing was saved (-print)\n")
@@ -176,6 +180,18 @@ func apiHost(baseURL string) string {
 		return u.Host
 	}
 	return baseURL
+}
+
+// schwabHost is the host of Schwab's own API, schwab.DefaultBaseURL's.
+var schwabHost = apiHost(schwab.DefaultBaseURL)
+
+// schwabsAddress reports whether baseURL, without its trailing "/", is
+// schwab.DefaultBaseURL, where every client goes without a base URL,
+// written in any case and with or without its port.
+func schwabsAddress(baseURL string) bool {
+	u, err := url.Parse(baseURL)
+	return err == nil && u.Scheme == "https" && strings.EqualFold(u.Hostname(), schwabHost) && (u.Port() == "" || u.Port() == "443") &&
+		u.User == nil && u.Path == "" && u.RawQuery == "" && !u.ForceQuery && u.Fragment == ""
 }
 
 // readConfig reads config.json where setup saves it, and returns its path:

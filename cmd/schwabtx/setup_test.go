@@ -118,6 +118,28 @@ func TestSetup(t *testing.T) {
 	if b, err := os.ReadFile(path); err != nil || bytes.Contains(b, []byte("base_url")) || !bytes.Contains(b, []byte(`"later": [`)) {
 		t.Errorf("config.json holds\n%s, %v; want no base_url, and the field it did not know", b, err)
 	}
+
+	// Schwab's own address in SCHWAB_BASE_URL is no other server: nothing is
+	// saved of it, and no host printed. Another address on Schwab's host is
+	// saved, and its host printed as Schwab's.
+	for _, base := range []string{schwab.DefaultBaseURL + "/", "HTTPS://API.SchwabAPI.com:443"} {
+		t.Setenv("SCHWAB_BASE_URL", base)
+		stdout, _, err = runTx(t, "setup")
+		if err != nil || strings.Contains(stdout, "api host") {
+			t.Errorf("setup with SCHWAB_BASE_URL %s: %v, printed\n%s", base, err, stdout)
+		}
+		if b, err := os.ReadFile(path); err != nil || bytes.Contains(b, []byte("base_url")) {
+			t.Errorf("with SCHWAB_BASE_URL %s, config.json holds\n%s, %v; want no base_url", base, b, err)
+		}
+	}
+	t.Setenv("SCHWAB_BASE_URL", schwab.DefaultBaseURL+"/v9")
+	stdout, _, err = runTx(t, "setup")
+	if err != nil || !strings.Contains(stdout, "\n  api host     api.schwabapi.com (from SCHWAB_BASE_URL)\n") {
+		t.Errorf("setup with SCHWAB_BASE_URL %s/v9: %v, printed\n%s", schwab.DefaultBaseURL, err, stdout)
+	}
+	if got := readSaved(t); got.BaseURL != schwab.DefaultBaseURL+"/v9" {
+		t.Errorf("with SCHWAB_BASE_URL %s/v9, saved %+v", schwab.DefaultBaseURL, got)
+	}
 }
 
 // Without SCHWAB_APP_KEY or SCHWAB_APP_SECRET, setup keeps what the file

@@ -86,9 +86,9 @@ already, and the token file, the store and the rate file as `schwabtx`
 finds them in that terminal, each as an absolute path. The server reads it
 all from there, so that a client's configuration holds no secret and the
 server uses the same files as `schwabtx`, whatever environment its client
-gives it. `SCHWAB_BASE_URL` is saved too when it is set, as it is to run
-against the tests' fake; the server takes the API's address from
-`config.json` alone.
+gives it. `SCHWAB_BASE_URL` is saved too when it names another server than
+Schwab's, as it does to run against the tests' fake; the server takes the
+API's address from `config.json` alone.
 
 ```
 -store PATH   the store's file, as the store commands take it (default:
