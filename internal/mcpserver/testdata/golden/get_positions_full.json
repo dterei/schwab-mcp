@@ -1,0 +1,144 @@
+{
+  "source": "schwab",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [
+    {
+      "code": "extended_hours",
+      "message": "Values are as of now, outside the regular session, at extended-hours prices."
+    },
+    {
+      "code": "figures_missing",
+      "message": "Schwab sent no current value for ...783 (Contributory), so the weights that need it are null."
+    },
+    {
+      "code": "problems",
+      "message": "1 account differed from what Schwab has sent before (securitiesAccount.positions.marketValue: Schwab sent a string where a number was expected; securitiesAccount.positions.longOpenProfitLoss: missing, though Schwab sends it on every long position); a figure that could not be read is null."
+    }
+  ],
+  "next_cursor": null,
+  "complete": true,
+  "positions": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "symbol": "00507V109",
+      "asset_type": "EQUITY",
+      "quantity": 10,
+      "average_price": 81.50,
+      "value": 0.00,
+      "cost": 815.00,
+      "open_pl": -815.00,
+      "account_weight": 0,
+      "portfolio_weight": null,
+      "description": null
+    },
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "symbol": "AAPL",
+      "asset_type": "EQUITY",
+      "quantity": 2.1788,
+      "average_price": 190.20,
+      "value": 495.70,
+      "cost": null,
+      "open_pl": null,
+      "account_weight": 0.0708,
+      "portfolio_weight": null,
+      "description": null
+    },
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "symbol": "SWVXX",
+      "asset_type": "MUTUAL_FUND",
+      "quantity": 1220.89,
+      "average_price": 1.00,
+      "value": 1220.89,
+      "cost": 1220.89,
+      "open_pl": 0.00,
+      "account_weight": 0.1745,
+      "portfolio_weight": null,
+      "description": "SCHWAB VALUE ADVANTAGE MONEY FUND"
+    },
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "symbol": "VTI",
+      "asset_type": "COLLECTIVE_INVESTMENT",
+      "quantity": 12,
+      "average_price": 251.3075,
+      "value": null,
+      "cost": null,
+      "open_pl": 733.23,
+      "account_weight": null,
+      "portfolio_weight": null,
+      "description": "VANGUARD TOTAL STOCK MARKET ETF"
+    },
+    {
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "symbol": "META",
+      "asset_type": "EQUITY",
+      "quantity": 1,
+      "average_price": 512.00,
+      "value": 603.40,
+      "cost": 512.00,
+      "open_pl": 91.40,
+      "account_weight": 0.1096,
+      "portfolio_weight": null,
+      "description": null
+    },
+    {
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "symbol": "XYZ   260619P00045000",
+      "asset_type": "OPTION",
+      "quantity": -2,
+      "average_price": 1.60,
+      "value": -310.00,
+      "cost": -320.00,
+      "open_pl": 10.00,
+      "account_weight": -0.0563,
+      "portfolio_weight": null,
+      "description": "XYZ 06/19/2026 45.00 P"
+    }
+  ],
+  "accounts": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "nickname": "Individual",
+      "value": 6997.68,
+      "positions": 4,
+      "positions_value": null,
+      "positions_cost": null,
+      "open_pl": null
+    },
+    {
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "nickname": "Options & Margin",
+      "value": 5503.84,
+      "positions": 2,
+      "positions_value": 293.40,
+      "positions_cost": 192.00,
+      "open_pl": 101.40
+    },
+    {
+      "account": "...783",
+      "account_hash": "8C2F1DD750834DC72D2B65A2497B6A003E30CF6559B79586433150D303FDC9DA",
+      "nickname": "Contributory",
+      "value": null,
+      "positions": 0,
+      "positions_value": 0.00,
+      "positions_cost": 0.00,
+      "open_pl": 0.00
+    }
+  ],
+  "total": {
+    "value": null,
+    "positions_value": null,
+    "positions_cost": null,
+    "open_pl": null
+  }
+}

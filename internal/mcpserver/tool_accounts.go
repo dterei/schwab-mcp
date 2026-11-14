@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"strconv"
@@ -23,8 +24,8 @@ import (
 // outside a regular session follow extended-hours prices: every answer
 // with values says so.
 
-// registerAccounts registers the account tools, list_accounts and
-// get_balances.
+// registerAccounts registers the account tools, list_accounts,
+// get_balances and get_positions.
 func (s *Server) registerAccounts() {
 	addTool(s, toolDef{
 		name:  "list_accounts",
@@ -45,6 +46,20 @@ func (s *Server) registerAccounts() {
 			"that is not the value less the holdings. detail full adds every current balance figure Schwab sent.",
 		slot: true,
 	}, s.getBalances)
+	addTool(s, toolDef{
+		name:  "get_positions",
+		title: "Schwab positions",
+		description: "What each account holds, the same figures as `schwabtx positions`: quantity (negative when short), " +
+			"average price, market value, cost (value less open profit or loss) and open profit or loss (positive for a gain), " +
+			"each position's share of its account's value and of every shared account's value (fractions), and the totals. " +
+			"symbol keeps one symbol and its options. Cash is not a position (see get_balances). A figure Schwab did not send " +
+			"is null. Paged: pass next_cursor back as cursor.",
+		slot: true,
+		args: map[string]argRule{
+			"symbol": {desc: "One symbol, in any case: the positions whose symbol or underlying is it, such as a stock and its options."},
+			"limit":  {desc: "The most positions a page holds, 1 to 200; 100 when left out.", min: new(1.0), max: new(200.0)},
+		},
+	}, s.getPositions)
 }
 
 // listAccountsOut is list_accounts' answer.
@@ -418,6 +433,261 @@ func (s *Server) getBalances(ctx context.Context, c *call, in balancesIn) (getBa
 	}
 	c.warnAccountProblems(problems)
 	return out, nil
+}
+
+// positionsIn is get_positions' arguments.
+type positionsIn struct {
+	Account string `json:"account,omitempty"`
+	Symbol  string `json:"symbol,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
+	Cursor  string `json:"cursor,omitempty"`
+}
+
+// getPositionsOut is get_positions' answer: a page of the positions that
+// the call matches, and on every page the accounts it picked and the
+// totals of every position it matches.
+type getPositionsOut struct {
+	envelope
+	page
+	Positions []positionRow     `json:"positions"`
+	Accounts  []positionAccount `json:"accounts"` // every selected account, on every page
+	Total     positionTotal     `json:"total"`
+}
+
+// positionRow is one position, with lookup.HoldingOf's figures.
+type positionRow struct {
+	Account         MaskedNumber    `json:"account"`
+	AccountHash     Ident           `json:"account_hash"`
+	Symbol          *Ident          `json:"symbol"`
+	AssetType       *Ident          `json:"asset_type"`
+	Quantity        lookup.Qty      `json:"quantity"`
+	AveragePrice    lookup.Price    `json:"average_price"`
+	Value           lookup.Money    `json:"value"`
+	Cost            lookup.Money    `json:"cost"`
+	OpenPL          lookup.Money    `json:"open_pl"`
+	AccountWeight   Num             `json:"account_weight"`   // value / the account's value, 4 places
+	PortfolioWeight Num             `json:"portfolio_weight"` // value / every shared account's value, 4 places
+	Description     *FreeText       `json:"description"`
+	Detail          *positionDetail `json:"detail,omitempty"` // detail full
+}
+
+// positionDetail is what detail full adds to a position.
+type positionDetail struct {
+	CUSIP          *Ident       `json:"cusip"`
+	PutCall        *Ident       `json:"put_call"`
+	Underlying     *Ident       `json:"underlying"`
+	LongQuantity   lookup.Qty   `json:"long_quantity"`
+	ShortQuantity  lookup.Qty   `json:"short_quantity"`
+	MaintenanceReq lookup.Money `json:"maintenance_requirement"`
+	Problems       []problem    `json:"problems"`
+}
+
+// positionAccount is one account that get_positions picked, with the sums
+// of the positions of it that the call matches.
+type positionAccount struct {
+	accountRef
+	Value     lookup.Money `json:"value"`     // the account's liquidation value
+	Positions *int         `json:"positions"` // null when its positions could not be read
+	Market    lookup.Money `json:"positions_value"`
+	Cost      lookup.Money `json:"positions_cost"`
+	OpenPL    lookup.Money `json:"open_pl"`
+}
+
+// positionTotal is the totals of get_positions: of the picked accounts'
+// values, and of every position that the call matches.
+type positionTotal struct {
+	Value  lookup.Money `json:"value"`
+	Market lookup.Money `json:"positions_value"`
+	Cost   lookup.Money `json:"positions_cost"`
+	OpenPL lookup.Money `json:"open_pl"`
+}
+
+// positionsArgs are get_positions' canonical arguments, whose digest a
+// cursor holds: the defaults applied, the symbol in capitals, and the
+// account as its key, never its number (design 8.5).
+type positionsArgs struct {
+	Account string `json:"account"`
+	Symbol  string `json:"symbol"`
+	Detail  string `json:"detail"`
+}
+
+// getPositions answers get_positions: the positions of the accounts that
+// the account argument picks, from one request for every account, so that
+// each position's share of every shared account's value is of that read;
+// accounts in Schwab's order, and positions by symbol within each, as
+// schwabtx's table lists them. A later page reads Schwab again, and its
+// cursor is the index of the page's first position.
+func (s *Server) getPositions(ctx context.Context, c *call, in positionsIn) (getPositionsOut, error) {
+	limit, detail, symbol := in.Limit, in.Detail, strings.TrimSpace(in.Symbol)
+	if limit == 0 {
+		limit = 100
+	}
+	if detail == "" {
+		detail = "compact"
+	}
+	picked, err := c.pickAccounts(ctx, in.Account)
+	if err != nil {
+		return getPositionsOut{}, err
+	}
+	one := strings.TrimSpace(in.Account) != ""
+	args := positionsArgs{Symbol: strings.ToUpper(symbol), Detail: detail}
+	if one {
+		args.Account = picked[0].key()
+	}
+	var start uint
+	if in.Cursor != "" {
+		if err := c.readCursor(in.Cursor, args, &start); err != nil {
+			return getPositionsOut{}, err
+		}
+	}
+	accounts, err := ask(ctx, c, func(cl *schwab.Client) ([]schwab.Account, error) {
+		return cl.Accounts(ctx, schwab.AccountFieldPositions)
+	})
+	if err != nil {
+		return getPositionsOut{}, err
+	}
+	if err := c.someAccounts(accounts); err != nil {
+		return getPositionsOut{}, err
+	}
+	v, err := c.directory(ctx)
+	if err != nil {
+		return getPositionsOut{}, err
+	}
+	dirs, err := c.joined(ctx, v, accounts)
+	if err != nil {
+		return getPositionsOut{}, err
+	}
+	portfolio := lookup.FromCents(0) // every shared account's value
+	var picks []int
+	for i, a := range accounts {
+		portfolio = portfolio.Plus(lookup.BalanceOf(a).Value)
+		if !one || a.SecuritiesAccount.AccountNumber == picked[0].number {
+			picks = append(picks, i)
+		}
+	}
+	if len(picks) == 0 {
+		return getPositionsOut{}, c.failf(codeAccountNotShared, "Schwab no longer shares %s; ask the user to run schwabtx login and tick it.",
+			c.mask.masked(picked[0].number))
+	}
+
+	out := getPositionsOut{
+		envelope: envelope{Source: sourceSchwab}, page: page{Complete: true},
+		Positions: []positionRow{}, Accounts: []positionAccount{},
+		Total: positionTotal{Value: lookup.FromCents(0), Market: lookup.FromCents(0), Cost: lookup.FromCents(0), OpenPL: lookup.FromCents(0)},
+	}
+	c.warnExtendedHours()
+	var rows []positionRow
+	problems := make([][]schwab.Problem, len(picks))
+	for k, i := range picks {
+		a, ref := accounts[i], c.ref(dirs[i])
+		b := lookup.BalanceOf(a)
+		if b.NoValue {
+			c.warn("figures_missing", "Schwab sent no current value for %s, so the weights that need it are null.", c.accountLabel(ref))
+		}
+		problems[k] = lookup.Problems(a)
+		pa := positionAccount{accountRef: ref, Value: b.Value}
+		if !lookup.Unreadable(a.Problems, "securitiesAccount.positions") {
+			pa.Market, pa.Cost, pa.OpenPL = lookup.FromCents(0), lookup.FromCents(0), lookup.FromCents(0)
+			// Byte order, which puts an option's OCC symbol, its root
+			// padded to six characters, after its root's own; equal symbols
+			// keep their order.
+			ps := slices.Clone(a.SecuritiesAccount.Positions)
+			slices.SortStableFunc(ps, func(x, y schwab.Position) int { return strings.Compare(x.Instrument.Symbol, y.Instrument.Symbol) })
+			n := 0
+			for _, p := range ps {
+				if symbol != "" && !strings.EqualFold(p.Instrument.Symbol, symbol) && !strings.EqualFold(p.Instrument.UnderlyingSymbol, symbol) {
+					continue
+				}
+				h := lookup.HoldingOf(p)
+				row := positionRow{
+					Account: ref.Account, AccountHash: Ident(dirs[i].hash),
+					Symbol: identPtr(h.Symbol), AssetType: identPtr(string(p.Instrument.AssetType)),
+					Quantity: h.Quantity, AveragePrice: h.Price, Value: h.Value, Cost: h.Cost, OpenPL: h.Gain,
+					AccountWeight: weight(h.Value, b.Value), PortfolioWeight: weight(h.Value, portfolio),
+				}
+				if h.Description != "" {
+					row.Description = new(c.mask.free(h.Description))
+				}
+				if detail == "full" {
+					row.Detail = c.positionDetail(p)
+				}
+				rows = append(rows, row)
+				n++
+				pa.Market, pa.Cost, pa.OpenPL = pa.Market.Plus(h.Value), pa.Cost.Plus(h.Cost), pa.OpenPL.Plus(h.Gain)
+			}
+			pa.Positions = &n
+		}
+		out.Accounts = append(out.Accounts, pa)
+		t := &out.Total
+		t.Value, t.Market, t.Cost, t.OpenPL = t.Value.Plus(b.Value), t.Market.Plus(pa.Market), t.Cost.Plus(pa.Cost), t.OpenPL.Plus(pa.OpenPL)
+	}
+	c.warnAccountProblems(problems)
+
+	// The page: the positions from the cursor's on, while the answer, with
+	// the warnings known so far and next_cursor at its longest, stays
+	// within the page budget.
+	from := min(int(start), len(rows))
+	out.AsOf, out.Warnings = instantOf(c.now), slices.Clone(c.warnings)
+	fixed, err := encode(out)
+	if err != nil {
+		return getPositionsOut{}, err
+	}
+	sizes := make([]int, len(rows)-from)
+	for j, r := range rows[from:] {
+		b, err := encode(r)
+		if err != nil {
+			return getPositionsOut{}, err
+		}
+		sizes[j] = len(b)
+	}
+	to := from + c.pageRows(len(fixed), sizes, limit)
+	out.Positions = append(out.Positions, rows[from:to]...)
+	if to < len(rows) {
+		if out.NextCursor, err = c.newCursor(args, to); err != nil {
+			return getPositionsOut{}, err
+		}
+	}
+	return out, nil
+}
+
+// weight returns value's share of base, to 4 places: null when either is
+// null, or when base is not above 0.
+func weight(value, base lookup.Money) Num {
+	v, ok := value.Cents()
+	b, okBase := base.Cents()
+	if !ok || !okBase || b <= 0 {
+		return Num{}
+	}
+	return NumValue(math.Round(float64(v)/float64(b)*10_000) / 10_000)
+}
+
+// positionDetail returns what detail full adds to p: its identifiers, the
+// quantities of its two sides, its maintenance requirement, null when
+// Schwab did not send it, and its problems, with each open profit or loss
+// that it lacks of a side that it holds.
+func (c *call) positionDetail(p schwab.Position) *positionDetail {
+	ps := p.Problems
+	d := &positionDetail{
+		CUSIP: identPtr(p.Instrument.CUSIP), PutCall: identPtr(p.Instrument.PutCall),
+		Underlying: identPtr(p.Instrument.UnderlyingSymbol), Problems: []problem{},
+	}
+	if !lookup.Unreadable(ps, "longQuantity") {
+		d.LongQuantity = lookup.QtyOf(p.LongQuantity)
+	}
+	if !lookup.Unreadable(ps, "shortQuantity") {
+		d.ShortQuantity = lookup.QtyOf(p.ShortQuantity)
+	}
+	// The record names maintenanceRequirement among its problems when Schwab
+	// did not send it, as it sends it on every position.
+	if !lookup.Unreadable(ps, "maintenanceRequirement") {
+		d.MaintenanceReq = lookup.Amount(p.MaintenanceRequirement)
+	}
+	_, missing := lookup.OpenPL(p)
+	for _, pr := range slices.Concat(ps, missing) {
+		d.Problems = append(d.Problems, problem{Path: Ident(pr.Path), What: c.mask.free(pr.What)})
+	}
+	return d
 }
 
 // figureNames are the names of the figures of an account's balances that

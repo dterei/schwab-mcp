@@ -1,16 +1,19 @@
 package mcpserver
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/dterei/schwab-mcp/internal/lookup"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
@@ -127,13 +130,71 @@ func apiRoutes(f *schwabtest.Server, before int) []string {
 	return routes
 }
 
+// positionsOf returns the positions of r, get_positions' answer.
+func positionsOf(r result) []map[string]any {
+	var out []map[string]any
+	ps, _ := r.value["positions"].([]any)
+	for _, p := range ps {
+		m, _ := p.(map[string]any)
+		out = append(out, m)
+	}
+	return out
+}
+
+// symbolsOf returns the masked account and the symbol of each position of
+// r, get_positions' answer.
+func symbolsOf(r result) []string {
+	var out []string
+	for _, p := range positionsOf(r) {
+		out = append(out, fmt.Sprint(p["account"], " ", p["symbol"]))
+	}
+	return out
+}
+
+// fixturePositions are the fixtures' positions as get_positions lists them:
+// by account, then by symbol, as schwabtx's table does.
+var fixturePositions = []string{
+	"...135 00507V109", "...135 AAPL", "...135 SWVXX", "...135 VTI", "...398 META", "...398 XYZ   260619P00045000",
+}
+
+// heldBy returns the positions of a, an account decoded by changeAccount.
+func heldBy(a map[string]any) []any {
+	ps, _ := a["securitiesAccount"].(map[string]any)["positions"].([]any)
+	return ps
+}
+
+// withUnreadablePosition sets ...135 up with positions that cannot all be
+// read: VTI sends its market value as a string, and AAPL lacks the open
+// profit or loss that Schwab sends on every long position.
+func withUnreadablePosition() envOption {
+	return withFake(func(f *schwabtest.Server) {
+		changeAccount(f, individual, func(a map[string]any) {
+			for _, p := range heldBy(a) {
+				p := p.(map[string]any)
+				switch p["instrument"].(map[string]any)["symbol"] {
+				case "VTI":
+					p["marketValue"] = "3748.92"
+				case "AAPL":
+					delete(p, "longOpenProfitLoss")
+				}
+			}
+		})
+	})
+}
+
 // accountCases are the account tools' cases of TestToolsEmptyAndFull:
 // empty is one account that sends no figure, beside no store; full is the
 // fixtures' three accounts, joined with the shared store's, one with a
 // cash that is not the value less the holdings, one a margin account with
 // its cash in marginBalance, and one that sends no value; list_accounts'
 // store answers from the store without a login; get_balances' detail is
-// one account's every figure.
+// one account's every figure. get_positions' empty is an account that holds
+// nothing; full is the fixtures' positions, a short put among them, beside
+// a position whose value cannot be read and one that lacks its open profit
+// or loss; symbol keeps a symbol's options, matched by their underlying in
+// any case; pages is the fixtures' two at a time, followed to the end; and
+// detail is one account's with detail full, in a world where every account
+// sends its value, so that each position has both its weights.
 var accountCases = []toolCase{
 	{tool: "list_accounts", name: "empty", args: `{}`, opts: withOneBareAccount(), check: func(t *testing.T, _ *env, r result) {
 		a := accountsOf(t, r)["...783"]
@@ -223,6 +284,91 @@ var accountCases = []toolCase{
 			t.Errorf("one account's balances came from %v", routes)
 		}
 	}},
+	{tool: "get_positions", name: "empty", args: `{"account":"783"}`, check: func(t *testing.T, _ *env, r result) {
+		as, _ := r.value["accounts"].([]any)
+		if len(positionsOf(r)) != 0 || len(as) != 1 || r.value["next_cursor"] != nil {
+			t.Fatalf("an account that holds nothing: %s", r.text)
+		}
+		if a, _ := as[0].(map[string]any); a["positions"] != 0.0 || a["positions_value"] != 0.0 || a["open_pl"] != 0.0 {
+			t.Errorf("an account that holds nothing: %v", a)
+		}
+	}},
+	{tool: "get_positions", name: "full", args: `{}`, opts: []envOption{withUnreadablePosition()}, check: func(t *testing.T, e *env, r result) {
+		if got := symbolsOf(r); !slices.Equal(got, fixturePositions) {
+			t.Errorf("positions %q, want %q", got, fixturePositions)
+		}
+		ps := positionsOf(r)
+		if put := ps[5]; put["quantity"] != -2.0 || put["value"] != -310.0 || put["cost"] != -320.0 || put["open_pl"] != 10.0 {
+			t.Errorf("the short put: %v", put)
+		}
+		if vti, aapl := ps[3], ps[1]; vti["value"] != nil || vti["cost"] != nil || vti["open_pl"] != 733.23 || aapl["open_pl"] != nil {
+			t.Errorf("figures that cannot be read: %v and %v", vti, aapl)
+		}
+		total, _ := r.value["total"].(map[string]any)
+		if total["positions_value"] != nil || total["open_pl"] != nil || total["value"] != nil {
+			t.Errorf("totals that need what cannot be read: %v", total)
+		}
+		for _, p := range ps {
+			if p["portfolio_weight"] != nil {
+				t.Errorf("%v has a portfolio weight, though ...783 sends no value", p["symbol"])
+			}
+		}
+		if !slices.Contains(r.warnings(), "problems") || !slices.Contains(r.warnings(), "figures_missing") {
+			t.Errorf("no warning of what cannot be read: %v", r.warnings())
+		}
+		if routes := apiRoutes(e.fake, 0); routes[len(routes)-1] != string(schwabtest.AccountsRoute) {
+			t.Errorf("the positions came from %v", routes)
+		}
+	}},
+	{tool: "get_positions", name: "symbol", args: `{"symbol":"xyz"}`, check: func(t *testing.T, _ *env, r result) {
+		if got := symbolsOf(r); !slices.Equal(got, []string{"...398 XYZ   260619P00045000"}) {
+			t.Errorf("xyz keeps %q, want its put", got)
+		}
+		if total, _ := r.value["total"].(map[string]any); total["positions_value"] != -310.0 || total["open_pl"] != 10.0 {
+			t.Errorf("the totals of what symbol keeps: %v", total)
+		}
+	}},
+	{tool: "get_positions", name: "pages", args: `{"limit":2}`, check: func(t *testing.T, e *env, r result) {
+		got, total := symbolsOf(r), fmt.Sprint(r.value["total"])
+		for cursor := r.value["next_cursor"]; cursor != nil; {
+			next := e.call("get_positions", map[string]any{"limit": 2, "cursor": cursor})
+			if next.isError || len(positionsOf(next)) > 2 || fmt.Sprint(next.value["total"]) != total {
+				t.Fatalf("a later page: %s", next.text)
+			}
+			got = append(got, symbolsOf(next)...)
+			cursor = next.value["next_cursor"]
+		}
+		if !slices.Equal(got, fixturePositions) {
+			t.Errorf("the pages hold %q, want %q", got, fixturePositions)
+		}
+		// The totals schwabtx positions prints for the fixtures.
+		if tot, _ := r.value["total"].(map[string]any); tot["positions_value"] != 5758.91 || tot["positions_cost"] != 5657.99 || tot["open_pl"] != 100.92 {
+			t.Errorf("the totals: %v", tot)
+		}
+	}},
+	{
+		tool: "get_positions", name: "detail", args: `{"account":"398","detail":"full"}`,
+		opts: []envOption{withFake(func(f *schwabtest.Server) { f.RemoveAccount(schwabtest.HashFor(empty)) })},
+		check: func(t *testing.T, _ *env, r result) {
+			ps := positionsOf(r)
+			if len(ps) != 2 {
+				t.Fatalf("...398's positions: %s", r.text)
+			}
+			meta, put := ps[0], ps[1]
+			// META's 603.40 of ...398's 5503.84, and of every account's 12501.52.
+			if meta["account_weight"] != 0.1096 || meta["portfolio_weight"] != 0.0483 || put["account_weight"] != -0.0563 {
+				t.Errorf("the weights: %v and %v", meta, put)
+			}
+			detail, _ := put["detail"].(map[string]any)
+			if detail["put_call"] != "PUT" || detail["underlying"] != "XYZ" || detail["short_quantity"] != 2.0 || detail["long_quantity"] != 0.0 ||
+				detail["maintenance_requirement"] != 900.0 || detail["cusip"] != "0XYZ..RI60045000" {
+				t.Errorf("the put's detail: %v", detail)
+			}
+			if tot, _ := r.value["total"].(map[string]any); tot["value"] != 5503.84 || tot["positions_value"] != 293.4 || tot["open_pl"] != 101.4 {
+				t.Errorf("...398's totals: %v", tot)
+			}
+		},
+	},
 }
 
 // list_accounts answers from the store, without values, when Schwab cannot
@@ -389,8 +535,11 @@ func TestBalanceFigures(t *testing.T) {
 // accountPlantings are the account tools' share of TestNoAccountNumberLeaks'
 // world: ...398 sends its value as a string that holds its number, which no
 // figure can read, and a count as a number that holds it, which a problem
-// quotes; and one account's own endpoint answers Schwab's error, which
-// quotes numbers.
+// quotes; one account's own endpoint answers Schwab's error, which quotes
+// numbers; and of ...135's positions, one has a description that holds two
+// numbers, one of 7 digits that only the known numbers catch, and another
+// a time that holds one, which a problem quotes. No cursor of
+// get_positions may hold a digest over a number.
 var accountPlantings = []func(t *testing.T, w *leakWorld){func(_ *testing.T, w *leakWorld) {
 	w.opts = append(w.opts, withFake(func(f *schwabtest.Server) {
 		changeAccount(f, options, func(a map[string]any) {
@@ -401,23 +550,43 @@ var accountPlantings = []func(t *testing.T, w *leakWorld){func(_ *testing.T, w *
 			`{"message":"Invalid account number 29470135","errors":["account 61803398 is closed"]}`))
 	}))
 	w.masked = append(w.masked, "Schwab sent the number ...398.5 where a whole number was expected", "Invalid account number ...135")
+}, func(_ *testing.T, w *leakWorld) {
+	w.opts = append(w.opts, withFake(func(f *schwabtest.Server) {
+		changeAccount(f, individual, func(a map[string]any) {
+			for _, p := range heldBy(a) {
+				in := p.(map[string]any)["instrument"].(map[string]any)
+				switch in["symbol"] {
+				case "VTI":
+					in["description"] = "TRANSFER FROM 61803398 FOR " + sevenDigits
+				case "AAPL":
+					in["expirationDate"] = individual
+				}
+			}
+		})
+	}))
+	w.masked = append(w.masked, "TRANSFER FROM ...398 FOR ...321", `...135\", which is not a time`)
+	w.checks = append(w.checks, positionCursorsHoldNoNumber)
 }}
 
 // accountLeakCalls are the account tools' calls of TestNoAccountNumberLeaks:
 // every account, one by its full number, and one that is no account, by a
-// nickname that holds a number.
+// nickname that holds a number; and pages of positions, whose cursors hold
+// a digest of their arguments.
 var accountLeakCalls = []leakCall{
 	{tool: "list_accounts", args: `{}`},
 	{tool: "get_balances", args: `{"detail":"full"}`},
 	{tool: "get_balances", args: `{"account":"29470135","detail":"full"}`},
 	{tool: "get_balances", args: `{"account":"Nobody 61803398"}`},
+	{tool: "get_positions", args: `{"detail":"full"}`},
+	{tool: "get_positions", args: `{"account":"29470135","limit":1}`},
 }
 
 // accountSizeCases are the account tools' cases of TestSizeCap. get_balances
 // with detail full for 30 margin accounts of 14 figures each passes the
 // cap: it fits by cutting the accounts' figures, each list keeping its
 // first ones, and cut names each list cut; the values and the totals stay
-// whole, and list_cut says how to see one account's figures in full.
+// whole, and list_cut says how to see one account's figures in full. And
+// get_positions' pages (sizePositions).
 var accountSizeCases = []sizeCase{{name: "get_balances full", opts: []envOption{withoutFixtures(), withoutStore(), withFake(func(f *schwabtest.Server) {
 	const figures = `"liquidationValue":13846.92,"cashBalance":1501.25,"buyingPower":3002.5,"availableFunds":1501.25,` +
 		`"equity":13846.92,"longMarketValue":12345.67,"shortMarketValue":0,"longOptionMarketValue":0,"shortOptionMarketValue":0,` +
@@ -470,7 +639,82 @@ var accountSizeCases = []sizeCase{{name: "get_balances full", opts: []envOption{
 	if !slices.Contains(r.warnings(), "list_cut") || !strings.Contains(r.text, "Pass account for one account's figures in full.") {
 		t.Errorf("no list_cut that says how to see them all: %v", r.warnings())
 	}
-}}}
+}}, {name: "get_positions pages", opts: []envOption{withoutStore(), withBackstopAllowed(), withManyPositions()}, run: sizePositions}}
+
+// manyPositionsCount is how many positions withManyPositions gives ...135:
+// more than a page of the budget holds.
+const manyPositionsCount = 100
+
+// withManyPositions gives ...135 100 positions in place of its own, the
+// first of which, by symbol, is an option whose strike's digits are
+// ...135's number: the backstop, blind to kinds, withholds them after the
+// page is cut.
+func withManyPositions() envOption {
+	return withFake(func(f *schwabtest.Server) {
+		changeAccount(f, individual, func(a map[string]any) {
+			ps := []any{position("AAAA  261218C"+individual, "OPTION")}
+			for i := range manyPositionsCount - 1 {
+				ps = append(ps, position(fmt.Sprintf("S%04d", i), "EQUITY"))
+			}
+			a["securitiesAccount"].(map[string]any)["positions"] = ps
+		})
+	})
+}
+
+// position returns a long position of one share of symbol, decoded as
+// changeAccount takes it.
+func position(symbol, assetType string) map[string]any {
+	return map[string]any{
+		"longQuantity": 1, "shortQuantity": 0, "averagePrice": 10, "marketValue": 12.34, "longOpenProfitLoss": 2.34,
+		"maintenanceRequirement": 0, "instrument": map[string]any{
+			"assetType": assetType, "symbol": symbol, "description": "A COMPANY WITH A LONG NAME, CLASS A COMMON SHARES " + symbol,
+		},
+	}
+}
+
+// sizePositions is TestSizeCap's case of get_positions: the pages of 100
+// positions, read through their cursors, fill to the page budget before
+// the limit of 100, and hold every position once, in order. And the
+// margin between the budget and the cap: the first page, filled to the
+// budget, gains the warning value_withheld when the backstop withholds
+// the digits of its first symbol, and stays within the cap.
+func sizePositions(t *testing.T, e *env) {
+	var symbols []string
+	var cursor any
+	for page := 0; ; page++ {
+		args := map[string]any{"account": "135"}
+		if cursor != nil {
+			args["cursor"] = cursor
+		}
+		r := e.call("get_positions", args)
+		if r.isError {
+			t.Fatal(r.text)
+		}
+		n := len(positionsOf(r))
+		symbols = append(symbols, symbolsOf(r)...)
+		cursor = r.value["next_cursor"]
+		budget := e.srv.o.PageBytes
+		if page == 0 {
+			budget += 200 // value_withheld, which comes after the page is cut
+			if !slices.Contains(r.warnings(), "value_withheld") || positionsOf(r)[0]["symbol"] != "AAAA  261218C...135" {
+				t.Errorf("the first page: %v, first symbol %v", r.warnings(), positionsOf(r)[0]["symbol"])
+			}
+		}
+		if len(r.text) > budget || cursor != nil && (n >= 100 || len(r.text) < e.srv.o.PageBytes-1000) {
+			t.Errorf("page %d holds %d positions in %d bytes", page, n, len(r.text))
+		}
+		if cursor == nil {
+			break
+		}
+	}
+	want := []string{"...135 AAAA  261218C...135"}
+	for i := range manyPositionsCount - 1 {
+		want = append(want, fmt.Sprintf("...135 S%04d", i))
+	}
+	if !slices.Equal(symbols, want) {
+		t.Errorf("the pages hold %d positions, want each of %d once, in order", len(symbols), len(want))
+	}
+}
 
 // The account tools' tests join the shared ones: each registration answers
 // true, so that the three are made, in this order, before any test runs.
@@ -485,3 +729,148 @@ var manyAccounts = func() []string {
 	}
 	return ns
 }()
+
+// cursorField is a cursor in what the server sent: in a structured content,
+// or in a text block that holds one.
+var cursorField = regexp.MustCompile(`next_cursor\\?":\\?"([A-Za-z0-9_-]+)`)
+
+// positionCursorsHoldNoNumber checks the cursors of get_positions that the
+// server sent: none holds a digest of its arguments with a planted number
+// in place of the account's key, and one of an account's page holds the
+// digest over its hash, so that the check sees what it looks for.
+func positionCursorsHoldNoNumber(t *testing.T, e *env) {
+	t.Helper()
+	overHash := 0
+	for _, line := range e.sent() {
+		for _, m := range cursorField.FindAllStringSubmatch(line, -1) {
+			b, err := base64.RawURLEncoding.DecodeString(m[1])
+			var body cursorBody
+			if err != nil || json.Unmarshal(b, &body) != nil || body.T != "get_positions" {
+				continue
+			}
+			for _, n := range e.planted {
+				if f, _ := argsDigest(positionsArgs{Account: n, Detail: "compact"}); f == body.F {
+					t.Errorf("a cursor holds a digest over the account number %s", n)
+				}
+			}
+			if f, _ := argsDigest(positionsArgs{Account: schwabtest.HashFor(individual), Detail: "compact"}); f == body.F {
+				overHash++
+			}
+		}
+	}
+	if overHash == 0 {
+		t.Error("no cursor of one account's positions holds the digest over its hash")
+	}
+}
+
+// An account whose positions are not a list has positions null, and so
+// have its sums and the totals; the other accounts' positions are listed.
+// An account that the directory lists and Schwab's answer does not is no
+// longer shared. A cursor of other arguments, or that does not decode, is
+// bad_cursor; another limit is not.
+func TestPositionsOfAnUnreadableAccount(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, withoutStore(), withFake(func(f *schwabtest.Server) {
+		changeAccount(f, options, func(a map[string]any) {
+			a["securitiesAccount"].(map[string]any)["positions"] = map[string]any{"longQuantity": 1}
+		})
+	}))
+	r := e.call("get_positions", `{}`)
+	as, _ := r.value["accounts"].([]any)
+	if len(as) != 3 || len(positionsOf(r)) != 4 {
+		t.Fatalf("the accounts: %s", r.text)
+	}
+	unread, _ := as[1].(map[string]any)
+	total, _ := r.value["total"].(map[string]any)
+	if unread["positions"] != nil || unread["positions_value"] != nil || total["positions_value"] != nil || total["open_pl"] != nil {
+		t.Errorf("an account whose positions are not a list: %v, total %v", unread, total)
+	}
+	e.fake.Override(schwabtest.AccountsRoute, schwabtest.Answer(200, "[]"))
+	if r := e.call("get_positions", `{"account":"398"}`); r.code() != "schwab_refused" {
+		t.Errorf("no accounts: %s", r.text)
+	}
+	as2, err := fixtureAccounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.fake.Override(schwabtest.AccountsRoute, schwabtest.Answer(200, "["+string(as2[individual])+"]"))
+	if r := e.call("get_positions", `{"account":"398"}`); r.code() != "account_not_shared" || !strings.Contains(r.text, "...398") {
+		t.Errorf("an account Schwab's answer lacks: %s", r.text)
+	}
+	e.fake.Override(schwabtest.AccountsRoute, schwabtest.Answer(200, "["+string(as2[individual])+","+string(as2[options])+"]"))
+	first := e.call("get_positions", `{"limit":1}`)
+	for _, args := range []map[string]any{
+		{"limit": 1, "symbol": "VTI", "cursor": first.value["next_cursor"]},
+		{"limit": 1, "account": "135", "cursor": first.value["next_cursor"]},
+		{"limit": 1, "detail": "full", "cursor": first.value["next_cursor"]},
+		{"cursor": "not a cursor"},
+	} {
+		if r := e.call("get_positions", args); r.code() != "bad_cursor" {
+			t.Errorf("%v: %s", args, r.text)
+		}
+	}
+	if r := e.call("get_positions", map[string]any{"limit": 3, "cursor": first.value["next_cursor"]}); r.isError || len(positionsOf(r)) != 3 {
+		t.Errorf("the next page, with another limit: %s", r.text)
+	}
+}
+
+// weight is a value's share of a base, to 4 places, null for either null
+// and for a base not above 0.
+func TestWeight(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		value, base lookup.Money
+		want        string
+	}{
+		{lookup.Amount(3748.92), lookup.Amount(6997.68), "0.5357"},
+		{lookup.Amount(-310), lookup.Amount(5503.84), "-0.0563"},
+		{lookup.Amount(0), lookup.Amount(100), "0"},
+		{lookup.Amount(1), lookup.Amount(0), "null"},
+		{lookup.Amount(1), lookup.Amount(-5), "null"},
+		{lookup.Money{}, lookup.Amount(100), "null"},
+		{lookup.Amount(1), lookup.Money{}, "null"},
+	} {
+		if b, err := encode(weight(tc.value, tc.base)); err != nil || string(b) != tc.want {
+			t.Errorf("weight(%v, %v) = %s, want %s", tc.value, tc.base, b, tc.want)
+		}
+	}
+}
+
+// detail full gives each position its identifiers, both its quantities and
+// its maintenance requirement, each null when Schwab did not send it or it
+// could not be read, and its problems, with each open profit or loss that
+// it lacks of a side it holds.
+func TestPositionDetail(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, withoutStore(), withUnreadablePosition(), withFake(func(f *schwabtest.Server) {
+		changeAccount(f, options, func(a map[string]any) {
+			for _, p := range heldBy(a) {
+				p := p.(map[string]any)
+				delete(p, "maintenanceRequirement")
+				switch p["instrument"].(map[string]any)["symbol"] {
+				case "META":
+					p["longQuantity"] = "1"
+				case "XYZ   260619P00045000":
+					p["shortQuantity"] = "2"
+				}
+			}
+		})
+	}))
+	details := map[string]map[string]any{}
+	for _, p := range positionsOf(e.call("get_positions", `{"detail":"full"}`)) {
+		details[fmt.Sprint(p["symbol"])], _ = p["detail"].(map[string]any)
+	}
+	problems := func(symbol string) string { return fmt.Sprint(details[symbol]["problems"]) }
+	if !strings.Contains(problems("AAPL"), "path:longOpenProfitLoss what:missing, though Schwab sends it on every long position") ||
+		!strings.Contains(problems("VTI"), "path:marketValue what:Schwab sent a string where a number was expected") ||
+		!strings.Contains(problems("META"), "path:maintenanceRequirement what:missing") || problems("SWVXX") != "[]" {
+		t.Errorf("the problems: AAPL %s, VTI %s, META %s, SWVXX %s", problems("AAPL"), problems("VTI"), problems("META"), problems("SWVXX"))
+	}
+	if details["META"]["maintenance_requirement"] != nil || details["META"]["long_quantity"] != nil || details["META"]["short_quantity"] != 0.0 ||
+		details["VTI"]["maintenance_requirement"] != 0.0 || details["VTI"]["cusip"] != "922908769" {
+		t.Errorf("META %v, VTI %v", details["META"], details["VTI"])
+	}
+	if put := details["XYZ   260619P00045000"]; put["short_quantity"] != nil || put["long_quantity"] != 0.0 {
+		t.Errorf("a short quantity that cannot be read: %v", put)
+	}
+}
