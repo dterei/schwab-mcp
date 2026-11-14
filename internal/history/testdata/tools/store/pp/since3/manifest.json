@@ -528,6 +528,7 @@
       "ref": "T73600000102",
       "account": "A1 ...135",
       "was": "account 2026-09-08 Transfer (Inbound) 500.00",
+      "transfer": "A2 ...398 T73600000101 to A1 ...135 T73600000102",
       "now": "account 2026-09-09 Deposit 500.00"
     }
   ],
@@ -536,6 +537,7 @@
       "ref": "T73600000101",
       "account": "A2 ...398",
       "was": "account 2026-09-08 Transfer (Outbound) 500.00",
+      "transfer": "A2 ...398 T73600000101 to A1 ...135 T73600000102",
       "why": "uncounted: user"
     }
   ],

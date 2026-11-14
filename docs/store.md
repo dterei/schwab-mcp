@@ -1552,9 +1552,9 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `accounts` | each account written or named, and each that the chain wrote or named before: `label`, `account`, `nickname`, `name`, `exported`, `last_day`, `new`, and for Ghostfolio its `ghostfolio_id`, its `balances` (how many, the first and last, or why none) and its latest `cash`. A PP transfer names the account of its other side, which may have no row up to `-to`; `new` says that the chain had not listed it, and stderr lists it to make |
 | `units` | how each value is written |
 | `written` | the ledger rows written, and the records per Type |
-| `given` | per account and ref, what the tool holds of each row once this export is imported: `day`, `as` (what the tool shows), `fp` (a hash of what it keeps), `with` (the shares row that it carries), and for PP `keys` (the hashes of what its duplicate check compares), `note_ref` (the ref that its Note names, when not its own) and `transfer` |
+| `given` | per account and ref, what the tool holds of each row once this export is imported: `day`, `as` (what the tool shows), `fp` (a hash of what it keeps), `with` (the shares row that it carries), and for PP `keys` (the hashes of what its duplicate check compares), `note_ref` (the ref that its Note names, when not its own) and `transfer` (for a side of a transfer, the head of the Note that PP holds of it: `A2 ...398 T61001201 to A1 ...135 T61001202`) |
 | `securities` | each security that the chain wrote, with its identity and the identifiers written for it |
-| `changed`, `gone` | the rows that the tool holds and that this export writes otherwise, or neither writes nor gives: `ref`, `account`, `was`, and `now` or `why` |
+| `changed`, `gone` | the rows that the tool holds and that this export writes otherwise, or neither writes nor gives: `ref`, `account`, `was`, for PP `note_ref` and `transfer` as in `given`, and `now` or `why` |
 | `same_as` | PP: rows gone under one ref and written under another, alike in all that PP keeps: nothing to do |
 | `tick` | PP: the rows that PP will mark as existing although they are new: `file`, `ref`, `account`, `as` |
 | `left_out`, `caveats`, `combined` | the rows left out, written with a caveat, and carried by a sale |
@@ -1578,7 +1578,8 @@ export you imported last, writes only what that one's chain did not give,
 whatever its day:
 
 - a row not given before is written; those dated on or before DIR's `-to`
-  are counted on stderr, as having come late or been decided since;
+  are counted on stderr, as having come late or been decided since, but
+  those `same_as` a row gone (below);
 - a row given with the same `fp` is given, and not written again;
 - a row given otherwise is written, and listed under `changed`, with what
   the tool shows of it (`was`), to delete there before importing: a journal
@@ -1590,7 +1591,13 @@ whatever its day:
   (and the reason), or, in Ghostfolio, now cash in the balances. In PP, a
   gone row alike in everything PP keeps to a row written under a new ref
   (a file row now linked to its API row) is `same_as`: nothing to delete
-  or tick;
+  or tick, and the new row's entry keeps, as `note_ref`, the ref that the
+  Note PP holds names. A row of an entry whose Note names a row that this
+  export writes under its own Note (a file row counted again beside the API
+  row that took its place) is `changed` too, its form alike: you delete the
+  one that PP holds, and the export writes both, so that no two of PP's
+  transactions have Notes of one row. A transfer's entries and lists carry
+  `transfer`, the head of the Note that PP holds of it, paying side first;
 - for PP, `tick` replays PP's duplicate check over the files in their import
   order, from what the chain gave less what changed and went, and lists each
   new row that PP will mark as existing, but the second half of a transfer;

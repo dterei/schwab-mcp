@@ -127,8 +127,9 @@ type chainCash struct {
 // event that its sale carries; and for PP, the keys of the records' sides
 // that PP's duplicate rule compares (ppKeys), the ref that the Note PP holds
 // names when it is not the row's own, and for a transfer the PP transaction
-// that it is of, named by its paying side's label and ref, which both of the
-// transfer's records name.
+// that it is of, which both of the transfer's records are of: the head of
+// the Note that PP holds of it, its paying side's label and ref, "to", and
+// its receiving side's, as "A2 ...398 T61001201 to A1 ...135 T61001202".
 type chainGiven struct {
 	Day      nytime.Date `json:"day"`
 	As       string      `json:"as"`
@@ -220,30 +221,38 @@ type chainHolding struct {
 
 // A chainChanged is a row that the tool holds in another form than this
 // export writes it (3.8 of the design): delete what it was in the tool
-// before importing. Was is what the tool shows of it (chainAs), and NoteRef
-// the ref that its PP Note names, when it is not the row's own.
+// before importing. Was is what the tool shows of it (chainAs), NoteRef the
+// ref that its PP Note names, when it is not the row's own, and Transfer,
+// for a side of a PP transfer, the head of the Note that PP holds of the
+// transfer (chainGiven.Transfer), which names its paying side first. A row
+// that the tool holds under the Note of another row, which this export
+// writes, is changed too, its form alike: the tool then holds each row under
+// its own Note.
 type chainChanged struct {
-	Ref     string `json:"ref"`
-	Account string `json:"account"`
-	Was     string `json:"was"`
-	NoteRef string `json:"note_ref,omitempty"`
-	Now     string `json:"now"`
+	Ref      string `json:"ref"`
+	Account  string `json:"account"`
+	Was      string `json:"was"`
+	NoteRef  string `json:"note_ref,omitempty"`
+	Transfer string `json:"transfer,omitempty"`
+	Now      string `json:"now"`
 	// day is the row's day as the earlier export gave it, by which the list
 	// is in order.
 	day nytime.Date
 }
 
 // A chainGone is a row that the tool holds and that this export neither
-// writes nor gives (3.8 of the design): delete it in the tool. Why says
-// what became of it: uncounted with the store's counted_why, linked to the
-// row that the store counts in its place, no longer in the store, left out
-// with its reason, or, for Ghostfolio, now cash, which its balances carry.
+// writes nor gives (3.8 of the design): delete it in the tool. NoteRef and
+// Transfer are as a chainChanged's. Why says what became of it: uncounted
+// with the store's counted_why, linked to the row that the store counts in
+// its place, no longer in the store, left out with its reason, or, for
+// Ghostfolio, now cash, which its balances carry.
 type chainGone struct {
-	Ref     string `json:"ref"`
-	Account string `json:"account"`
-	Was     string `json:"was"`
-	NoteRef string `json:"note_ref,omitempty"`
-	Why     string `json:"why"`
+	Ref      string `json:"ref"`
+	Account  string `json:"account"`
+	Was      string `json:"was"`
+	NoteRef  string `json:"note_ref,omitempty"`
+	Transfer string `json:"transfer,omitempty"`
+	Why      string `json:"why"`
 }
 
 // A chainSameAs is, for PP, a row gone under its ref that this export writes
@@ -534,8 +543,8 @@ type chainResult struct {
 	gone    []chainGone
 	sameAs  []chainSameAs
 	// late counts the rows written that the earlier export did not give and
-	// that are dated on or before its last day: they came late, were
-	// decided, paired or took a new ref since.
+	// that are dated on or before its last day, but those the same as a row
+	// gone: they came late, were decided or paired since.
 	late int
 	// given is the next given: what the tool holds once this export is
 	// imported.
@@ -555,8 +564,12 @@ type chainResult struct {
 	// for PP, the row that each row written under a new ref is the same as.
 	kept  map[rowKey]chainGiven
 	oldOf map[rowKey]chainOld
+	// deleted are, for PP, the names of the transactions that you delete
+	// before importing (chainOld.tx): those of the rows changed or gone,
+	// with the other half of a transfer.
+	deleted map[string]bool
 	// start is, for PP, what PP holds before this export's files: the keys
-	// of each transaction, by its name (chainGiven.tx).
+	// of each transaction, by its name.
 	start map[string][]string
 }
 
@@ -568,8 +581,13 @@ type chainOld struct {
 }
 
 // tx returns the name of the PP transaction that the entry is of, in the
-// replay of PP's duplicate rule: a transfer's, which both its records name;
-// else the row's, by the ref that the Note PP holds names.
+// replay of PP's duplicate rule, which is the head of the Note that PP holds
+// of it, so that no two transactions that PP holds share one: a transfer's,
+// "<paying side> to <receiving side>", which both its records name; else
+// the row's, its label and the ref that the Note names, which no other row
+// of the account has (compareChain lists an entry whose Note names a row
+// that this export writes as changed). The records of one row, legs or a
+// sale with its Fees row, share the row's name: they are deleted together.
 func (o chainOld) tx() string {
 	return cmp.Or(o.given.Transfer, o.label+" "+cmp.Or(o.given.NoteRef, o.ref))
 }
@@ -582,8 +600,12 @@ func (o chainOld) tx() string {
 // gives is gone, with why; a row that it did not give is written, whatever
 // its day. For PP a gone row whose fp equals that of a row written now in its
 // account under another ref is the same as it, and neither is to delete or to
-// tick. The rows left out and the holdings that differ are marked before
-// when since listed them alike.
+// tick, unless PP will not hold the gone row's transaction: you delete it
+// with the other half of a transfer, or its Note names a row that PP will
+// hold under its own. A row given whose Note names such a row is changed,
+// so that each transaction that PP holds has a Note of its own row. The rows
+// left out and the holdings that differ are marked before when since listed
+// them alike.
 func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, since *toolChain) *chainResult {
 	c := &chainResult{
 		in: in, ix: newToolIndex(in), since: since, outcomes: slices.Clone(outcomes),
@@ -633,15 +655,12 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 			switch {
 			case !had:
 				news = append(news, fresh{i, fp})
-				if since != nil && r.day <= since.Chain.To {
-					c.late++
-				}
 			case prev.given.FP == fp:
 				c.outcomes[i].outcome = outcomeGiven
 				c.kept[k] = prev.given
 			default:
 				c.changed = append(c.changed, chainChanged{
-					Ref: r.ref, Account: prev.label, Was: prev.given.As, NoteRef: prev.given.NoteRef,
+					Ref: r.ref, Account: prev.label, Was: prev.given.As, NoteRef: prev.given.NoteRef, Transfer: prev.given.Transfer,
 					Now: chainAs(in.tool, records[i]), day: prev.given.Day,
 				})
 			}
@@ -673,24 +692,120 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 
 	// For PP, a gone row is the same as a row written under a new ref when
 	// both are of one account and PP keeps them alike: each pair once, in
-	// order.
-	matched := map[int]bool{}
-	for _, o := range gone {
-		j := -1
-		if in.tool == toolPP {
-			j = slices.IndexFunc(news, func(f fresh) bool {
-				a, ok := labels[o.label]
+	// order. PP then holds the gone row's transaction for the new row, unless
+	// you delete it as the other half of a transfer that changed or went.
+	pairs := map[int]int{} // a gone row's index in gone to its new row's in news
+	if in.tool == toolPP {
+		matched := map[int]bool{}
+		for g, o := range gone {
+			a, ok := labels[o.label]
+			j := slices.IndexFunc(news, func(f fresh) bool {
 				return ok && !matched[f.i] && in.rows[f.i].account == a.id && f.fp == o.given.FP
 			})
+			if j >= 0 {
+				pairs[g] = j
+				matched[news[j].i] = true
+			}
 		}
-		if j < 0 {
-			c.gone = append(c.gone, chainGone{Ref: o.ref, Account: o.label, Was: o.given.As, NoteRef: o.given.NoteRef, Why: why[[2]string{o.label, o.ref}]})
+	}
+	rows := map[rowKey]int{}
+	for i := range in.rows {
+		rows[rowKey{in.rows[i].account, in.rows[i].ref}] = i
+	}
+	noted := map[rowKey]rowKey{} // the ref that an entry's Note names, of its account, to the entry
+	for k, o := range old {
+		if o.given.NoteRef != "" {
+			noted[rowKey{k.account, o.given.NoteRef}] = k
+		}
+	}
+	for {
+		// The rows that PP will hold under their own Note: those written now
+		// that no gone row is the same as, and those changed.
+		paired := map[int]bool{}
+		for _, j := range pairs {
+			paired[j] = true
+		}
+		own := map[rowKey]bool{}
+		for j, f := range news {
+			if !paired[j] {
+				own[rowKey{in.rows[f.i].account, in.rows[f.i].ref}] = true
+			}
+		}
+		for _, ch := range c.changed {
+			if a, ok := labels[ch.Account]; ok {
+				own[rowKey{a.id, ch.Ref}] = true
+			}
+		}
+		// An entry whose Note names such a row, which PP would hold besides
+		// the row's own: given, it is changed, so that you delete the one
+		// that PP holds and this export writes its row again under its own
+		// Note; gone, it is not the same as a row written now, and you delete
+		// it. No two transactions that PP holds then have Notes of one row.
+		again := false
+		for _, k := range noted {
+			prev := old[k]
+			i, ok := rows[k]
+			if !ok || c.outcomes[i].outcome != outcomeGiven || !own[rowKey{k.account, prev.given.NoteRef}] {
+				continue
+			}
+			c.outcomes[i].outcome = outcomeWritten
+			delete(c.kept, k)
+			c.changed = append(c.changed, chainChanged{
+				Ref: prev.ref, Account: prev.label, Was: prev.given.As, NoteRef: prev.given.NoteRef, Transfer: prev.given.Transfer,
+				Now: chainAs(in.tool, records[i]), day: prev.given.Day,
+			})
+			again = true
+		}
+		for g := range pairs {
+			if a, ok := labels[gone[g].label]; ok && own[rowKey{a.id, gone[g].given.NoteRef}] {
+				delete(pairs, g)
+				again = true
+			}
+		}
+		// What you delete: the transactions of the rows changed, and of the
+		// rows gone that no row is the same as.
+		c.deleted = map[string]bool{}
+		for _, ch := range c.changed {
+			if a, ok := labels[ch.Account]; ok {
+				c.deleted[old[rowKey{a.id, ch.Ref}].tx()] = true
+			}
+		}
+		for g, o := range gone {
+			if _, ok := pairs[g]; !ok {
+				c.deleted[o.tx()] = true
+			}
+		}
+		// A gone row whose transaction you delete with another row's is not
+		// the same as the new row: PP will not hold it.
+		for g := range pairs {
+			if c.deleted[gone[g].tx()] {
+				delete(pairs, g)
+				again = true
+			}
+		}
+		if !again {
+			break
+		}
+	}
+	paired := map[int]bool{}
+	for g, o := range gone {
+		j, ok := pairs[g]
+		if !ok {
+			c.gone = append(c.gone, chainGone{
+				Ref: o.ref, Account: o.label, Was: o.given.As, NoteRef: o.given.NoteRef, Transfer: o.given.Transfer,
+				Why: why[[2]string{o.label, o.ref}],
+			})
 			continue
 		}
 		r := &in.rows[news[j].i]
-		matched[news[j].i] = true
+		paired[j] = true
 		c.oldOf[rowKey{r.account, r.ref}] = o
 		c.sameAs = append(c.sameAs, chainSameAs{Account: o.label, Gone: o.ref, New: r.ref})
+	}
+	for j, f := range news {
+		if since != nil && !paired[j] && in.rows[f.i].day <= since.Chain.To {
+			c.late++
+		}
 	}
 	slices.SortStableFunc(c.changed, func(a, b chainChanged) int {
 		return cmp.Or(cmp.Compare(c.labelOrder(a.Account), c.labelOrder(b.Account)), cmp.Compare(a.day, b.day), cmp.Compare(a.Ref, b.Ref))
@@ -701,8 +816,8 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 			c.written = append(c.written, events[i])
 		}
 	}
-	c.nextGiven(records)
 	c.replayStart(old, unknown)
+	c.nextGiven(records)
 	c.compareLeftOut()
 	c.compareHoldings(events)
 	c.compareSecurities()
@@ -740,7 +855,9 @@ func (c *chainResult) whyGone(k rowKey) string {
 // nextGiven makes the next given: the earlier export's entry of each row
 // given, and a new entry of each row written, which for PP keeps, of a row
 // the same as a gone one, the ref that the Note PP holds names, and of a
-// transfer, the PP transaction that it is of (txOf).
+// transfer, the PP transaction that it is of (txOf). A transfer's side given
+// whose transaction you delete with its other half, which changed or went,
+// is of the transfer that its new other half makes (txOf).
 func (c *chainResult) nextGiven(records map[int][]*toolEvent) {
 	for i, o := range c.outcomes {
 		r := &c.in.rows[i]
@@ -750,6 +867,11 @@ func (c *chainResult) nextGiven(records map[int][]*toolEvent) {
 		switch o.outcome {
 		case outcomeGiven:
 			g = c.kept[k]
+			if g.Transfer != "" && c.deleted[g.Transfer] {
+				// The record that PP imports now makes it again, under its
+				// Note, which names the row by its ref.
+				g.Transfer, g.NoteRef = c.txOf(records[i][0]), ""
+			}
 		case outcomeWritten:
 			g = chainGiven{Day: r.day, As: chainAs(c.in.tool, records[i]), FP: fingerprint(c.in.tool, records[i]), With: o.with}
 			if c.in.tool == toolPP {
@@ -757,7 +879,7 @@ func (c *chainResult) nextGiven(records map[int][]*toolEvent) {
 					keys, _ := ppKeys(e)
 					g.Keys = append(g.Keys, keys...)
 				}
-				if prev, ok := c.oldOf[k]; ok {
+				if prev, ok := c.oldOf[k]; ok && cmp.Or(prev.given.NoteRef, prev.ref) != r.ref {
 					g.NoteRef = cmp.Or(prev.given.NoteRef, prev.ref)
 				}
 				if e := records[i][0]; e.kind == evTransferOut || e.kind == evTransferIn {
@@ -776,51 +898,44 @@ func (c *chainResult) nextGiven(records map[int][]*toolEvent) {
 
 // replayStart sets, for PP, what PP holds before this export's files: every
 // transaction that the earlier export's given holds, a transfer once for its
-// two records, less those that you delete before importing, which are each
-// row changed or gone, with the other half of a transfer (3.8 of the
-// design). A row gone that a row written now is the same as stays: PP keeps
-// it.
+// two records, less those that you delete before importing (deleted), which
+// are each row's changed or gone, with the other half of a transfer (3.8 of
+// the design). A row gone that a row written now is the same as stays: PP
+// keeps it.
 func (c *chainResult) replayStart(old map[rowKey]chainOld, unknown []chainOld) {
 	if c.in.tool != toolPP {
 		return
 	}
-	deleted := map[string]bool{}
-	for _, ch := range c.changed {
-		deleted[ch.Account+"\x1f"+ch.Ref] = true
-	}
-	for _, g := range c.gone {
-		deleted[g.Account+"\x1f"+g.Ref] = true
-	}
 	all := slices.Concat(slices.Collect(maps.Values(old)), unknown)
 	slices.SortFunc(all, func(a, b chainOld) int { return cmp.Or(cmp.Compare(a.label, b.label), cmp.Compare(a.ref, b.ref)) })
-	gone := map[string]bool{}
 	for _, o := range all {
-		if deleted[o.label+"\x1f"+o.ref] {
-			gone[o.tx()] = true
-		}
-	}
-	for _, o := range all {
-		if tx := o.tx(); !gone[tx] && c.start[tx] == nil {
+		if tx := o.tx(); !c.deleted[tx] && c.start[tx] == nil {
 			c.start[tx] = o.given.Keys
 		}
 	}
 }
 
-// txOf returns, for PP, the name of the transaction that record e, written
-// now, makes or is of (chainOld.tx): a transfer's is named by its paying
-// side, both of whose records make one transaction; any other by its row. A
-// row that the earlier export gave keeps the name it gave it, and a row the
-// same as a gone one takes the gone one's, since PP holds that transaction.
+// txOf returns, for PP, the name of the transaction that record e, of a row
+// written now or given, makes or is of (chainOld.tx): a transfer's is that of
+// its paying side, both of whose records make one transaction; any other
+// its row's. A row that the earlier export gave keeps the name it gave it,
+// and a row the same as a gone one takes the gone one's, since PP holds that
+// transaction; but a transaction that you delete is made again, by the
+// record of this export that PP imports, and named by that record's Note.
 func (c *chainResult) txOf(e *toolEvent) string {
 	k := rowKey{e.account.id, e.ref}
 	if e.kind == evTransferIn {
 		k = rowKey{e.pair.id, e.pairRef}
 	}
 	if g, ok := c.kept[k]; ok {
-		return chainOld{c.ix.account(k.account).label(), k.ref, g}.tx()
-	}
-	if o, ok := c.oldOf[k]; ok {
+		if tx := (chainOld{c.ix.account(k.account).label(), k.ref, g}).tx(); !c.deleted[tx] {
+			return tx
+		}
+	} else if o, ok := c.oldOf[k]; ok {
 		return o.tx()
+	}
+	if e.kind == evTransferOut || e.kind == evTransferIn {
+		return ppTransferHead(e)
 	}
 	return c.ix.account(k.account).label() + " " + k.ref
 }

@@ -333,10 +333,8 @@ func ppIdentifiers(s *toolSecurity) (ticker, wkn, name string) {
 func ppNote(e *toolEvent) string {
 	var head string
 	switch {
-	case e.kind == evTransferOut:
-		head = e.account.label() + " " + e.ref + " to " + e.pair.label() + " " + e.pairRef
-	case e.kind == evTransferIn:
-		head = e.pair.label() + " " + e.pairRef + " to " + e.account.label() + " " + e.ref
+	case e.kind == evTransferOut || e.kind == evTransferIn:
+		head = ppTransferHead(e)
 	case e.with != "":
 		head = e.account.label() + " " + e.ref + " with " + e.with
 	default:
@@ -356,6 +354,17 @@ func ppNote(e *toolEvent) string {
 		note += "; " + strings.Join(words, "; ")
 	}
 	return ppTrim(note)
+}
+
+// ppTransferHead returns the head of the Note of record e, a side of a
+// transfer, which both of its records write alike: its paying side's label
+// and ref, "to", and its receiving side's, as "A2 ...398 T61001201 to A1
+// ...135 T61001202".
+func ppTransferHead(e *toolEvent) string {
+	if e.kind == evTransferIn {
+		return e.pair.label() + " " + e.pairRef + " to " + e.account.label() + " " + e.ref
+	}
+	return e.account.label() + " " + e.ref + " to " + e.pair.label() + " " + e.pairRef
 }
 
 // ppCaveatWords returns what the Note of record e says of its caveat
