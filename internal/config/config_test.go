@@ -473,25 +473,29 @@ func TestDefaultStoreAgreesWithHistory(t *testing.T) {
 	}
 }
 
-// A config file that others can read is made private, as the token file is,
-// and the problem says so.
+// A config file that others can read, its group or anyone, is made
+// private, as the token file is, and the problem says so.
 func TestForServerMakesTheFilePrivate(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no Unix permission bits on Windows")
 	}
-	path := writeConfig(t, `{"version":1,"app_key":"`+testKey+`"}`)
-	if err := os.Chmod(path, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	c := ForServer(env(), path)
-	if want := []Problem{{CodeMadePrivate, "config_file", path}}; !slices.Equal(c.Problems, want) || c.AppKey.Value != testKey {
-		t.Errorf("problems %+v, want %+v", c.Problems, want)
-	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Errorf("mode %v (%v), want 0600", info.Mode().Perm(), err)
-	}
-	if c := ForServer(env(), path); len(c.Problems) != 0 {
-		t.Errorf("read again: problems %+v, want none", c.Problems)
+	for _, loose := range []os.FileMode{0o644, 0o640, 0o604} {
+		path := writeConfig(t, `{"version":1,"app_key":"`+testKey+`"}`)
+		if err := os.Chmod(path, loose); err != nil {
+			t.Fatal(err)
+		}
+		c := ForServer(env(), path)
+		if want := []Problem{{CodeMadePrivate, "config_file", path}}; !slices.Equal(c.Problems, want) || c.AppKey.Value != testKey {
+			t.Errorf("%v: problems %+v, want %+v", loose, c.Problems, want)
+		}
+		if info, err := os.Stat(path); err != nil {
+			t.Error(err)
+		} else if info.Mode().Perm() != 0o600 {
+			t.Errorf("%v: mode %v, want 0600", loose, info.Mode().Perm())
+		}
+		if c := ForServer(env(), path); len(c.Problems) != 0 {
+			t.Errorf("%v: read again: problems %+v, want none", loose, c.Problems)
+		}
 	}
 }
 

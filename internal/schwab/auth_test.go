@@ -1119,37 +1119,41 @@ func TestOneRefreshPerProcessWithoutFileLocks(t *testing.T) {
 	}
 }
 
-// A token file that others can read, such as one copied in by hand, is
-// made private, with a warning.
+// A token file that others can read, its group or anyone, such as one
+// copied in by hand, is made private, with a warning.
 func TestTokenFileOthersCanReadIsMadePrivate(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no Unix permission bits on Windows")
 	}
 	f := newFakeOAuth(t)
 	c := &clock{now: testNow}
-	tokenFile := filepath.Join(t.TempDir(), "token.json")
-	if err := newTestAuth(t, f, tokenFile, c).Login(t.Context(), testCode); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(tokenFile, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var warnings []string
-	a, err := NewAuth(Config{
-		AppKey: testKey, AppSecret: testSecret, BaseURL: f.URL(), TokenFile: tokenFile, Now: c.Now,
-		Warn: func(msg string) { warnings = append(warnings, msg) },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := a.Status(); err != nil {
-		t.Fatal(err)
-	}
-	if info, err := os.Stat(tokenFile); err != nil || info.Mode().Perm() != 0o600 {
-		t.Errorf("the token file's mode is %v (%v), want 0600", info.Mode().Perm(), err)
-	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "readable only by you") {
-		t.Errorf("warnings %q, want one saying that the file is now private", warnings)
+	for _, loose := range []os.FileMode{0o644, 0o640, 0o604} {
+		tokenFile := filepath.Join(t.TempDir(), "token.json")
+		if err := newTestAuth(t, f, tokenFile, c).Login(t.Context(), testCode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(tokenFile, loose); err != nil {
+			t.Fatal(err)
+		}
+		var warnings []string
+		a, err := NewAuth(Config{
+			AppKey: testKey, AppSecret: testSecret, BaseURL: f.URL(), TokenFile: tokenFile, Now: c.Now,
+			Warn: func(msg string) { warnings = append(warnings, msg) },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.Status(); err != nil {
+			t.Fatal(err)
+		}
+		if info, err := os.Stat(tokenFile); err != nil {
+			t.Error(err)
+		} else if info.Mode().Perm() != 0o600 {
+			t.Errorf("%v: the token file's mode is %v, want 0600", loose, info.Mode().Perm())
+		}
+		if len(warnings) != 1 || !strings.Contains(warnings[0], "readable only by you") {
+			t.Errorf("%v: warnings %q, want one saying that the file is now private", loose, warnings)
+		}
 	}
 }
 

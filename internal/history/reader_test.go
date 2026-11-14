@@ -1035,6 +1035,53 @@ func TestReaderNeverWrites(t *testing.T) {
 	}
 }
 
+// A Reader warns once of a store that others can read, its group or anyone,
+// by any of its three files, and leaves each as it was: here a database
+// that its group can read, and a -wal or a -shm alone that anyone can,
+// beside a writer that holds the store open (holdOpen), so that its -wal
+// and -shm are there.
+func TestReaderWarnsOfLooseFiles(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows gives files their folder's permissions")
+	}
+	for _, tc := range []struct {
+		file string
+		mode fs.FileMode
+	}{{"", 0o640}, {"-wal", 0o604}, {"-shm", 0o604}} {
+		path := copyTemplate(t)
+		holdOpen(t, path)
+		loose := path + tc.file
+		if err := os.Chmod(loose, tc.mode); err != nil {
+			t.Fatal(err)
+		}
+		var warned []string
+		r, err := OpenReader(t.Context(), ReaderOptions{Path: path, Warn: func(m string) { warned = append(warned, m) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Close()
+		if len(warned) != 1 || !strings.HasSuffix(warned[0], "history.db can be read by others; any schwabtx command that opens it, "+
+			"such as schwabtx status, makes it readable only by you") {
+			t.Errorf("history.db%s of mode %v: the reader warned %q", tc.file, tc.mode, warned)
+		}
+		if m := mode(t, loose); m != tc.mode {
+			t.Errorf("history.db%s is now of mode %v, want %v as it was", tc.file, m, tc.mode)
+		}
+	}
+}
+
+// holdOpen opens the store at path until the test ends, and commits a write
+// to it, which stays in the -wal while the store is open: SQLite gives an
+// empty -wal the database's permissions when it opens it.
+func holdOpen(t *testing.T, path string) {
+	t.Helper()
+	s := openStoreAt(t, path)
+	if err := s.withWrite(t.Context(), "adding an account", func(w *wtx) error { return insertAccount(w, "12345678") }); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A Reader makes no store: a missing store, in a missing folder or not, or
 // an empty file, is ErrNoStore, and the folder and the file stay as they
 // were; and when the store's files go after OpenReader, a read through a

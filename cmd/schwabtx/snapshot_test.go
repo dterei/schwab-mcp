@@ -255,23 +255,25 @@ func TestSnapshotMakesAnExistingFilePrivate(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(path, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	_, stderr, err := runTx(t, "snapshot")
-	if err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("snapshot file mode = %v, want 0600", info.Mode().Perm())
-	}
-	if !strings.Contains(stderr, "now readable only by you") {
-		t.Errorf("no warning about the permissions: %q", stderr)
+	// Readable by anyone, by its group alone, and by others alone.
+	for _, loose := range []os.FileMode{0o644, 0o640, 0o604} {
+		if err := os.Chmod(path, loose); err != nil {
+			t.Fatal(err)
+		}
+		_, stderr, err := runTx(t, "snapshot")
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("%v: snapshot file mode = %v, want 0600", loose, info.Mode().Perm())
+		}
+		if !strings.Contains(stderr, "now readable only by you") {
+			t.Errorf("%v: no warning about the permissions: %q", loose, stderr)
+		}
 	}
 }
 
