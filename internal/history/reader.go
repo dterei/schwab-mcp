@@ -42,11 +42,13 @@ type ReaderOptions struct {
 	BusyTimeout time.Duration
 }
 
-// A Reader reads a store and never writes it: it holds only a pool of
-// readers' connections, which refuse a write and never create a file, and
-// none of its methods writes. Each read runs in one read transaction, so
-// that what it returns is the store as of one commit. It is safe for
-// concurrent use.
+// A Reader reads a store and never writes a row of it: it holds only a pool
+// of readers' connections, which refuse a write and never create the
+// store's database, and none of its methods writes. SQLite makes the -wal
+// and -shm beside the database while they read, and the last of them to
+// close may copy the -wal into it, as Close says. Each read runs in one
+// read transaction, so that what it returns is the store as of one commit.
+// It is safe for concurrent use.
 type Reader struct {
 	s *Store
 	// newer says that the last read found the store derived by a newer

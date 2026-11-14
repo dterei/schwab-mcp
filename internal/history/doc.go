@@ -116,18 +116,22 @@
 //
 // OpenReader opens the store for a process that must never change it, such
 // as the MCP server. A Reader holds only a pool of readers' connections,
-// which refuse a write and open the store's files without ever creating
-// one, and none of its methods writes: it never creates a store, never
-// migrates or derives one, never sets its journal mode and never makes its
-// files private. A store that an older schwabtx last wrote, or one not in
-// WAL mode, is ErrNeedsUpdate until a schwabtx of this version opens it; one
-// that a newer schwabtx derived with newer rules is read as it is. Its reads
-// are of the views, but AccountNumbers, the one read of full account numbers,
-// for a caller that masks them. Ledger reads a page of the ledger, in an
-// order that is total, by day, time, ref and account, and chooses in the
-// same read transaction whose rows it reads, their totals and what waits.
-// DeriveAPIEntries derives, by the rules that the ledger applies, what the
-// store would of a read of transactions that it has not recorded.
+// which refuse a write and never create the store's database, and none of
+// its methods writes: it never creates a store or its folder, never migrates
+// or derives one, never sets its journal mode and never makes its files
+// private. SQLite makes the -wal and -shm beside the database while it
+// reads, as for any reader of a store in WAL mode, so the store's folder
+// must be writable, and the last connection to close copies the -wal's
+// committed pages into the database, which changes no row. A store that an
+// older schwabtx last wrote, or one not in WAL mode, is ErrNeedsUpdate until
+// a schwabtx of this version opens it; one that a newer schwabtx derived
+// with newer rules is read as it is. Its reads are of the views, but
+// AccountNumbers, the one read of full account numbers, for a caller that
+// masks them. Ledger reads a page of the ledger, in an order that is total,
+// by day, time, ref and account, and chooses in the same read transaction
+// whose rows it reads, their totals and what waits. DeriveAPIEntries
+// derives, by the rules that the ledger applies, what the store would of a
+// read of transactions that it has not recorded.
 //
 // # Upkeep
 //
