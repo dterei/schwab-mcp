@@ -356,7 +356,8 @@ type LedgerPage struct {
 	// Store.Status counts them.
 	Waiting []AccountWaiting
 	// Reads are, for every listed account with one, when the latest read
-	// of its transactions, or import of a -json file, was answered.
+	// of its transactions, or of one of them, or import of a -json file,
+	// was answered.
 	Reads []AccountRead
 }
 
@@ -438,7 +439,7 @@ type AccountWaiting struct {
 }
 
 // An AccountRead is when the latest read of an account's transactions, or
-// import of a -json file of them, was answered.
+// of one of them, or import of a -json file of them, was answered.
 type AccountRead struct {
 	AccountID  int64
 	AnsweredAt time.Time

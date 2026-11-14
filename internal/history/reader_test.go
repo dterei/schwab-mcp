@@ -21,6 +21,7 @@ import (
 
 	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/nytime"
+	"github.com/dterei/schwab-mcp/internal/schwab"
 	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
 )
 
@@ -422,11 +423,12 @@ func totalsText(totals []CategoryTotal) string {
 // 2025-02-03 to 2025-12-30. The coverage, waiting counts and last reads of
 // every listed account come back either way, and an account not marked is
 // read whatever its coverage. An account's last read is the latest answer
-// to a read of its transactions, or the latest import of a -json file of
-// them: ...135's is the read answered on 2025-07-01, though one answered
-// before it was recorded after it, and ...783's the -json file imported
-// now. Neither a later read of another endpoint nor a later refusal moves
-// it.
+// to a read of its transactions, all of a window or one by its activity
+// ID, or the latest import of a -json file of them: ...135's is the read
+// answered on 2025-07-01, though one answered before it was recorded after
+// it, ...398's the read of its dividend alone, by activity ID, answered
+// after the read of all its rows, and ...783's the -json file imported now.
+// Neither a later read of another endpoint nor a later refusal moves it.
 func TestLedgerChoosesWhole(t *testing.T) {
 	t.Parallel()
 	path := readerCopy(t)
@@ -449,9 +451,21 @@ func TestLedgerChoosesWhole(t *testing.T) {
 		}
 	}
 	db.Close()
+	s := openStoreAt(t, path)
 	// ...783's -json file, of a row that the store holds.
-	importFiles(t, openStoreAt(t, path), ImportOptions{}, "transactions.json", cliJSON(t, readerRaw(empty, 7770003,
+	importFiles(t, s, ImportOptions{}, "transactions.json", cliJSON(t, readerRaw(empty, 7770003,
 		time.Date(2025, 6, 30, 21, 0, 0, 0, nytime.NewYork()), "DIVIDEND_OR_INTEREST", 0.123, "Free Balance Interest Adjustment", "")))
+	// ...398's dividend, read by its activity ID as the store holds it.
+	rows := fixtureRows(t, options)
+	i := slices.IndexFunc(rows, func(r schwab.Transaction) bool { return r.ActivityID == 73508261948 })
+	if i < 0 {
+		t.Fatal("no dividend of ...398 in the fixtures")
+	}
+	if rec, err := s.RecordTransaction(t.Context(), TransactionRead{
+		Read: readAt(day(2026, 9, 15)), Account: options, ActivityID: rows[i].ActivityID, Row: rows[i],
+	}); err != nil || rec.Same != 1 {
+		t.Fatalf("recording a read of ...398's dividend: %+v, %v; want the row the same", rec, err)
+	}
 	r := openReader(t, path)
 	accounts, ids := readerAccounts(t, r, true)
 	for _, tc := range []struct {
@@ -509,7 +523,7 @@ func TestLedgerChoosesWhole(t *testing.T) {
 	}
 	wantReads := []AccountRead{
 		{ids[individual], day(2025, 7, 1).Add(time.Second)},
-		{ids[options], day(2026, 8, 5).Add(time.Second)},
+		{ids[options], day(2026, 9, 15).Add(time.Second)},
 		{ids[empty], testNow},
 	}
 	if !slices.EqualFunc(p.Reads, wantReads, func(a, b AccountRead) bool { return a.AccountID == b.AccountID && a.AnsweredAt.Equal(b.AnsweredAt) }) {
