@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // hash is the fake's hash of the account number 29470135
@@ -47,6 +48,8 @@ func TestKnown(t *testing.T) {
 		{strings.Repeat("A", 23) + "29470135", strings.Repeat("A", 23) + "...135"},
 		{"G" + strings.Repeat("A", 23) + "29470135", "G" + strings.Repeat("A", 23) + "...135"},
 		{strings.Repeat("A", 12) + "-29470135-" + strings.Repeat("A", 20), strings.Repeat("A", 12) + "-...135-" + strings.Repeat("A", 20)},
+		{"ab29470135c1234567d", "ab...135c...567d"},
+		{strings.Repeat("29470135a", 4), strings.Repeat("29470135a", 4)},
 	} {
 		got := k.Text(tc.in)
 		if got != tc.want {
@@ -102,5 +105,30 @@ func TestKnownConcurrently(t *testing.T) {
 	wg.Wait()
 	if got := k.Text("10007049"); got != "...049" {
 		t.Errorf("after the adds, Text(10007049) = %q, want ...049", got)
+	}
+}
+
+// Text walks a run of hex digits once, however many known numbers it holds:
+// over a megabyte of them glued together with a hex letter, one run that
+// holds 131,072 numbers, it takes milliseconds, where measuring the whole
+// run again for each number took minutes; and as many numbers each in a
+// run of its own are all masked.
+func TestKnownTextTakesLinearTime(t *testing.T) {
+	var k Known
+	k.Add("29470135")
+	glued := strings.Repeat("29470135a", 1<<17)
+	apart := strings.Repeat("29470135-", 1<<17)
+	done := make(chan [2]string, 1)
+	go func() { done <- [2]string{k.Text(glued), k.Text(apart)} }()
+	select {
+	case got := <-done:
+		if got[0] != glued {
+			t.Errorf("Text of the glued numbers, a hash-like run, changed them")
+		}
+		if got[1] != strings.Repeat("...135-", 1<<17) {
+			t.Errorf("Text of the numbers apart masked some of them only")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Text took more than 10 seconds over a megabyte")
 	}
 }

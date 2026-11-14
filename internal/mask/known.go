@@ -93,37 +93,38 @@ func (k *Known) has(n string) bool {
 	return k.numbers[n]
 }
 
-// runs yields the start and end of each run of digits in s that Text masks.
-// The caller holds k's lock.
+// runs yields the start and end of each run of digits in s that Text masks:
+// a known number, in a run of hex digits shorter than a hash's. Digits are
+// hex digits, so each run of digits lies in one run of hex digits, which is
+// measured once, however many numbers it holds. The caller holds k's lock.
 func (k *Known) runs(s string) iter.Seq2[int, int] {
 	return func(yield func(int, int) bool) {
 		for i := 0; i < len(s); {
-			if !isDigit(s[i]) {
+			if !isHex(s[i]) {
 				i++
 				continue
 			}
-			j := i
-			for j < len(s) && isDigit(s[j]) {
-				j++
+			end := i // the run of hex digits is s[i:end]
+			for end < len(s) && isHex(s[end]) {
+				end++
 			}
-			if j-i >= minKnown && k.numbers[s[i:j]] && !inHashRun(s, i, j) && !yield(i, j) {
-				return
+			for j := i; end-i < hashRun && j < end; {
+				if !isDigit(s[j]) {
+					j++
+					continue
+				}
+				m := j // the run of digits is s[j:m]
+				for m < end && isDigit(s[m]) {
+					m++
+				}
+				if m-j >= minKnown && k.numbers[s[j:m]] && !yield(j, m) {
+					return
+				}
+				j = m
 			}
-			i = j
+			i = end
 		}
 	}
-}
-
-// inHashRun reports whether s[i:j] lies within a run of 32 or more hex
-// digits.
-func inHashRun(s string, i, j int) bool {
-	for i > 0 && isHex(s[i-1]) {
-		i--
-	}
-	for j < len(s) && isHex(s[j]) {
-		j++
-	}
-	return j-i >= hashRun
 }
 
 // isHex reports whether c is a hex digit, in either case.
