@@ -1,0 +1,195 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 2,
+      "tick": 0
+    },
+    {
+      "file": "portfolio-transactions-A2-398.csv",
+      "kind": "portfolio",
+      "configuration": "pp-portfolio-transactions.json",
+      "account": "A2 ...398",
+      "rows": 6,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options & Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": "2025-01-14",
+      "new": true
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 3,
+    "types": {
+      "Buy": 3,
+      "Sell": 3
+    }
+  },
+  "given": {
+    "A2 ...398": {
+      "T61001401": {
+        "day": "2025-01-10",
+        "as": "portfolio 2025-01-10 Buy 151.32; portfolio 2025-01-10 Sell 80.00",
+        "fp": "b7f5c23666051604",
+        "keys": [
+          "b088bf6df0864985",
+          "9fb3bdfff1f9db26",
+          "ae7733ccac4b4fd6",
+          "ce80590ec8393281"
+        ]
+      },
+      "T61001404": {
+        "day": "2025-01-13",
+        "as": "portfolio 2025-01-13 Buy 201.37; portfolio 2025-01-13 Sell 120.00",
+        "fp": "82b0acbcc8cd27d5",
+        "keys": [
+          "7b2fc25f77deac69",
+          "55287060878754bb",
+          "645b1f6b66e4dca3",
+          "1010dd90714ebe0a"
+        ]
+      },
+      "T61001405": {
+        "day": "2025-01-14",
+        "as": "portfolio 2025-01-14 Buy 101.30; portfolio 2025-01-14 Sell 100.00",
+        "fp": "d0ffc501e780b7f6",
+        "keys": [
+          "3a3da859a146c743",
+          "1d091b6ac8516027",
+          "0c3053e240da7c80",
+          "7ab6991c7d824ee0"
+        ]
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "i:219771034",
+      "symbol": "XYZ   250221P00040000",
+      "identity": "XYZ250221P00040000",
+      "ticker": "XYZ250221P00040000",
+      "name": "XYZ 02/21/2025 40.00 P"
+    },
+    {
+      "security_key": "i:219834765",
+      "symbol": "XYZ   260918C00050000",
+      "identity": "XYZ260918C00050000",
+      "ticker": "XYZ260918C00050000",
+      "name": "XYZ 09/18/2026 50.00 C"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [
+    {
+      "ref": "T61001402",
+      "account": "A2 ...398",
+      "day": "2025-01-11",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "",
+      "quantity": null,
+      "amount": -50.00,
+      "reason": "legs_mismatch",
+      "advice": "check",
+      "command": ""
+    },
+    {
+      "ref": "T61001403",
+      "account": "A2 ...398",
+      "day": "2025-01-12",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "",
+      "quantity": null,
+      "amount": -51.00,
+      "reason": "no_amount",
+      "advice": "check",
+      "command": "schwabtx status T61001403"
+    },
+    {
+      "ref": "T61001406",
+      "account": "A2 ...398",
+      "day": "2025-01-15",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "",
+      "quantity": null,
+      "amount": -100.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    }
+  ],
+  "caveats": [
+    {
+      "ref": "T61001404",
+      "account": "A2 ...398",
+      "day": "2025-01-13",
+      "caveat": "fees_unknown"
+    }
+  ],
+  "combined": [],
+  "flagged": [
+    {
+      "ref": "T61001404",
+      "account": "A2 ...398",
+      "day": "2025-01-13",
+      "outcome": "written",
+      "flags": [
+        "inexact"
+      ]
+    }
+  ],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A2 ...398"
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

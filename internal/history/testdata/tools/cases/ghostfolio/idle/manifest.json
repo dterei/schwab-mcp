@@ -1,0 +1,193 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "ghostfolio",
+  "layout": 1,
+  "filters": {
+    "account": "A1 ...135",
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": "A1",
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "ghostfolio.json",
+      "kind": "ghostfolio",
+      "rows": 4
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2025-11-12",
+      "new": true,
+      "ghostfolio_id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "balances": {
+        "count": 2,
+        "first": "2026-01-05",
+        "last": "2026-11-10"
+      },
+      "cash": {
+        "value": 10.00,
+        "date": "2026-11-10"
+      }
+    }
+  ],
+  "units": {
+    "dates": "an activity's day at noon UTC, and milliseconds that keep the day's order; balances and prices at midnight UTC of their market date",
+    "fp": "the first 16 hex digits of the SHA-256 of every key of a row's activities, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive; days are New York calendar dates, YYYY-MM-DD",
+    "money": "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",
+    "prices": "a BUY's or a SELL's unitPrice: its cash before fees over its shares, to 10 places; a profile's marketPrice: a snapshot's market value over its shares, to 8 places",
+    "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
+  },
+  "written": {
+    "rows": 4,
+    "types": {
+      "BUY": 4
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "T61002701": {
+        "day": "2025-11-11",
+        "as": "2025-11-11 BUY 30.00",
+        "fp": "c18afb483fba91c4"
+      },
+      "T61002702": {
+        "day": "2025-11-11",
+        "as": "2025-11-11 BUY 40.00",
+        "fp": "92b9302fa4c264fa"
+      },
+      "T61002703": {
+        "day": "2025-11-12",
+        "as": "2025-11-12 BUY 50.00",
+        "fp": "bb991be8316d247c"
+      },
+      "T61002704": {
+        "day": "2025-11-11",
+        "as": "2025-11-11 BUY 25.00",
+        "fp": "873df46b0a050fcf"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "i:1000001",
+      "symbol": "ABCD",
+      "identity": "ZZB123458",
+      "ghostfolio_symbol": "ABCD",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:1000002",
+      "symbol": "EFGH",
+      "identity": "i:1000002",
+      "ghostfolio_symbol": "EFGH",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:1000004",
+      "symbol": "QRS.PRK",
+      "identity": "i:1000004",
+      "ghostfolio_symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1",
+      "data_source": "MANUAL",
+      "name": "Security (i:1000004)"
+    },
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ghostfolio_symbol": "XYZ",
+      "data_source": "YAHOO"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "left_out": [],
+  "caveats": [],
+  "combined": [],
+  "in_balances": [],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1000001",
+        "symbol": "ABCD",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 1
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1000002",
+        "symbol": "EFGH",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 1
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1000004",
+        "symbol": "QRS.PRK",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 1
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1854092",
+        "symbol": "XYZ",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 1
+      }
+    ],
+    "not_checked": []
+  },
+  "ghostfolio": {
+    "yahoo": [
+      "ABCD",
+      "EFGH",
+      "XYZ"
+    ],
+    "yahoo_idle": [
+      {
+        "symbol": "EFGH",
+        "security_key": "i:1000002",
+        "last_day": "2025-11-11"
+      }
+    ],
+    "manual": [
+      {
+        "security_key": "i:1000004",
+        "symbol": "QRS.PRK",
+        "why": "not_plain"
+      }
+    ],
+    "profiles": [
+      {
+        "symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1",
+        "name": "Security (i:1000004)",
+        "status": "used"
+      }
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

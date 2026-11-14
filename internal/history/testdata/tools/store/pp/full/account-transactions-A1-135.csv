@@ -1,0 +1,10 @@
+Date,Time,Type,Value,Transaction Currency,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Offset Account
+2023-06-12,10:20,Deposit,150.00,USD,,,,,schwabtx A1 ...135 T73508261953: Funds Received,Schwab A1 ...135,
+2023-07-19,03:32,Deposit,2500.00,USD,,,,,schwabtx A1 ...135 T73508261952: ACH Credit Received,Schwab A1 ...135,
+2023-12-15,11:02,Deposit,10000.00,USD,,,,,schwabtx A1 ...135 T73508261951: Wire Incoming,Schwab A1 ...135,
+2024-04-04,11:54,Dividend,3.86,USD,,BND,,VANGUARD TOTAL BOND MARKET ETF,schwabtx A1 ...135 T73508261950: Ordinary Dividend~BND,Schwab A1 ...135,
+2024-04-04,11:54,Taxes,1.16,USD,,BND,,VANGUARD TOTAL BOND MARKET ETF,schwabtx A1 ...135 T73508261954: W-8 Withholding~BND,Schwab A1 ...135,
+2024-04-30,21:18,Interest,0.42,USD,,,,,schwabtx A1 ...135 T73508261949: Free Balance Interest Adjustment,Schwab A1 ...135,
+2026-09-08,10:00,Transfer (Inbound),500.00,USD,,,,,schwabtx A2 ...398 T73600000101 to A1 ...135 T73600000102: JOURNAL TO ...135,Schwab A1 ...135,Schwab A2 ...398
+2026-09-21,09:00,Dividend,0.26,USD,,AAPL,037833100,,schwabtx A1 ...135 T73600000107: Ordinary Dividend~AAPL,Schwab A1 ...135,
+2026-09-23,09:00,Dividend,0.26,USD,,AAPL,037833100,,schwabtx A1 ...135 T73600000108: Ordinary Dividend~AAPL,Schwab A1 ...135,

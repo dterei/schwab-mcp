@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dterei/schwab-mcp/internal/nytime"
 )
@@ -25,6 +26,8 @@ import (
 // compareChain made of it, the folder that holds its files, and its
 // manifest, by whose chain part the next export goes on from it.
 type chainStep struct {
+	// e is the export, as ExportTool makes it.
+	e  *ToolExport
 	in *toolInput
 	// events and outcomes are the mapping's (toolEvents): every row the
 	// tool holds once the chain is imported, as a full export writes it.
@@ -39,66 +42,62 @@ type chainStep struct {
 	marks []ppMark
 	gf    *gfExport
 	file  []byte
-	// manifest holds the manifest's keys that parseChain reads.
+	// manifest is its manifest.json.
 	manifest []byte
 }
 
-// chainStepOf exports in for tool at exportedAt, as ExportTool does: going
-// on from prev, nil for a full export, with prev's account and its -manual
-// list and those that in names; and requires the files to pass the tool's
-// checker.
+// chainStepOf exports in for tool at exportedAt, as ExportTool does after
+// its read (exportTool): going on from prev, nil for a full export, with
+// prev's account and its -manual list and those that in names; writes it
+// to a folder of its own (WriteDir); and requires the files to pass the
+// tool's checker.
 func chainStepOf(t *testing.T, in toolInput, tool string, prev *chainStep, exportedAt string) *chainStep {
 	t.Helper()
-	in.tool = tool
-	var since *toolChain
-	if prev != nil {
-		c, err := parseChain(prev.manifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := c.refuse(&in, prev.dir); err != nil {
-			t.Fatal(err)
-		}
-		id, err := c.account()
-		if err != nil {
-			t.Fatal(err)
-		}
-		in.account, in.manual, since = id, c.manual(in.manual), c
-	}
-	events, outcomes := toolEvents(&in)
-	res := compareChain(&in, events, outcomes, since)
-	unused, err := checkManual(&in, res.written)
+	at, err := time.Parse(time.RFC3339, exportedAt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &chainStep{in: &in, events: events, outcomes: outcomes, res: res, unused: unused, dir: t.TempDir()}
-	checkChain(t, s)
-	switch tool {
-	case toolPP:
-		s.pp = ppFiles(&in, res.written)
-		ppWrite(t, s.dir, s.pp)
-		s.marks = ppTicks(s.pp, res)
-		ppCheck(t, s.dir, ppNamesOf(&in))
-	case toolGF:
-		s.gf = gfRender(&in, res.written)
-		path := filepath.Join(s.dir, gfFileName)
-		if err := writePrivate(path, s.gf.file.write); err != nil {
+	o := ToolOptions{Tool: tool, Manual: in.manual}
+	var since *toolChain
+	if prev != nil {
+		if since, err = parseChain(prev.manifest); err != nil {
 			t.Fatal(err)
 		}
+		if in.account, err = since.account(); err != nil {
+			t.Fatal(err)
+		}
+		o.SinceDir = prev.dir
+	}
+	e, err := exportTool(&in, o, since, at, buildVersions(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return chainStepFrom(t, e, t.TempDir())
+}
+
+// chainStepFrom writes the export e to the folder dir (WriteDir), requires
+// its files to pass the tool's checker, and returns it as a step of a chain.
+func chainStepFrom(t *testing.T, e *ToolExport, dir string) *chainStep {
+	t.Helper()
+	s := &chainStep{
+		e: e, in: e.in, events: e.events, outcomes: e.outcomes, res: e.res, unused: e.Unused, dir: dir,
+		pp: e.pp, marks: e.marks, gf: e.gf, manifest: e.manifest,
+	}
+	checkChain(t, s)
+	checkToolSummary(t, e)
+	if err := e.WriteDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	switch e.Tool {
+	case toolPP:
+		ppCheck(t, dir, ppNamesOf(e.in))
+	case toolGF:
+		path := filepath.Join(dir, gfFileName)
+		var err error
 		if s.file, err = os.ReadFile(path); err != nil {
 			t.Fatal(err)
 		}
-		gfCheck(t, path, gfDeliveries(res.written))
-	}
-	m := struct {
-		ExportedAt string `json:"exported_at"`
-		Store      string `json:"store"`
-		Format     string `json:"format"`
-		Layout     int    `json:"layout"`
-		chainManifest
-	}{exportedAt, in.store, tool, toolLayout, chainJSON(res, exportedAt, unused)}
-	if s.manifest, err = json.MarshalIndent(m, "", "  "); err != nil {
-		t.Fatal(err)
+		gfCheck(t, path, gfDeliveries(e.res.written))
 	}
 	return s
 }

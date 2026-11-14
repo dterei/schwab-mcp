@@ -1,0 +1,88 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "ghostfolio",
+  "layout": 1,
+  "filters": {
+    "account": "A1 ...135",
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": "A1",
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "ghostfolio.json",
+      "kind": "ghostfolio",
+      "rows": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": null,
+      "new": true,
+      "ghostfolio_id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "balances": {
+        "count": 1,
+        "first": "2026-11-10",
+        "last": "2026-11-10"
+      },
+      "cash": {
+        "value": 5000.00,
+        "date": "2026-11-10"
+      }
+    }
+  ],
+  "units": {
+    "dates": "an activity's day at noon UTC, and milliseconds that keep the day's order; balances and prices at midnight UTC of their market date",
+    "fp": "the first 16 hex digits of the SHA-256 of every key of a row's activities, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive; days are New York calendar dates, YYYY-MM-DD",
+    "money": "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",
+    "prices": "a BUY's or a SELL's unitPrice: its cash before fees over its shares, to 10 places; a profile's marketPrice: a snapshot's market value over its shares, to 8 places",
+    "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
+  },
+  "written": {
+    "rows": 0,
+    "types": {}
+  },
+  "given": {},
+  "securities": [],
+  "changed": [],
+  "gone": [],
+  "left_out": [],
+  "caveats": [],
+  "combined": [],
+  "in_balances": [
+    {
+      "account": "A1 ...135",
+      "rows": 1
+    }
+  ],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": []
+  },
+  "ghostfolio": {
+    "yahoo": [],
+    "yahoo_idle": [],
+    "manual": [],
+    "profiles": []
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

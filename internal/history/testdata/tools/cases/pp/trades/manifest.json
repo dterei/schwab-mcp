@@ -1,0 +1,268 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 3,
+      "tick": 0
+    },
+    {
+      "file": "account-transactions-A1-135.csv",
+      "kind": "account",
+      "configuration": "pp-account-transactions.json",
+      "account": "A1 ...135",
+      "rows": 1,
+      "tick": 0
+    },
+    {
+      "file": "portfolio-transactions-A1-135.csv",
+      "kind": "portfolio",
+      "configuration": "pp-portfolio-transactions.json",
+      "account": "A1 ...135",
+      "rows": 9,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2025-06-02",
+      "new": true
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 9,
+    "types": {
+      "Buy": 5,
+      "Fees": 1,
+      "Sell": 4
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Cf0e1d2c3.2": {
+        "day": "2025-04-01",
+        "as": "portfolio 2025-04-01 Buy 100.00",
+        "fp": "1e63e48ce70a705a",
+        "keys": [
+          "964e564282b47457",
+          "3e4d9e18d23bd142"
+        ]
+      },
+      "Cf0e1d2c3.3": {
+        "day": "2025-04-01",
+        "as": "portfolio 2025-04-01 Sell 100.00",
+        "fp": "7e21b9d50cbc5d28",
+        "keys": [
+          "9a5f357f1ace4160",
+          "ca5cfdd67d37406a"
+        ]
+      },
+      "Cf0e1d2c3.4": {
+        "day": "2025-04-02",
+        "as": "portfolio 2025-04-02 Sell 55.00",
+        "fp": "c063e1611459b87c",
+        "keys": [
+          "ae423d977c557503",
+          "6af8a80dd4f931c7"
+        ]
+      },
+      "Cf0e1d2c3.5": {
+        "day": "2025-04-02",
+        "as": "portfolio 2025-04-02 Buy 55.00",
+        "fp": "3ad5f4216128f006",
+        "keys": [
+          "93983b6798556392",
+          "03f2e153e3f5b98e"
+        ]
+      },
+      "Cf0e1d2c3.8": {
+        "day": "2025-06-02",
+        "as": "portfolio 2025-06-02 Buy 301.50",
+        "fp": "2a53aeb91996174e",
+        "keys": [
+          "5c739a57f3664027",
+          "f3bb3e1effed0496"
+        ]
+      },
+      "T61001301": {
+        "day": "2025-02-03",
+        "as": "portfolio 2025-02-03 Buy 500.65",
+        "fp": "da76719960e1ef0e",
+        "keys": [
+          "cc57b09b97c3e2a4",
+          "4aacd0b466acfb50"
+        ]
+      },
+      "T61001302": {
+        "day": "2025-03-03",
+        "as": "portfolio 2025-03-03 Sell 219.97",
+        "fp": "d32f217c2f631e8d",
+        "keys": [
+          "2d180204c15b4b24",
+          "0efc716ad2f55f35"
+        ]
+      },
+      "T61001306": {
+        "day": "2025-05-05",
+        "as": "portfolio 2025-05-05 Sell 0.05; account 2025-05-05 Fees 0.10",
+        "fp": "d02ec33ab4ce6e0a",
+        "keys": [
+          "e71168ab78aa129e",
+          "bfd386038641c3c2",
+          "d7729c673af6dd5f"
+        ]
+      },
+      "T61001307": {
+        "day": "2025-05-06",
+        "as": "portfolio 2025-05-06 Buy 59.50",
+        "fp": "386231c3f80b6aa7",
+        "keys": [
+          "f1492b1770a626e3",
+          "0ff0e65745de8068"
+        ]
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "i:1000001",
+      "symbol": "ABCD",
+      "identity": "ZZB123458",
+      "ticker": "ABCD",
+      "wkn": "ZZB123458",
+      "name": "ABCD INDUSTRIES INC"
+    },
+    {
+      "security_key": "i:1000002",
+      "symbol": "EFGH",
+      "identity": "i:1000002",
+      "ticker": "EFGH",
+      "name": "EFGH TOTAL MARKET ETF"
+    },
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ticker": "XYZ",
+      "wkn": "98389B100",
+      "name": "XYZ CORP COMMON STOCK"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [
+    {
+      "ref": "Cf0e1d2c3.9",
+      "account": "A1 ...135",
+      "day": "2025-06-03",
+      "category": "buy",
+      "kind": "Cancel Buy",
+      "description": "XYZ CORP",
+      "symbol": "XYZ",
+      "quantity": -1,
+      "amount": -50.00,
+      "reason": "signs_disagree",
+      "advice": "check",
+      "command": "schwabtx status Cf0e1d2c3.9"
+    },
+    {
+      "ref": "T61001310",
+      "account": "A1 ...135",
+      "day": "2025-07-01",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "",
+      "quantity": 1,
+      "amount": -10.00,
+      "reason": "no_security",
+      "advice": "set_security",
+      "command": "schwabtx edit T61001310 -security K:…"
+    },
+    {
+      "ref": "Cf0e1d2c3.11",
+      "account": "A1 ...135",
+      "day": "2025-07-02",
+      "category": "sell",
+      "kind": "Cash In Lieu",
+      "description": "XYZ CORP",
+      "symbol": "XYZ",
+      "quantity": null,
+      "amount": 3.21,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    }
+  ],
+  "caveats": [
+    {
+      "ref": "T61001306",
+      "account": "A1 ...135",
+      "day": "2025-05-05",
+      "caveat": "fees_apart"
+    },
+    {
+      "ref": "Cf0e1d2c3.8",
+      "account": "A1 ...135",
+      "day": "2025-06-02",
+      "caveat": "fees_unknown"
+    }
+  ],
+  "combined": [],
+  "flagged": [
+    {
+      "ref": "Cf0e1d2c3.8",
+      "account": "A1 ...135",
+      "day": "2025-06-02",
+      "outcome": "written",
+      "flags": [
+        "inexact"
+      ]
+    }
+  ],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A1 ...135"
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

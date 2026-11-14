@@ -1,0 +1,271 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "ghostfolio",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "ghostfolio.json",
+      "kind": "ghostfolio",
+      "rows": 16
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2024-12-02",
+      "new": true,
+      "ghostfolio_id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "balances": {
+        "count": 0,
+        "why": "no snapshot"
+      }
+    }
+  ],
+  "units": {
+    "dates": "an activity's day at noon UTC, and milliseconds that keep the day's order; balances and prices at midnight UTC of their market date",
+    "fp": "the first 16 hex digits of the SHA-256 of every key of a row's activities, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive; days are New York calendar dates, YYYY-MM-DD",
+    "money": "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",
+    "prices": "a BUY's or a SELL's unitPrice: its cash before fees over its shares, to 10 places; a profile's marketPrice: a snapshot's market value over its shares, to 8 places",
+    "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
+  },
+  "written": {
+    "rows": 16,
+    "types": {
+      "BUY": 2,
+      "DIVIDEND": 6,
+      "FEE": 5,
+      "INTEREST": 3
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Cc0d1e2f3.1": {
+        "day": "2024-05-15",
+        "as": "2024-05-15 DIVIDEND 10.00 fee 0.50",
+        "fp": "1657c5419dd944b9"
+      },
+      "Cc0d1e2f3.10": {
+        "day": "2024-11-01",
+        "as": "2024-11-01 DIVIDEND 4.00",
+        "fp": "e815bdd60d6529db"
+      },
+      "Cc0d1e2f3.12": {
+        "day": "2024-11-20",
+        "as": "2024-11-20 FEE 5.00",
+        "fp": "073e701e1cd1ad39"
+      },
+      "Cc0d1e2f3.13": {
+        "day": "2024-12-02",
+        "as": "2024-12-02 DIVIDEND 3.00",
+        "fp": "d0e6b503b3350321"
+      },
+      "Cc0d1e2f3.2": {
+        "day": "2024-05-20",
+        "as": "2024-05-20 FEE 1.25",
+        "fp": "03a5c26652d69010"
+      },
+      "Cc0d1e2f3.3": {
+        "day": "2024-06-15",
+        "as": "2024-06-15 DIVIDEND 5.00",
+        "fp": "1d5f0733f0a0a269"
+      },
+      "Cc0d1e2f3.4": {
+        "day": "2024-07-01",
+        "as": "2024-07-01 BUY 990.00",
+        "fp": "50a626665ce4bded"
+      },
+      "Cc0d1e2f3.5": {
+        "day": "2024-08-15",
+        "as": "2024-08-15 DIVIDEND 21.25",
+        "fp": "33a8bcfe46513c3d"
+      },
+      "Cc0d1e2f3.6": {
+        "day": "2024-09-01",
+        "as": "2024-09-01 FEE 3.17",
+        "fp": "a68b2b3d7afe683f"
+      },
+      "Cc0d1e2f3.7": {
+        "day": "2024-09-05",
+        "as": "2024-09-05 FEE 25.00",
+        "fp": "15d2b1128bba684e"
+      },
+      "Cc0d1e2f3.8": {
+        "day": "2024-09-06",
+        "as": "2024-09-06 INTEREST 25.00",
+        "fp": "1b2b885446f1cbc8"
+      },
+      "Cc0d1e2f3.9": {
+        "day": "2024-10-01",
+        "as": "2024-10-01 INTEREST 0.80",
+        "fp": "59dd5a10c3c1df3b"
+      },
+      "T61001601": {
+        "day": "2024-01-10",
+        "as": "2024-01-10 BUY 300.00",
+        "fp": "e76e8e2c5a1c4c6e"
+      },
+      "T61001602": {
+        "day": "2024-04-04",
+        "as": "2024-04-04 DIVIDEND 3.86",
+        "fp": "3b4ebf5ea90b8733"
+      },
+      "T61001603": {
+        "day": "2024-04-30",
+        "as": "2024-04-30 INTEREST 0.42",
+        "fp": "85ea825ce134b908"
+      },
+      "T61001604": {
+        "day": "2024-04-04",
+        "as": "2024-04-04 FEE 1.16",
+        "fp": "94ad24fa83cd4f15"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "c:9128ZZQ15",
+      "symbol": "9128ZZQ15",
+      "identity": "9128ZZQ15",
+      "ghostfolio_symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+      "data_source": "MANUAL",
+      "name": "Bond (9128ZZQ15)"
+    },
+    {
+      "security_key": "i:1000002",
+      "symbol": "EFGH",
+      "identity": "i:1000002",
+      "ghostfolio_symbol": "EFGH",
+      "data_source": "YAHOO"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "left_out": [
+    {
+      "ref": "T61001605",
+      "account": "A1 ...135",
+      "day": "2024-10-15",
+      "category": "dividend",
+      "kind": "DIVIDEND_OR_INTEREST",
+      "description": "Ordinary Dividend",
+      "symbol": "",
+      "quantity": null,
+      "amount": 2.00,
+      "reason": "no_security",
+      "advice": "set_security",
+      "command": "schwabtx edit T61001605 -security K:…"
+    },
+    {
+      "ref": "Cc0d1e2f3.11",
+      "account": "A1 ...135",
+      "day": "2024-11-15",
+      "category": "interest",
+      "kind": "Credit Interest",
+      "description": "INCOME",
+      "symbol": "",
+      "quantity": null,
+      "amount": 0.00,
+      "reason": "zero_amount",
+      "advice": "",
+      "command": ""
+    }
+  ],
+  "caveats": [
+    {
+      "ref": "Cc0d1e2f3.3",
+      "account": "A1 ...135",
+      "day": "2024-06-15",
+      "caveat": "return_of_capital"
+    },
+    {
+      "ref": "Cc0d1e2f3.10",
+      "account": "A1 ...135",
+      "day": "2024-11-01",
+      "caveat": "fees_unknown"
+    }
+  ],
+  "combined": [],
+  "in_balances": [],
+  "flagged": [
+    {
+      "ref": "Cc0d1e2f3.10",
+      "account": "A1 ...135",
+      "day": "2024-11-01",
+      "outcome": "written",
+      "flags": [
+        "inexact"
+      ]
+    }
+  ],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A1 ...135"
+    ]
+  },
+  "ghostfolio": {
+    "yahoo": [
+      "EFGH"
+    ],
+    "yahoo_idle": [
+      {
+        "symbol": "EFGH",
+        "security_key": "i:1000002",
+        "last_day": "2024-12-02"
+      }
+    ],
+    "manual": [
+      {
+        "security_key": "c:9128ZZQ15",
+        "symbol": "9128ZZQ15",
+        "why": "bond"
+      }
+    ],
+    "profiles": [
+      {
+        "symbol": "86890ed8-5f41-88fe-994e-a8d55fb5a16f",
+        "name": "Schwab fees",
+        "status": "used"
+      },
+      {
+        "symbol": "1aaa2776-c2e6-8a46-b37b-63919ecbda2a",
+        "name": "Schwab interest",
+        "status": "used"
+      },
+      {
+        "symbol": "ea68cc1f-2a7b-84bd-9ee8-7f46a5c7dccd",
+        "name": "Schwab taxes",
+        "status": "used"
+      },
+      {
+        "symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+        "name": "Bond (9128ZZQ15)",
+        "status": "used"
+      }
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

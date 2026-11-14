@@ -1,0 +1,5 @@
+Date,Time,Type,Value,Transaction Currency,Shares,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Securities Account
+2024-03-15,19:36,Sell,83.27,USD,0.4513,,VBR,,VANGUARD SMALL-CAP VALUE ETF,schwabtx A1 ...135 T73508261947: Sell Trade,Schwab A1 ...135,Schwab A1 ...135
+2024-04-04,11:56,Buy,2.70,USD,0.0378,,BND,,VANGUARD TOTAL BOND MARKET ETF,schwabtx A1 ...135 T73508261946: Dividend Reinvest,Schwab A1 ...135,Schwab A1 ...135
+2025-06-02,10:30,Buy,605.46,USD,3,,AAPL,037833100,,schwabtx A1 ...135 T73508261943: TRADE,Schwab A1 ...135,Schwab A1 ...135
+2026-09-10,10:15,Delivery (Outbound),460.20,USD,2,,AAPL,037833100,,schwabtx A1 ...135 T73600000103: JOURNALED SHARES TO ...398,,Schwab A1 ...135

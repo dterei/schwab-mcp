@@ -3,16 +3,15 @@ package history
 import (
 	"bytes"
 	"math/big"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 )
 
-// gfCase writes case c for Ghostfolio, as an export writes ghostfolio.json
-// (TestToolCases), and requires that the folder golden hold it, byte for
-// byte. The file must pass gfCheck, and import into a user who holds
+// gfCase writes case c for Ghostfolio, through WriteDir (TestToolCases),
+// and requires that the folder golden hold ghostfolio.json and the
+// manifest, byte for byte. The file must pass gfCheck, and import into a
+// user who holds
 // nothing as the case means it to: refused only when it holds no activity,
 // and else with every activity new; each account's cash the latest
 // balance; the activities' cash, per account, the cash of the rows
@@ -23,18 +22,10 @@ import (
 // a dividend and no investment, since each case buys what it is paid a
 // dividend on before the dividend.
 func gfCase(t *testing.T, c toolCase, golden string) {
-	in, events, outcomes := mapCase(c, toolGF)
-	x := gfRender(in, events)
-	path := filepath.Join(t.TempDir(), gfFileName)
-	if err := writePrivate(path, x.file.write); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	toolGolden(t, golden, map[string][]byte{gfFileName: got})
-	gfCheck(t, path, gfDeliveries(events))
+	e := caseExport(t, c, toolGF)
+	s := chainStepFrom(t, e, t.TempDir())
+	toolGolden(t, golden, toolFolder(t, s.dir))
+	in, events, outcomes, x, got := e.in, e.events, e.outcomes, e.gf, s.file
 
 	m := newGFModel()
 	n, err := gfImport(m, got)

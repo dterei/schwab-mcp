@@ -1,0 +1,204 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 0,
+      "tick": 0
+    },
+    {
+      "file": "account-transactions-A1-135.csv",
+      "kind": "account",
+      "configuration": "pp-account-transactions.json",
+      "account": "A1 ...135",
+      "rows": 8,
+      "tick": 0
+    },
+    {
+      "file": "account-transactions-A2-398.csv",
+      "kind": "account",
+      "configuration": "pp-account-transactions.json",
+      "account": "A2 ...398",
+      "rows": 1,
+      "tick": 0
+    },
+    {
+      "file": "account-transactions-A3-783.csv",
+      "kind": "account",
+      "configuration": "pp-account-transactions.json",
+      "account": "A3 ...783",
+      "rows": 1,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2026-11-11",
+      "new": true
+    },
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options & Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": "2026-11-10",
+      "new": true
+    },
+    {
+      "label": "A3 ...783",
+      "account": "...783",
+      "nickname": "Joint",
+      "name": "Schwab A3 ...783",
+      "exported": true,
+      "last_day": "2026-11-02",
+      "new": true
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 10,
+    "types": {
+      "Deposit": 10
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Ca2b3c4d5.1": {
+        "day": "2026-11-09",
+        "as": "account 2026-11-09 Deposit 30.00",
+        "fp": "3d0f323da9b9a73f",
+        "keys": [
+          "7a63dc64512cf531"
+        ]
+      },
+      "Ca2b3c4d5.2": {
+        "day": "2026-11-10",
+        "as": "account 2026-11-10 Deposit 40.00",
+        "fp": "fc3a6fbd0e15628a",
+        "keys": [
+          "da17ef37d99e4f88"
+        ]
+      },
+      "Ca2b3c4d5.3": {
+        "day": "2026-11-08",
+        "as": "account 2026-11-08 Deposit 50.00",
+        "fp": "140ea5b2a0a3f870",
+        "keys": [
+          "e6db83638e96c963"
+        ]
+      },
+      "T61002301": {
+        "day": "2026-11-10",
+        "as": "account 2026-11-10 Deposit 10.00",
+        "fp": "755bb89d640ee4f1",
+        "keys": [
+          "0040dc350e8d543b"
+        ]
+      },
+      "T61002302": {
+        "day": "2026-11-10",
+        "as": "account 2026-11-10 Deposit 20.00",
+        "fp": "fdf5dbacabd2ce5d",
+        "keys": [
+          "b1321f2547ac9586"
+        ]
+      },
+      "T61002303": {
+        "day": "2026-11-11",
+        "as": "account 2026-11-11 Deposit 60.00",
+        "fp": "e6cb3fa165eb2fb2",
+        "keys": [
+          "df391b90d29d26f2"
+        ]
+      },
+      "T61002305": {
+        "day": "2026-11-09",
+        "as": "account 2026-11-09 Deposit 90.00",
+        "fp": "02c55f73047379e8",
+        "keys": [
+          "cd1b9f7a2e447ec2"
+        ]
+      },
+      "T61002306": {
+        "day": "2026-11-10",
+        "as": "account 2026-11-10 Deposit 11.00",
+        "fp": "c4b4312a99db7c53",
+        "keys": [
+          "ada4be1d42e3d3c8"
+        ]
+      }
+    },
+    "A2 ...398": {
+      "Ca2b3c4d5.4": {
+        "day": "2026-11-10",
+        "as": "account 2026-11-10 Deposit 70.00",
+        "fp": "d51f045a96a1b34d",
+        "keys": [
+          "c96c28fc006abc22"
+        ]
+      }
+    },
+    "A3 ...783": {
+      "T61002304": {
+        "day": "2026-11-02",
+        "as": "account 2026-11-02 Deposit 80.00",
+        "fp": "a1e9e6c9663911fc",
+        "keys": [
+          "c30c51b7c86826ae"
+        ]
+      }
+    }
+  },
+  "securities": [],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [],
+  "caveats": [],
+  "combined": [],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A3 ...783"
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

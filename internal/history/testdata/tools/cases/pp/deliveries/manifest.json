@@ -1,0 +1,358 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 4,
+      "tick": 0
+    },
+    {
+      "file": "portfolio-transactions-A1-135.csv",
+      "kind": "portfolio",
+      "configuration": "pp-portfolio-transactions.json",
+      "account": "A1 ...135",
+      "rows": 12,
+      "tick": 0
+    },
+    {
+      "file": "portfolio-transactions-A2-398.csv",
+      "kind": "portfolio",
+      "configuration": "pp-portfolio-transactions.json",
+      "account": "A2 ...398",
+      "rows": 6,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2026-09-01",
+      "new": true
+    },
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options & Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": "2026-09-01",
+      "new": true
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 17,
+    "types": {
+      "Delivery (Inbound)": 10,
+      "Delivery (Outbound)": 8
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Cb0c1d2e3.1": {
+        "day": "2026-06-01",
+        "as": "portfolio 2026-06-01 Delivery (Inbound) 312.50",
+        "fp": "71b4f6113d85fe3f",
+        "keys": [
+          "68c4f23834c3cbcb"
+        ]
+      },
+      "Cb0c1d2e3.10": {
+        "day": "2026-08-16",
+        "as": "portfolio 2026-08-16 Delivery (Inbound) 30.00",
+        "fp": "fcfa8094050935a8",
+        "keys": [
+          "b8c449c67797a203"
+        ]
+      },
+      "Cb0c1d2e3.2": {
+        "day": "2026-06-02",
+        "as": "portfolio 2026-06-02 Delivery (Outbound) 120.00",
+        "fp": "5bd46ecdc65f5a3b",
+        "keys": [
+          "592b707af2c8a9b6"
+        ]
+      },
+      "Cb0c1d2e3.3": {
+        "day": "2026-06-03",
+        "as": "portfolio 2026-06-03 Delivery (Inbound) 9950.00",
+        "fp": "3b582bff7a5a165c",
+        "keys": [
+          "633ee45df1c3e5f6"
+        ]
+      },
+      "Cb0c1d2e3.4": {
+        "day": "2026-07-24",
+        "as": "portfolio 2026-07-24 Delivery (Inbound) 157.50",
+        "fp": "83b0aa24d4913fdd",
+        "keys": [
+          "a973687bf179159d"
+        ]
+      },
+      "Cb0c1d2e3.5": {
+        "day": "2026-08-03",
+        "as": "portfolio 2026-08-03 Delivery (Inbound) 0.00",
+        "fp": "881febffdb9a4cd9",
+        "keys": [
+          "28f889c4ab29cf33"
+        ]
+      },
+      "Cb0c1d2e3.6": {
+        "day": "2026-08-12",
+        "as": "portfolio 2026-08-12 Delivery (Outbound) 30.00",
+        "fp": "060218d721e5c46d",
+        "keys": [
+          "5dfe9d02bf4d6ccf"
+        ]
+      },
+      "Cb0c1d2e3.7": {
+        "day": "2026-08-13",
+        "as": "portfolio 2026-08-13 Delivery (Inbound) 30.00",
+        "fp": "610eea622371a210",
+        "keys": [
+          "efc73972a43080db"
+        ]
+      },
+      "T61001502": {
+        "day": "2026-05-05",
+        "as": "portfolio 2026-05-05 Delivery (Inbound) 260.00",
+        "fp": "38132a9e671eb85e",
+        "keys": [
+          "0871f2d66dd6439f"
+        ]
+      },
+      "T61001503": {
+        "day": "2026-08-10",
+        "as": "portfolio 2026-08-10 Delivery (Outbound) 50.00",
+        "fp": "fc576b7cc1559376",
+        "keys": [
+          "8b8c99a9c7d43017"
+        ]
+      },
+      "T61001506": {
+        "day": "2026-09-01",
+        "as": "portfolio 2026-09-01 Delivery (Outbound) 30.50",
+        "fp": "8414fdde1bab5771",
+        "keys": [
+          "99693214f4b20898"
+        ]
+      },
+      "T61001509": {
+        "day": "2026-07-27",
+        "as": "portfolio 2026-07-27 Delivery (Inbound) 105.00",
+        "fp": "11f2124a532b7a86",
+        "keys": [
+          "e5d48a0d8a3236b4"
+        ]
+      }
+    },
+    "A2 ...398": {
+      "T61001501": {
+        "day": "2026-05-04",
+        "as": "portfolio 2026-05-04 Delivery (Outbound) 260.00",
+        "fp": "7a1e5fb210840b44",
+        "keys": [
+          "4db32b5317072745"
+        ]
+      },
+      "T61001504": {
+        "day": "2026-08-11",
+        "as": "portfolio 2026-08-11 Delivery (Inbound) 310.00",
+        "fp": "4864e3be825ae665",
+        "keys": [
+          "ec042f953240bb2f"
+        ]
+      },
+      "T61001505": {
+        "day": "2026-08-20",
+        "as": "portfolio 2026-08-20 Delivery (Outbound) 104.00; portfolio 2026-08-20 Delivery (Outbound) 93.00",
+        "fp": "003ff73729ed6a01",
+        "keys": [
+          "a94646e88954d5b8",
+          "ef67115cb4256420"
+        ]
+      },
+      "T61001507": {
+        "day": "2026-09-01",
+        "as": "portfolio 2026-09-01 Delivery (Inbound) 30.50",
+        "fp": "b70fd0e2adb63d76",
+        "keys": [
+          "68621a6c15c08001"
+        ]
+      },
+      "T61001508": {
+        "day": "2026-07-24",
+        "as": "portfolio 2026-07-24 Delivery (Outbound) 105.00",
+        "fp": "aba4e9abb482c57c",
+        "keys": [
+          "b19436a3a6f545dd"
+        ]
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "c:9128ZZQ15",
+      "symbol": "9128ZZQ15",
+      "identity": "9128ZZQ15",
+      "wkn": "9128ZZQ15",
+      "name": "EXAMPLE TREASURY NOTE 4.25% 08/15/2034"
+    },
+    {
+      "security_key": "i:1000002",
+      "symbol": "EFGH",
+      "identity": "i:1000002",
+      "ticker": "EFGH",
+      "name": "EFGH TOTAL MARKET ETF"
+    },
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ticker": "XYZ",
+      "wkn": "98389B100",
+      "name": "XYZ CORP COMMON STOCK"
+    },
+    {
+      "security_key": "i:219900001",
+      "symbol": "XYZ   270115P00045000",
+      "identity": "XYZ270115P00045000",
+      "ticker": "XYZ270115P00045000",
+      "name": "XYZ 01/15/2027 45.00 P"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [
+    {
+      "ref": "Cb0c1d2e3.8",
+      "account": "A1 ...135",
+      "day": "2026-08-14",
+      "category": "transfer_in",
+      "kind": "Journaled Shares",
+      "description": "SHARES",
+      "symbol": "EFGH",
+      "quantity": null,
+      "amount": 0.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "Cb0c1d2e3.9",
+      "account": "A1 ...135",
+      "day": "2026-08-15",
+      "category": "transfer_in",
+      "kind": "Journaled Shares",
+      "description": "SHARES",
+      "symbol": "",
+      "quantity": 1,
+      "amount": 0.00,
+      "reason": "no_security",
+      "advice": "set_security",
+      "command": "schwabtx edit Cb0c1d2e3.9 -security K:…"
+    },
+    {
+      "ref": "Cb0c1d2e3.11",
+      "account": "A1 ...135",
+      "day": "2026-08-17",
+      "category": "transfer_in",
+      "kind": "Journaled Shares",
+      "description": "SHARES",
+      "symbol": "/ZZH25:XCME",
+      "quantity": 1,
+      "amount": 0.00,
+      "reason": "future",
+      "advice": "by_hand",
+      "command": ""
+    }
+  ],
+  "caveats": [
+    {
+      "ref": "Cb0c1d2e3.4",
+      "account": "A1 ...135",
+      "day": "2026-07-24",
+      "caveat": "value_from_snapshot"
+    },
+    {
+      "ref": "T61001508",
+      "account": "A2 ...398",
+      "day": "2026-07-24",
+      "caveat": "value_from_snapshot"
+    },
+    {
+      "ref": "T61001509",
+      "account": "A1 ...135",
+      "day": "2026-07-27",
+      "caveat": "value_from_snapshot"
+    },
+    {
+      "ref": "Cb0c1d2e3.5",
+      "account": "A1 ...135",
+      "day": "2026-08-03",
+      "caveat": "value_unknown"
+    },
+    {
+      "ref": "T61001503",
+      "account": "A1 ...135",
+      "day": "2026-08-10",
+      "caveat": "cash_not_written"
+    }
+  ],
+  "combined": [],
+  "flagged": [
+    {
+      "ref": "Cb0c1d2e3.10",
+      "account": "A1 ...135",
+      "day": "2026-08-16",
+      "outcome": "written",
+      "flags": [
+        "inexact"
+      ]
+    }
+  ],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A1 ...135",
+      "A2 ...398"
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

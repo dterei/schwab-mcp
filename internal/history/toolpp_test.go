@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/csv"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -36,65 +34,35 @@ func ppNamesOf(in *toolInput) []string {
 	return names
 }
 
-// ppWrite writes files into the folder dir.
-func ppWrite(t *testing.T, dir string, files []ppFile) {
-	t.Helper()
-	for _, f := range files {
-		if err := os.WriteFile(filepath.Join(dir, f.name), f.data, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-// ppCase writes case c as a PP export (TestToolCases) and requires that the
-// folder golden hold its securities and records, byte for byte; that PP
-// 0.90.0 read the export as it means (ppCheck); and that a model of PP into
-// which it is imported, in the order of its files and with no row ticked,
-// hold the ledger's cash and shares of each account (ppReconcile): no row
-// of the cases is one that PP marks as existing but the second half of a
-// transfer, which must stay unticked.
+// ppCase writes case c as a PP export (TestToolCases), through WriteDir,
+// and requires that the folder golden hold its securities, its records and
+// its manifest, byte for byte, beside the configurations that every export
+// writes alike; that PP 0.90.0 read the export as it means (ppCheck); and
+// that a model of PP into which it is imported, in the order of its files,
+// mark exactly the rows that the export says PP marks, none of them to
+// tick, and then hold the ledger's cash and shares of each account
+// (ppReconcile): no row of the cases is one that PP marks as existing but
+// the second half of a transfer, which must stay unticked.
 func ppCase(t *testing.T, c toolCase, golden string) {
-	in, events, outcomes := mapCase(c, toolPP)
-	files := ppFiles(in, events)
-	written := map[string][]byte{}
-	for _, f := range files {
-		if f.kind != ppConfiguration {
-			written[f.name] = f.data
+	e := caseExport(t, c, toolPP)
+	s := chainStepFrom(t, e, t.TempDir())
+	files := toolFolder(t, s.dir)
+	for name, data := range ppConfigurations() {
+		if !bytes.Equal(files[name], data) {
+			t.Errorf("the export writes %s otherwise than every export does", name)
 		}
+		delete(files, name)
 	}
-	toolGolden(t, golden, written)
+	toolGolden(t, golden, files)
 
-	dir := t.TempDir()
-	ppWrite(t, dir, files)
-	names := ppNamesOf(in)
-	ppCheck(t, dir, names)
-	m := newPPModel(names...)
-	for _, f := range files {
-		if f.kind == ppConfiguration {
-			continue
-		}
-		marked, refused := m.importFile(dir, f.name, f.account.name(), nil)
-		for _, r := range refused {
-			t.Error(r)
-		}
-		for _, line := range marked {
-			if typ := ppCell(t, f, line, "Type"); !strings.HasPrefix(typ, "Transfer (") {
-				t.Errorf("PP marks row %d of %s, a %s, as existing", line, f.name, typ)
-			}
+	m := newPPModel(ppNamesOf(e.in)...)
+	ppApply(t, m, s)
+	for _, mk := range s.marks {
+		if k := mk.record.kind; mk.tick || k != evTransferIn && k != evTransferOut {
+			t.Errorf("PP marks row %d of %s, of %s, as existing, to tick %v", mk.line, mk.file, mk.record.ref, mk.tick)
 		}
 	}
-	ppReconcile(t, m, in, events, outcomes)
-}
-
-// ppCell returns the cell of the column labelled label in row line (from 1,
-// below the header) of file f.
-func ppCell(t *testing.T, f ppFile, line int, label string) string {
-	t.Helper()
-	records, err := csv.NewReader(bytes.NewReader(f.data)).ReadAll()
-	if err != nil || line >= len(records) {
-		t.Fatalf("%s has no row %d: %v", f.name, line, err)
-	}
-	return records[line][slices.Index(records[0], label)]
+	ppReconcile(t, m, e.in, e.events, e.outcomes)
 }
 
 // ppReconcile requires that model m, into which the PP export of in was

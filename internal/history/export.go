@@ -708,12 +708,7 @@ func (e *Export) one() error {
 
 // notTheStore refuses an output at path that is one of the store's files,
 // or would be taken for one (IsCompanion).
-func (e *Export) notTheStore(path string) error {
-	if IsCompanion(path, e.store) {
-		return fmt.Errorf("%s would replace the store itself (or one of its files); choose another name", path)
-	}
-	return nil
-}
+func (e *Export) notTheStore(path string) error { return notStoreFile(path, e.store) }
 
 // manifest returns manifest.json's contents.
 func (e *Export) manifest() ([]byte, error) {

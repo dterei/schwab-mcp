@@ -57,11 +57,11 @@ func toolCaseNamed(name string) toolCase {
 	return toolCases()[i]
 }
 
-// update rewrites the golden files of TestToolCases and TestToolChain from
-// what the exports write: go test ./internal/history -run
-// 'TestToolCases|TestToolChain' -history.update. Read the diff before
-// committing it.
-var update = flag.Bool("history.update", false, "TestToolCases and TestToolChain: rewrite their golden files under testdata/tools")
+// update rewrites the golden files of TestToolCases, TestToolChain and
+// TestToolExport from what the exports write: go test ./internal/history
+// -run 'TestToolCases|TestToolChain|TestToolExport' -history.update. Read
+// the diff before committing it.
+var update = flag.Bool("history.update", false, "TestToolCases, TestToolChain and TestToolExport: rewrite their golden files under testdata/tools")
 
 // TestToolCases writes each case of toolCases as an export of each tool and
 // requires the golden files of testdata/tools/cases (11.2 of the design): a
@@ -140,6 +140,39 @@ func toolGolden(t *testing.T, golden string, files map[string][]byte) {
 			t.Errorf("%s differs from what the export writes (-history.update rewrites it):\n%s", path, firstDiff(want, files[name]))
 		}
 	}
+}
+
+// caseExport returns case c exported for tool in full (exportTool), at the
+// test stores' clock, by this build's versions: with the -manual symbols
+// that the case names for Ghostfolio, which takes them.
+func caseExport(t *testing.T, c toolCase, tool string) *ToolExport {
+	t.Helper()
+	in := c.in
+	o := ToolOptions{Tool: tool}
+	if tool == toolGF {
+		o.Manual = in.manual
+	}
+	e, err := exportTool(&in, o, nil, testNow, buildVersions(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// toolFolder returns the files of the folder dir, by name.
+func toolFolder(t *testing.T, dir string) map[string][]byte {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{}
+	for _, e := range entries {
+		if files[e.Name()], err = os.ReadFile(filepath.Join(dir, e.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return files
 }
 
 // firstDiff says where got, which differs from want, first differs from it:

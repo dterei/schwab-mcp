@@ -1,0 +1,226 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 4,
+      "tick": 0
+    },
+    {
+      "file": "portfolio-transactions-A2-398.csv",
+      "kind": "portfolio",
+      "configuration": "pp-portfolio-transactions.json",
+      "account": "A2 ...398",
+      "rows": 12,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options & Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": "2025-01-28",
+      "new": true
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 11,
+    "types": {
+      "Buy": 7,
+      "Delivery (Outbound)": 1,
+      "Sell": 4
+    }
+  },
+  "given": {
+    "A2 ...398": {
+      "Cc3d4e5f6.1": {
+        "day": "2025-01-21",
+        "as": "portfolio 2025-01-21 Delivery (Outbound) 0.00",
+        "fp": "9907b9963b984522",
+        "keys": [
+          "c8361bf4b5f146ce"
+        ]
+      },
+      "Cc3d4e5f6.2": {
+        "day": "2025-01-23",
+        "as": "portfolio 2025-01-23 Buy 50.00",
+        "fp": "4cac31ab662c84cb",
+        "keys": [
+          "9e798247991767b0",
+          "0894f89e69aed054"
+        ]
+      },
+      "Cc3d4e5f6.3": {
+        "day": "2025-01-23",
+        "as": "portfolio 2025-01-23 Sell 50.00",
+        "fp": "5ce3ef88ef9e8930",
+        "keys": [
+          "86a21b808ae0ec6e",
+          "8dcf88e4a22221bd"
+        ]
+      },
+      "Cc3d4e5f6.4": {
+        "day": "2025-01-28",
+        "as": "portfolio 2025-01-28 Buy 50.00",
+        "fp": "4c7626764fef9634",
+        "keys": [
+          "3d5adf7bef6b4500",
+          "7d987ce862586e56"
+        ]
+      },
+      "Cc3d4e5f6.5": {
+        "day": "2025-01-28",
+        "as": "portfolio 2025-01-28 Buy 40.00",
+        "fp": "19d3e7831b847fcc",
+        "keys": [
+          "b0220c2bb99a36a9",
+          "243a24dfaed1a256"
+        ]
+      },
+      "T61002501": {
+        "day": "2025-01-21",
+        "as": "portfolio 2025-01-21 Buy 200.65",
+        "fp": "ea758de25e5d9b43",
+        "keys": [
+          "0a29beeb29be3610",
+          "3fd9dbc5fd043170"
+        ]
+      },
+      "T61002502": {
+        "day": "2025-01-22",
+        "as": "portfolio 2025-01-22 Buy 50.00",
+        "fp": "210878073c996124",
+        "keys": [
+          "731ccf07b39cde1c",
+          "e2ddb96078b97d09"
+        ]
+      },
+      "T61002503": {
+        "day": "2025-01-22",
+        "as": "portfolio 2025-01-22 Sell 51.00",
+        "fp": "6d8cb5fe789c2fae",
+        "keys": [
+          "1d753afdd5e08f06",
+          "0ac06785139700dc"
+        ]
+      },
+      "T61002504": {
+        "day": "2025-01-24",
+        "as": "portfolio 2025-01-24 Buy 52.00",
+        "fp": "41635d348ebdad16",
+        "keys": [
+          "5c4acd2286888d10",
+          "21fad8cffbe6934d"
+        ]
+      },
+      "T61002505": {
+        "day": "2025-01-24",
+        "as": "portfolio 2025-01-24 Sell 52.00",
+        "fp": "53c3c91ccff947e1",
+        "keys": [
+          "d2d8a0a6b205d795",
+          "19d2c010334a083d"
+        ]
+      },
+      "T61002506": {
+        "day": "2025-01-27",
+        "as": "portfolio 2025-01-27 Buy 150.00; portfolio 2025-01-27 Sell 80.00",
+        "fp": "d181a80817f96d54",
+        "keys": [
+          "3ae3efc4840dde44",
+          "7f887f7173d34560",
+          "e31a15689456c848",
+          "e693053d644e4dad"
+        ]
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "i:1000001",
+      "symbol": "ABCD",
+      "identity": "ZZB123458",
+      "ticker": "ABCD",
+      "wkn": "ZZB123458",
+      "name": "ABCD INDUSTRIES INC"
+    },
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ticker": "XYZ",
+      "wkn": "98389B100",
+      "name": "XYZ CORP COMMON STOCK"
+    },
+    {
+      "security_key": "i:219771034",
+      "symbol": "XYZ   250221P00040000",
+      "identity": "XYZ250221P00040000",
+      "ticker": "XYZ250221P00040000",
+      "name": "XYZ 02/21/2025 40.00 P"
+    },
+    {
+      "security_key": "i:219834765",
+      "symbol": "XYZ   260918C00050000",
+      "identity": "XYZ260918C00050000",
+      "ticker": "XYZ260918C00050000",
+      "name": "XYZ 09/18/2026 50.00 C"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [],
+  "caveats": [
+    {
+      "ref": "Cc3d4e5f6.1",
+      "account": "A2 ...398",
+      "day": "2025-01-21",
+      "caveat": "option_closed_at_zero"
+    }
+  ],
+  "combined": [],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A2 ...398"
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

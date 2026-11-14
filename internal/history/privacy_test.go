@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -146,8 +147,12 @@ var composedIdentifiers = regexp.MustCompile(`\b(?:[ATSFCL]~?[0-9a-fA-F][0-9A-Za
 // no account number, no raw column and no imported file's name or content;
 // (e) an export of every table, every row included, reads none of those
 // either unless -raw or -show-accounts asks, and holds no number in CSV or
-// in JSON Lines; and (f) a tool export's reads read views alone, but for
-// when the store was made, with an account or without, up to a day or not.
+// in JSON Lines; (f) a tool export's reads read views alone, but for when
+// the store was made, with an account or without, up to a day or not; and
+// (g) a tool export of either tool, of every account or of one named by its
+// number, holds no number in any file it writes, the manifest among them,
+// which shows the planted nickname masked, and says back a -manual number
+// masked.
 func TestViewsHoldNoAccountNumber(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -362,4 +367,66 @@ func TestViewsHoldNoAccountNumber(t *testing.T) {
 		}
 	}
 	t.Logf("%d rows of %d tables exported", rows/2, len(e.Tables))
+
+	// A tool export of either tool, of every account and of one that
+	// -account names by its whole number, holds no number in any of its
+	// files, the manifest included, whatever the free text that Schwab, a
+	// file or you wrote holds: notes, names, kinds and descriptions; and
+	// its manifest shows the planted nickname masked. -manual makes the
+	// security whose description holds a number one of Ghostfolio's
+	// MANUAL assets, whose profile's comment is that description, and a
+	// -manual value that names no security is said back masked.
+	for _, tool := range []string{toolPP, toolGF} {
+		for _, selected := range []string{"", fileAccount} {
+			what := "the " + tool + " export of every account"
+			if selected != "" {
+				what = "the " + tool + " export of -account " + mask.Number(selected)
+			}
+			o := ToolOptions{Tool: tool, Account: selected, To: "2026-12-31"}
+			if tool == toolGF {
+				o.Manual = []string{"QRS"}
+			}
+			te, err := s.ExportTool(ctx, o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(t.TempDir(), "export")
+			if err := te.WriteDir(dir); err != nil {
+				t.Fatal(err)
+			}
+			files := toolFolder(t, dir)
+			var all strings.Builder
+			for name, b := range files {
+				all.Write(b)
+				joined := strings.Map(func(r rune) rune {
+					if separator(r) {
+						return -1
+					}
+					return r
+				}, string(b))
+				for _, n := range numbers {
+					if strings.Contains(joined, n) {
+						t.Errorf("%s writes the number %s in %s", what, mask.Number(n), name)
+					}
+				}
+			}
+			// What was planted reaches the files, masked.
+			for _, n := range []string{plantedA, plantedB} {
+				if !strings.Contains(all.String(), mask.Number(n)) {
+					t.Errorf("%s writes nothing that was planted as %s", what, mask.Number(n))
+				}
+			}
+			manifest := string(files["manifest.json"])
+			if selected == "" && !strings.Contains(manifest, `"nickname": "Joint ...907"`) {
+				t.Errorf("%s: its manifest does not name the planted nickname masked", what)
+			}
+			if tool == toolGF && !strings.Contains(string(files[gfFileName]), `"comment": "QRS FUND ...618"`) {
+				t.Errorf("%s has no profile of QRS with its description masked", what)
+			}
+		}
+	}
+	if _, err := s.ExportTool(ctx, ToolOptions{Tool: toolGF, Manual: []string{"QRS", "4821 3907"}, To: "2026-12-31"}); err == nil ||
+		err.Error() != "-manual names ...907, which no security in the store has" {
+		t.Errorf("-manual of a number: %v", err)
+	}
 }

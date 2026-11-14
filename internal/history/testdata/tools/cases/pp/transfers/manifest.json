@@ -1,0 +1,207 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 0,
+      "tick": 0
+    },
+    {
+      "file": "account-transactions-A1-135.csv",
+      "kind": "account",
+      "configuration": "pp-account-transactions.json",
+      "account": "A1 ...135",
+      "rows": 5,
+      "tick": 0
+    },
+    {
+      "file": "account-transactions-A2-398.csv",
+      "kind": "account",
+      "configuration": "pp-account-transactions.json",
+      "account": "A2 ...398",
+      "rows": 4,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2026-07-01",
+      "new": true
+    },
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options & Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": "2026-07-01",
+      "new": true
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 9,
+    "types": {
+      "Deposit": 3,
+      "Transfer (Inbound)": 1,
+      "Transfer (Outbound)": 1,
+      "Withdrawal": 4
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "T61001202": {
+        "day": "2026-03-03",
+        "as": "account 2026-03-02 Transfer (Inbound) 1000.00",
+        "fp": "7f09e38ad1634814",
+        "keys": [
+          "f85335d1e172df21",
+          "18822233592905d9"
+        ],
+        "transfer": "A2 ...398 T61001201"
+      },
+      "T61001203": {
+        "day": "2026-04-01",
+        "as": "account 2026-04-01 Withdrawal 300.00",
+        "fp": "8f617baa0d179cee",
+        "keys": [
+          "2ca7b9461740c131"
+        ]
+      },
+      "T61001205": {
+        "day": "2026-05-04",
+        "as": "account 2026-05-04 Withdrawal 200.00",
+        "fp": "037697765e47b941",
+        "keys": [
+          "c1c35efceb16407e"
+        ]
+      },
+      "T61001207": {
+        "day": "2026-06-01",
+        "as": "account 2026-06-01 Withdrawal 150.00",
+        "fp": "7f04f52d7f80fe0e",
+        "keys": [
+          "b9c25aee15c1b1e3"
+        ]
+      },
+      "T61001210": {
+        "day": "2026-07-01",
+        "as": "account 2026-07-01 Deposit 80.00",
+        "fp": "4c099cf008e2caf4",
+        "keys": [
+          "7a765f0ddfef2c6d"
+        ]
+      }
+    },
+    "A2 ...398": {
+      "T61001201": {
+        "day": "2026-03-02",
+        "as": "account 2026-03-02 Transfer (Outbound) 1000.00",
+        "fp": "c4cb20e64c7fa965",
+        "keys": [
+          "f85335d1e172df21",
+          "18822233592905d9"
+        ],
+        "transfer": "A2 ...398 T61001201"
+      },
+      "T61001204": {
+        "day": "2026-04-01",
+        "as": "account 2026-04-01 Deposit 299.00",
+        "fp": "953ef32ccc5977ad",
+        "keys": [
+          "9cd1911bd0098d3a"
+        ]
+      },
+      "T61001208": {
+        "day": "2026-06-01",
+        "as": "account 2026-06-01 Deposit 150.00",
+        "fp": "3d2a3da5023a30a2",
+        "keys": [
+          "e7da6dd54113ce5d"
+        ]
+      },
+      "T61001209": {
+        "day": "2026-07-01",
+        "as": "account 2026-07-01 Withdrawal 80.00",
+        "fp": "8b7ede82bdeb7994",
+        "keys": [
+          "f788f1fc1d3ea08b"
+        ]
+      }
+    }
+  },
+  "securities": [],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [],
+  "caveats": [
+    {
+      "ref": "T61001203",
+      "account": "A1 ...135",
+      "day": "2026-04-01",
+      "caveat": "pair_amounts_differ"
+    },
+    {
+      "ref": "T61001204",
+      "account": "A2 ...398",
+      "day": "2026-04-01",
+      "caveat": "pair_amounts_differ"
+    },
+    {
+      "ref": "T61001208",
+      "account": "A2 ...398",
+      "day": "2026-06-01",
+      "caveat": "pair_not_journal"
+    },
+    {
+      "ref": "T61001209",
+      "account": "A2 ...398",
+      "day": "2026-07-01",
+      "caveat": "pair_not_journal"
+    }
+  ],
+  "combined": [],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": []
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

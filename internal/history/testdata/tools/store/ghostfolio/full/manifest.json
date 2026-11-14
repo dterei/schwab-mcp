@@ -1,0 +1,890 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2026-11-12T15:04:05.678Z",
+  "format": "ghostfolio",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-11",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-11"
+  },
+  "files": [
+    {
+      "file": "ghostfolio.json",
+      "kind": "ghostfolio",
+      "rows": 31
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2026-09-23",
+      "new": true,
+      "ghostfolio_id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "balances": {
+        "count": 2,
+        "first": "2026-11-09",
+        "last": "2026-11-10"
+      },
+      "cash": {
+        "value": 1532.17,
+        "date": "2026-11-10"
+      }
+    },
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options & Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": "2026-09-15",
+      "new": true,
+      "ghostfolio_id": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "balances": {
+        "count": 2,
+        "first": "2026-11-09",
+        "last": "2026-11-10"
+      },
+      "cash": {
+        "value": -12.34,
+        "date": "2026-11-10"
+      }
+    },
+    {
+      "label": "A3 ...398",
+      "account": "...398",
+      "nickname": "",
+      "name": "Schwab A3 ...398",
+      "exported": true,
+      "last_day": "2026-07-01",
+      "new": true,
+      "ghostfolio_id": "283f1fa3-2c97-837e-8b6f-b90e9431362a",
+      "balances": {
+        "count": 0,
+        "why": "no snapshot"
+      }
+    },
+    {
+      "label": "A4 ...783",
+      "account": "...783",
+      "nickname": "",
+      "name": "Schwab A4 ...783",
+      "exported": true,
+      "last_day": null,
+      "new": true,
+      "ghostfolio_id": "5bbd1106-0206-80bf-9675-bf59997fa49d",
+      "balances": {
+        "count": 0,
+        "why": "no snapshot holds its cash"
+      }
+    }
+  ],
+  "units": {
+    "dates": "an activity's day at noon UTC, and milliseconds that keep the day's order; balances and prices at midnight UTC of their market date",
+    "fp": "the first 16 hex digits of the SHA-256 of every key of a row's activities, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive; days are New York calendar dates, YYYY-MM-DD",
+    "money": "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",
+    "prices": "a BUY's or a SELL's unitPrice: its cash before fees over its shares, to 10 places; a profile's marketPrice: a snapshot's market value over its shares, to 8 places",
+    "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
+  },
+  "written": {
+    "rows": 30,
+    "types": {
+      "BUY": 13,
+      "DIVIDEND": 5,
+      "FEE": 2,
+      "INTEREST": 2,
+      "SELL": 9
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "T73508261943": {
+        "day": "2025-06-02",
+        "as": "2025-06-02 BUY 605.46",
+        "fp": "77a97bc8810a2ab5"
+      },
+      "T73508261946": {
+        "day": "2024-04-04",
+        "as": "2024-04-04 BUY 2.70",
+        "fp": "e7ad481465cafd06"
+      },
+      "T73508261947": {
+        "day": "2024-03-15",
+        "as": "2024-03-15 SELL 83.27",
+        "fp": "2f126b493e2b2063"
+      },
+      "T73508261949": {
+        "day": "2024-04-30",
+        "as": "2024-04-30 INTEREST 0.42",
+        "fp": "1f24d185557818c4"
+      },
+      "T73508261950": {
+        "day": "2024-04-04",
+        "as": "2024-04-04 DIVIDEND 3.86",
+        "fp": "6c02816fcdeb2964"
+      },
+      "T73508261954": {
+        "day": "2024-04-04",
+        "as": "2024-04-04 FEE 1.16",
+        "fp": "b9f6fbe844d4b4ad"
+      },
+      "T73600000103": {
+        "day": "2026-09-10",
+        "as": "2026-09-10 SELL 460.20",
+        "fp": "9e50b64360c3b884"
+      },
+      "T73600000107": {
+        "day": "2026-09-21",
+        "as": "2026-09-21 DIVIDEND 0.26",
+        "fp": "ae8b7b733e4d2e78"
+      },
+      "T73600000108": {
+        "day": "2026-09-23",
+        "as": "2026-09-23 DIVIDEND 0.26",
+        "fp": "f90029ea2e18c107"
+      }
+    },
+    "A2 ...398": {
+      "T73508261941": {
+        "day": "2026-08-04",
+        "as": "2026-08-04 SELL 312.00 fee 0.69",
+        "fp": "a064cd5118cc176d"
+      },
+      "T73508261942": {
+        "day": "2026-03-13",
+        "as": "2026-03-13 SELL 603.40 fee 0.04",
+        "fp": "c548f54a037debe1"
+      },
+      "T73508261944": {
+        "day": "2025-01-21",
+        "as": "2025-01-21 BUY 400.00 fee 0.67",
+        "fp": "52b9eb5bd5a3c193"
+      },
+      "T73508261945": {
+        "day": "2025-01-14",
+        "as": "2025-01-14 BUY 1050.00 fee 2.82",
+        "fp": "b4a3475161290e69"
+      },
+      "T73508261948": {
+        "day": "2026-07-15",
+        "as": "2026-07-15 DIVIDEND 25.00",
+        "fp": "6170c0fc92d8549d"
+      },
+      "T73600000104": {
+        "day": "2026-09-10",
+        "as": "2026-09-10 BUY 460.20",
+        "fp": "08f886698e4c0e14"
+      },
+      "T73600000105": {
+        "day": "2026-09-15",
+        "as": "2026-09-15 BUY 210.00 fee 1.34; 2026-09-15 SELL 80.00",
+        "fp": "39c91719bd70a9b8"
+      }
+    },
+    "A3 ...398": {
+      "Cad2f64b0.1": {
+        "day": "2026-07-01",
+        "as": "2026-07-01 SELL 1200.00",
+        "fp": "9225da96a79d3715",
+        "with": "Cad2f64b0.2"
+      },
+      "Cad2f64b0.10": {
+        "day": "2026-03-20",
+        "as": "2026-03-20 FEE 4.17",
+        "fp": "ee352306ae89f5c8"
+      },
+      "Cad2f64b0.11": {
+        "day": "2026-03-16",
+        "as": "2026-03-16 SELL 0.00",
+        "fp": "32f6e55bbb15b791"
+      },
+      "Cad2f64b0.12": {
+        "day": "2026-03-09",
+        "as": "2026-03-09 BUY 0.00",
+        "fp": "223448ea896db3b2"
+      },
+      "Cad2f64b0.14": {
+        "day": "2026-02-24",
+        "as": "2026-02-24 BUY 498.00",
+        "fp": "6242abb2bbd0cdd4"
+      },
+      "Cad2f64b0.15": {
+        "day": "2026-02-18",
+        "as": "2026-02-18 SELL 100.00",
+        "fp": "cbfa7797b5a6b4ad"
+      },
+      "Cad2f64b0.16": {
+        "day": "2026-02-17",
+        "as": "2026-02-17 BUY 100.00",
+        "fp": "075527fba30abdf1"
+      },
+      "Cad2f64b0.17": {
+        "day": "2026-02-10",
+        "as": "2026-02-10 BUY 1140.00",
+        "fp": "b3db57f1badb48c0"
+      },
+      "Cad2f64b0.4": {
+        "day": "2026-06-01",
+        "as": "2026-06-01 BUY 4990.00",
+        "fp": "cf1d11e3d914c925"
+      },
+      "Cad2f64b0.5": {
+        "day": "2026-05-18",
+        "as": "2026-05-18 SELL 0.00",
+        "fp": "cc451e34ceb04142"
+      },
+      "Cad2f64b0.6": {
+        "day": "2026-05-15",
+        "as": "2026-05-15 DIVIDEND 212.50",
+        "fp": "5f3d2a6f4673ddde"
+      },
+      "Cad2f64b0.7": {
+        "day": "2026-04-20",
+        "as": "2026-04-20 INTEREST 1.25",
+        "fp": "443920f921da6ce8"
+      },
+      "Cad2f64b0.8": {
+        "day": "2026-04-06",
+        "as": "2026-04-06 BUY 250.00 fee 1.32",
+        "fp": "701376e3f0f53ad4"
+      },
+      "Cad2f64b0.9": {
+        "day": "2026-04-01",
+        "as": "2026-04-01 BUY 9962.15",
+        "fp": "1453417513d5f8a7"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "c:00507V109",
+      "symbol": "00507V109",
+      "identity": "00507V109",
+      "ghostfolio_symbol": "9d24a132-6a34-8292-a81a-43399f895132",
+      "data_source": "MANUAL",
+      "name": "Security (00507V109)"
+    },
+    {
+      "security_key": "c:0XYZ..RI60045000",
+      "symbol": "XYZ   260619P00045000",
+      "identity": "XYZ260619P00045000",
+      "ghostfolio_symbol": "aa464282-62a4-83b2-bf95-beb6f80fca79",
+      "data_source": "MANUAL",
+      "name": "XYZ 2026-06-19 45 put (XYZ260619P00045000)"
+    },
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ghostfolio_symbol": "XYZ",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:1940083512",
+      "symbol": "META",
+      "identity": "i:1940083512",
+      "ghostfolio_symbol": "META",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:1973757747",
+      "symbol": "AAPL",
+      "identity": "037833100",
+      "ghostfolio_symbol": "AAPL",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:205187341",
+      "symbol": "/ESH25_P5050:XCME",
+      "identity": "i:205187341",
+      "ghostfolio_symbol": "6b351588-4738-85df-ad34-0adbaac4dcb5",
+      "data_source": "MANUAL",
+      "name": "Security (i:205187341)"
+    },
+    {
+      "security_key": "i:219771034",
+      "symbol": "XYZ   250221P00040000",
+      "identity": "XYZ250221P00040000",
+      "ghostfolio_symbol": "fc94e404-4c85-87f0-962e-bb88e7134119",
+      "data_source": "MANUAL",
+      "name": "XYZ 2025-02-21 40 put (XYZ250221P00040000)"
+    },
+    {
+      "security_key": "i:219834765",
+      "symbol": "XYZ   260918C00050000",
+      "identity": "XYZ260918C00050000",
+      "ghostfolio_symbol": "9e712930-c660-8164-bdf1-0ce397bc9e39",
+      "data_source": "MANUAL",
+      "name": "XYZ 2026-09-18 50 call (XYZ260918C00050000)"
+    },
+    {
+      "security_key": "i:219950001",
+      "symbol": "XYZ   261016P00045000",
+      "identity": "XYZ261016P00045000",
+      "ghostfolio_symbol": "9369256f-b1a9-8dbd-b0ff-1ea1e3dd9448",
+      "data_source": "MANUAL",
+      "name": "XYZ 2026-10-16 45 put (XYZ261016P00045000)"
+    },
+    {
+      "security_key": "i:219950002",
+      "symbol": "XYZ   261016P00040000",
+      "identity": "XYZ261016P00040000",
+      "ghostfolio_symbol": "4ab26992-d318-8a82-99ed-a15eb81e469c",
+      "data_source": "MANUAL",
+      "name": "XYZ 2026-10-16 40 put (XYZ261016P00040000)"
+    },
+    {
+      "security_key": "i:4417302",
+      "symbol": "BND",
+      "identity": "i:4417302",
+      "ghostfolio_symbol": "BND",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:4417355",
+      "symbol": "VBR",
+      "identity": "i:4417355",
+      "ghostfolio_symbol": "VBR",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "s:FILE:9128ZZQ15@2026-07-20",
+      "symbol": "9128ZZQ15",
+      "identity": "9128ZZQ15",
+      "ghostfolio_symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+      "data_source": "MANUAL",
+      "name": "Bond (9128ZZQ15)"
+    },
+    {
+      "security_key": "s:FILE:ABCD@2026-07-20",
+      "symbol": "ABCD",
+      "identity": "s:FILE:ABCD@2026-07-20",
+      "ghostfolio_symbol": "ABCD",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "s:FILE:EFGH@2026-07-20",
+      "symbol": "EFGH",
+      "identity": "s:FILE:EFGH@2026-07-20",
+      "ghostfolio_symbol": "EFGH",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "s:FILE:MNOP@2026-07-20",
+      "symbol": "MNOP",
+      "identity": "s:FILE:MNOP@2026-07-20",
+      "ghostfolio_symbol": "MNOP",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "s:FILE:QRST@2026-07-20",
+      "symbol": "QRST",
+      "identity": "s:FILE:QRST@2026-07-20",
+      "ghostfolio_symbol": "QRST",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "s:FILE:XYZ 05/15/2026 50.00 C@2026-07-20",
+      "symbol": "XYZ 05/15/2026 50.00 C",
+      "identity": "XYZ260515C00050000",
+      "ghostfolio_symbol": "4e99a7a3-bf51-8ca2-89af-1bee9f637ef8",
+      "data_source": "MANUAL",
+      "name": "XYZ 2026-05-15 50 call (XYZ260515C00050000)"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "left_out": [
+    {
+      "ref": "T73600000106",
+      "account": "A2 ...398",
+      "day": null,
+      "category": "dividend",
+      "kind": "DIVIDEND_OR_INTEREST",
+      "description": "Ordinary Dividend~META",
+      "symbol": "META",
+      "quantity": null,
+      "amount": 0.53,
+      "reason": "no_day",
+      "advice": "check",
+      "command": "schwabtx status T73600000106"
+    },
+    {
+      "ref": "Cad2f64b0.13",
+      "account": "A3 ...398",
+      "day": "2026-03-02",
+      "category": "deposit",
+      "kind": "Journal",
+      "description": "JOURNAL FRM ...777",
+      "symbol": "",
+      "quantity": null,
+      "amount": 250.00,
+      "reason": "gf_cash",
+      "advice": "set_cash",
+      "command": "schwabtx snapshot"
+    },
+    {
+      "ref": "Cad2f64b0.3",
+      "account": "A3 ...398",
+      "day": "2026-06-15",
+      "category": "other",
+      "kind": "Stock Split",
+      "description": "ABCD INDUSTRIES INC",
+      "symbol": "ABCD",
+      "quantity": 6,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "split",
+      "command": ""
+    }
+  ],
+  "caveats": [
+    {
+      "ref": "Cad2f64b0.12",
+      "account": "A3 ...398",
+      "day": "2026-03-09",
+      "caveat": "value_unknown"
+    },
+    {
+      "ref": "Cad2f64b0.11",
+      "account": "A3 ...398",
+      "day": "2026-03-16",
+      "caveat": "value_unknown"
+    },
+    {
+      "ref": "Cad2f64b0.8",
+      "account": "A3 ...398",
+      "day": "2026-04-06",
+      "caveat": "assumed_multiplier"
+    },
+    {
+      "ref": "Cad2f64b0.5",
+      "account": "A3 ...398",
+      "day": "2026-05-18",
+      "caveat": "assumed_multiplier"
+    },
+    {
+      "ref": "Cad2f64b0.5",
+      "account": "A3 ...398",
+      "day": "2026-05-18",
+      "caveat": "option_closed_at_zero"
+    }
+  ],
+  "combined": [
+    {
+      "ref": "Cad2f64b0.2",
+      "account": "A3 ...398",
+      "with": "Cad2f64b0.1"
+    }
+  ],
+  "in_balances": [
+    {
+      "account": "A1 ...135",
+      "rows": 4
+    },
+    {
+      "account": "A2 ...398",
+      "rows": 1
+    }
+  ],
+  "flagged": [
+    {
+      "ref": "Cad2f64b0.12",
+      "account": "A3 ...398",
+      "day": "2026-03-09",
+      "outcome": "written",
+      "flags": [
+        "unpaired_journal"
+      ]
+    },
+    {
+      "ref": "Cad2f64b0.11",
+      "account": "A3 ...398",
+      "day": "2026-03-16",
+      "outcome": "written",
+      "flags": [
+        "unpaired_journal"
+      ]
+    },
+    {
+      "ref": "Cad2f64b0.4",
+      "account": "A3 ...398",
+      "day": "2026-06-01",
+      "outcome": "written",
+      "flags": [
+        "unpaired_journal"
+      ]
+    }
+  ],
+  "waiting": [
+    {
+      "ref": "C264b1b4d.2",
+      "account": "A1 ...135",
+      "day": "2024-05-31",
+      "kind": "Bank Interest",
+      "amount": 0.37,
+      "why": "held_out",
+      "command": "schwabtx status C264b1b4d.2"
+    },
+    {
+      "ref": "C264b1b4d.1",
+      "account": "A1 ...135",
+      "day": "2026-09-22",
+      "kind": "Qualified Dividend",
+      "amount": 0.26,
+      "why": "uncertain",
+      "command": "schwabtx status C264b1b4d.1"
+    }
+  ],
+  "holdings": {
+    "differences": [
+      {
+        "account": "A1 ...135",
+        "security_key": "c:00507V109",
+        "symbol": "00507V109",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 10,
+        "written_shares": 0
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "c:808515779",
+        "symbol": "SWVXX",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 1220.89,
+        "written_shares": 0
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "c:922908769",
+        "symbol": "VTI",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 12,
+        "written_shares": 0
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1973757747",
+        "symbol": "AAPL",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 2.1788,
+        "written_shares": 1
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:4417302",
+        "symbol": "BND",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 0.0378
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:4417355",
+        "symbol": "VBR",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": -0.4513
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "c:0XYZ..RI60045000",
+        "symbol": "XYZ   260619P00045000",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": -200,
+        "written_shares": 0
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "c:30303M102",
+        "symbol": "META",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 1,
+        "written_shares": 0
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:1940083512",
+        "symbol": "META",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": -1
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:1973757747",
+        "symbol": "AAPL",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 2
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:205187341",
+        "symbol": "/ESH25_P5050:XCME",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 50
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:219771034",
+        "symbol": "XYZ   250221P00040000",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 200
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:219834765",
+        "symbol": "XYZ   260918C00050000",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": -100
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:219950001",
+        "symbol": "XYZ   261016P00045000",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 100
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:219950002",
+        "symbol": "XYZ   261016P00040000",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": -100
+      }
+    ],
+    "not_checked": [
+      "A3 ...398"
+    ]
+  },
+  "ghostfolio": {
+    "yahoo": [
+      "AAPL",
+      "ABCD",
+      "BND",
+      "EFGH",
+      "META",
+      "MNOP",
+      "QRST",
+      "VBR",
+      "XYZ"
+    ],
+    "yahoo_idle": [
+      {
+        "symbol": "BND",
+        "security_key": "i:4417302",
+        "last_day": "2024-04-04"
+      },
+      {
+        "symbol": "VBR",
+        "security_key": "i:4417355",
+        "last_day": "2024-03-15"
+      }
+    ],
+    "manual": [
+      {
+        "security_key": "c:00507V109",
+        "symbol": "00507V109",
+        "why": "delisted"
+      },
+      {
+        "security_key": "c:0XYZ..RI60045000",
+        "symbol": "XYZ   260619P00045000",
+        "why": "option"
+      },
+      {
+        "security_key": "i:205187341",
+        "symbol": "/ESH25_P5050:XCME",
+        "why": "option"
+      },
+      {
+        "security_key": "i:219771034",
+        "symbol": "XYZ   250221P00040000",
+        "why": "option"
+      },
+      {
+        "security_key": "i:219834765",
+        "symbol": "XYZ   260918C00050000",
+        "why": "option"
+      },
+      {
+        "security_key": "i:219950001",
+        "symbol": "XYZ   261016P00045000",
+        "why": "option"
+      },
+      {
+        "security_key": "i:219950002",
+        "symbol": "XYZ   261016P00040000",
+        "why": "option"
+      },
+      {
+        "security_key": "s:FILE:9128ZZQ15@2026-07-20",
+        "symbol": "9128ZZQ15",
+        "why": "bond"
+      },
+      {
+        "security_key": "s:FILE:XYZ 05/15/2026 50.00 C@2026-07-20",
+        "symbol": "XYZ 05/15/2026 50.00 C",
+        "why": "option"
+      }
+    ],
+    "profiles": [
+      {
+        "symbol": "86890ed8-5f41-88fe-994e-a8d55fb5a16f",
+        "name": "Schwab fees",
+        "status": "used"
+      },
+      {
+        "symbol": "1aaa2776-c2e6-8a46-b37b-63919ecbda2a",
+        "name": "Schwab interest",
+        "status": "used"
+      },
+      {
+        "symbol": "ea68cc1f-2a7b-84bd-9ee8-7f46a5c7dccd",
+        "name": "Schwab taxes",
+        "status": "used"
+      },
+      {
+        "symbol": "9d24a132-6a34-8292-a81a-43399f895132",
+        "name": "Security (00507V109)",
+        "status": "prices_only"
+      },
+      {
+        "symbol": "aa464282-62a4-83b2-bf95-beb6f80fca79",
+        "name": "XYZ 2026-06-19 45 put (XYZ260619P00045000)",
+        "status": "prices_only"
+      },
+      {
+        "symbol": "6b351588-4738-85df-ad34-0adbaac4dcb5",
+        "name": "Security (i:205187341)",
+        "status": "used"
+      },
+      {
+        "symbol": "fc94e404-4c85-87f0-962e-bb88e7134119",
+        "name": "XYZ 2025-02-21 40 put (XYZ250221P00040000)",
+        "status": "used"
+      },
+      {
+        "symbol": "9e712930-c660-8164-bdf1-0ce397bc9e39",
+        "name": "XYZ 2026-09-18 50 call (XYZ260918C00050000)",
+        "status": "used"
+      },
+      {
+        "symbol": "9369256f-b1a9-8dbd-b0ff-1ea1e3dd9448",
+        "name": "XYZ 2026-10-16 45 put (XYZ261016P00045000)",
+        "status": "used"
+      },
+      {
+        "symbol": "4ab26992-d318-8a82-99ed-a15eb81e469c",
+        "name": "XYZ 2026-10-16 40 put (XYZ261016P00040000)",
+        "status": "used"
+      },
+      {
+        "symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+        "name": "Bond (9128ZZQ15)",
+        "status": "used"
+      },
+      {
+        "symbol": "4e99a7a3-bf51-8ca2-89af-1bee9f637ef8",
+        "name": "XYZ 2026-05-15 50 call (XYZ260515C00050000)",
+        "status": "used"
+      }
+    ]
+  },
+  "symbols_changed": [
+    {
+      "security_key": "c:00507V109",
+      "written_as": "MANUAL",
+      "symbols": [
+        "00507V109",
+        "ZZDLX"
+      ]
+    }
+  ],
+  "coverage": [
+    {
+      "account_id": 1,
+      "account": "...135",
+      "source": "api",
+      "from": "2023-06-12",
+      "to": "2025-06-01"
+    },
+    {
+      "account_id": 1,
+      "account": "...135",
+      "source": "api",
+      "from": "2026-09-02",
+      "to": "2026-11-09"
+    },
+    {
+      "account_id": 1,
+      "account": "...135",
+      "source": "file_filtered",
+      "from": "2023-12-15",
+      "to": "2026-09-22"
+    },
+    {
+      "account_id": 1,
+      "account": "...135",
+      "source": "snapshot",
+      "from": "2026-11-09",
+      "to": "2026-11-10"
+    },
+    {
+      "account_id": 2,
+      "account": "...398",
+      "source": "api",
+      "from": "2025-01-14",
+      "to": "2026-08-03"
+    },
+    {
+      "account_id": 2,
+      "account": "...398",
+      "source": "api",
+      "from": "2026-09-02",
+      "to": "2026-11-09"
+    },
+    {
+      "account_id": 2,
+      "account": "...398",
+      "source": "snapshot",
+      "from": "2026-11-09",
+      "to": "2026-11-10"
+    },
+    {
+      "account_id": 3,
+      "account": "...398",
+      "source": "file_unknown",
+      "from": "2026-02-10",
+      "to": "2026-07-01"
+    },
+    {
+      "account_id": 4,
+      "account": "...783",
+      "source": "snapshot",
+      "from": "2026-11-09",
+      "to": "2026-11-10"
+    }
+  ]
+}

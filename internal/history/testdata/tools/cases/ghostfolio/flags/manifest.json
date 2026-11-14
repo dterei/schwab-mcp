@@ -1,0 +1,213 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "ghostfolio",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "ghostfolio.json",
+      "kind": "ghostfolio",
+      "rows": 5
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2025-07-07",
+      "new": true,
+      "ghostfolio_id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "balances": {
+        "count": 1,
+        "first": "2026-11-10",
+        "last": "2026-11-10"
+      },
+      "cash": {
+        "value": 1000.00,
+        "date": "2026-11-10"
+      }
+    }
+  ],
+  "units": {
+    "dates": "an activity's day at noon UTC, and milliseconds that keep the day's order; balances and prices at midnight UTC of their market date",
+    "fp": "the first 16 hex digits of the SHA-256 of every key of a row's activities, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive; days are New York calendar dates, YYYY-MM-DD",
+    "money": "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",
+    "prices": "a BUY's or a SELL's unitPrice: its cash before fees over its shares, to 10 places; a profile's marketPrice: a snapshot's market value over its shares, to 8 places",
+    "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
+  },
+  "written": {
+    "rows": 5,
+    "types": {
+      "BUY": 3,
+      "DIVIDEND": 1,
+      "SELL": 1
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Cb1c2d3e4.1": {
+        "day": "2025-07-01",
+        "as": "2025-07-01 DIVIDEND 25.00",
+        "fp": "b06f807caed124b6"
+      },
+      "Cb1c2d3e4.2": {
+        "day": "2025-07-02",
+        "as": "2025-07-02 BUY 50.00",
+        "fp": "291a805d9e8d3567"
+      },
+      "Cb1c2d3e4.4": {
+        "day": "2025-07-07",
+        "as": "2025-07-07 SELL 53.00",
+        "fp": "d40c2a6d2c2d7f78",
+        "with": "Cb1c2d3e4.3"
+      },
+      "T61002201": {
+        "day": "2025-06-02",
+        "as": "2025-06-02 BUY 50.00",
+        "fp": "98d954770ffcb124"
+      },
+      "T61002202": {
+        "day": "2025-07-03",
+        "as": "2025-07-03 BUY 51.00",
+        "fp": "b085f3b244482a84"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ghostfolio_symbol": "XYZ",
+      "data_source": "YAHOO"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "left_out": [
+    {
+      "ref": "Cb1c2d3e4.5",
+      "account": "A1 ...135",
+      "day": "2025-07-08",
+      "category": "other",
+      "kind": "Misc Cash Entry",
+      "description": "XYZ CORP",
+      "symbol": "XYZ",
+      "quantity": null,
+      "amount": 1.00,
+      "reason": "other",
+      "advice": "set_category",
+      "command": "schwabtx edit Cb1c2d3e4.5 -category C"
+    }
+  ],
+  "caveats": [],
+  "combined": [
+    {
+      "ref": "Cb1c2d3e4.3",
+      "account": "A1 ...135",
+      "with": "Cb1c2d3e4.4"
+    }
+  ],
+  "in_balances": [
+    {
+      "account": "A1 ...135",
+      "rows": 1
+    }
+  ],
+  "flagged": [
+    {
+      "ref": "Cb1c2d3e4.1",
+      "account": "A1 ...135",
+      "day": "2025-07-01",
+      "outcome": "written",
+      "flags": [
+        "near_duplicate"
+      ]
+    },
+    {
+      "ref": "Cb1c2d3e4.2",
+      "account": "A1 ...135",
+      "day": "2025-07-02",
+      "outcome": "written",
+      "flags": [
+        "counts_differ"
+      ]
+    },
+    {
+      "ref": "T61002202",
+      "account": "A1 ...135",
+      "day": "2025-07-03",
+      "outcome": "written",
+      "flags": [
+        "late_api_row"
+      ]
+    },
+    {
+      "ref": "T61002203",
+      "account": "A1 ...135",
+      "day": "2025-07-04",
+      "outcome": "in_balances",
+      "flags": [
+        "unexpected_sign"
+      ]
+    },
+    {
+      "ref": "Cb1c2d3e4.3",
+      "account": "A1 ...135",
+      "day": "2025-07-07",
+      "outcome": "combined",
+      "flags": [
+        "restated_quantity"
+      ]
+    }
+  ],
+  "waiting": [],
+  "holdings": {
+    "differences": [
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1854092",
+        "symbol": "XYZ",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 2
+      }
+    ],
+    "not_checked": []
+  },
+  "ghostfolio": {
+    "yahoo": [
+      "XYZ"
+    ],
+    "yahoo_idle": [
+      {
+        "symbol": "XYZ",
+        "security_key": "i:1854092",
+        "last_day": "2025-07-08"
+      }
+    ],
+    "manual": [],
+    "profiles": []
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

@@ -1,0 +1,128 @@
+{
+  "accounts": [
+    {
+      "balances": [
+        {
+          "date": "2026-11-09T00:00:00.000Z",
+          "value": 1532.17
+        },
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "value": 1532.17
+        }
+      ],
+      "comment": "schwabtx A1 ...135",
+      "currency": "USD",
+      "id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "name": "Schwab A1 ...135",
+      "platformId": null
+    },
+    {
+      "balances": [
+        {
+          "date": "2026-11-09T00:00:00.000Z",
+          "value": 5210.44
+        },
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "value": -12.34
+        }
+      ],
+      "comment": "schwabtx A2 ...398",
+      "currency": "USD",
+      "id": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "name": "Schwab A2 ...398",
+      "platformId": null
+    },
+    {
+      "comment": "schwabtx A3 ...398",
+      "currency": "USD",
+      "id": "283f1fa3-2c97-837e-8b6f-b90e9431362a",
+      "name": "Schwab A3 ...398",
+      "platformId": null
+    },
+    {
+      "comment": "schwabtx A4 ...783",
+      "currency": "USD",
+      "id": "5bbd1106-0206-80bf-9675-bf59997fa49d",
+      "name": "Schwab A4 ...783",
+      "platformId": null
+    }
+  ],
+  "assetProfiles": [
+    {
+      "assetClass": "EQUITY",
+      "assetSubClass": "STOCK",
+      "currency": "USD",
+      "cusip": "00507V109",
+      "dataSource": "MANUAL",
+      "marketData": [
+        {
+          "date": "2026-11-09T00:00:00.000Z",
+          "marketPrice": 1.25
+        },
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "marketPrice": 1.18
+        }
+      ],
+      "name": "Security (00507V109)",
+      "symbol": "9d24a132-6a34-8292-a81a-43399f895132"
+    },
+    {
+      "comment": "XYZ 06/19/2026 45.00 P",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "marketData": [
+        {
+          "date": "2026-11-09T00:00:00.000Z",
+          "marketPrice": 1.55
+        },
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "marketPrice": 1.45
+        }
+      ],
+      "name": "XYZ 2026-06-19 45 put (XYZ260619P00045000)",
+      "symbol": "aa464282-62a4-83b2-bf95-beb6f80fca79"
+    }
+  ],
+  "activities": [
+    {
+      "accountId": "283f1fa3-2c97-837e-8b6f-b90e9431362a",
+      "comment": "schwabtx A3 ...398 C6e4c5a90.1",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-11-09T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "ABCD",
+      "type": "DIVIDEND",
+      "unitPrice": 4.20
+    },
+    {
+      "accountId": "283f1fa3-2c97-837e-8b6f-b90e9431362a",
+      "comment": "schwabtx A3 ...398 C6e4c5a90.2",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-11-13T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "MNOP",
+      "type": "DIVIDEND",
+      "unitPrice": 3.60
+    },
+    {
+      "accountId": "283f1fa3-2c97-837e-8b6f-b90e9431362a",
+      "comment": "schwabtx A3 ...398 Ceaa643bd.1",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-11-13T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "MNOP",
+      "type": "DIVIDEND",
+      "unitPrice": 3.06
+    }
+  ]
+}

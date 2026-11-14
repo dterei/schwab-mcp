@@ -1,0 +1,254 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "ghostfolio",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "ghostfolio.json",
+      "kind": "ghostfolio",
+      "rows": 9
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2026-06-01",
+      "new": true,
+      "ghostfolio_id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "balances": {
+        "count": 0,
+        "why": "no snapshot"
+      }
+    }
+  ],
+  "units": {
+    "dates": "an activity's day at noon UTC, and milliseconds that keep the day's order; balances and prices at midnight UTC of their market date",
+    "fp": "the first 16 hex digits of the SHA-256 of every key of a row's activities, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive; days are New York calendar dates, YYYY-MM-DD",
+    "money": "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",
+    "prices": "a BUY's or a SELL's unitPrice: its cash before fees over its shares, to 10 places; a profile's marketPrice: a snapshot's market value over its shares, to 8 places",
+    "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
+  },
+  "written": {
+    "rows": 9,
+    "types": {
+      "BUY": 7,
+      "SELL": 2
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Ce5f6a7b8.1": {
+        "day": "2025-03-02",
+        "as": "2025-03-02 BUY 40.00",
+        "fp": "c40ae7c9ae0e3560"
+      },
+      "Ce5f6a7b8.2": {
+        "day": "2025-03-03",
+        "as": "2025-03-03 BUY 100.00",
+        "fp": "7ca384ced7e366bc"
+      },
+      "T61002001": {
+        "day": "2025-02-03",
+        "as": "2025-02-03 BUY 600.00",
+        "fp": "425948ca5ecf697a"
+      },
+      "T61002002": {
+        "day": "2025-02-04",
+        "as": "2025-02-04 BUY 250.00",
+        "fp": "ff5009cfb48e9d15"
+      },
+      "T61002003": {
+        "day": "2025-02-05",
+        "as": "2025-02-05 BUY 50.00",
+        "fp": "1c9d462852c19681"
+      },
+      "T61002004": {
+        "day": "2026-06-01",
+        "as": "2026-06-01 SELL 10.00",
+        "fp": "660385d0e54a2b63"
+      },
+      "T61002005": {
+        "day": "2025-02-06",
+        "as": "2025-02-06 BUY 80.00",
+        "fp": "29b9922ca02bed9b"
+      },
+      "T61002006": {
+        "day": "2026-02-06",
+        "as": "2026-02-06 SELL 100.00",
+        "fp": "d260ff1e0f40b932"
+      },
+      "T61002007": {
+        "day": "2025-02-07",
+        "as": "2025-02-07 BUY 50.00",
+        "fp": "830247c053c99f77"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "",
+      "symbol": "QQQX",
+      "identity": "QQQX",
+      "ghostfolio_symbol": "QQQX",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:1000003",
+      "symbol": "ABC.B",
+      "identity": "i:1000003",
+      "ghostfolio_symbol": "ABC-B",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:1000004",
+      "symbol": "QRS.PRK",
+      "identity": "i:1000004",
+      "ghostfolio_symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1",
+      "data_source": "MANUAL",
+      "name": "Security (i:1000004)"
+    },
+    {
+      "security_key": "i:1000005",
+      "symbol": "ZZQ00K102",
+      "identity": "ZZQ00K102",
+      "ghostfolio_symbol": "93dd49d8-9ed1-855c-8c29-e1358949bcc5",
+      "data_source": "MANUAL",
+      "name": "Security (ZZQ00K102)"
+    },
+    {
+      "security_key": "i:1000006",
+      "symbol": "PQRS",
+      "identity": "ZZR00K200",
+      "ghostfolio_symbol": "PQRS",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:1000008",
+      "symbol": "ZZC99X101",
+      "identity": "ZZC99X101",
+      "ghostfolio_symbol": "47de4d99-72c2-8a79-9269-ca3f4a42e91c",
+      "data_source": "MANUAL",
+      "name": "Security (ZZC99X101)"
+    },
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ghostfolio_symbol": "XYZ",
+      "data_source": "YAHOO"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "left_out": [],
+  "caveats": [],
+  "combined": [],
+  "in_balances": [],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A1 ...135"
+    ]
+  },
+  "ghostfolio": {
+    "yahoo": [
+      "ABC-B",
+      "PQRS",
+      "QQQX",
+      "XYZ"
+    ],
+    "yahoo_idle": [
+      {
+        "symbol": "ABC-B",
+        "security_key": "i:1000003",
+        "last_day": "2025-02-03"
+      },
+      {
+        "symbol": "QQQX",
+        "security_key": "",
+        "last_day": "2025-03-02"
+      },
+      {
+        "symbol": "XYZ",
+        "security_key": "i:1854092",
+        "last_day": "2025-02-07"
+      }
+    ],
+    "manual": [
+      {
+        "security_key": "i:1000004",
+        "symbol": "QRS.PRK",
+        "why": "not_plain"
+      },
+      {
+        "security_key": "i:1000005",
+        "symbol": "ZZQ00K102",
+        "why": "delisted"
+      },
+      {
+        "security_key": "i:1000008",
+        "symbol": "ZZC99X101",
+        "why": "no_ticker"
+      }
+    ],
+    "profiles": [
+      {
+        "symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1",
+        "name": "Security (i:1000004)",
+        "status": "used"
+      },
+      {
+        "symbol": "93dd49d8-9ed1-855c-8c29-e1358949bcc5",
+        "name": "Security (ZZQ00K102)",
+        "status": "used"
+      },
+      {
+        "symbol": "47de4d99-72c2-8a79-9269-ca3f4a42e91c",
+        "name": "Security (ZZC99X101)",
+        "status": "used"
+      }
+    ]
+  },
+  "symbols_changed": [
+    {
+      "security_key": "i:1000005",
+      "written_as": "MANUAL",
+      "symbols": [
+        "ZZQ00K102",
+        "OLDCO"
+      ]
+    },
+    {
+      "security_key": "i:1000006",
+      "written_as": "PQRS",
+      "symbols": [
+        "PQRS",
+        "PQR"
+      ]
+    }
+  ],
+  "coverage": []
+}

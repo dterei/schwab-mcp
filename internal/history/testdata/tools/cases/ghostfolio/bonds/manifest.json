@@ -1,0 +1,203 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "ghostfolio",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "ghostfolio.json",
+      "kind": "ghostfolio",
+      "rows": 4
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2026-08-17",
+      "new": true,
+      "ghostfolio_id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "balances": {
+        "count": 1,
+        "first": "2026-11-10",
+        "last": "2026-11-10"
+      },
+      "cash": {
+        "value": 1000.00,
+        "date": "2026-11-10"
+      }
+    }
+  ],
+  "units": {
+    "dates": "an activity's day at noon UTC, and milliseconds that keep the day's order; balances and prices at midnight UTC of their market date",
+    "fp": "the first 16 hex digits of the SHA-256 of every key of a row's activities, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive; days are New York calendar dates, YYYY-MM-DD",
+    "money": "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",
+    "prices": "a BUY's or a SELL's unitPrice: its cash before fees over its shares, to 10 places; a profile's marketPrice: a snapshot's market value over its shares, to 8 places",
+    "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
+  },
+  "written": {
+    "rows": 4,
+    "types": {
+      "BUY": 1,
+      "DIVIDEND": 1,
+      "INTEREST": 1,
+      "SELL": 1
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Ca1b2c3d4.1": {
+        "day": "2025-03-03",
+        "as": "2025-03-03 BUY 4982.50",
+        "fp": "fc649baccdd9ca32"
+      },
+      "Ca1b2c3d4.2": {
+        "day": "2025-08-15",
+        "as": "2025-08-15 DIVIDEND 106.25",
+        "fp": "695b9d0ab7340c02"
+      },
+      "Ca1b2c3d4.3": {
+        "day": "2026-08-17",
+        "as": "2026-08-17 SELL 5000.00",
+        "fp": "c2d2194beb003c38",
+        "with": "Ca1b2c3d4.4"
+      },
+      "Ca1b2c3d4.6": {
+        "day": "2025-12-01",
+        "as": "2025-12-01 INTEREST 250.00",
+        "fp": "04d491dfc89ea795"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "c:9128ZZQ15",
+      "symbol": "9128ZZQ15",
+      "identity": "9128ZZQ15",
+      "ghostfolio_symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+      "data_source": "MANUAL",
+      "name": "Bond (9128ZZQ15)"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "left_out": [
+    {
+      "ref": "Ca1b2c3d4.5",
+      "account": "A1 ...135",
+      "day": "2025-04-01",
+      "category": "buy",
+      "kind": "Buy",
+      "description": "BOND",
+      "symbol": "ZZT10A109",
+      "quantity": 10000,
+      "amount": -10100.00,
+      "reason": "bond_unit",
+      "advice": "check",
+      "command": ""
+    },
+    {
+      "ref": "T61001801",
+      "account": "A1 ...135",
+      "day": "2025-05-01",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "ZZT10A109",
+      "quantity": 10000,
+      "amount": -10100.00,
+      "reason": "bond_unit",
+      "advice": "check",
+      "command": ""
+    },
+    {
+      "ref": "Ca1b2c3d4.7",
+      "account": "A1 ...135",
+      "day": "2026-01-05",
+      "category": "transfer_in",
+      "kind": "Journaled Shares",
+      "description": "BOND",
+      "symbol": "ZZT10A109",
+      "quantity": 1000,
+      "amount": 0.00,
+      "reason": "bond_unit",
+      "advice": "check",
+      "command": ""
+    }
+  ],
+  "caveats": [
+    {
+      "ref": "Ca1b2c3d4.6",
+      "account": "A1 ...135",
+      "day": "2025-12-01",
+      "caveat": "coupon_as_interest"
+    }
+  ],
+  "combined": [
+    {
+      "ref": "Ca1b2c3d4.4",
+      "account": "A1 ...135",
+      "with": "Ca1b2c3d4.3"
+    }
+  ],
+  "in_balances": [],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [
+      {
+        "account": "A1 ...135",
+        "security_key": "s:FILE:ZZT10A109@2025-06-01",
+        "symbol": "ZZT10A109",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 10000,
+        "written_shares": 0
+      }
+    ],
+    "not_checked": []
+  },
+  "ghostfolio": {
+    "yahoo": [],
+    "yahoo_idle": [],
+    "manual": [
+      {
+        "security_key": "c:9128ZZQ15",
+        "symbol": "9128ZZQ15",
+        "why": "bond"
+      }
+    ],
+    "profiles": [
+      {
+        "symbol": "1aaa2776-c2e6-8a46-b37b-63919ecbda2a",
+        "name": "Schwab interest",
+        "status": "used"
+      },
+      {
+        "symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+        "name": "Bond (9128ZZQ15)",
+        "status": "used"
+      }
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

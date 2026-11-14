@@ -1,0 +1,5 @@
+Date,Time,Type,Value,Transaction Currency,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Offset Account
+2026-03-02,,Deposit,250.00,USD,,,,,schwabtx A3 ...398 Cad2f64b0.13: JOURNAL FRM ...777,Schwab A3 ...398,
+2026-03-20,,Interest Charge,4.17,USD,,,,,schwabtx A3 ...398 Cad2f64b0.10: MARGIN INTEREST,Schwab A3 ...398,
+2026-04-20,,Tax Refund,1.25,USD,,ABCD,,,schwabtx A3 ...398 Cad2f64b0.7: ABCD INDUSTRIES INC,Schwab A3 ...398,
+2026-05-15,,Dividend,212.50,USD,,,9128ZZQ15,,schwabtx A3 ...398 Cad2f64b0.6: EXAMPLE TREASURY NOTE 4.25% 08/15/2034,Schwab A3 ...398,

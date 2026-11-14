@@ -1,0 +1,135 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 3,
+      "tick": 0
+    },
+    {
+      "file": "portfolio-transactions-A1-135.csv",
+      "kind": "portfolio",
+      "configuration": "pp-portfolio-transactions.json",
+      "account": "A1 ...135",
+      "rows": 3,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2025-03-03",
+      "new": true
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 3,
+    "types": {
+      "Buy": 3
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Ce6f7a8b9.1": {
+        "day": "2025-03-03",
+        "as": "portfolio 2025-03-03 Buy 40.00",
+        "fp": "a47c07c01b97074d",
+        "keys": [
+          "0db2ed820ca1caa4",
+          "10075f3dcd603ad2"
+        ]
+      },
+      "T61002601": {
+        "day": "2025-02-03",
+        "as": "portfolio 2025-02-03 Buy 50.00",
+        "fp": "f39c0ad9f9641e14",
+        "keys": [
+          "a5b38bccd8ad1cae",
+          "5c6e0bcae5163b2b"
+        ]
+      },
+      "T61002602": {
+        "day": "2025-02-04",
+        "as": "portfolio 2025-02-04 Buy 300.00",
+        "fp": "2283deb8b89cfdf5",
+        "keys": [
+          "60301eb1e4015bc7",
+          "87b1a5cf594ec02c"
+        ]
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "",
+      "symbol": "QQQX",
+      "identity": "QQQX",
+      "ticker": "QQQX"
+    },
+    {
+      "security_key": "i:1000003",
+      "symbol": "ABC.B",
+      "identity": "i:1000003",
+      "ticker": "ABC-B",
+      "name": "ABC HOLDINGS CL B"
+    },
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ticker": "XYZ",
+      "wkn": "98389B100",
+      "name": "XYZ CORP COMMON STOCK"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [],
+  "caveats": [],
+  "combined": [],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A1 ...135"
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

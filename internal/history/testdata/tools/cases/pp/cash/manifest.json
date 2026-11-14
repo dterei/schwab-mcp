@@ -1,0 +1,236 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 0,
+      "tick": 0
+    },
+    {
+      "file": "account-transactions-A1-135.csv",
+      "kind": "account",
+      "configuration": "pp-account-transactions.json",
+      "account": "A1 ...135",
+      "rows": 6,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2025-04-02",
+      "new": true
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 6,
+    "types": {
+      "Deposit": 3,
+      "Withdrawal": 3
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Ce1a2b3c4.3": {
+        "day": "2025-03-10",
+        "as": "account 2025-03-10 Deposit 500.00",
+        "fp": "81e5f2006b71f59f",
+        "keys": [
+          "1bd25f82c9557ebc"
+        ]
+      },
+      "Ce1a2b3c4.4": {
+        "day": "2025-03-11",
+        "as": "account 2025-03-11 Withdrawal 1500.00",
+        "fp": "3924a73becfbf2dc",
+        "keys": [
+          "cad0a7cd2e917fa7"
+        ]
+      },
+      "T61001101": {
+        "day": "2025-03-03",
+        "as": "account 2025-03-03 Deposit 10000.00",
+        "fp": "0565bb74f134ac97",
+        "keys": [
+          "a6ecc549e4051320"
+        ]
+      },
+      "T61001102": {
+        "day": "2025-03-04",
+        "as": "account 2025-03-04 Withdrawal 250.00",
+        "fp": "f99ccecf76bc3239",
+        "keys": [
+          "25ffc073837437ea"
+        ]
+      },
+      "T61001105": {
+        "day": "2025-04-01",
+        "as": "account 2025-04-01 Deposit 75.00",
+        "fp": "f841f3e489bf2301",
+        "keys": [
+          "57b33c59de368350"
+        ]
+      },
+      "T61001106": {
+        "day": "2025-04-02",
+        "as": "account 2025-04-02 Withdrawal 25.00",
+        "fp": "4be55247888ce44a",
+        "keys": [
+          "b76e08054a64b48c"
+        ]
+      }
+    }
+  },
+  "securities": [],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [
+    {
+      "ref": "T61001107",
+      "account": "A1 ...135",
+      "day": "2025-04-03",
+      "category": "deposit",
+      "kind": "CASH_RECEIPT",
+      "description": "Funds Received",
+      "symbol": "",
+      "quantity": null,
+      "amount": 0.00,
+      "reason": "zero_amount",
+      "advice": "",
+      "command": ""
+    },
+    {
+      "ref": "T61001108",
+      "account": "A1 ...135",
+      "day": "2025-05-01",
+      "category": "deposit",
+      "kind": "ELECTRONIC_FUND",
+      "description": "BANK SWEEP TO BROKERAGE",
+      "symbol": "",
+      "quantity": null,
+      "amount": 300.00,
+      "reason": "sweep_pair",
+      "advice": "",
+      "command": ""
+    },
+    {
+      "ref": "T61001109",
+      "account": "A1 ...135",
+      "day": "2025-05-01",
+      "category": "other",
+      "kind": "ELECTRONIC_FUND",
+      "description": "BANK SWEEP FROM BROKERAGE",
+      "symbol": "",
+      "quantity": null,
+      "amount": -300.00,
+      "reason": "sweep_pair",
+      "advice": "",
+      "command": ""
+    },
+    {
+      "ref": "Ce1a2b3c4.9",
+      "account": "A1 ...135",
+      "day": "2025-06-02",
+      "category": "deposit",
+      "kind": "Funds Received",
+      "description": "FUNDS RECEIVED",
+      "symbol": "",
+      "quantity": null,
+      "amount": null,
+      "reason": "no_amount",
+      "advice": "check",
+      "command": "schwabtx status Ce1a2b3c4.9"
+    }
+  ],
+  "caveats": [],
+  "combined": [],
+  "flagged": [
+    {
+      "ref": "T61001102",
+      "account": "A1 ...135",
+      "day": "2025-03-04",
+      "outcome": "written",
+      "flags": [
+        "unexpected_sign"
+      ]
+    },
+    {
+      "ref": "T61001105",
+      "account": "A1 ...135",
+      "day": "2025-04-01",
+      "outcome": "written",
+      "flags": [
+        "unpaired_journal"
+      ]
+    },
+    {
+      "ref": "T61001106",
+      "account": "A1 ...135",
+      "day": "2025-04-02",
+      "outcome": "written",
+      "flags": [
+        "unpaired_journal"
+      ]
+    }
+  ],
+  "waiting": [
+    {
+      "ref": "Ce1a2b3c4.12",
+      "account": "A1 ...135",
+      "day": "2025-06-03",
+      "kind": "Bank Interest",
+      "amount": 0.37,
+      "why": "held_out",
+      "command": "schwabtx status Ce1a2b3c4.12"
+    }
+  ],
+  "holdings": {
+    "differences": [],
+    "not_checked": []
+  },
+  "symbols_changed": [],
+  "coverage": [
+    {
+      "account_id": 1,
+      "account": "...135",
+      "source": "api_file",
+      "from": "2023-06-13",
+      "to": "2026-11-10"
+    }
+  ]
+}

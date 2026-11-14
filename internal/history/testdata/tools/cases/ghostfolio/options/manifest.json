@@ -1,0 +1,350 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "ghostfolio",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "ghostfolio.json",
+      "kind": "ghostfolio",
+      "rows": 9
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options & Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": "2025-05-16",
+      "new": true,
+      "ghostfolio_id": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "balances": {
+        "count": 0,
+        "why": "no snapshot"
+      }
+    }
+  ],
+  "units": {
+    "dates": "an activity's day at noon UTC, and milliseconds that keep the day's order; balances and prices at midnight UTC of their market date",
+    "fp": "the first 16 hex digits of the SHA-256 of every key of a row's activities, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive; days are New York calendar dates, YYYY-MM-DD",
+    "money": "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",
+    "prices": "a BUY's or a SELL's unitPrice: its cash before fees over its shares, to 10 places; a profile's marketPrice: a snapshot's market value over its shares, to 8 places",
+    "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
+  },
+  "written": {
+    "rows": 9,
+    "types": {
+      "BUY": 4,
+      "SELL": 5
+    }
+  },
+  "given": {
+    "A2 ...398": {
+      "Cd0e1f2a3.1": {
+        "day": "2025-02-03",
+        "as": "2025-02-03 BUY 210.00 fee 0.65",
+        "fp": "6e2bf212bb177fb7"
+      },
+      "Cd0e1f2a3.2": {
+        "day": "2025-02-21",
+        "as": "2025-02-21 BUY 0.00",
+        "fp": "4dba60e0b40cfe07"
+      },
+      "Cd0e1f2a3.3": {
+        "day": "2025-03-21",
+        "as": "2025-03-21 SELL 0.00",
+        "fp": "b094444d0425e4b2"
+      },
+      "Cd0e1f2a3.4": {
+        "day": "2025-04-17",
+        "as": "2025-04-17 BUY 0.00",
+        "fp": "8ebab0518d499547"
+      },
+      "Cd0e1f2a3.5": {
+        "day": "2025-04-18",
+        "as": "2025-04-18 SELL 0.00",
+        "fp": "096fbe55339e043e"
+      },
+      "Cd0e1f2a3.6": {
+        "day": "2025-04-19",
+        "as": "2025-04-19 SELL 0.00",
+        "fp": "0c489bbe10d2ce41"
+      },
+      "T61001701": {
+        "day": "2025-02-04",
+        "as": "2025-02-04 SELL 320.00 fee 1.30",
+        "fp": "72de1c85deb0cb01"
+      },
+      "T61001702": {
+        "day": "2025-05-16",
+        "as": "2025-05-16 SELL 0.00",
+        "fp": "15d08fb295eeae77"
+      },
+      "T61001705": {
+        "day": "2025-01-14",
+        "as": "2025-01-14 BUY 1050.00 fee 2.82",
+        "fp": "dc0fd80637e6c68d"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "i:205187341",
+      "symbol": "/ZZH25_P5050:XCME",
+      "identity": "i:205187341",
+      "ghostfolio_symbol": "6b351588-4738-85df-ad34-0adbaac4dcb5",
+      "data_source": "MANUAL",
+      "name": "Security (i:205187341)"
+    },
+    {
+      "security_key": "i:219771034",
+      "symbol": "XYZ   250221P00040000",
+      "identity": "XYZ250221P00040000",
+      "ghostfolio_symbol": "fc94e404-4c85-87f0-962e-bb88e7134119",
+      "data_source": "MANUAL",
+      "name": "XYZ 2025-02-21 40 put (XYZ250221P00040000)"
+    },
+    {
+      "security_key": "i:219834765",
+      "symbol": "XYZ   260918C00050000",
+      "identity": "XYZ260918C00050000",
+      "ghostfolio_symbol": "9e712930-c660-8164-bdf1-0ce397bc9e39",
+      "data_source": "MANUAL",
+      "name": "XYZ 2026-09-18 50 call (XYZ260918C00050000)"
+    },
+    {
+      "security_key": "s:FILE:XYZ 03/21/2025 45.00 C@2025-04-01",
+      "symbol": "XYZ 03/21/2025 45.00 C",
+      "identity": "XYZ250321C00045000",
+      "ghostfolio_symbol": "c372d22f-593b-8d1b-aea7-377ad9b9af74",
+      "data_source": "MANUAL",
+      "name": "XYZ 2025-03-21 45 call (XYZ250321C00045000)"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "left_out": [
+    {
+      "ref": "T61001706",
+      "account": "A2 ...398",
+      "day": "2025-01-15",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "/ZZH25:XCME",
+      "quantity": 1,
+      "amount": -2.35,
+      "reason": "future",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "T61001703",
+      "account": "A2 ...398",
+      "day": "2025-05-19",
+      "category": "other",
+      "kind": "RECEIVE_AND_DELIVER",
+      "description": "Exchange",
+      "symbol": "XYZ   250221P00040000",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "set_category",
+      "command": "schwabtx edit T61001703 -category C"
+    },
+    {
+      "ref": "T61001704",
+      "account": "A2 ...398",
+      "day": "2025-06-02",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "XYZ   250321C00045000",
+      "quantity": 1,
+      "amount": -1.00,
+      "reason": "multiplier",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "Cd0e1f2a3.7",
+      "account": "A2 ...398",
+      "day": "2025-06-03",
+      "category": "other",
+      "kind": "Expired",
+      "description": "OPTION",
+      "symbol": "XYZ   250321C00045000",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "multiplier",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "Cd0e1f2a3.8",
+      "account": "A2 ...398",
+      "day": "2025-06-04",
+      "category": "other",
+      "kind": "Expired",
+      "description": "OPTION",
+      "symbol": "XYZ   260918C00050000",
+      "quantity": -1,
+      "amount": 1.00,
+      "reason": "other",
+      "advice": "set_category",
+      "command": "schwabtx edit Cd0e1f2a3.8 -category C"
+    },
+    {
+      "ref": "Cd0e1f2a3.9",
+      "account": "A2 ...398",
+      "day": "2025-06-05",
+      "category": "other",
+      "kind": "Options Frwd Split Adj",
+      "description": "OPTION",
+      "symbol": "XYZ   260918C00050000",
+      "quantity": 1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "split",
+      "command": ""
+    }
+  ],
+  "caveats": [
+    {
+      "ref": "Cd0e1f2a3.1",
+      "account": "A2 ...398",
+      "day": "2025-02-03",
+      "caveat": "assumed_multiplier"
+    },
+    {
+      "ref": "Cd0e1f2a3.2",
+      "account": "A2 ...398",
+      "day": "2025-02-21",
+      "caveat": "option_closed_at_zero"
+    },
+    {
+      "ref": "Cd0e1f2a3.3",
+      "account": "A2 ...398",
+      "day": "2025-03-21",
+      "caveat": "assumed_multiplier"
+    },
+    {
+      "ref": "Cd0e1f2a3.3",
+      "account": "A2 ...398",
+      "day": "2025-03-21",
+      "caveat": "option_closed_at_zero"
+    },
+    {
+      "ref": "Cd0e1f2a3.4",
+      "account": "A2 ...398",
+      "day": "2025-04-17",
+      "caveat": "option_closed_at_zero"
+    },
+    {
+      "ref": "Cd0e1f2a3.5",
+      "account": "A2 ...398",
+      "day": "2025-04-18",
+      "caveat": "option_closed_at_zero"
+    },
+    {
+      "ref": "Cd0e1f2a3.6",
+      "account": "A2 ...398",
+      "day": "2025-04-19",
+      "caveat": "option_closed_at_zero"
+    },
+    {
+      "ref": "T61001702",
+      "account": "A2 ...398",
+      "day": "2025-05-16",
+      "caveat": "option_closed_at_zero"
+    }
+  ],
+  "combined": [],
+  "in_balances": [],
+  "flagged": [
+    {
+      "ref": "T61001702",
+      "account": "A2 ...398",
+      "day": "2025-05-16",
+      "outcome": "written",
+      "flags": [
+        "awaits_probe"
+      ]
+    }
+  ],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A2 ...398"
+    ]
+  },
+  "ghostfolio": {
+    "yahoo": [],
+    "yahoo_idle": [],
+    "manual": [
+      {
+        "security_key": "i:205187341",
+        "symbol": "/ZZH25_P5050:XCME",
+        "why": "option"
+      },
+      {
+        "security_key": "i:219771034",
+        "symbol": "XYZ   250221P00040000",
+        "why": "option"
+      },
+      {
+        "security_key": "i:219834765",
+        "symbol": "XYZ   260918C00050000",
+        "why": "option"
+      },
+      {
+        "security_key": "s:FILE:XYZ 03/21/2025 45.00 C@2025-04-01",
+        "symbol": "XYZ 03/21/2025 45.00 C",
+        "why": "option"
+      }
+    ],
+    "profiles": [
+      {
+        "symbol": "6b351588-4738-85df-ad34-0adbaac4dcb5",
+        "name": "Security (i:205187341)",
+        "status": "used"
+      },
+      {
+        "symbol": "fc94e404-4c85-87f0-962e-bb88e7134119",
+        "name": "XYZ 2025-02-21 40 put (XYZ250221P00040000)",
+        "status": "used"
+      },
+      {
+        "symbol": "9e712930-c660-8164-bdf1-0ce397bc9e39",
+        "name": "XYZ 2026-09-18 50 call (XYZ260918C00050000)",
+        "status": "used"
+      },
+      {
+        "symbol": "c372d22f-593b-8d1b-aea7-377ad9b9af74",
+        "name": "XYZ 2025-03-21 45 call (XYZ250321C00045000)",
+        "status": "used"
+      }
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

@@ -1,0 +1,4 @@
+Date,Time,Type,Value,Transaction Currency,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Offset Account
+2026-11-09,,Dividend,4.20,USD,,ABCD,,,schwabtx A3 ...398 C6e4c5a90.1: ABCD INDUSTRIES INC,Schwab A3 ...398,
+2026-11-13,,Dividend,3.60,USD,,MNOP,,,schwabtx A3 ...398 C6e4c5a90.2: MNOP HOLDINGS INC,Schwab A3 ...398,
+2026-11-13,,Dividend,3.06,USD,,MNOP,,,schwabtx A3 ...398 Ceaa643bd.1: MNOP HOLDINGS INC,Schwab A3 ...398,

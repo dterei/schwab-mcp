@@ -1,0 +1,328 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "ghostfolio",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "ghostfolio.json",
+      "kind": "ghostfolio",
+      "rows": 18
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2026-09-01",
+      "new": true,
+      "ghostfolio_id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "balances": {
+        "count": 0,
+        "why": "no snapshot"
+      }
+    },
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options & Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": "2026-09-01",
+      "new": true,
+      "ghostfolio_id": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "balances": {
+        "count": 0,
+        "why": "no snapshot"
+      }
+    }
+  ],
+  "units": {
+    "dates": "an activity's day at noon UTC, and milliseconds that keep the day's order; balances and prices at midnight UTC of their market date",
+    "fp": "the first 16 hex digits of the SHA-256 of every key of a row's activities, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive; days are New York calendar dates, YYYY-MM-DD",
+    "money": "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",
+    "prices": "a BUY's or a SELL's unitPrice: its cash before fees over its shares, to 10 places; a profile's marketPrice: a snapshot's market value over its shares, to 8 places",
+    "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
+  },
+  "written": {
+    "rows": 17,
+    "types": {
+      "BUY": 10,
+      "SELL": 8
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Cb0c1d2e3.1": {
+        "day": "2026-06-01",
+        "as": "2026-06-01 BUY 312.50",
+        "fp": "0d04481c50fc317e"
+      },
+      "Cb0c1d2e3.10": {
+        "day": "2026-08-16",
+        "as": "2026-08-16 BUY 30.00",
+        "fp": "78b696a040b68ef0"
+      },
+      "Cb0c1d2e3.2": {
+        "day": "2026-06-02",
+        "as": "2026-06-02 SELL 120.00",
+        "fp": "62d1812f1d64a03c"
+      },
+      "Cb0c1d2e3.3": {
+        "day": "2026-06-03",
+        "as": "2026-06-03 BUY 9950.00",
+        "fp": "1bbb881e6fa107dc"
+      },
+      "Cb0c1d2e3.4": {
+        "day": "2026-07-24",
+        "as": "2026-07-24 BUY 157.50",
+        "fp": "a5b2b33822aae552"
+      },
+      "Cb0c1d2e3.5": {
+        "day": "2026-08-03",
+        "as": "2026-08-03 BUY 0.00",
+        "fp": "ff9b316cc1d97d71"
+      },
+      "Cb0c1d2e3.6": {
+        "day": "2026-08-12",
+        "as": "2026-08-12 SELL 30.00",
+        "fp": "63dcc3576b47ffae"
+      },
+      "Cb0c1d2e3.7": {
+        "day": "2026-08-13",
+        "as": "2026-08-13 BUY 30.00",
+        "fp": "a1d04d2d80a8af73"
+      },
+      "T61001502": {
+        "day": "2026-05-05",
+        "as": "2026-05-05 BUY 260.00",
+        "fp": "bd106ad84582782a"
+      },
+      "T61001503": {
+        "day": "2026-08-10",
+        "as": "2026-08-10 SELL 50.00",
+        "fp": "b0dcc07b222fec75"
+      },
+      "T61001506": {
+        "day": "2026-09-01",
+        "as": "2026-09-01 SELL 30.50",
+        "fp": "831f8678740d0d32"
+      },
+      "T61001509": {
+        "day": "2026-07-27",
+        "as": "2026-07-27 BUY 105.00",
+        "fp": "8b879e01fafc2cff"
+      }
+    },
+    "A2 ...398": {
+      "T61001501": {
+        "day": "2026-05-04",
+        "as": "2026-05-04 SELL 260.00",
+        "fp": "29c40743c097ca8f"
+      },
+      "T61001504": {
+        "day": "2026-08-11",
+        "as": "2026-08-11 BUY 310.00",
+        "fp": "3c27cf4f1dfd67ee"
+      },
+      "T61001505": {
+        "day": "2026-08-20",
+        "as": "2026-08-20 SELL 104.00; 2026-08-20 SELL 93.00",
+        "fp": "35f5bbd0dcde1231"
+      },
+      "T61001507": {
+        "day": "2026-09-01",
+        "as": "2026-09-01 BUY 30.50",
+        "fp": "7255eab898786e86"
+      },
+      "T61001508": {
+        "day": "2026-07-24",
+        "as": "2026-07-24 SELL 105.00",
+        "fp": "b9ef4ee6890d84e3"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "c:9128ZZQ15",
+      "symbol": "9128ZZQ15",
+      "identity": "9128ZZQ15",
+      "ghostfolio_symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+      "data_source": "MANUAL",
+      "name": "Bond (9128ZZQ15)"
+    },
+    {
+      "security_key": "i:1000002",
+      "symbol": "EFGH",
+      "identity": "i:1000002",
+      "ghostfolio_symbol": "EFGH",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ghostfolio_symbol": "XYZ",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:219900001",
+      "symbol": "XYZ   270115P00045000",
+      "identity": "XYZ270115P00045000",
+      "ghostfolio_symbol": "ba345aa5-3811-8e9a-a46e-f3543f5b9b1f",
+      "data_source": "MANUAL",
+      "name": "XYZ 2027-01-15 45 put (XYZ270115P00045000)"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "left_out": [
+    {
+      "ref": "Cb0c1d2e3.8",
+      "account": "A1 ...135",
+      "day": "2026-08-14",
+      "category": "transfer_in",
+      "kind": "Journaled Shares",
+      "description": "SHARES",
+      "symbol": "EFGH",
+      "quantity": null,
+      "amount": 0.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "Cb0c1d2e3.9",
+      "account": "A1 ...135",
+      "day": "2026-08-15",
+      "category": "transfer_in",
+      "kind": "Journaled Shares",
+      "description": "SHARES",
+      "symbol": "",
+      "quantity": 1,
+      "amount": 0.00,
+      "reason": "no_security",
+      "advice": "set_security",
+      "command": "schwabtx edit Cb0c1d2e3.9 -security K:…"
+    },
+    {
+      "ref": "Cb0c1d2e3.11",
+      "account": "A1 ...135",
+      "day": "2026-08-17",
+      "category": "transfer_in",
+      "kind": "Journaled Shares",
+      "description": "SHARES",
+      "symbol": "/ZZH25:XCME",
+      "quantity": 1,
+      "amount": 0.00,
+      "reason": "future",
+      "advice": "by_hand",
+      "command": ""
+    }
+  ],
+  "caveats": [
+    {
+      "ref": "Cb0c1d2e3.4",
+      "account": "A1 ...135",
+      "day": "2026-07-24",
+      "caveat": "value_from_snapshot"
+    },
+    {
+      "ref": "T61001508",
+      "account": "A2 ...398",
+      "day": "2026-07-24",
+      "caveat": "value_from_snapshot"
+    },
+    {
+      "ref": "T61001509",
+      "account": "A1 ...135",
+      "day": "2026-07-27",
+      "caveat": "value_from_snapshot"
+    },
+    {
+      "ref": "Cb0c1d2e3.5",
+      "account": "A1 ...135",
+      "day": "2026-08-03",
+      "caveat": "value_unknown"
+    },
+    {
+      "ref": "T61001503",
+      "account": "A1 ...135",
+      "day": "2026-08-10",
+      "caveat": "cash_not_written"
+    }
+  ],
+  "combined": [],
+  "in_balances": [],
+  "flagged": [
+    {
+      "ref": "Cb0c1d2e3.10",
+      "account": "A1 ...135",
+      "day": "2026-08-16",
+      "outcome": "written",
+      "flags": [
+        "inexact"
+      ]
+    }
+  ],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A1 ...135",
+      "A2 ...398"
+    ]
+  },
+  "ghostfolio": {
+    "yahoo": [
+      "EFGH",
+      "XYZ"
+    ],
+    "yahoo_idle": [],
+    "manual": [
+      {
+        "security_key": "c:9128ZZQ15",
+        "symbol": "9128ZZQ15",
+        "why": "bond"
+      },
+      {
+        "security_key": "i:219900001",
+        "symbol": "XYZ   270115P00045000",
+        "why": "option"
+      }
+    ],
+    "profiles": [
+      {
+        "symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+        "name": "Bond (9128ZZQ15)",
+        "status": "used"
+      },
+      {
+        "symbol": "ba345aa5-3811-8e9a-a46e-f3543f5b9b1f",
+        "name": "XYZ 2027-01-15 45 put (XYZ270115P00045000)",
+        "status": "used"
+      }
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

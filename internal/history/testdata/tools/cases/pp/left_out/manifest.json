@@ -1,0 +1,204 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 0,
+      "tick": 0
+    }
+  ],
+  "accounts": [],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 0,
+    "types": {}
+  },
+  "given": {},
+  "securities": [],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [
+    {
+      "ref": "T61002101",
+      "account": "A1 ...135",
+      "day": null,
+      "category": "deposit",
+      "kind": "CASH_RECEIPT",
+      "description": "Funds Received",
+      "symbol": "",
+      "quantity": null,
+      "amount": 10.00,
+      "reason": "no_day",
+      "advice": "check",
+      "command": "schwabtx status T61002101"
+    },
+    {
+      "ref": "T61002102",
+      "account": "A1 ...135",
+      "day": null,
+      "category": "other",
+      "kind": "ELECTRONIC_FUND",
+      "description": "BANK SWEEP TO BROKERAGE",
+      "symbol": "",
+      "quantity": null,
+      "amount": 20.00,
+      "reason": "no_day",
+      "advice": "check",
+      "command": "schwabtx status T61002102"
+    },
+    {
+      "ref": "Cf1a2b3c4.1",
+      "account": "A1 ...135",
+      "day": "2025-06-09",
+      "category": "other",
+      "kind": "Stock Split",
+      "description": "XYZ CORP",
+      "symbol": "XYZ",
+      "quantity": 10,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "split",
+      "command": ""
+    },
+    {
+      "ref": "Cf1a2b3c4.2",
+      "account": "A1 ...135",
+      "day": "2025-06-10",
+      "category": "other",
+      "kind": "Stock Merger",
+      "description": "XYZ CORP",
+      "symbol": "XYZ",
+      "quantity": -10,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "corporate_action",
+      "command": ""
+    },
+    {
+      "ref": "Cf1a2b3c4.3",
+      "account": "A1 ...135",
+      "day": "2025-06-11",
+      "category": "other",
+      "kind": "Misc Cash Entry",
+      "description": "XYZ CORP",
+      "symbol": "XYZ",
+      "quantity": null,
+      "amount": 1.00,
+      "reason": "other",
+      "advice": "set_category",
+      "command": "schwabtx edit Cf1a2b3c4.3 -category C"
+    },
+    {
+      "ref": "Cf1a2b3c4.4",
+      "account": "A1 ...135",
+      "day": "2025-06-12",
+      "category": "other",
+      "kind": "Name Change",
+      "description": "XYZ CORP",
+      "symbol": "XYZ",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "corporate_action",
+      "command": ""
+    },
+    {
+      "ref": "Cf1a2b3c4.5",
+      "account": "A1 ...135",
+      "day": "2025-06-13",
+      "category": "other",
+      "kind": "Exchange or Exercise",
+      "description": "XYZ CORP",
+      "symbol": "XYZ",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "corporate_action",
+      "command": ""
+    },
+    {
+      "ref": "Cf1a2b3c4.6",
+      "account": "A1 ...135",
+      "day": "2025-06-16",
+      "category": "other",
+      "kind": "Futures MM Sweep",
+      "description": "XYZ CORP",
+      "symbol": "XYZ",
+      "quantity": null,
+      "amount": -5.00,
+      "reason": "other",
+      "advice": "set_category",
+      "command": "schwabtx edit Cf1a2b3c4.6 -category C"
+    },
+    {
+      "ref": "Cf1a2b3c4.7",
+      "account": "A1 ...135",
+      "day": "2025-06-17",
+      "category": "other",
+      "kind": "Reverse Split",
+      "description": "XYZ CORP",
+      "symbol": "XYZ",
+      "quantity": -5,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "split",
+      "command": ""
+    },
+    {
+      "ref": "Cf1a2b3c4.8",
+      "account": "A1 ...135",
+      "day": "2025-06-18",
+      "category": "other",
+      "kind": "Options Frwd Split",
+      "description": "XYZ CORP",
+      "symbol": "XYZ",
+      "quantity": 1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "split",
+      "command": ""
+    }
+  ],
+  "caveats": [],
+  "combined": [],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A1 ...135"
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

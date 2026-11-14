@@ -310,7 +310,7 @@ func (l *toolLine) time(name string, v time.Time) *toolLine {
 
 // toolLines returns what in holds, by the field of toolInput that holds it,
 // a line for each value, every field of the value that holds one written:
-// the input as TestToolRead compares it.
+// the input as checkToolRead and the checks after it compare it.
 func toolLines(in *toolInput) map[string][]string {
 	out := map[string][]string{"store": {in.store}}
 	add := func(field string, l *toolLine) { out[field] = append(out[field], l.b.String()) }
@@ -606,16 +606,16 @@ var toolStoreLines = map[string][]string{
 	},
 }
 
-// A tool export reads the store as the design says (2 of the design), from
-// the tool exports' store (newToolStore): a read of every account with no
-// bound holds every field as the store does; a read of one account, or up
-// to a day, holds what that selection takes of it (toolSelected), and
-// nothing else; a row that came later, "as of" a day before it was posted,
-// is read by that day; and a decision that a row does not count moves it
-// to the uncounted entries, beside the partner that it leaves not counted.
-func TestToolRead(t *testing.T) {
-	t.Parallel()
-	ts := newToolStore(t)
+// checkToolRead requires that a tool export read the tool exports' store
+// as newToolStore leaves it as the design says (2 of the design): a read of
+// every account with no bound holds every field as the store does; a read
+// of one account, or up to a day, holds what that selection takes of it
+// (toolSelected), and nothing else. It returns what the read of every
+// account holds, as toolStore.lines writes it, which the later checks of
+// the store change. TestToolExport runs it, and the later checks, on its
+// store, which the package builds once.
+func checkToolRead(t *testing.T, ts *toolStore) map[string][]string {
+	t.Helper()
 	all := ts.read(t, 0, "")
 	want := maps.Clone(toolStoreLines)
 	want["store"] = storeStrings(t, ts.s, "SELECT created_at FROM store")
@@ -637,12 +637,19 @@ func TestToolRead(t *testing.T) {
 		compareToolLines(t, fmt.Sprintf("A%d up to %s", c.account, c.to), ts.lines(ts.read(t, c.account, c.to)),
 			ts.lines(toolSelected(all, c.account, c.to)))
 	}
+	return want
+}
 
-	// The later files, read up to 2026-11-13: the row posted on 11-16 "as
-	// of" 11-09 is read by its day; their rows come after every other; and
-	// each later export's symbols are names of the security that the
-	// account's first export named.
-	ts.importLater(t)
+// checkToolReadLater requires, once importLater has imported the later
+// files, that a read of every account up to 2026-11-13 hold what want, the
+// read of checkToolRead, holds and the later files' rows, names and
+// coverage: the row posted on 11-16 "as of" 11-09 is read by its day; their
+// rows come after every other; and each later export's symbols are names
+// of the security that the account's first export named. It returns what
+// a read of every account then holds.
+func checkToolReadLater(t *testing.T, ts *toolStore, want map[string][]string) map[string][]string {
+	t.Helper()
+	want = maps.Clone(want)
 	want["rows"] = append(slices.Clone(want["rows"]),
 		`L.1 A3 file day=2026-11-09 posted=2026-11-16 kind="Qualified Dividend" description="ABCD INDUSTRIES INC" amount=420 fees=0 gross=420 as_of=2026-11-20 symbol=ABCD key=s:FILE:ABCD@2026-07-20 category=dividend`,
 		`L.2 A3 file day=2026-11-13 posted=2026-11-13 kind="Qualified Dividend" description="MNOP HOLDINGS INC" amount=360 fees=0 gross=360 as_of=2026-11-20 symbol=MNOP key=s:FILE:MNOP@2026-07-20 category=dividend flags=missing_from_later;near_duplicate`,
@@ -654,18 +661,35 @@ func TestToolRead(t *testing.T) {
 		`s:FILE:MNOP@2026-07-20 symbol MNOP first=2026-11-20T14:00:00Z last=2026-11-20T14:00:00Z`)
 	want["coverage"] = toolInsert(t, want["coverage"], `A3 ...398 file_unknown 2026-02-10 2026-07-01`, `A3 ...398 file 2026-11-13 2026-11-16`)
 	compareToolLines(t, "every account up to 2026-11-13, after the later files", ts.lines(ts.read(t, 0, "2026-11-13")), want)
+	return want
+}
 
-	// You uncount the dividend that Schwab corrected, whose correction keeps
-	// its flag; and when your decision keeps a journal paired with its
-	// other side, which you uncount, the journal reads its partner as not
-	// counted.
-	if _, err := ts.s.DecideAll(t.Context(), []Decision{
-		{Kind: "count", Subject: subjectOf(ts.later, 2), Value: "no"},
+// toolDecisions are, after toolLaterDecision, what checkToolReadDecided
+// reads: a decision that keeps a journal paired with its other side, and
+// one that this side does not count.
+func toolDecisions(ts *toolStore) []Decision {
+	return []Decision{
 		{Kind: "pair", Subject: fmt.Sprintf("a:%d:73600000102", ts.individual), Value: fmt.Sprintf("a:%d:73600000101", ts.options)},
 		{Kind: "count", Subject: fmt.Sprintf("a:%d:73600000101", ts.options), Value: "no"},
-	}); err != nil {
-		t.Fatal(err)
 	}
+}
+
+// toolLaterDecision is the decision of 11.3 of the design, once the later
+// files are in: you uncount the dividend that Schwab corrected, whose
+// correction keeps its flag.
+func toolLaterDecision(ts *toolStore) Decision {
+	return Decision{Kind: "count", Subject: subjectOf(ts.later, 2), Value: "no"}
+}
+
+// checkToolReadDecided requires, once toolLaterDecision and toolDecisions
+// are decided, that a read of every account hold what want, the read of
+// checkToolReadLater, holds, but for the rows that you uncounted, which are
+// uncounted entries; and when your decision keeps a journal paired with its
+// other side, which you uncount, the journal reads its partner as not
+// counted.
+func checkToolReadDecided(t *testing.T, ts *toolStore, want map[string][]string) {
+	t.Helper()
+	want = maps.Clone(want)
 	rows := want["rows"][:0:0]
 	for _, l := range want["rows"] {
 		switch {

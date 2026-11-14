@@ -1,0 +1,183 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": "A1 ...135",
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": "A1",
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 4,
+      "tick": 0
+    },
+    {
+      "file": "portfolio-transactions-A1-135.csv",
+      "kind": "portfolio",
+      "configuration": "pp-portfolio-transactions.json",
+      "account": "A1 ...135",
+      "rows": 4,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2025-11-12",
+      "new": true
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 4,
+    "types": {
+      "Buy": 4
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "T61002701": {
+        "day": "2025-11-11",
+        "as": "portfolio 2025-11-11 Buy 30.00",
+        "fp": "2ad60f7b0984947d",
+        "keys": [
+          "a84021f0cda4ae7d",
+          "9f954b6095140afa"
+        ]
+      },
+      "T61002702": {
+        "day": "2025-11-11",
+        "as": "portfolio 2025-11-11 Buy 40.00",
+        "fp": "07d8e96a0162d355",
+        "keys": [
+          "c5f7534e7e56cd8c",
+          "be2b93919154fce3"
+        ]
+      },
+      "T61002703": {
+        "day": "2025-11-12",
+        "as": "portfolio 2025-11-12 Buy 50.00",
+        "fp": "d415216ba65bf539",
+        "keys": [
+          "8ecbf4b7594c56e1",
+          "83a653be27eb5204"
+        ]
+      },
+      "T61002704": {
+        "day": "2025-11-11",
+        "as": "portfolio 2025-11-11 Buy 25.00",
+        "fp": "3609eb2e919e8930",
+        "keys": [
+          "54b2426be40a56d0",
+          "2737103f7ed1458d"
+        ]
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "i:1000001",
+      "symbol": "ABCD",
+      "identity": "ZZB123458",
+      "ticker": "ABCD",
+      "wkn": "ZZB123458",
+      "name": "ABCD INDUSTRIES INC"
+    },
+    {
+      "security_key": "i:1000002",
+      "symbol": "EFGH",
+      "identity": "i:1000002",
+      "ticker": "EFGH",
+      "name": "EFGH TOTAL MARKET ETF"
+    },
+    {
+      "security_key": "i:1000004",
+      "symbol": "QRS.PRK",
+      "identity": "i:1000004",
+      "name": "QRS TRUST PFD SER K"
+    },
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ticker": "XYZ",
+      "wkn": "98389B100",
+      "name": "XYZ CORP COMMON STOCK"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [],
+  "caveats": [],
+  "combined": [],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1000001",
+        "symbol": "ABCD",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 1
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1000002",
+        "symbol": "EFGH",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 1
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1000004",
+        "symbol": "QRS.PRK",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 1
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1854092",
+        "symbol": "XYZ",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 1
+      }
+    ],
+    "not_checked": []
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

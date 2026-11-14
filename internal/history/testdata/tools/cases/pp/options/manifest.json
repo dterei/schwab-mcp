@@ -1,0 +1,337 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 4,
+      "tick": 0
+    },
+    {
+      "file": "portfolio-transactions-A2-398.csv",
+      "kind": "portfolio",
+      "configuration": "pp-portfolio-transactions.json",
+      "account": "A2 ...398",
+      "rows": 9,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options & Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": "2025-05-16",
+      "new": true
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 9,
+    "types": {
+      "Buy": 2,
+      "Delivery (Inbound)": 2,
+      "Delivery (Outbound)": 4,
+      "Sell": 1
+    }
+  },
+  "given": {
+    "A2 ...398": {
+      "Cd0e1f2a3.1": {
+        "day": "2025-02-03",
+        "as": "portfolio 2025-02-03 Buy 210.65",
+        "fp": "44adfa44affb9ac0",
+        "keys": [
+          "8b2faaad1d066927",
+          "a09d938c942247cb"
+        ]
+      },
+      "Cd0e1f2a3.2": {
+        "day": "2025-02-21",
+        "as": "portfolio 2025-02-21 Delivery (Inbound) 0.00",
+        "fp": "e756bf6f4239866f",
+        "keys": [
+          "569f3bcfe005b185"
+        ]
+      },
+      "Cd0e1f2a3.3": {
+        "day": "2025-03-21",
+        "as": "portfolio 2025-03-21 Delivery (Outbound) 0.00",
+        "fp": "7d9b669e8e1dacc9",
+        "keys": [
+          "78e803a5e9769f88"
+        ]
+      },
+      "Cd0e1f2a3.4": {
+        "day": "2025-04-17",
+        "as": "portfolio 2025-04-17 Delivery (Inbound) 0.00",
+        "fp": "14086398efbc03a6",
+        "keys": [
+          "4e939f870eb0ce81"
+        ]
+      },
+      "Cd0e1f2a3.5": {
+        "day": "2025-04-18",
+        "as": "portfolio 2025-04-18 Delivery (Outbound) 0.00",
+        "fp": "3e352668c88ef7c7",
+        "keys": [
+          "680cbb611f4bf24d"
+        ]
+      },
+      "Cd0e1f2a3.6": {
+        "day": "2025-04-19",
+        "as": "portfolio 2025-04-19 Delivery (Outbound) 0.00",
+        "fp": "f3f8c0f1cba34bb8",
+        "keys": [
+          "012f0530072d36e4"
+        ]
+      },
+      "T61001701": {
+        "day": "2025-02-04",
+        "as": "portfolio 2025-02-04 Sell 318.70",
+        "fp": "22a7bfc631827522",
+        "keys": [
+          "6a1133b4f0f3dc84",
+          "a57342508fa24dc3"
+        ]
+      },
+      "T61001702": {
+        "day": "2025-05-16",
+        "as": "portfolio 2025-05-16 Delivery (Outbound) 0.00",
+        "fp": "8d0c55c14eac146a",
+        "keys": [
+          "93ae52b22088cd7b"
+        ]
+      },
+      "T61001705": {
+        "day": "2025-01-14",
+        "as": "portfolio 2025-01-14 Buy 1052.82",
+        "fp": "2657d7c404939f65",
+        "keys": [
+          "192ea17fcd75d27f",
+          "ad6049cc4a3e0329"
+        ]
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "i:205187341",
+      "symbol": "/ZZH25_P5050:XCME",
+      "identity": "i:205187341",
+      "ticker": "/ZZH25_P5050:XCME",
+      "name": "EXAMPLE INDEX FUTURE PUT 5050 MAR 25"
+    },
+    {
+      "security_key": "i:219771034",
+      "symbol": "XYZ   250221P00040000",
+      "identity": "XYZ250221P00040000",
+      "ticker": "XYZ250221P00040000",
+      "name": "XYZ 02/21/2025 40.00 P"
+    },
+    {
+      "security_key": "i:219834765",
+      "symbol": "XYZ   260918C00050000",
+      "identity": "XYZ260918C00050000",
+      "ticker": "XYZ260918C00050000",
+      "name": "XYZ 09/18/2026 50.00 C"
+    },
+    {
+      "security_key": "s:FILE:XYZ 03/21/2025 45.00 C@2025-04-01",
+      "symbol": "XYZ 03/21/2025 45.00 C",
+      "identity": "XYZ250321C00045000",
+      "ticker": "XYZ250321C00045000",
+      "name": "CALL XYZ CORP $45 EXP 03/21/25"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [
+    {
+      "ref": "T61001706",
+      "account": "A2 ...398",
+      "day": "2025-01-15",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "/ZZH25:XCME",
+      "quantity": 1,
+      "amount": -2.35,
+      "reason": "future",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "T61001703",
+      "account": "A2 ...398",
+      "day": "2025-05-19",
+      "category": "other",
+      "kind": "RECEIVE_AND_DELIVER",
+      "description": "Exchange",
+      "symbol": "XYZ   250221P00040000",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "set_category",
+      "command": "schwabtx edit T61001703 -category C"
+    },
+    {
+      "ref": "T61001704",
+      "account": "A2 ...398",
+      "day": "2025-06-02",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "XYZ   250321C00045000",
+      "quantity": 1,
+      "amount": -1.00,
+      "reason": "multiplier",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "Cd0e1f2a3.7",
+      "account": "A2 ...398",
+      "day": "2025-06-03",
+      "category": "other",
+      "kind": "Expired",
+      "description": "OPTION",
+      "symbol": "XYZ   250321C00045000",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "multiplier",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "Cd0e1f2a3.8",
+      "account": "A2 ...398",
+      "day": "2025-06-04",
+      "category": "other",
+      "kind": "Expired",
+      "description": "OPTION",
+      "symbol": "XYZ   260918C00050000",
+      "quantity": -1,
+      "amount": 1.00,
+      "reason": "other",
+      "advice": "set_category",
+      "command": "schwabtx edit Cd0e1f2a3.8 -category C"
+    },
+    {
+      "ref": "Cd0e1f2a3.9",
+      "account": "A2 ...398",
+      "day": "2025-06-05",
+      "category": "other",
+      "kind": "Options Frwd Split Adj",
+      "description": "OPTION",
+      "symbol": "XYZ   260918C00050000",
+      "quantity": 1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "split",
+      "command": ""
+    }
+  ],
+  "caveats": [
+    {
+      "ref": "Cd0e1f2a3.1",
+      "account": "A2 ...398",
+      "day": "2025-02-03",
+      "caveat": "assumed_multiplier"
+    },
+    {
+      "ref": "Cd0e1f2a3.2",
+      "account": "A2 ...398",
+      "day": "2025-02-21",
+      "caveat": "option_closed_at_zero"
+    },
+    {
+      "ref": "Cd0e1f2a3.3",
+      "account": "A2 ...398",
+      "day": "2025-03-21",
+      "caveat": "assumed_multiplier"
+    },
+    {
+      "ref": "Cd0e1f2a3.3",
+      "account": "A2 ...398",
+      "day": "2025-03-21",
+      "caveat": "option_closed_at_zero"
+    },
+    {
+      "ref": "Cd0e1f2a3.4",
+      "account": "A2 ...398",
+      "day": "2025-04-17",
+      "caveat": "option_closed_at_zero"
+    },
+    {
+      "ref": "Cd0e1f2a3.5",
+      "account": "A2 ...398",
+      "day": "2025-04-18",
+      "caveat": "option_closed_at_zero"
+    },
+    {
+      "ref": "Cd0e1f2a3.6",
+      "account": "A2 ...398",
+      "day": "2025-04-19",
+      "caveat": "option_closed_at_zero"
+    },
+    {
+      "ref": "T61001702",
+      "account": "A2 ...398",
+      "day": "2025-05-16",
+      "caveat": "option_closed_at_zero"
+    }
+  ],
+  "combined": [],
+  "flagged": [
+    {
+      "ref": "T61001702",
+      "account": "A2 ...398",
+      "day": "2025-05-16",
+      "outcome": "written",
+      "flags": [
+        "awaits_probe"
+      ]
+    }
+  ],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A2 ...398"
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

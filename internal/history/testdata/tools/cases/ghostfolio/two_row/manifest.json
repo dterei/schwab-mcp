@@ -1,0 +1,411 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "ghostfolio",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "ghostfolio.json",
+      "kind": "ghostfolio",
+      "rows": 3
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2025-12-01",
+      "new": true,
+      "ghostfolio_id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "balances": {
+        "count": 0,
+        "why": "no snapshot"
+      }
+    }
+  ],
+  "units": {
+    "dates": "an activity's day at noon UTC, and milliseconds that keep the day's order; balances and prices at midnight UTC of their market date",
+    "fp": "the first 16 hex digits of the SHA-256 of every key of a row's activities, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive; days are New York calendar dates, YYYY-MM-DD",
+    "money": "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",
+    "prices": "a BUY's or a SELL's unitPrice: its cash before fees over its shares, to 10 places; a profile's marketPrice: a snapshot's market value over its shares, to 8 places",
+    "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
+  },
+  "written": {
+    "rows": 3,
+    "types": {
+      "BUY": 1,
+      "SELL": 2
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "C0a1b2c3d.1": {
+        "day": "2025-01-15",
+        "as": "2025-01-15 BUY 1000.00",
+        "fp": "5ed16c4e7b9ca087"
+      },
+      "C0a1b2c3d.12": {
+        "day": "2025-12-01",
+        "as": "2025-12-01 SELL 62.00",
+        "fp": "2916566d2005e6b2",
+        "with": "C0a1b2c3d.13"
+      },
+      "C0a1b2c3d.2": {
+        "day": "2025-08-01",
+        "as": "2025-08-01 SELL 1234.50",
+        "fp": "ccd8819144469a96",
+        "with": "C0a1b2c3d.3"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "i:1000001",
+      "symbol": "ABCD",
+      "identity": "ZZB123458",
+      "ghostfolio_symbol": "ABCD",
+      "data_source": "YAHOO"
+    },
+    {
+      "security_key": "i:1000002",
+      "symbol": "EFGH",
+      "identity": "i:1000002",
+      "ghostfolio_symbol": "EFGH",
+      "data_source": "YAHOO"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "left_out": [
+    {
+      "ref": "C0a1b2c3d.4",
+      "account": "A1 ...135",
+      "day": "2025-08-04",
+      "category": "sell",
+      "kind": "Cash Merger",
+      "description": "MERGER",
+      "symbol": "EFGH",
+      "quantity": null,
+      "amount": 50.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.5",
+      "account": "A1 ...135",
+      "day": "2025-09-02",
+      "category": "sell",
+      "kind": "Cash Merger",
+      "description": "MERGER",
+      "symbol": "XYZ",
+      "quantity": null,
+      "amount": 77.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.6",
+      "account": "A1 ...135",
+      "day": "2025-09-02",
+      "category": "other",
+      "kind": "Cash Merger Adj",
+      "description": "MERGER",
+      "symbol": "XYZ",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "corporate_action",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.7",
+      "account": "A1 ...135",
+      "day": "2025-09-02",
+      "category": "other",
+      "kind": "Cash Merger Adj",
+      "description": "MERGER",
+      "symbol": "XYZ",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "corporate_action",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.8",
+      "account": "A1 ...135",
+      "day": "2025-10-01",
+      "category": "sell",
+      "kind": "Cash Merger",
+      "description": "MERGER",
+      "symbol": "",
+      "quantity": null,
+      "amount": 9.00,
+      "reason": "no_security",
+      "advice": "set_security",
+      "command": "schwabtx edit C0a1b2c3d.8 -security K:…"
+    },
+    {
+      "ref": "C0a1b2c3d.9",
+      "account": "A1 ...135",
+      "day": "2025-10-01",
+      "category": "other",
+      "kind": "Cash Merger Adj",
+      "description": "MERGER",
+      "symbol": "",
+      "quantity": -3,
+      "amount": 0.00,
+      "reason": "no_security",
+      "advice": "set_security",
+      "command": "schwabtx edit C0a1b2c3d.9 -security K:…",
+      "with": "C0a1b2c3d.8"
+    },
+    {
+      "ref": "C0a1b2c3d.10",
+      "account": "A1 ...135",
+      "day": "2025-11-03",
+      "category": "sell",
+      "kind": "Cash Merger",
+      "description": "MERGER",
+      "symbol": "/ZZH25:XCME",
+      "quantity": null,
+      "amount": 40.00,
+      "reason": "future",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.11",
+      "account": "A1 ...135",
+      "day": "2025-11-03",
+      "category": "other",
+      "kind": "Cash Merger Adj",
+      "description": "MERGER",
+      "symbol": "/ZZH25:XCME",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "future",
+      "advice": "by_hand",
+      "command": "",
+      "with": "C0a1b2c3d.10"
+    },
+    {
+      "ref": "C0a1b2c3d.14",
+      "account": "A1 ...135",
+      "day": "2025-12-02",
+      "category": "sell",
+      "kind": "Cash Merger",
+      "description": "MERGER",
+      "symbol": "ABCD",
+      "quantity": null,
+      "amount": 10.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.15",
+      "account": "A1 ...135",
+      "day": "2025-12-02",
+      "category": "sell",
+      "kind": "Cash Merger",
+      "description": "MERGER",
+      "symbol": "ABCD",
+      "quantity": null,
+      "amount": 20.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.16",
+      "account": "A1 ...135",
+      "day": "2025-12-02",
+      "category": "other",
+      "kind": "Cash Merger Adj",
+      "description": "MERGER",
+      "symbol": "ABCD",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "corporate_action",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.17",
+      "account": "A1 ...135",
+      "day": "2025-12-03",
+      "category": "sell",
+      "kind": "Cash Merger",
+      "description": "MERGER",
+      "symbol": "AAAA",
+      "quantity": null,
+      "amount": 10.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.18",
+      "account": "A1 ...135",
+      "day": "2025-12-03",
+      "category": "other",
+      "kind": "Cash Merger Adj",
+      "description": "MERGER",
+      "symbol": "BBBB",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "corporate_action",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.19",
+      "account": "A1 ...135",
+      "day": "2025-12-04",
+      "category": "sell",
+      "kind": "Cash In Lieu",
+      "description": "MERGER",
+      "symbol": "XYZ",
+      "quantity": null,
+      "amount": 3.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.20",
+      "account": "A1 ...135",
+      "day": "2025-12-04",
+      "category": "other",
+      "kind": "Reverse Split",
+      "description": "MERGER",
+      "symbol": "XYZ",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "split",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.21",
+      "account": "A1 ...135",
+      "day": "2025-12-05",
+      "category": "sell",
+      "kind": "Cash Merger",
+      "description": "MERGER",
+      "symbol": "XYZ",
+      "quantity": null,
+      "amount": 0.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.22",
+      "account": "A1 ...135",
+      "day": "2025-12-05",
+      "category": "other",
+      "kind": "Cash Merger Adj",
+      "description": "MERGER",
+      "symbol": "XYZ",
+      "quantity": -1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "corporate_action",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.23",
+      "account": "A1 ...135",
+      "day": "2025-12-08",
+      "category": "sell",
+      "kind": "Cash Merger",
+      "description": "MERGER",
+      "symbol": "XYZ",
+      "quantity": null,
+      "amount": 7.00,
+      "reason": "no_quantity",
+      "advice": "by_hand",
+      "command": ""
+    },
+    {
+      "ref": "C0a1b2c3d.24",
+      "account": "A1 ...135",
+      "day": "2025-12-08",
+      "category": "other",
+      "kind": "Cash Merger Adj",
+      "description": "MERGER",
+      "symbol": "XYZ",
+      "quantity": -1,
+      "amount": 0.15,
+      "reason": "other",
+      "advice": "corporate_action",
+      "command": ""
+    }
+  ],
+  "caveats": [],
+  "combined": [
+    {
+      "ref": "C0a1b2c3d.3",
+      "account": "A1 ...135",
+      "with": "C0a1b2c3d.2"
+    },
+    {
+      "ref": "C0a1b2c3d.13",
+      "account": "A1 ...135",
+      "with": "C0a1b2c3d.12"
+    }
+  ],
+  "in_balances": [],
+  "flagged": [
+    {
+      "ref": "C0a1b2c3d.3",
+      "account": "A1 ...135",
+      "day": "2025-08-01",
+      "outcome": "combined",
+      "flags": [
+        "restated_quantity"
+      ]
+    }
+  ],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A1 ...135"
+    ]
+  },
+  "ghostfolio": {
+    "yahoo": [
+      "ABCD",
+      "EFGH"
+    ],
+    "yahoo_idle": [],
+    "manual": [],
+    "profiles": []
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

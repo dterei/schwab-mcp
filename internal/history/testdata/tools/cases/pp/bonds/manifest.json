@@ -1,0 +1,202 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 2,
+      "tick": 0
+    },
+    {
+      "file": "account-transactions-A1-135.csv",
+      "kind": "account",
+      "configuration": "pp-account-transactions.json",
+      "account": "A1 ...135",
+      "rows": 2,
+      "tick": 0
+    },
+    {
+      "file": "portfolio-transactions-A1-135.csv",
+      "kind": "portfolio",
+      "configuration": "pp-portfolio-transactions.json",
+      "account": "A1 ...135",
+      "rows": 2,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2026-08-17",
+      "new": true
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 4,
+    "types": {
+      "Buy": 1,
+      "Dividend": 2,
+      "Sell": 1
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Ca1b2c3d4.1": {
+        "day": "2025-03-03",
+        "as": "portfolio 2025-03-03 Buy 4982.50",
+        "fp": "9ad793f140648b64",
+        "keys": [
+          "c8d9e742b5468e91",
+          "89453d5d0209ca0d"
+        ]
+      },
+      "Ca1b2c3d4.2": {
+        "day": "2025-08-15",
+        "as": "account 2025-08-15 Dividend 106.25",
+        "fp": "f14d49680e3bad61",
+        "keys": [
+          "c2de375245d7eacf"
+        ]
+      },
+      "Ca1b2c3d4.3": {
+        "day": "2026-08-17",
+        "as": "portfolio 2026-08-17 Sell 5000.00",
+        "fp": "5e6063939e9222dc",
+        "with": "Ca1b2c3d4.4",
+        "keys": [
+          "fd8e6ec49555d546",
+          "321ce34e044903e0"
+        ]
+      },
+      "Ca1b2c3d4.6": {
+        "day": "2025-12-01",
+        "as": "account 2025-12-01 Dividend 250.00",
+        "fp": "b7a8bd099f38b20d",
+        "keys": [
+          "a411bed20abf1b8d"
+        ]
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "c:9128ZZQ15",
+      "symbol": "9128ZZQ15",
+      "identity": "9128ZZQ15",
+      "wkn": "9128ZZQ15",
+      "name": "EXAMPLE TREASURY NOTE 4.25% 08/15/2034"
+    },
+    {
+      "security_key": "s:FILE:ZZT10A109@2025-06-01",
+      "symbol": "ZZT10A109",
+      "identity": "ZZT10A109",
+      "wkn": "ZZT10A109",
+      "name": "EXAMPLE CITY REVENUE BOND 5% 06/01/2040"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [
+    {
+      "ref": "Ca1b2c3d4.5",
+      "account": "A1 ...135",
+      "day": "2025-04-01",
+      "category": "buy",
+      "kind": "Buy",
+      "description": "BOND",
+      "symbol": "ZZT10A109",
+      "quantity": 10000,
+      "amount": -10100.00,
+      "reason": "bond_unit",
+      "advice": "check",
+      "command": ""
+    },
+    {
+      "ref": "T61001801",
+      "account": "A1 ...135",
+      "day": "2025-05-01",
+      "category": "buy",
+      "kind": "TRADE",
+      "description": "",
+      "symbol": "ZZT10A109",
+      "quantity": 10000,
+      "amount": -10100.00,
+      "reason": "bond_unit",
+      "advice": "check",
+      "command": ""
+    },
+    {
+      "ref": "Ca1b2c3d4.7",
+      "account": "A1 ...135",
+      "day": "2026-01-05",
+      "category": "transfer_in",
+      "kind": "Journaled Shares",
+      "description": "BOND",
+      "symbol": "ZZT10A109",
+      "quantity": 1000,
+      "amount": 0.00,
+      "reason": "bond_unit",
+      "advice": "check",
+      "command": ""
+    }
+  ],
+  "caveats": [],
+  "combined": [
+    {
+      "ref": "Ca1b2c3d4.4",
+      "account": "A1 ...135",
+      "with": "Ca1b2c3d4.3"
+    }
+  ],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [
+      {
+        "account": "A1 ...135",
+        "security_key": "s:FILE:ZZT10A109@2025-06-01",
+        "symbol": "ZZT10A109",
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 10000,
+        "written_shares": 0
+      }
+    ],
+    "not_checked": []
+  },
+  "symbols_changed": [],
+  "coverage": []
+}

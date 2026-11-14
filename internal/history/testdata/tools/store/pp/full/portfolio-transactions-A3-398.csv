@@ -1,0 +1,12 @@
+Date,Time,Type,Value,Transaction Currency,Shares,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Securities Account
+2026-02-10,,Buy,1140.00,USD,30,,EFGH,,,schwabtx A3 ...398 Cad2f64b0.17: EFGH CORP,Schwab A3 ...398,Schwab A3 ...398
+2026-02-17,,Buy,100.00,USD,5,,QRST,,,schwabtx A3 ...398 Cad2f64b0.16: QRST INC,Schwab A3 ...398,Schwab A3 ...398
+2026-02-18,,Sell,100.00,USD,5,,QRST,,,schwabtx A3 ...398 Cad2f64b0.15: QRST INC,Schwab A3 ...398,Schwab A3 ...398
+2026-02-24,,Buy,498.00,USD,12,,MNOP,,,schwabtx A3 ...398 Cad2f64b0.14: MNOP HOLDINGS INC,Schwab A3 ...398,Schwab A3 ...398
+2026-03-09,,Delivery (Inbound),0.00,USD,10,,ABCD,,,schwabtx A3 ...398 Cad2f64b0.12: ABCD INDUSTRIES INC; value unknown: set it,,Schwab A3 ...398
+2026-03-16,,Delivery (Outbound),0.00,USD,4,,ABCD,,,schwabtx A3 ...398 Cad2f64b0.11: ABCD INDUSTRIES INC; value unknown: set it,,Schwab A3 ...398
+2026-04-01,,Buy,9962.15,USD,10000,,,9128ZZQ15,,schwabtx A3 ...398 Cad2f64b0.9: EXAMPLE TREASURY NOTE 4.25% 08/15/2034,Schwab A3 ...398,Schwab A3 ...398
+2026-04-06,,Buy,251.32,USD,200,1.32,XYZ260515C00050000,,,schwabtx A3 ...398 Cad2f64b0.8: CALL XYZ CORP $50 EXP 05/15/26; multiplier 100 assumed,Schwab A3 ...398,Schwab A3 ...398
+2026-05-18,,Delivery (Outbound),0.00,USD,200,,XYZ260515C00050000,,,schwabtx A3 ...398 Cad2f64b0.5: CALL XYZ CORP $50 EXP 05/15/26; multiplier 100 assumed; closed at 0,,Schwab A3 ...398
+2026-06-01,,Delivery (Inbound),4990.00,USD,5000,,,9128ZZQ15,,schwabtx A3 ...398 Cad2f64b0.4: EXAMPLE TREASURY NOTE 4.25% 08/15/2034,,Schwab A3 ...398
+2026-07-01,,Sell,1200.00,USD,30,,EFGH,,,schwabtx A3 ...398 Cad2f64b0.1 with Cad2f64b0.2: EFGH CORP CASH MERGER,Schwab A3 ...398,Schwab A3 ...398

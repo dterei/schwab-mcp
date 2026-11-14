@@ -1,0 +1,198 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "ghostfolio",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-12",
+    "manual": [
+      "xyz",
+      "ABC-B",
+      "EFGH",
+      "QQQX",
+      "ABCD"
+    ],
+    "since": null
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [
+      {
+        "symbol": "xyz"
+      },
+      {
+        "symbol": "ABC-B"
+      },
+      {
+        "symbol": "EFGH",
+        "unused": true
+      },
+      {
+        "symbol": "QQQX"
+      },
+      {
+        "symbol": "ABCD"
+      }
+    ],
+    "to": "2026-11-12"
+  },
+  "files": [
+    {
+      "file": "ghostfolio.json",
+      "kind": "ghostfolio",
+      "rows": 3
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2025-03-03",
+      "new": true,
+      "ghostfolio_id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "balances": {
+        "count": 0,
+        "why": "no snapshot"
+      }
+    }
+  ],
+  "units": {
+    "dates": "an activity's day at noon UTC, and milliseconds that keep the day's order; balances and prices at midnight UTC of their market date",
+    "fp": "the first 16 hex digits of the SHA-256 of every key of a row's activities, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive; days are New York calendar dates, YYYY-MM-DD",
+    "money": "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",
+    "prices": "a BUY's or a SELL's unitPrice: its cash before fees over its shares, to 10 places; a profile's marketPrice: a snapshot's market value over its shares, to 8 places",
+    "shares": "quantity: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths"
+  },
+  "written": {
+    "rows": 3,
+    "types": {
+      "BUY": 3
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "Ce6f7a8b9.1": {
+        "day": "2025-03-03",
+        "as": "2025-03-03 BUY 40.00",
+        "fp": "aa804d6db2615623"
+      },
+      "T61002601": {
+        "day": "2025-02-03",
+        "as": "2025-02-03 BUY 50.00",
+        "fp": "bd7aa53fadf10a34"
+      },
+      "T61002602": {
+        "day": "2025-02-04",
+        "as": "2025-02-04 BUY 300.00",
+        "fp": "7bc59f0f454b3a8b"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "",
+      "symbol": "QQQX",
+      "identity": "QQQX",
+      "ghostfolio_symbol": "d6098a0a-7748-81ea-ace2-377f993f63ba",
+      "data_source": "MANUAL",
+      "name": "Security (QQQX)"
+    },
+    {
+      "security_key": "i:1000001",
+      "symbol": "ABCD",
+      "identity": "ZZB123458",
+      "ghostfolio_symbol": "cf4d8574-cb21-87c1-b4d0-49a87e05fe05",
+      "data_source": "MANUAL",
+      "name": "Security (ZZB123458)"
+    },
+    {
+      "security_key": "i:1000003",
+      "symbol": "ABC.B",
+      "identity": "i:1000003",
+      "ghostfolio_symbol": "9f58e850-1f4b-82ff-b759-426c00467f0b",
+      "data_source": "MANUAL",
+      "name": "Security (i:1000003)"
+    },
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ghostfolio_symbol": "74bcb546-fa1d-820b-bee2-436d6b2aa408",
+      "data_source": "MANUAL",
+      "name": "Security (98389B100)"
+    }
+  ],
+  "changed": [],
+  "gone": [],
+  "left_out": [],
+  "caveats": [],
+  "combined": [],
+  "in_balances": [],
+  "flagged": [],
+  "waiting": [],
+  "holdings": {
+    "differences": [],
+    "not_checked": [
+      "A1 ...135"
+    ]
+  },
+  "ghostfolio": {
+    "yahoo": [],
+    "yahoo_idle": [],
+    "manual": [
+      {
+        "security_key": "",
+        "symbol": "QQQX",
+        "why": "asked"
+      },
+      {
+        "security_key": "i:1000001",
+        "symbol": "ABCD",
+        "why": "asked"
+      },
+      {
+        "security_key": "i:1000003",
+        "symbol": "ABC.B",
+        "why": "asked"
+      },
+      {
+        "security_key": "i:1854092",
+        "symbol": "XYZ",
+        "why": "asked"
+      }
+    ],
+    "profiles": [
+      {
+        "symbol": "d6098a0a-7748-81ea-ace2-377f993f63ba",
+        "name": "Security (QQQX)",
+        "status": "used"
+      },
+      {
+        "symbol": "cf4d8574-cb21-87c1-b4d0-49a87e05fe05",
+        "name": "Security (ZZB123458)",
+        "status": "prices_only"
+      },
+      {
+        "symbol": "9f58e850-1f4b-82ff-b759-426c00467f0b",
+        "name": "Security (i:1000003)",
+        "status": "used"
+      },
+      {
+        "symbol": "74bcb546-fa1d-820b-bee2-436d6b2aa408",
+        "name": "Security (98389B100)",
+        "status": "used"
+      }
+    ]
+  },
+  "symbols_changed": [],
+  "coverage": []
+}
