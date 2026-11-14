@@ -93,33 +93,60 @@ func TestToolMapping(t *testing.T) {
 				t.Errorf("two cases are named %s", c.name)
 			}
 			seen[c.name] = true
-			for _, tool := range []string{toolPP, toolGF} {
-				in, events, outcomes := mapCase(c, tool)
-				checkOutcomes(t, c.name+" "+tool, in, events, outcomes)
-				want := map[string]toolWant{}
-				for _, w := range c.want {
-					want[w.ref] = w
-				}
-				for i, r := range in.rows {
-					w, ok := want[r.ref]
-					if !ok {
-						t.Errorf("%s: the case says nothing of %s", c.name, r.ref)
-						continue
-					}
-					delete(want, r.ref)
-					expect := w.pp
-					if tool == toolGF {
-						expect = w.gf
-					}
-					if got := describeRow(tool, outcomes[i], eventsOf(events, i)); got != expect {
-						t.Errorf("%s %s %s: %s, want %s", c.name, tool, r.ref, got, expect)
-					}
-				}
-				for ref := range want {
-					t.Errorf("%s: the case wants %s, which it does not hold", c.name, ref)
-				}
-			}
+			checkCase(t, c)
 		}
+	})
+
+	t.Run("edges", func(t *testing.T) {
+		t.Parallel()
+		// The bounds of rules that the cases meet only inside: a two-row
+		// cash row beside shares that came in, not out; a row that says
+		// "Removed due to Expiration" but is no RECEIVE_AND_DELIVER; a buy
+		// of 0; a cash merger with fees; an option's multiplier past
+		// 10 000; shares past what an int64 holds; a journal pair of 0.00.
+		in := tcInput(toolInput{rows: []toolRow{
+			{
+				ref: "T61003001", account: 1, source: "api", time: tcNY("2025-02-03 10:00:00"), kind: "TRADE", category: "sell",
+				amount: centsOf(10_000), securityKey: keyABCD, symbol: "ABCD", flags: []string{"two_row_event"},
+			},
+			{
+				ref: "T61003002", account: 1, source: "api", time: tcNY("2025-02-03 10:00:00"), kind: "RECEIVE_AND_DELIVER", category: "other",
+				amount: centsOf(0), securityKey: keyABCD, symbol: "ABCD", quantity: centsOf(5_000_000), flags: []string{"two_row_event"},
+			},
+			{
+				ref: "T61003003", account: 2, source: "api", time: tcNY("2025-02-21 16:00:00"), kind: "TRADE", category: "other",
+				description: "Removed due to Expiration", amount: centsOf(0), securityKey: keyPut, symbol: symPut, quantity: centsOf(-1_000_000),
+			},
+			rcTrade("T61003004", 1, "2025-02-24 10:00:00", "buy", keyEFGH, "EFGH", 1_000_000, 0, 0, 0),
+			{
+				ref: "T61003005", account: 1, source: "api", time: tcNY("2025-03-03 10:00:00"), kind: "TRADE", category: "sell",
+				amount: centsOf(99_000), fees: centsOf(1000), securityKey: keyABCD, symbol: "ABCD", flags: []string{"two_row_event"},
+			},
+			{
+				ref: "T61003006", account: 1, source: "api", time: tcNY("2025-03-03 10:00:00"), kind: "RECEIVE_AND_DELIVER", category: "other",
+				amount: centsOf(0), securityKey: keyABCD, symbol: "ABCD", quantity: centsOf(-10_000_000), flags: []string{"two_row_event"},
+			},
+			rcTrade("T61003007", 2, "2025-03-04 10:00:00", "buy", "i:1000013", "XYZ   250321C00047000", 1_000_000, 1, -10_000, 0),
+			rcTrade("T61003008", 2, "2025-03-05 10:00:00", "buy", keyPut, symPut, 100_000_000_000_000_000, 1, -10_000, 0),
+			rcJournal("T61003009", 1, "2025-03-06 10:00:00", "JOURNAL TO ...398", 0, "T61003010", 2),
+			rcJournal("T61003010", 2, "2025-03-06 10:00:05", "JOURNAL FRM ...135", 0, "T61003009", 1),
+		}})
+		in.securities = append(slices.Clone(in.securities), toolSecurityRow{
+			key: "i:1000013", assetType: "OPTION", putCall: "CALL", strike: tcPrice(47), expiration: "2025-03-21", multiplier: tcPrice(20_000), underlying: "XYZ",
+		})
+		in.names = append(slices.Clone(in.names), toolName{key: "i:1000013", kind: "symbol", value: "XYZ   250321C00047000"})
+		checkCase(t, toolCase{name: "edges", in: in, want: []toolWant{
+			{"T61003001", "left_out no_quantity", "left_out no_quantity"},
+			{"T61003002", "left_out other", "left_out other"},
+			{"T61003003", "left_out other", "left_out other"},
+			{"T61003004", "Buy 0.00 shares 1", "BUY 0.00 shares 1"},
+			{"T61003005", "Sell 990.00 fees 10.00 shares 10", "SELL 990.00 fees 10.00 shares 10"},
+			{"T61003006", "combined with T61003005", "combined with T61003005"},
+			{"T61003007", "left_out multiplier", "left_out multiplier"},
+			{"T61003008", "left_out no_quantity", "left_out no_quantity"},
+			{"T61003009", "left_out zero_amount", "left_out zero_amount"},
+			{"T61003010", "left_out zero_amount", "left_out zero_amount"},
+		}})
 	})
 
 	t.Run("lines", func(t *testing.T) {
@@ -746,6 +773,11 @@ func TestToolMapping(t *testing.T) {
 		if bs := toolBalances(&in); len(bs) != 1 || len(bs[2]) != 1 {
 			t.Errorf("account 2's balances: %v", bs)
 		}
+		// A date's balance is its latest snapshot's, whatever their order.
+		in.snapshots = []toolSnapshot{rcSnapshot(2, "2026-11-11", 100), {account: 2, marketDate: "2026-11-11", fetchedAt: tcNY("2026-11-11 20:00:00"), cash: centsOf(200)}}
+		if bs := toolBalances(&in); len(bs[2]) != 1 || bs[2][0].cash != 200 {
+			t.Errorf("two snapshots of a date, the later last: %v", bs)
+		}
 	})
 
 	t.Run("holdings", func(t *testing.T) {
@@ -784,6 +816,15 @@ func TestToolMapping(t *testing.T) {
 		in.account = 3
 		if diffs, unchecked := holdingsCheck(in, events); len(diffs) != 0 || len(unchecked) != 1 {
 			t.Errorf("account 3 alone: %v, %v", diffs, unchecked)
+		}
+		// An option whose multiplier is not whole is held, but no record of
+		// it is ever written: it is not checked.
+		held := tcInput(toolInput{
+			snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 0)},
+			positions: []toolPosition{rcPosition("2026-11-10", keyBadM, 1_000_000, 250)},
+		})
+		if diffs, _ := holdingsCheck(&held, nil); len(diffs) != 0 {
+			t.Errorf("an option of multiplier 2.5 held: %+v", diffs)
 		}
 	})
 
@@ -986,6 +1027,38 @@ func TestToolMapping(t *testing.T) {
 			}
 		}
 	})
+}
+
+// checkCase maps case c for each tool and requires what the case says of
+// each row, one outcome per row (checkOutcomes).
+func checkCase(t *testing.T, c toolCase) {
+	t.Helper()
+	for _, tool := range []string{toolPP, toolGF} {
+		in, events, outcomes := mapCase(c, tool)
+		checkOutcomes(t, c.name+" "+tool, in, events, outcomes)
+		want := map[string]toolWant{}
+		for _, w := range c.want {
+			want[w.ref] = w
+		}
+		for i, r := range in.rows {
+			w, ok := want[r.ref]
+			if !ok {
+				t.Errorf("%s: the case says nothing of %s", c.name, r.ref)
+				continue
+			}
+			delete(want, r.ref)
+			expect := w.pp
+			if tool == toolGF {
+				expect = w.gf
+			}
+			if got := describeRow(tool, outcomes[i], eventsOf(events, i)); got != expect {
+				t.Errorf("%s %s %s: %s, want %s", c.name, tool, r.ref, got, expect)
+			}
+		}
+		for ref := range want {
+			t.Errorf("%s: the case wants %s, which it does not hold", c.name, ref)
+		}
+	}
 }
 
 // checkOutcomes requires that the mapping gives every row of in one

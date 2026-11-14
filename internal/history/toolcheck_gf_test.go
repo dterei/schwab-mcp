@@ -1284,11 +1284,12 @@ type gfPerformance struct {
 // calculator values it only with a price at the end (:1552-1581): Yahoo's,
 // which the model takes Yahoo to serve for every symbol that it resolves,
 // as the import requires; for a MANUAL asset, its latest price above 0,
-// else the unit price of its latest BUY or SELL when above 0
-// (current-rate.service.ts:125-181), else that of its last activity when
-// that is a BUY or a SELL (:2061-2088). Only a valued holding's fees come
-// off net performance; one that is not keeps its dividends and interest
-// alone. A holding has an investment when a BUY of it cost more than 0.
+// else the unit price of the latest of its BUYs and SELLs whose unit price
+// is above 0 (current-rate.service.ts:125-181, activities.service.ts:
+// 606-620), else that of its last activity when that is a BUY or a SELL
+// (:2061-2088). Only a valued holding's fees come off net performance; one
+// that is not keeps its dividends and interest alone. A holding has an
+// investment when a BUY of it cost more than 0.
 func (m *gfModel) performance() gfPerformance {
 	p := gfPerformance{fees: new(big.Rat), offNet: new(big.Rat), dividends: new(big.Rat), interest: new(big.Rat)}
 	by := map[string][]gfmActivity{}
@@ -1301,8 +1302,8 @@ func (m *gfModel) performance() gfPerformance {
 		slices.SortStableFunc(acts, func(a, b gfmActivity) int { return cmp.Compare(a.date, b.date) })
 		fees, dividends := new(big.Rat), new(big.Rat)
 		invested := false
-		var lastTrade *gfmActivity
-		for i, a := range acts {
+		priced := false // a BUY or a SELL whose unit price is above 0
+		for _, a := range acts {
 			fees.Add(fees, a.fee)
 			value := new(big.Rat).Mul(a.quantity, a.unitPrice)
 			switch a.typ {
@@ -1312,15 +1313,15 @@ func (m *gfModel) performance() gfPerformance {
 				p.interest.Add(p.interest, value)
 			case "BUY":
 				invested = invested || value.Sign() > 0
-				lastTrade = &acts[i]
-			case "SELL":
-				lastTrade = &acts[i]
+			}
+			if (a.typ == "BUY" || a.typ == "SELL") && a.unitPrice.Sign() > 0 {
+				priced = true
 			}
 		}
 		valued := !strings.HasPrefix(asset, "MANUAL ")
 		if !valued {
 			last := acts[len(acts)-1]
-			valued = lastTrade != nil && lastTrade.unitPrice.Sign() > 0 || last.typ == "BUY" || last.typ == "SELL"
+			valued = priced || last.typ == "BUY" || last.typ == "SELL"
 			if prof := m.profile(acts[0].symbol); prof != nil {
 				for _, price := range prof.prices {
 					valued = valued || price.Sign() > 0
@@ -2014,8 +2015,9 @@ func TestGFModel(t *testing.T) {
 		if p := perf(gfRender(&in, events).file); p.fees.Cmp(big.NewRat(49, 1)) != 0 || p.offNet.Cmp(p.fees) != 0 || len(p.unvalued) > 0 {
 			t.Errorf("a cash profile: fees %v, off net %v, not valued %v", p.fees, p.offNet, p.unvalued)
 		}
-		// A MANUAL holding is valued by a price, by its latest trade's unit
-		// price, or by its last activity when that is a BUY or a SELL.
+		// A MANUAL holding is valued by a price, by the unit price of its
+		// latest trade of a price above 0, or by its last activity when that
+		// is a BUY or a SELL.
 		profile := gfmProfileOf(gfmBond, "Bond (9128ZZQ15)")
 		priced := gfmProfileOf(gfmBond, "Bond (9128ZZQ15)", "2025-06-30=0.995")
 		bondBuy := gfmActivityOf(gfmA1, "schwabtx A1 ...135 C2.1", "MANUAL", gfmBond, "BUY", "2025-04-01", "1000", "0.99", "1.00")
@@ -2035,7 +2037,7 @@ func TestGFModel(t *testing.T) {
 			{"none", profile, []gfActivity{coupon}, false, true},
 			{"a last BUY at 0", profile, []gfActivity{coupon, feeOf}, true, true},
 			{"a BUY at 0 before a DIVIDEND", profile, []gfActivity{atZero, coupon}, false, true},
-			{"a SELL at 0 after a BUY, before a DIVIDEND", profile, []gfActivity{bondBuy, closed, coupon}, false, true},
+			{"a SELL at 0 after a BUY, before a DIVIDEND", profile, []gfActivity{bondBuy, closed, coupon}, true, false},
 		} {
 			p := perf(gfFile{Accounts: []gfAccount{a1}, AssetProfiles: []gfProfile{c.profile}, Activities: c.activities})
 			if valued := len(p.unvalued) == 0; valued != c.valued || (len(p.noInvestment) > 0) != c.noInvesting {
