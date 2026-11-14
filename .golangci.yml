@@ -71,6 +71,26 @@ linters:
         # in a nolint:forbidigo comment.
         - pattern: ^os\.(Open|OpenFile|ReadFile|Create|WriteFile|OpenInRoot|OpenRoot|DirFS)$
           msg: the store's files are opened only by SQLite; take contents, not paths
+        # The MCP server holds the store open too, and keeps to conventions
+        # of its own, which internal/mcpserver's package doc states. Only
+        # the server's packages are held to these rules, whose messages
+        # start "MCP server:" (see the exclusions below); the two places
+        # where cmd/schwab-mcp must touch os.Stdout each say why.
+        - pattern: ^(fmt\.Print(f|ln)?|os\.Stdout|print|println)$
+          msg: "MCP server: stdout carries the protocol alone; use the server's logger"
+        - pattern: ^log\.(Print|Fatal|Panic)(f|ln)?$
+          msg: "MCP server: log through the server's logger"
+        - pattern: ^json\.(Marshal|MarshalIndent)$
+          msg: "MCP server: encode output with encode(), which does not escape HTML"
+        - pattern: ^history\.Open$
+          pkg: ^github\.com/dterei/schwab-mcp/internal/history$
+          msg: "MCP server: open the store with history.OpenReader, which cannot write"
+        - pattern: ^mcp\.(AddTool|ResourceNotFoundError)$
+          pkg: ^github\.com/modelcontextprotocol/go-sdk/mcp$
+          msg: "MCP server: register tools with addTool; never echo a URI in an error"
+        - pattern: ^schwab\.Auth\.(Login|AuthorizeURL)$
+          pkg: ^github\.com/dterei/schwab-mcp/internal/schwab$
+          msg: "MCP server: the server never logs in"
     nolintlint:
       require-specific: true
       require-explanation: true
@@ -86,8 +106,16 @@ linters:
       # Tests use fake credentials and temp-dir paths on purpose.
       - path: _test\.go
         linters: [gosec]
-      # Only the store is kept from opening files by path, and its tests may.
-      - path-except: ^internal/history/
+      # Only the store and the MCP server, which holds the store open, are
+      # kept from opening files by path, and only the server's packages are
+      # held to its conventions. Each rule is scoped by its message, since a
+      # path-except rule without one would drop every other rule's issues
+      # outside its path. Tests may do all of it.
+      - path-except: ^(internal/history|internal/mcpserver|cmd/schwab-mcp)/
+        text: "the store's files are opened only by SQLite"
+        linters: [forbidigo]
+      - path-except: ^(internal/mcpserver|cmd/schwab-mcp)/
+        text: "MCP server:"
         linters: [forbidigo]
       - path: _test\.go
         linters: [forbidigo]

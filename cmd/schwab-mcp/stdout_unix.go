@@ -15,7 +15,7 @@ import (
 // the next file the process opened (a lock, the token file, the store, a
 // socket) would take it, and a stray write meant for stdout would land
 // inside that file.
-var fd1 = os.Stdout
+var fd1 = os.Stdout //nolint:forbidigo // the guard itself, which keeps descriptor 1's file referenced
 
 // guardStdout keeps stdout for the protocol alone (design 5.3). It copies
 // descriptor 1 to a new descriptor, which no child process inherits, for

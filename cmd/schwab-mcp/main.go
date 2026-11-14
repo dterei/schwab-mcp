@@ -70,7 +70,7 @@ const shutdownWait = 250 * time.Millisecond
 var testTools func(s *mcpserver.Server)
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, stdinIsTerminal))
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, stdinIsTerminal)) //nolint:forbidigo // --check and --version print to stdout, before the guard runs
 }
 
 // run runs the command with args and returns its exit code: 0 when stdin

@@ -17,10 +17,10 @@ import (
 // copied before main, such as syscall.Stdout, would still reach the client:
 // no package that the server links writes through one.
 func guardStdout() (*os.File, error) {
-	protocol := os.Stdout
+	protocol := os.Stdout //nolint:forbidigo // the guard itself, which keeps the original stdout for the protocol
 	if err := windows.SetStdHandle(windows.STD_OUTPUT_HANDLE, windows.Handle(os.Stderr.Fd())); err != nil {
 		return nil, fmt.Errorf("pointing stdout at stderr: %w", err)
 	}
-	os.Stdout = os.Stderr
+	os.Stdout = os.Stderr //nolint:forbidigo // the guard itself, which points os.Stdout at stderr
 	return protocol, nil
 }
