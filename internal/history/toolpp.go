@@ -151,6 +151,10 @@ type ppFile struct {
 	// rows is how many rows a file of securities or records holds below its
 	// header.
 	rows int
+	// records are the records of an account or a portfolio file, in the
+	// order of its rows; none for any other file. The replay of PP's
+	// duplicate rule reads them (ppTicks).
+	records []*toolEvent
 	// data is its bytes.
 	data []byte
 }
@@ -216,7 +220,7 @@ func ppFiles(in *toolInput, events []toolEvent) []ppFile {
 		}
 		files = append(files, ppFile{
 			name: name, kind: kind, configuration: configuration, account: f.account,
-			rows: len(rows), data: ppCSV(header, rows),
+			rows: len(rows), records: f.records, data: ppCSV(header, rows),
 		})
 	}
 

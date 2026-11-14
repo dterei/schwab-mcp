@@ -1,0 +1,139 @@
+{
+  "chain": {
+    "id": "2026-02-01T15:00:00Z",
+    "account": null,
+    "manual": [
+      {
+        "symbol": "ABCD",
+        "unused": true
+      }
+    ],
+    "to": "2026-01-31"
+  },
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2026-01-05",
+      "new": true,
+      "ghostfolio_id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "balances": {
+        "count": 1,
+        "first": "2026-01-08",
+        "last": "2026-01-08"
+      },
+      "cash": {
+        "value": 1000.00,
+        "date": "2026-01-08"
+      }
+    },
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options \u0026 Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": null,
+      "new": true,
+      "ghostfolio_id": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "balances": {
+        "count": 0,
+        "why": "no snapshot holds its cash"
+      }
+    }
+  ],
+  "given": {
+    "A1 ...135": {
+      "T74700101": {
+        "day": "2026-01-05",
+        "as": "2026-01-05 BUY 50.00",
+        "fp": "162d856eeac59db4"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ghostfolio_symbol": "XYZ",
+      "data_source": "YAHOO"
+    }
+  ],
+  "left_out": [
+    {
+      "ref": "T74700103",
+      "account": "A1 ...135",
+      "day": null,
+      "category": "deposit",
+      "kind": "CASH_RECEIPT",
+      "description": "Funds Received",
+      "symbol": "",
+      "quantity": null,
+      "amount": 10.00,
+      "reason": "no_day",
+      "advice": "check",
+      "command": "schwabtx status T74700103"
+    },
+    {
+      "ref": "T74700201",
+      "account": "A2 ...398",
+      "day": "2026-01-06",
+      "category": "journal",
+      "kind": "JOURNAL",
+      "description": "JOURNAL TO ...135",
+      "symbol": "",
+      "quantity": null,
+      "amount": -10.00,
+      "reason": "gf_cash",
+      "advice": "set_cash",
+      "command": "schwabtx snapshot"
+    },
+    {
+      "ref": "T74700301",
+      "account": "A3 ...783",
+      "day": "2026-01-06",
+      "category": "deposit",
+      "kind": "WIRE_IN",
+      "description": "Wire Incoming",
+      "symbol": "",
+      "quantity": null,
+      "amount": 500.00,
+      "reason": "gf_cash",
+      "advice": "set_cash",
+      "command": "schwabtx snapshot"
+    },
+    {
+      "ref": "C7470000.1",
+      "account": "A1 ...135",
+      "day": "2026-01-07",
+      "category": "other",
+      "kind": "Stock Split",
+      "description": "STOCK SPLIT",
+      "symbol": "XYZ",
+      "quantity": 1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "split",
+      "command": ""
+    }
+  ],
+  "holdings": {
+    "differences": [
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1854092",
+        "symbol": "XYZ",
+        "snapshot": "2026-01-08",
+        "snapshot_shares": 3,
+        "written_shares": 1
+      }
+    ],
+    "not_checked": [
+      "A3 ...783"
+    ]
+  }
+}

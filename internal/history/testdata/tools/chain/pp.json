@@ -1,0 +1,137 @@
+{
+  "chain": {
+    "id": "2026-02-01T15:00:00Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-01-31"
+  },
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": true,
+      "last_day": "2026-01-06",
+      "new": true
+    },
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options \u0026 Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": "2026-01-06",
+      "new": true
+    },
+    {
+      "label": "A3 ...783",
+      "account": "...783",
+      "nickname": "Joint",
+      "name": "Schwab A3 ...783",
+      "exported": true,
+      "last_day": "2026-01-06",
+      "new": true
+    }
+  ],
+  "given": {
+    "A1 ...135": {
+      "T74700101": {
+        "day": "2026-01-05",
+        "as": "portfolio 2026-01-05 Buy 50.00",
+        "fp": "6ffd6c5df858c2a9",
+        "keys": [
+          "8540b66afdb4fa55",
+          "b63329b9ffc5debe"
+        ]
+      },
+      "T74700102": {
+        "day": "2026-01-06",
+        "as": "account 2026-01-06 Transfer (Inbound) 10.00",
+        "fp": "eb57896d6bd0ca54",
+        "keys": [
+          "6ab46f3e0809d875",
+          "d5a3c23f8f032818"
+        ],
+        "transfer": "A2 ...398 T74700201"
+      }
+    },
+    "A2 ...398": {
+      "T74700201": {
+        "day": "2026-01-06",
+        "as": "account 2026-01-06 Transfer (Outbound) 10.00",
+        "fp": "d8adadacc283c88a",
+        "keys": [
+          "6ab46f3e0809d875",
+          "d5a3c23f8f032818"
+        ],
+        "transfer": "A2 ...398 T74700201"
+      }
+    },
+    "A3 ...783": {
+      "T74700301": {
+        "day": "2026-01-06",
+        "as": "account 2026-01-06 Deposit 500.00",
+        "fp": "1b36728cda716cc0",
+        "keys": [
+          "98a34520a16173b6"
+        ]
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "98389B100",
+      "ticker": "XYZ",
+      "wkn": "98389B100",
+      "name": "XYZ CORP COMMON STOCK"
+    }
+  ],
+  "left_out": [
+    {
+      "ref": "T74700103",
+      "account": "A1 ...135",
+      "day": null,
+      "category": "deposit",
+      "kind": "CASH_RECEIPT",
+      "description": "Funds Received",
+      "symbol": "",
+      "quantity": null,
+      "amount": 10.00,
+      "reason": "no_day",
+      "advice": "check",
+      "command": "schwabtx status T74700103"
+    },
+    {
+      "ref": "C7470000.1",
+      "account": "A1 ...135",
+      "day": "2026-01-07",
+      "category": "other",
+      "kind": "Stock Split",
+      "description": "STOCK SPLIT",
+      "symbol": "XYZ",
+      "quantity": 1,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "split",
+      "command": ""
+    }
+  ],
+  "holdings": {
+    "differences": [
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1854092",
+        "symbol": "XYZ",
+        "snapshot": "2026-01-08",
+        "snapshot_shares": 3,
+        "written_shares": 1
+      }
+    ],
+    "not_checked": [
+      "A3 ...783"
+    ]
+  }
+}

@@ -57,10 +57,11 @@ func toolCaseNamed(name string) toolCase {
 	return toolCases()[i]
 }
 
-// update rewrites the golden files of TestToolCases from what the exports
-// write: go test ./internal/history -run TestToolCases -history.update.
-// Read the diff before committing it.
-var update = flag.Bool("history.update", false, "TestToolCases: rewrite its golden files under testdata/tools/cases")
+// update rewrites the golden files of TestToolCases and TestToolChain from
+// what the exports write: go test ./internal/history -run
+// 'TestToolCases|TestToolChain' -history.update. Read the diff before
+// committing it.
+var update = flag.Bool("history.update", false, "TestToolCases and TestToolChain: rewrite their golden files under testdata/tools")
 
 // TestToolCases writes each case of toolCases as an export of each tool and
 // requires the golden files of testdata/tools/cases (11.2 of the design): a
