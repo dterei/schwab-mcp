@@ -16,9 +16,9 @@ import (
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
-// A lookup is one of the commands that print what Schwab reports of the
-// accounts as of the request.
-type lookup struct {
+// A lookupCommand is one of the commands that print what Schwab reports of
+// the accounts as of the request.
+type lookupCommand struct {
 	positions bool // it asks for the accounts' positions
 	names     bool // its table shows the accounts' nicknames
 	// table returns the table of the accounts as, with full account
@@ -29,7 +29,7 @@ type lookup struct {
 	summary func(as []namedAccount) string
 }
 
-var lookups = map[string]lookup{
+var lookups = map[string]lookupCommand{
 	"accounts":  {names: true, table: accountsTable},
 	"balances":  {names: true, table: balancesTable},
 	"positions": {positions: true, table: positionsTable, summary: positionsSummary},
