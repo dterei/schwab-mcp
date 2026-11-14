@@ -892,10 +892,14 @@ func TestToolChain(t *testing.T) {
 		later := tcInput(toolInput{rows: append(rows,
 			rcTrade("T74600103", 1, "2025-09-01 10:00:00", "sell", keyRename, "PQRS", -1_000_000, 25, 2500, 0),
 			rcTrade("T74600104", 1, "2025-09-01 11:00:00", "buy", keyXYZ, "XYZ", 1_000_000, 51, -5100, 0))})
-		keys := func(ss []*toolSecurity) []string {
+		keys := func(groups [][]*toolSecurity) []string {
 			var out []string
-			for _, s := range ss {
-				out = append(out, s.key)
+			for _, ss := range groups {
+				var of []string
+				for _, s := range ss {
+					of = append(of, s.key)
+				}
+				out = append(out, strings.Join(of, " "))
 			}
 			return out
 		}
@@ -2146,6 +2150,13 @@ func TestToolReimport(t *testing.T) {
 			e1 := chainStepOf(t, before, tool, nil, rcAt1)
 			e2 := chainStepOf(t, tcInput(after), tool, e1, rcAt2)
 			changed, _ := rcChanged(e2)
+			// Its identifiers changed under each key that the export lists,
+			// both in Ghostfolio, which writes both rows again: one security
+			// whose symbol changed, as the tool holds it.
+			keys := map[string]int{toolPP: 1, toolGF: 2}[tool]
+			if got := e2.res.symbolsChanged; e2.e.SymbolsChanged != 1 || len(got) != 1 || len(got[0]) != keys {
+				t.Errorf("%s: %d securities changed symbol: %v", tool, e2.e.SymbolsChanged, got)
+			}
 			if tool == toolPP {
 				if len(changed) > 0 || !slices.Equal(e2.refs(outcomeWritten), []string{dividend.ref}) {
 					t.Errorf("PP: written %q, changed %q", e2.refs(outcomeWritten), changed)
@@ -2170,6 +2181,25 @@ func TestToolReimport(t *testing.T) {
 			if held, p := m.holdings(), m.performance(); len(held) != 1 || len(p.noInvestment) > 0 {
 				t.Errorf("Ghostfolio holds %v; no investment %v", held, p.noInvestment)
 			}
+		}
+	})
+
+	t.Run("-manual of a security of two keys", func(t *testing.T) {
+		t.Parallel()
+		// -manual names JKLM, the ticker of the History file's key, which
+		// the API's key never had: the first export writes the file's buy,
+		// and the next the API's sale alone, MANUAL by that name, which it
+		// uses then too.
+		in := twoKeys{
+			api: []string{"JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", fileCUSIP: "ZZJ12K106", filed: tcFiledEarly, manual: "JKLM",
+		}.toolCase().in
+		first := in
+		first.to, first.rows, first.positions, first.snapshots = "2025-12-31", in.rows[:1], nil, nil
+		e1 := chainStepOf(t, first, toolGF, nil, rcAt1)
+		e2 := chainStepOf(t, in, toolGF, e1, rcAt2)
+		if !slices.Equal(e2.refs(outcomeWritten), []string{in.rows[1].ref}) || len(e1.unused) > 0 || len(e2.unused) > 0 ||
+			e2.gf.file.Activities[0].DataSource != "MANUAL" || strings.Contains(string(e2.manifest), `"unused": true`) {
+			t.Errorf("written %q, unused %q then %q", e2.refs(outcomeWritten), e1.unused, e2.unused)
 		}
 	})
 

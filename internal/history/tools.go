@@ -113,8 +113,8 @@ type ToolExport struct {
 	// to resolve them, which no export writes until you have; Holdings the
 	// securities of an account whose shares differ from its latest
 	// snapshot's, but those that the export it goes on from listed alike;
-	// SymbolsChanged the securities that a tool holding them under an
-	// earlier symbol needs telling of.
+	// SymbolsChanged the securities, as the tool holds them, that a tool
+	// holding them under an earlier symbol needs telling of.
 	Flagged, Waiting, Holdings, SymbolsChanged int
 	// Unused are the symbols that the chain's -manual names and that
 	// nothing in the export uses, as given.
@@ -692,13 +692,17 @@ type (
 		Status string `json:"status"`
 	}
 	// A toolSymbolsEntry is a security whose symbol changed (3.5 of the
-	// design): its key, how the export writes it (its ticker, or MANUAL
-	// for one that the tool gets no price feed for), and every ticker that
-	// it has had, the latest first, its CUSIP first when it is delisted.
+	// design), as the tool holds it: its key, the first of the store's
+	// securities that the tool takes for it, and every one's key when there
+	// are several, as the holdings check names them; how the export writes
+	// it (its ticker, or MANUAL for one that the tool gets no price feed
+	// for); and every ticker that it has had, the latest first, its CUSIP
+	// first when it is delisted.
 	toolSymbolsEntry struct {
-		SecurityKey string   `json:"security_key"`
-		WrittenAs   string   `json:"written_as"`
-		Symbols     []string `json:"symbols"`
+		SecurityKey  string   `json:"security_key"`
+		SecurityKeys []string `json:"security_keys,omitempty"`
+		WrittenAs    string   `json:"written_as"`
+		Symbols      []string `json:"symbols"`
 	}
 )
 
@@ -825,8 +829,14 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 		}
 		m.Waiting = append(m.Waiting, entry)
 	}
-	for _, s := range res.symbolsChanged {
+	for _, of := range res.symbolsChanged {
+		s := of[0]
 		entry := toolSymbolsEntry{SecurityKey: s.key, WrittenAs: "MANUAL", Symbols: slices.Clone(s.tickers)}
+		if len(of) > 1 {
+			for _, k := range of {
+				entry.SecurityKeys = append(entry.SecurityKeys, k.key)
+			}
+		}
 		switch {
 		case in.tool == toolPP && s.ppTicker() != "":
 			entry.WrittenAs = s.ppTicker()

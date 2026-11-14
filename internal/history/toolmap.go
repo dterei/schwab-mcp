@@ -2751,9 +2751,11 @@ func yahooIdle(in *toolInput, events []toolEvent) []toolIdle {
 // key, compared in Yahoo's form whatever the case (symbolForm), however
 // Schwab, a file or you spell a class share.
 // It returns those that name a security that no record of events and no
-// price of the export uses (listSecurities): most are tickers that Yahoo
-// no longer serves, whose rows ended, which a chain keeps all the same. A
-// symbol that names nothing is a typo, said back masked.
+// price of the export uses (listSecurities), nor any of the store's
+// securities that the tools take for one with such a security, whose
+// symbols make it MANUAL (gfManual): most are tickers that Yahoo no longer
+// serves, whose rows ended, which a chain keeps all the same. A symbol that
+// names nothing is a typo, said back masked.
 func checkManual(in *toolInput, events []toolEvent) ([]string, error) {
 	symbols := map[string][]secRef{} // as -manual compares them (symbolForm), to the securities that have had them
 	add := func(sym string, ref secRef) {
@@ -2771,20 +2773,21 @@ func checkManual(in *toolInput, events []toolEvent) ([]string, error) {
 			add(r.symbol, secRef{symbol: r.symbol})
 		}
 	}
-	used := map[secRef]bool{}
+	used := map[string]bool{} // the symbols (symbolForm) of the securities used and of their groups
 	for _, l := range listSecurities(in, events) {
-		used[l.security.ref()] = true
+		for _, sym := range l.security.symbols {
+			used[symbolForm(sym)] = true
+		}
 	}
 	var unused []string
 	for _, v := range in.manual {
 		if v = strings.TrimSpace(v); v == "" {
 			continue
 		}
-		refs := symbols[symbolForm(v)]
-		if len(refs) == 0 {
+		if len(symbols[symbolForm(v)]) == 0 {
 			return nil, fmt.Errorf("-manual names %s, which no security in the store has", mask.Text(v))
 		}
-		if !slices.ContainsFunc(refs, func(r secRef) bool { return used[r] }) {
+		if !used[symbolForm(v)] {
 			unused = append(unused, v)
 		}
 	}

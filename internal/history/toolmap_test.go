@@ -1182,8 +1182,9 @@ func TestToolMapping(t *testing.T) {
 					}
 				}
 				e := caseExport(t, c, tool)
-				// The manifest names a security whose symbol changed under each
-				// of its keys, its symbol now first: a delisted one's CUSIP.
+				// The manifest names a security whose symbol changed once, as the
+				// tool holds it, under the least of its keys with both keys, its
+				// symbol now first: a delisted one's CUSIP. stderr counts one.
 				var manifest struct {
 					SymbolsChanged []toolSymbolsEntry `json:"symbols_changed"`
 				}
@@ -1191,8 +1192,10 @@ func TestToolMapping(t *testing.T) {
 					t.Fatal(err)
 				}
 				changed := manifest.SymbolsChanged
-				if v.changed != (len(changed) == 2) || slices.ContainsFunc(changed, func(s toolSymbolsEntry) bool { return s.Symbols[0] != v.identity }) {
-					t.Errorf("%s %s: symbols changed %+v", v.name, tool, changed)
+				if v.changed != (len(changed) == 1) || e.SymbolsChanged != len(changed) || slices.ContainsFunc(changed, func(s toolSymbolsEntry) bool {
+					return s.Symbols[0] != v.identity || s.SecurityKey != keyTwoAPI || !slices.Equal(s.SecurityKeys, []string{keyTwoAPI, keyTwoFile})
+				}) {
+					t.Errorf("%s %s: symbols changed %+v, counted %d", v.name, tool, changed, e.SymbolsChanged)
 				}
 				s := chainStepFrom(t, e, t.TempDir())
 				if tool == toolPP {
@@ -1219,6 +1222,17 @@ func TestToolMapping(t *testing.T) {
 					t.Errorf("%s: Ghostfolio's activities are of %v, %d assets, and it holds %v", v.name, symbols, len(e.gf.file.AssetProfiles), held)
 				}
 			}
+		}
+		// -manual naming the old ticker, which the file's key alone had,
+		// makes the API key's rows MANUAL too: an export that writes those
+		// alone uses it.
+		named := twoKeys{
+			api: []string{"JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", fileCUSIP: "ZZJ12K106", filed: tcFiledEarly, manual: "JKLM",
+		}.toolCase()
+		inNamed, eventsNamed, _ := mapCase(named, toolGF)
+		apiOnly := slices.DeleteFunc(slices.Clone(eventsNamed), func(e toolEvent) bool { return e.security.key != keyTwoAPI })
+		if unused, err := checkManual(inNamed, apiOnly); err != nil || len(unused) != 0 || len(apiOnly) != 1 || apiOnly[0].security.manual != "asked" {
+			t.Errorf("-manual JKLM of the API's rows alone: unused %q (%v), %d records", unused, err, len(apiOnly))
 		}
 		// Two companies that had one ticker at different times, of two
 		// CUSIPs, are two securities, each known by its CUSIP: -manual

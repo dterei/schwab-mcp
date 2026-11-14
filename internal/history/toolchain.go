@@ -560,9 +560,11 @@ type chainResult struct {
 	unchecked []toolAccount
 	// securities are every security that the chain has written, with its
 	// identifiers as written last; symbolsChanged those of this export whose
-	// symbol a tool that holds them under an earlier one needs telling of.
+	// symbol a tool that holds them under an earlier one needs telling of,
+	// one list for each of the tool's securities (sameSecurity), of the
+	// store's securities of it whose symbol changed, in their order.
 	securities     []chainSecurity
-	symbolsChanged []*toolSecurity
+	symbolsChanged [][]*toolSecurity
 	// kept holds the earlier export's entries of the rows given, and oldOf,
 	// for PP, the row that each row written under a new ref is the same as.
 	kept  map[rowKey]chainGiven
@@ -1059,7 +1061,9 @@ func chainHoldingKey(account, key, symbol string, diff *big.Rat) string {
 // securities whose symbol changed: with -since, those that this export
 // writes under other identifiers than the earlier one, which a tool that
 // holds them does not follow by itself (3.5 of the design); without, those
-// that have had another ticker or are delisted.
+// that have had another ticker or are delisted. The store's securities that
+// the tool takes for one (mergeListed) are one security whose symbol
+// changed, as the tool holds them.
 func (c *chainResult) compareSecurities() {
 	byRef := map[secRef]chainSecurity{}
 	if c.since != nil {
@@ -1067,7 +1071,9 @@ func (c *chainResult) compareSecurities() {
 			byRef[s.ref()] = s
 		}
 	}
-	for _, l := range listSecurities(c.in, c.written) {
+	listed := listSecurities(c.in, c.written)
+	changed := map[secRef]bool{}
+	for _, l := range listed {
 		s := l.security
 		w := chainSecurity{SecurityKey: s.key, Symbol: s.symbol, Identity: s.identity()}
 		if c.in.tool == toolGF {
@@ -1079,9 +1085,20 @@ func (c *chainResult) compareSecurities() {
 			w.Ticker, w.WKN, w.Name = ppIdentifiers(s)
 		}
 		if prev, had := byRef[w.ref()]; c.since == nil && s.symbolsChanged() || c.since != nil && had && prev.written() != w.written() {
-			c.symbolsChanged = append(c.symbolsChanged, s)
+			changed[s.ref()] = true
 		}
 		byRef[w.ref()] = w
+	}
+	for _, l := range mergeListed(c.in.tool, listed) {
+		var of []*toolSecurity
+		for _, s := range l.members {
+			if changed[s.ref()] {
+				of = append(of, s)
+			}
+		}
+		if len(of) > 0 {
+			c.symbolsChanged = append(c.symbolsChanged, of)
+		}
 	}
 	c.securities = slices.SortedFunc(maps.Values(byRef), func(a, b chainSecurity) int {
 		return cmp.Or(cmp.Compare(a.SecurityKey, b.SecurityKey), cmp.Compare(a.Symbol, b.Symbol))

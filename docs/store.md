@@ -1412,7 +1412,9 @@ and the export after you decide one writes it.
   security is delisted when the symbol that any key saw last is a CUSIP,
   never because one key alone reads so. Each tool then holds it as one: one
   row of PP's `securities.csv`, found by one ticker or WKN, one Ghostfolio
-  asset, one holding to check. A ticker that securities of two CUSIPs have
+  asset, one holding to check; `-manual` naming a ticker that any of its
+  keys had makes the whole of it MANUAL, and an export that writes the rows
+  of any of them uses it. A ticker that securities of two CUSIPs have
   had joins none of them, and each is known by its CUSIP; `schwabtx edit K:…
   -same K:…` joins two keys in the store itself, when the export cannot
   tell.
@@ -1438,7 +1440,9 @@ and the export after you decide one writes it.
   manifest's `symbols_changed` name each security, but options, that has
   had two tickers that differ in Yahoo's form, or is delisted; with
   `-since`, each whose identifiers written differ from the earlier
-  export's.
+  export's. A security is the tool's, as the holdings check takes it: one
+  that the store holds under two keys is named once, under the least of
+  them, with every one in `security_keys`.
 
 ### Accounts
 
@@ -1587,7 +1591,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `store` | when the store was made, which a `-since` export must match |
 | `format`, `layout` | `pp` or `ghostfolio`, and `1`, the layout of the files |
 | `filters` | `account` (its label, or null), `to`, `manual` (masked), and `since`, the `exported_at` of the export this one goes on from, or null |
-| `chain` | `id`, the `exported_at` of the chain's first export; `account`, `A<id>` or null for every account; `manual`, each with `unused` when nothing used it; and `to` |
+| `chain` | `id`, the `exported_at` of the chain's first export; `account`, `A<id>` or null for every account; `manual`, each with `unused` when no security that the export writes or prices has had it, under any of its keys; and `to` |
 | `files` | the files to import, in order, each with its `kind`, its `configuration` for PP, its `account`, `rows`, and for PP how many rows to `tick` |
 | `accounts` | each account written or named, and each that the chain wrote or named before: `label`, `account`, `nickname`, `name`, `exported`, `last_day`, `new`, and for Ghostfolio its `ghostfolio_id`, its `balances` (how many, the first and last, or why none) and its latest `cash`. A PP transfer names the account of its other side, which may have no row up to `-to`; `new` says that the chain had not listed it, and stderr lists it to make |
 | `units` | how each value is written |
@@ -1602,7 +1606,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `flagged`, `waiting` | the rows with a flag that needs you, with their flags, and the file rows that wait for you, each with the command that shows it |
 | `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several), and the accounts not checked |
 | `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`option`, `bond`, `no_ticker`, `delisted`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
-| `symbols_changed` | each security that a tool may hold under an earlier symbol: its key, how it is written now (`written_as`: its ticker, or `MANUAL` when the tool gets no price feed for it) and every ticker it has had (`symbols`) |
+| `symbols_changed` | each security that a tool may hold under an earlier symbol, as the tool holds it: its key (the least, with `security_keys` when the store has several), how it is written now (`written_as`: its ticker, or `MANUAL` when the tool gets no price feed for it) and every ticker it has had (`symbols`) |
 | `coverage` | each account's coverage by source, as the manifest of `-dir` |
 
 ### Later exports
