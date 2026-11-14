@@ -539,7 +539,8 @@ func TestBalanceFigures(t *testing.T) {
 // numbers; and of ...135's positions, one has a description that holds two
 // numbers, one of 7 digits that only the known numbers catch, and another
 // a time that holds one, which a problem quotes. No cursor of
-// get_positions may hold a digest over a number.
+// get_positions may hold a digest over a number, and the account
+// resources and the prompt, given full numbers, echo none.
 var accountPlantings = []func(t *testing.T, w *leakWorld){func(_ *testing.T, w *leakWorld) {
 	w.opts = append(w.opts, withFake(func(f *schwabtest.Server) {
 		changeAccount(f, options, func(a map[string]any) {
@@ -565,7 +566,7 @@ var accountPlantings = []func(t *testing.T, w *leakWorld){func(_ *testing.T, w *
 		})
 	}))
 	w.masked = append(w.masked, "TRANSFER FROM ...398 FOR ...321", `...135\", which is not a time`)
-	w.checks = append(w.checks, positionCursorsHoldNoNumber)
+	w.checks = append(w.checks, positionCursorsHoldNoNumber, accountReadsHoldNoNumber)
 }}
 
 // accountLeakCalls are the account tools' calls of TestNoAccountNumberLeaks:
@@ -761,6 +762,28 @@ func positionCursorsHoldNoNumber(t *testing.T, e *env) {
 	if overHash == 0 {
 		t.Error("no cursor of one account's positions holds the digest over its hash")
 	}
+}
+
+// accountReadsHoldNoNumber reads the account resources, two of them by a
+// full number in their URI, and gets the prompt with a full number as its
+// account; then checks what the server sent with assertClean, and that the
+// masked forms are there.
+func accountReadsHoldNoNumber(t *testing.T, e *env) {
+	t.Helper()
+	for i, uri := range []string{accountsURI, positionsOfURI(individual), positionsOfURI(options)} {
+		r, err := e.read(uri)
+		if err != nil {
+			t.Errorf("resource %d: %v", i, err)
+			continue
+		}
+		if c := r.Contents[0]; i > 0 && (strings.Contains(c.URI, individual) || !strings.Contains(c.Text, `"account":"...`)) {
+			t.Errorf("resource %d: %s, %.200s", i, c.URI, c.Text)
+		}
+	}
+	if text, err := e.getPrompt(map[string]string{"account": individual}); err != nil || !strings.Contains(text, " for account ...135.") {
+		t.Errorf("the prompt for a full number: %v, %.80s", err, text)
+	}
+	e.assertClean()
 }
 
 // An account whose positions are not a list has positions null, and so

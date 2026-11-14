@@ -25,7 +25,9 @@ import (
 // with values says so.
 
 // registerAccounts registers the account tools, list_accounts,
-// get_balances and get_positions.
+// get_balances and get_positions; the account resources, which answer as
+// list_accounts and get_positions do; and portfolio_review, the prompt
+// that asks for them.
 func (s *Server) registerAccounts() {
 	addTool(s, toolDef{
 		name:  "list_accounts",
@@ -60,6 +62,8 @@ func (s *Server) registerAccounts() {
 			"limit":  {desc: "The most positions a page holds, 1 to 200; 100 when left out.", min: new(1.0), max: new(200.0)},
 		},
 	}, s.getPositions)
+	s.registerAccountResources()
+	s.registerPrompts()
 }
 
 // listAccountsOut is list_accounts' answer.
