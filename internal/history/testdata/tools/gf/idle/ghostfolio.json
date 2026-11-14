@@ -1,0 +1,82 @@
+{
+  "accounts": [
+    {
+      "balances": [
+        {
+          "date": "2026-01-05T00:00:00.000Z",
+          "value": 10.00
+        },
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "value": 10.00
+        }
+      ],
+      "comment": "schwabtx A1 ...135",
+      "currency": "USD",
+      "id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "name": "Schwab A1 ...135",
+      "platformId": null
+    }
+  ],
+  "assetProfiles": [
+    {
+      "assetClass": "EQUITY",
+      "assetSubClass": "STOCK",
+      "comment": "QRS TRUST PFD SER K",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "name": "Security (i:1000004)",
+      "symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1"
+    }
+  ],
+  "activities": [
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002701",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-11-11T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "BUY",
+      "unitPrice": 30
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002702",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-11-11T12:00:39.600Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "ABCD",
+      "type": "BUY",
+      "unitPrice": 40
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002704",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-11-11T12:00:43.200Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1",
+      "type": "BUY",
+      "unitPrice": 25
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002703",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-11-12T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "XYZ",
+      "type": "BUY",
+      "unitPrice": 50
+    }
+  ]
+}

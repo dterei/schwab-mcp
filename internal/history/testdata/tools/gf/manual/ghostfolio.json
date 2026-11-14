@@ -1,0 +1,92 @@
+{
+  "accounts": [
+    {
+      "comment": "schwabtx A1 ...135",
+      "currency": "USD",
+      "id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "name": "Schwab A1 ...135",
+      "platformId": null
+    }
+  ],
+  "assetProfiles": [
+    {
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "name": "Security (QQQX)",
+      "symbol": "d6098a0a-7748-81ea-ace2-377f993f63ba"
+    },
+    {
+      "assetClass": "EQUITY",
+      "assetSubClass": "STOCK",
+      "comment": "ABCD INDUSTRIES INC",
+      "currency": "USD",
+      "cusip": "ZZB123458",
+      "dataSource": "MANUAL",
+      "marketData": [
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "marketPrice": 41
+        }
+      ],
+      "name": "Security (ZZB123458)",
+      "symbol": "cf4d8574-cb21-87c1-b4d0-49a87e05fe05"
+    },
+    {
+      "assetClass": "EQUITY",
+      "assetSubClass": "STOCK",
+      "comment": "ABC HOLDINGS CL B",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "name": "Security (i:1000003)",
+      "symbol": "9f58e850-1f4b-82ff-b759-426c00467f0b"
+    },
+    {
+      "assetClass": "EQUITY",
+      "assetSubClass": "STOCK",
+      "comment": "XYZ CORP COMMON STOCK",
+      "currency": "USD",
+      "cusip": "98389B100",
+      "dataSource": "MANUAL",
+      "name": "Security (98389B100)",
+      "symbol": "74bcb546-fa1d-820b-bee2-436d6b2aa408"
+    }
+  ],
+  "activities": [
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002601",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-02-03T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "74bcb546-fa1d-820b-bee2-436d6b2aa408",
+      "type": "BUY",
+      "unitPrice": 50
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002602",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-02-04T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "9f58e850-1f4b-82ff-b759-426c00467f0b",
+      "type": "BUY",
+      "unitPrice": 300
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Ce6f7a8b9.1",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-03-03T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "d6098a0a-7748-81ea-ace2-377f993f63ba",
+      "type": "BUY",
+      "unitPrice": 40
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "accounts": [
+    {
+      "balances": [
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "value": 1000.00
+        }
+      ],
+      "comment": "schwabtx A1 ...135",
+      "currency": "USD",
+      "id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "name": "Schwab A1 ...135",
+      "platformId": null
+    }
+  ],
+  "assetProfiles": [],
+  "activities": [
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002201",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-06-02T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "XYZ",
+      "type": "BUY",
+      "unitPrice": 50
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb1c2d3e4.1",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-07-01T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "XYZ",
+      "type": "DIVIDEND",
+      "unitPrice": 25.00
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb1c2d3e4.2",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-07-02T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "XYZ",
+      "type": "BUY",
+      "unitPrice": 50
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002202",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-07-03T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "XYZ",
+      "type": "BUY",
+      "unitPrice": 51
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb1c2d3e4.4",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-07-07T12:00:00.001Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "XYZ",
+      "type": "SELL",
+      "unitPrice": 53
+    }
+  ]
+}

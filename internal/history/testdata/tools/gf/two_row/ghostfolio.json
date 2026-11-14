@@ -1,0 +1,50 @@
+{
+  "accounts": [
+    {
+      "comment": "schwabtx A1 ...135",
+      "currency": "USD",
+      "id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "name": "Schwab A1 ...135",
+      "platformId": null
+    }
+  ],
+  "assetProfiles": [],
+  "activities": [
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 C0a1b2c3d.1",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-01-15T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 25,
+      "symbol": "ABCD",
+      "type": "BUY",
+      "unitPrice": 40
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 C0a1b2c3d.2",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-08-01T12:00:00.001Z",
+      "fee": 0.00,
+      "quantity": 25,
+      "symbol": "ABCD",
+      "type": "SELL",
+      "unitPrice": 49.38
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 C0a1b2c3d.12",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-12-01T12:00:00.001Z",
+      "fee": 0.00,
+      "quantity": 2,
+      "symbol": "EFGH",
+      "type": "SELL",
+      "unitPrice": 31
+    }
+  ]
+}

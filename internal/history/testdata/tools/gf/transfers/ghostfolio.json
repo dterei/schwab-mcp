@@ -1,0 +1,32 @@
+{
+  "accounts": [
+    {
+      "balances": [
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "value": 5000.00
+        }
+      ],
+      "comment": "schwabtx A1 ...135",
+      "currency": "USD",
+      "id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "name": "Schwab A1 ...135",
+      "platformId": null
+    },
+    {
+      "balances": [
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "value": -12.34
+        }
+      ],
+      "comment": "schwabtx A2 ...398",
+      "currency": "USD",
+      "id": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "name": "Schwab A2 ...398",
+      "platformId": null
+    }
+  ],
+  "assetProfiles": [],
+  "activities": []
+}

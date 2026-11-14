@@ -1,0 +1,253 @@
+{
+  "accounts": [
+    {
+      "comment": "schwabtx A1 ...135",
+      "currency": "USD",
+      "id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "name": "Schwab A1 ...135",
+      "platformId": null
+    }
+  ],
+  "assetProfiles": [
+    {
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "marketData": [
+        {
+          "date": "2024-05-20T00:00:00.000Z",
+          "marketPrice": 1
+        }
+      ],
+      "name": "Schwab fees",
+      "symbol": "86890ed8-5f41-88fe-994e-a8d55fb5a16f"
+    },
+    {
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "marketData": [
+        {
+          "date": "2024-04-30T00:00:00.000Z",
+          "marketPrice": 1
+        }
+      ],
+      "name": "Schwab interest",
+      "symbol": "1aaa2776-c2e6-8a46-b37b-63919ecbda2a"
+    },
+    {
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "marketData": [
+        {
+          "date": "2024-04-04T00:00:00.000Z",
+          "marketPrice": 1
+        }
+      ],
+      "name": "Schwab taxes",
+      "symbol": "ea68cc1f-2a7b-84bd-9ee8-7f46a5c7dccd"
+    },
+    {
+      "assetClass": "FIXED_INCOME",
+      "assetSubClass": "BOND",
+      "comment": "EXAMPLE TREASURY NOTE 4.25% 08/15/2034",
+      "currency": "USD",
+      "cusip": "9128ZZQ15",
+      "dataSource": "MANUAL",
+      "name": "Bond (9128ZZQ15)",
+      "symbol": "c705d699-9368-8698-a8e8-f840d9267e86"
+    }
+  ],
+  "activities": [
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61001601",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2024-01-10T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 10,
+      "symbol": "EFGH",
+      "type": "BUY",
+      "unitPrice": 30
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61001602",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2024-04-04T12:00:42.854Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "DIVIDEND",
+      "unitPrice": 3.86
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61001604",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2024-04-04T12:00:42.855Z",
+      "fee": 1.16,
+      "quantity": 0,
+      "symbol": "ea68cc1f-2a7b-84bd-9ee8-7f46a5c7dccd",
+      "type": "FEE",
+      "unitPrice": 0
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61001603",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2024-04-30T12:01:16.724Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "1aaa2776-c2e6-8a46-b37b-63919ecbda2a",
+      "type": "INTEREST",
+      "unitPrice": 0.42
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.1",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2024-05-15T12:00:00.000Z",
+      "fee": 0.50,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "DIVIDEND",
+      "unitPrice": 10.00
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.2",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2024-05-20T12:00:00.000Z",
+      "fee": 1.25,
+      "quantity": 0,
+      "symbol": "86890ed8-5f41-88fe-994e-a8d55fb5a16f",
+      "type": "FEE",
+      "unitPrice": 0
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.3",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2024-06-15T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "DIVIDEND",
+      "unitPrice": 5.00
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.4",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2024-07-01T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1000,
+      "symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+      "type": "BUY",
+      "unitPrice": 0.99
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.5",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2024-08-15T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+      "type": "DIVIDEND",
+      "unitPrice": 21.25
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.6",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2024-09-01T12:00:00.000Z",
+      "fee": 3.17,
+      "quantity": 0,
+      "symbol": "86890ed8-5f41-88fe-994e-a8d55fb5a16f",
+      "type": "FEE",
+      "unitPrice": 0
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.7",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2024-09-05T12:00:00.000Z",
+      "fee": 25.00,
+      "quantity": 0,
+      "symbol": "86890ed8-5f41-88fe-994e-a8d55fb5a16f",
+      "type": "FEE",
+      "unitPrice": 0
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.8",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2024-09-06T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "86890ed8-5f41-88fe-994e-a8d55fb5a16f",
+      "type": "INTEREST",
+      "unitPrice": 25.00
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.9",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2024-10-01T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "ea68cc1f-2a7b-84bd-9ee8-7f46a5c7dccd",
+      "type": "INTEREST",
+      "unitPrice": 0.80
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.10",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2024-11-01T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "DIVIDEND",
+      "unitPrice": 4.00
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.12",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2024-11-20T12:00:00.000Z",
+      "fee": 5.00,
+      "quantity": 0,
+      "symbol": "86890ed8-5f41-88fe-994e-a8d55fb5a16f",
+      "type": "FEE",
+      "unitPrice": 0
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cc0d1e2f3.13",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2024-12-02T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "DIVIDEND",
+      "unitPrice": 3.00
+    }
+  ]
+}

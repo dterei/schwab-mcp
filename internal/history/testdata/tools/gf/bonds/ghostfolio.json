@@ -1,0 +1,97 @@
+{
+  "accounts": [
+    {
+      "balances": [
+        {
+          "date": "2026-11-10T00:00:00.000Z",
+          "value": 1000.00
+        }
+      ],
+      "comment": "schwabtx A1 ...135",
+      "currency": "USD",
+      "id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "name": "Schwab A1 ...135",
+      "platformId": null
+    }
+  ],
+  "assetProfiles": [
+    {
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "marketData": [
+        {
+          "date": "2025-12-01T00:00:00.000Z",
+          "marketPrice": 1
+        }
+      ],
+      "name": "Schwab interest",
+      "symbol": "1aaa2776-c2e6-8a46-b37b-63919ecbda2a"
+    },
+    {
+      "assetClass": "FIXED_INCOME",
+      "assetSubClass": "BOND",
+      "comment": "EXAMPLE TREASURY NOTE 4.25% 08/15/2034",
+      "currency": "USD",
+      "cusip": "9128ZZQ15",
+      "dataSource": "MANUAL",
+      "marketData": [
+        {
+          "date": "2025-06-30T00:00:00.000Z",
+          "marketPrice": 0.995
+        }
+      ],
+      "name": "Bond (9128ZZQ15)",
+      "symbol": "c705d699-9368-8698-a8e8-f840d9267e86"
+    }
+  ],
+  "activities": [
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Ca1b2c3d4.1",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-03-03T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 5000,
+      "symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+      "type": "BUY",
+      "unitPrice": 0.9965
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Ca1b2c3d4.2",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-08-15T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+      "type": "DIVIDEND",
+      "unitPrice": 106.25
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Ca1b2c3d4.6",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-12-01T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "1aaa2776-c2e6-8a46-b37b-63919ecbda2a",
+      "type": "INTEREST",
+      "unitPrice": 250.00
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Ca1b2c3d4.3",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2026-08-17T12:00:00.001Z",
+      "fee": 0.00,
+      "quantity": 5000,
+      "symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+      "type": "SELL",
+      "unitPrice": 1
+    }
+  ]
+}

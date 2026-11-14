@@ -1,0 +1,152 @@
+{
+  "accounts": [
+    {
+      "comment": "schwabtx A1 ...135",
+      "currency": "USD",
+      "id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "name": "Schwab A1 ...135",
+      "platformId": null
+    }
+  ],
+  "assetProfiles": [
+    {
+      "assetClass": "EQUITY",
+      "assetSubClass": "STOCK",
+      "comment": "QRS TRUST PFD SER K",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "name": "Security (i:1000004)",
+      "symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1"
+    },
+    {
+      "assetClass": "EQUITY",
+      "assetSubClass": "STOCK",
+      "comment": "OLDCO INC",
+      "currency": "USD",
+      "cusip": "ZZQ00K102",
+      "dataSource": "MANUAL",
+      "name": "Security (ZZQ00K102)",
+      "symbol": "93dd49d8-9ed1-855c-8c29-e1358949bcc5"
+    },
+    {
+      "assetClass": "EQUITY",
+      "assetSubClass": "STOCK",
+      "comment": "EXAMPLE PRIVATE PLACEMENT UNITS",
+      "currency": "USD",
+      "cusip": "ZZC99X101",
+      "dataSource": "MANUAL",
+      "name": "Security (ZZC99X101)",
+      "symbol": "47de4d99-72c2-8a79-9269-ca3f4a42e91c"
+    }
+  ],
+  "activities": [
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002001",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-02-03T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 2,
+      "symbol": "ABC-B",
+      "type": "BUY",
+      "unitPrice": 300
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002002",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-02-04T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 10,
+      "symbol": "355d16d1-8568-8e9b-b186-986eee2b1bb1",
+      "type": "BUY",
+      "unitPrice": 25
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002003",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-02-05T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 5,
+      "symbol": "93dd49d8-9ed1-855c-8c29-e1358949bcc5",
+      "type": "BUY",
+      "unitPrice": 10
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002005",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-02-06T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 4,
+      "symbol": "PQRS",
+      "type": "BUY",
+      "unitPrice": 20
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002007",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-02-07T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "XYZ",
+      "type": "BUY",
+      "unitPrice": 50
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Ce5f6a7b8.1",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2025-03-02T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "QQQX",
+      "type": "BUY",
+      "unitPrice": 40
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Ce5f6a7b8.2",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-03-03T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 100,
+      "symbol": "47de4d99-72c2-8a79-9269-ca3f4a42e91c",
+      "type": "BUY",
+      "unitPrice": 1
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002006",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-02-06T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 4,
+      "symbol": "PQRS",
+      "type": "SELL",
+      "unitPrice": 25
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61002004",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2026-06-01T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 5,
+      "symbol": "93dd49d8-9ed1-855c-8c29-e1358949bcc5",
+      "type": "SELL",
+      "unitPrice": 2
+    }
+  ]
+}

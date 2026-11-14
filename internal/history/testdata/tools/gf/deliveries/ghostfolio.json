@@ -1,0 +1,255 @@
+{
+  "accounts": [
+    {
+      "comment": "schwabtx A1 ...135",
+      "currency": "USD",
+      "id": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "name": "Schwab A1 ...135",
+      "platformId": null
+    },
+    {
+      "comment": "schwabtx A2 ...398",
+      "currency": "USD",
+      "id": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "name": "Schwab A2 ...398",
+      "platformId": null
+    }
+  ],
+  "assetProfiles": [
+    {
+      "assetClass": "FIXED_INCOME",
+      "assetSubClass": "BOND",
+      "comment": "EXAMPLE TREASURY NOTE 4.25% 08/15/2034",
+      "currency": "USD",
+      "cusip": "9128ZZQ15",
+      "dataSource": "MANUAL",
+      "name": "Bond (9128ZZQ15)",
+      "symbol": "c705d699-9368-8698-a8e8-f840d9267e86"
+    },
+    {
+      "comment": "XYZ 01/15/2027 45.00 P",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "name": "XYZ 2027-01-15 45 put (XYZ270115P00045000)",
+      "symbol": "ba345aa5-3811-8e9a-a46e-f3543f5b9b1f"
+    }
+  ],
+  "activities": [
+    {
+      "accountId": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "comment": "schwabtx A2 ...398 T61001501",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-05-04T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 5,
+      "symbol": "XYZ",
+      "type": "SELL",
+      "unitPrice": 52
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61001502",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-05-05T12:00:32.400Z",
+      "fee": 0.00,
+      "quantity": 5,
+      "symbol": "XYZ",
+      "type": "BUY",
+      "unitPrice": 52
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb0c1d2e3.1",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-06-01T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 10,
+      "symbol": "EFGH",
+      "type": "BUY",
+      "unitPrice": 31.25
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb0c1d2e3.2",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-06-02T12:00:00.001Z",
+      "fee": 0.00,
+      "quantity": 4,
+      "symbol": "EFGH",
+      "type": "SELL",
+      "unitPrice": 30
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb0c1d2e3.3",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2026-06-03T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 10000,
+      "symbol": "c705d699-9368-8698-a8e8-f840d9267e86",
+      "type": "BUY",
+      "unitPrice": 0.995
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb0c1d2e3.4",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-07-24T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 3,
+      "symbol": "XYZ",
+      "type": "BUY",
+      "unitPrice": 52.5
+    },
+    {
+      "accountId": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "comment": "schwabtx A2 ...398 T61001508",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-07-24T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 2,
+      "symbol": "XYZ",
+      "type": "SELL",
+      "unitPrice": 52.5
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61001509",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-07-27T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 2,
+      "symbol": "XYZ",
+      "type": "BUY",
+      "unitPrice": 52.5
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb0c1d2e3.5",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-08-03T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "BUY",
+      "unitPrice": 0
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61001503",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-08-10T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "XYZ",
+      "type": "SELL",
+      "unitPrice": 50
+    },
+    {
+      "accountId": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "comment": "schwabtx A2 ...398 T61001504",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2026-08-11T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 200,
+      "symbol": "ba345aa5-3811-8e9a-a46e-f3543f5b9b1f",
+      "type": "BUY",
+      "unitPrice": 1.55
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb0c1d2e3.6",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-08-12T12:00:00.001Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "SELL",
+      "unitPrice": 30
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb0c1d2e3.7",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-08-13T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "BUY",
+      "unitPrice": 30
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 Cb0c1d2e3.10",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-08-16T12:00:00.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "BUY",
+      "unitPrice": 30
+    },
+    {
+      "accountId": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "comment": "schwabtx A2 ...398 T61001505 leg 1",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-08-20T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 2,
+      "symbol": "XYZ",
+      "type": "SELL",
+      "unitPrice": 52
+    },
+    {
+      "accountId": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "comment": "schwabtx A2 ...398 T61001505 leg 2",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-08-20T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 3,
+      "symbol": "EFGH",
+      "type": "SELL",
+      "unitPrice": 31
+    },
+    {
+      "accountId": "e6461b57-da15-845e-b90b-7d04787642e5",
+      "comment": "schwabtx A1 ...135 T61001506",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-09-01T12:00:36.000Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "SELL",
+      "unitPrice": 30.5
+    },
+    {
+      "accountId": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "comment": "schwabtx A2 ...398 T61001507",
+      "currency": "USD",
+      "dataSource": "YAHOO",
+      "date": "2026-09-01T12:00:36.004Z",
+      "fee": 0.00,
+      "quantity": 1,
+      "symbol": "EFGH",
+      "type": "BUY",
+      "unitPrice": 30.5
+    }
+  ]
+}
