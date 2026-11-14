@@ -1203,10 +1203,13 @@ read of its own, for a program that masks them. `Reader.Ledger` is the paged
 read of the ledger: newest first, by day, time, ref and account, which is a
 total order, since a ref is unique within an account only, so that a page
 that starts after the last row of the one before repeats and skips no row.
-It chooses in the same read transaction which accounts it reads (an account
-can be read only when its `api` and `file` coverage, merged where runs meet
-or overlap, holds every day asked), and gives their rows' totals per
-category over every page, their coverage and what waits for you.
+It chooses in the same read transaction which accounts it reads: one
+marked `IfWhole` only when its `api` and `file` coverage, merged where runs
+meet or overlap, holds every day asked, and any other whatever its
+coverage. It gives the totals per category of the counted rows that the
+query matches in the accounts it reads, over every page, and, of every
+account that the query lists, read or not, its coverage of the days asked,
+its last read and what waits for you.
 `history.DeriveAPIEntries` derives, by the ledger's own rules, what the store
 would derive of a read of transactions that it has not recorded: each row's
 ref, category, amount, fees, quantity, price, symbol and the rules' flags,
