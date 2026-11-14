@@ -2,19 +2,27 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/dterei/schwab-mcp/internal/history"
+	"github.com/dterei/schwab-mcp/internal/mask"
+	"github.com/dterei/schwab-mcp/internal/nytime"
 )
 
 // runExport writes views of the store as CSV or JSON Lines (18 of the
-// design): to stdout, to a file (-o) or to a folder (-dir).
+// design): to stdout, to a file (-o) or to a folder (-dir); or, with -format
+// pp or ghostfolio, the ledger as the files that Portfolio Performance or
+// Ghostfolio imports, to a new folder (runToolExport).
 //
 // The order of its work keeps the store's files safe and the store free
 // for others (3.4 and 4 of the design): it parses its flags; checks that no
@@ -28,17 +36,20 @@ func runExport(ctx context.Context, args []string, stdout, stderr io.Writer) (er
 	fl.SetOutput(stderr)
 	store := storeFlag(fl)
 	what := fl.String("what", "ledger", "what to export: one of the names below, a comma-separated list of them, or all (a list or all needs -dir)")
-	format := fl.String("format", "csv", "csv, or jsonl for JSON Lines")
+	format := fl.String("format", "csv", "csv, jsonl for JSON Lines, pp for Portfolio Performance, or ghostfolio (pp and ghostfolio write the ledger to a new -dir)")
 	account := fl.String("account", "", "only this account: A and its number in the store, the last digits of its number, or its nickname")
-	from := fl.String("from", "", "only rows of this day or later (YYYY-MM-DD or MM/DD/YYYY)")
-	to := fl.String("to", "", "only rows of this day or earlier")
+	from := fl.String("from", "", "with csv and jsonl, only rows of this day or later (YYYY-MM-DD or MM/DD/YYYY)")
+	to := fl.String("to", "", "only rows of this day or earlier (for pp and ghostfolio, by default the day before today in New York)")
 	all := fl.Bool("all", false, "every entry and leg, counted or not (the ledger and legs hold counted ones)")
 	raw := fl.Bool("raw", false, "add each row's raw bytes as Schwab or the file had them (includes full account numbers)")
 	show := fl.Bool("show-accounts", false, "add each row's full account number")
+	manual := fl.String("manual", "", "with -format ghostfolio: these symbols, comma-separated, as manual assets priced from your snapshots (later exports with -since keep them)")
+	since := fl.String("since", "", "with -format pp or ghostfolio: the folder of the export you imported last; write only what it did not, and list what changed or went")
 	out := fl.String("o", "", "write to this file, readable only by you, instead of stdout")
-	dir := fl.String("dir", "", "write each table to a file of its own in this folder, with manifest.json")
+	dir := fl.String("dir", "", "write each table to a file of its own in this folder, with manifest.json (for pp and ghostfolio, a new folder)")
 	fl.Usage = func() {
-		fmt.Fprint(fl.Output(), "Usage of schwabtx export:\n\n  schwabtx export [flags]\n\nWrites what the store holds as CSV or JSON Lines. What -what names:\n\n")
+		fmt.Fprint(fl.Output(), "Usage of schwabtx export:\n\n  schwabtx export [flags]\n\n"+
+			"Writes what the store holds as CSV or JSON Lines, or the ledger as files for Portfolio Performance or Ghostfolio. What -what names:\n\n")
 		for _, k := range kinds {
 			raw := ""
 			if k.Raw {
@@ -56,14 +67,29 @@ func runExport(ctx context.Context, args []string, stdout, stderr io.Writer) (er
 	if len(rest) > 0 {
 		return fmt.Errorf("unexpected argument %q", plainCell(rest[0]))
 	}
-	if *out != "" && *dir != "" {
-		return errors.New("-o and -dir name two places to write; give one")
-	}
 	o := history.ExportOptions{Format: *format, Account: *account, All: *all, Raw: *raw, ShowAccounts: *show}
 	for w := range strings.SplitSeq(*what, ",") {
 		if w = strings.TrimSpace(w); w != "" {
 			o.What = append(o.What, w)
 		}
+	}
+	// Which flags were given, whatever their values: an export for a tool
+	// refuses those that it does not take.
+	given := map[string]bool{}
+	fl.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	if _, ok := toolFormats[*format]; ok {
+		return runToolExport(ctx, toolFlags{
+			format: *format, store: *store, account: *account, to: *to, manual: *manual, since: *since, dir: *dir,
+			what: o.What, given: given,
+		}, stderr)
+	}
+	switch {
+	case given["manual"]:
+		return errors.New("-manual is for -format ghostfolio")
+	case given["since"]:
+		return errors.New("-since is for -format pp and ghostfolio")
+	case *out != "" && *dir != "":
+		return errors.New("-o and -dir name two places to write; give one")
 	}
 	if *dir == "" && (len(o.What) > 1 || slices.Contains(o.What, "all")) {
 		return fmt.Errorf("-what %s needs -dir", strings.Join(o.What, ","))
@@ -95,6 +121,14 @@ func runExport(ctx context.Context, args []string, stdout, stderr io.Writer) (er
 		for _, n := range names {
 			if _, ok := companionOf(filepath.Join(*dir, n), path); ok {
 				return fmt.Errorf("-dir %s would put %s over the store itself (or one of its files); choose another folder", *dir, n)
+			}
+		}
+		// The folder of an export for a tool is that export's: this one's
+		// manifest would replace its manifest, from which the next export
+		// for the tool goes on.
+		if m, _, err := readToolManifest(*dir); err == nil {
+			if _, ok := toolFormats[m.Format]; ok {
+				return fmt.Errorf("-dir %s holds a %s export: write this one to another folder", *dir, m.Format)
 			}
 		}
 	}
@@ -145,6 +179,13 @@ func exportSummary(w io.Writer, path string, e *history.Export, out, dir string)
 		where = " to " + out
 	}
 	fmt.Fprintf(w, "wrote %s%s\n", strings.Join(parts, ", "), where)
+	coverageLines(w, e.Coverage)
+	waitingLine(w, path, e.Waiting)
+}
+
+// coverageLines says on w, a line for each account, the days that each
+// source covers of it, which says which dates the rows are whole for.
+func coverageLines(w io.Writer, coverage []history.ExportCoverage) {
 	var account string
 	var line []string
 	flush := func() {
@@ -152,7 +193,7 @@ func exportSummary(w io.Writer, path string, e *history.Export, out, dir string)
 			fmt.Fprintf(w, "  %s: %s\n", account, strings.Join(line, "; "))
 		}
 	}
-	for _, c := range e.Coverage {
+	for _, c := range coverage {
 		label := fmt.Sprintf("A%d %s", c.AccountID, c.Account)
 		if label != account {
 			flush()
@@ -161,9 +202,543 @@ func exportSummary(w io.Writer, path string, e *history.Export, out, dir string)
 		line = append(line, fmt.Sprintf("%s %s to %s", c.Source, c.From, c.To))
 	}
 	flush()
-	if e.Waiting > 0 {
+}
+
+// waitingLine says on w that n file transactions of the store at path wait
+// for you to resolve them, and so are not in an export of counted rows;
+// nothing when none does.
+func waitingLine(w io.Writer, path string, n int) {
+	if n > 0 {
 		fmt.Fprintf(w, "%d file %s for you to resolve %s (%s) and %s not in this export\n",
-			e.Waiting, pluralWord(e.Waiting, "transaction waits", "transactions wait"), pluralWord(e.Waiting, "it", "them"),
-			copyCommand(path, "status", "-review"), pluralWord(e.Waiting, "is", "are"))
+			n, pluralWord(n, "transaction waits", "transactions wait"), pluralWord(n, "it", "them"),
+			copyCommand(path, "status", "-review"), pluralWord(n, "is", "are"))
 	}
+}
+
+// A toolFormat is a format of an export for a tool (-format): the tool's
+// name, and what the export writes in its folder (5.1 and 6.1 of the tool
+// exports' design): the names of the files that every export writes, none
+// of which may be the store's, and the patterns (path.Match) of the names
+// of the others, its accounts' files and PP's configurations of any
+// layout.
+type toolFormat struct {
+	name           string
+	always, others []string
+}
+
+// toolFormats are the formats of the exports for a tool, by -format.
+var toolFormats = map[string]toolFormat{
+	"pp": {
+		name:   "Portfolio Performance",
+		always: []string{"manifest.json", "securities.csv", "pp-securities.json", "pp-account-transactions.json", "pp-portfolio-transactions.json"},
+		others: []string{"account-transactions-A*.csv", "portfolio-transactions-A*.csv", "pp-*.json"},
+	},
+	"ghostfolio": {
+		name:   "Ghostfolio",
+		always: []string{"manifest.json", "ghostfolio.json"},
+	},
+}
+
+// writes reports whether an export of the format writes a file of the name
+// in its folder, whatever the name's case, which a file system may ignore.
+func (t toolFormat) writes(name string) bool {
+	name = strings.ToLower(name)
+	for _, p := range slices.Concat(t.always, t.others) {
+		if ok, _ := path.Match(strings.ToLower(p), name); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// toolFlags are the flags of an export for a tool, -format pp or
+// ghostfolio: their values, -what's names split, and which flags were
+// given, whatever their values.
+type toolFlags struct {
+	format, store, account, to, manual, since, dir string
+	what                                           []string
+	given                                          map[string]bool
+}
+
+// runToolExport writes the ledger of the store as the files that the tool
+// of f.format imports, with a manifest, to a new folder (8 and 9 of the
+// tool exports' design): Portfolio Performance's CSV files and their
+// configurations, or Ghostfolio's JSON. With -since it goes on from the
+// export that you imported last: it writes only what the tool lacks,
+// whatever its day, and lists what changed or went, to delete in the tool
+// first.
+//
+// Before it opens the store, it refuses the flags that are for csv and
+// jsonl; a folder that holds an export already, whose files this one would
+// replace before they are imported; and a -since that names no export of
+// the format and layout, or one from which an export beside it has gone on
+// already. Then it reads the store (ExportTool), writes the folder
+// (WriteDir), and says on stderr what it wrote and what it asks of you
+// (toolSummary). stdout gets nothing.
+func runToolExport(ctx context.Context, f toolFlags, stderr io.Writer) (err error) {
+	format := "-format " + f.format
+	switch {
+	case f.given["o"]:
+		return fmt.Errorf("%s writes several files and a manifest: give -dir DIR, not -o", format)
+	case f.dir == "":
+		return fmt.Errorf("%s writes several files and a manifest: give -dir DIR", format)
+	case slices.ContainsFunc(f.what, func(w string) bool { return w != "ledger" }):
+		return fmt.Errorf("%s writes the ledger: -what is for csv and jsonl", format)
+	case f.given["all"]:
+		return fmt.Errorf("%s writes counted rows only: -all is for csv and jsonl", format)
+	case f.given["raw"] || f.given["show-accounts"]:
+		return fmt.Errorf("%s never writes full account numbers: -raw and -show-accounts are for csv and jsonl", format)
+	case f.given["from"]:
+		return fmt.Errorf("%s writes every row from the account's first, so that each position has its opening rows: -from is for csv and jsonl", format)
+	case f.given["manual"] && f.format != "ghostfolio":
+		return errors.New("-manual is for -format ghostfolio")
+	case f.given["since"] && f.since == "":
+		return errors.New("-since needs a folder: the one of the export that you imported last")
+	case f.since != "" && f.given["account"]:
+		return fmt.Errorf("-since %s goes on from the export in %s, with its account: drop -account", f.since, f.since)
+	}
+	o := history.ToolOptions{Tool: f.format, Account: f.account, SinceDir: f.since}
+	if o.To, err = parseDay("-to", f.to); err != nil {
+		return err
+	}
+	// ExportTool trims each symbol, and takes a blank one for none.
+	if f.manual != "" {
+		o.Manual = strings.Split(f.manual, ",")
+	}
+	path, err := storePath(f.store)
+	if err != nil {
+		return err
+	}
+	// The commands in what the store says name it.
+	defer func() { err = errorWithStore(path, err) }()
+	// No file of the folder may be the store or one of its files, by its
+	// name too, since the folder need not exist yet: here those that every
+	// export writes, and in WriteDir each account's too.
+	for _, n := range toolFormats[f.format].always {
+		if _, ok := companionOf(filepath.Join(f.dir, n), path); ok {
+			return fmt.Errorf("-dir %s would put %s over the store itself (or one of its files); choose another folder", f.dir, n)
+		}
+	}
+	if err := toolDirIsNew(f.dir, f.format); err != nil {
+		return err
+	}
+	if f.since != "" {
+		if o.Since, err = sinceManifest(f.since, f.format); err != nil {
+			return err
+		}
+	}
+
+	s, err := openStore(ctx, path, stderr)
+	if err != nil {
+		return err
+	}
+	e, err := s.ExportTool(ctx, o)
+	if cerr := s.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	if err := e.WriteDir(f.dir); err != nil {
+		return err
+	}
+	toolSummary(stderr, path, e, f.dir, f.since)
+	return nil
+}
+
+// toolDirIsNew refuses a folder dir that holds an export already, for a
+// tool or not: a manifest.json, or a file of a name that an export of
+// format writes (9 of the tool exports' design). Written there, the export
+// would replace the files of one that may not be imported yet, or leave its
+// own beside another's, and the manifest of the export that the next one
+// goes on from. A missing folder is new: WriteDir makes it.
+func toolDirIsNew(dir, format string) error {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("-dir %s: %w", dir, err)
+	}
+	for _, e := range entries {
+		if toolFormats[format].writes(e.Name()) {
+			return fmt.Errorf("-dir %s holds an export already: write each export to a new folder, so that none is overwritten before it is imported", dir)
+		}
+	}
+	return nil
+}
+
+// A toolManifest is what a command reads of a tool export's manifest.json
+// before it opens the store (9 of the tool exports' design): its
+// exported_at, which names the export; its format and layout; its chain's
+// id, the exported_at of the chain's first export; and the exported_at of
+// the export that it went on from, "" for a full export.
+type toolManifest struct {
+	ExportedAt string `json:"exported_at"`
+	Format     string `json:"format"`
+	Layout     int    `json:"layout"`
+	Chain      struct {
+		ID string `json:"id"`
+	} `json:"chain"`
+	Filters struct {
+		Since string `json:"since"`
+	} `json:"filters"`
+}
+
+// readToolManifest reads the manifest.json of the folder dir: what it says
+// of the export in dir, if it is a tool export's, and its bytes.
+func readToolManifest(dir string) (toolManifest, []byte, error) {
+	var m toolManifest
+	b, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err == nil {
+		err = json.Unmarshal(b, &m)
+	}
+	return m, b, err
+}
+
+// sinceManifest returns the bytes of the manifest.json of the export in the
+// folder dir, which an export of format goes on from with -since (3.8 and 9
+// of the tool exports' design), once it has checked that it is the
+// manifest of an export of format and of this layout, and that no export in
+// a folder beside dir has gone on from it already: you name the export that
+// you imported last, and an earlier one would list its rows to tick again,
+// which, ticked again, would come in twice. ExportTool checks the rest of
+// it.
+func sinceManifest(dir, format string) ([]byte, error) {
+	m, b, err := readToolManifest(dir)
+	if err != nil || m.Format != format || m.Layout != history.ToolLayout || m.ExportedAt == "" || m.Chain.ID == "" {
+		return nil, fmt.Errorf("-since %s: %s is not the manifest of a -format %s export of layout %d",
+			dir, filepath.Join(dir, "manifest.json"), format, history.ToolLayout)
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("-since %s: %w", dir, err)
+	}
+	parent := filepath.Dir(abs)
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return nil, fmt.Errorf("-since %s: %w", dir, err)
+	}
+	// dir itself is among them, and never went on from itself.
+	for _, e := range entries {
+		next, _, err := readToolManifest(filepath.Join(parent, e.Name()))
+		if err == nil && next.Format == m.Format && next.Chain.ID == m.Chain.ID && next.Filters.Since == m.ExportedAt {
+			return nil, fmt.Errorf("-since %s: %s already went on from %s; name it with -since if you imported it, or move it away if you did not",
+				dir, filepath.Join(dir, "..", e.Name()), dir)
+		}
+	}
+	return b, nil
+}
+
+// toolSummary says on w what an export for a tool, of the store at path,
+// wrote to the folder dir, going on from the export in the folder since
+// ("" for a full export), and what it asks of you (8.2 of the tool exports'
+// design): what it wrote (toolWrote) and, going on, what it assumes that
+// the tool holds; each account's coverage; what it counted that needs you
+// (toolCountLines); what to delete in the tool before importing
+// (toolDeletions); for PP, the accounts to make, the order of the files
+// and the rows to tick; for Ghostfolio, the cash that its imports leave as
+// it is; and the command that goes on from it.
+func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since string) {
+	tool, gf := toolFormats[e.Tool].name, e.Tool == "ghostfolio"
+	manifest := filepath.Join(dir, "manifest.json")
+	fmt.Fprintln(w, toolWrote(e, dir, since))
+	if since != "" {
+		done, of := "deleted and ticked", "of them"
+		if gf {
+			done, of = "deleted", "of their rows"
+		}
+		fmt.Fprintf(w, "  this assumes %s holds %s and every export before it, each imported once, with what it listed %s\n", tool, since, done)
+		if n := e.Late; n > 0 {
+			fmt.Fprintf(w, "  %d %s %s dated on or before %s, the end of %s: %s late or %s decided since\n",
+				n, of, pluralWord(n, "is", "are"), e.SinceTo, since, pluralWord(n, "it came", "they came"), pluralWord(n, "was", "were"))
+		}
+	}
+	coverageLines(w, e.Coverage)
+	toolCountLines(w, path, e, manifest)
+	toolDeletions(w, e, manifest)
+	if gf {
+		fmt.Fprintf(w, "%s takes an account's balances only in the import that makes the account; later imports leave its cash as it is\n", tool)
+		if since != "" {
+			var cash []string
+			for _, a := range e.Accounts {
+				if a.Cash != "" {
+					cash = append(cash, fmt.Sprintf("  %s: %s (%s)\n", a.Name, a.Cash, a.LastBalance))
+				}
+			}
+			if len(cash) > 0 {
+				fmt.Fprintf(w, "set each account's cash in %s to its latest snapshot, which imports do not change:\n%s", tool, strings.Join(cash, ""))
+			}
+		}
+		if toolActivities(e) == 0 {
+			fmt.Fprintf(w, "this file holds no activity: %s's import dialog cannot import it; its accounts and balances come with the next export that has one, or by POST /api/v1/import\n", tool)
+		}
+	} else {
+		var accounts []history.ToolAccount
+		for _, a := range e.Accounts {
+			if a.New {
+				accounts = append(accounts, a)
+			}
+		}
+		if len(accounts) > 0 {
+			fmt.Fprintf(w, "in %s, make a USD deposit account and a securities account for each account, named:\n", tool)
+			for _, a := range accounts {
+				label := a.Label
+				if a.Nickname != "" {
+					label += " (" + plainCell(a.Nickname) + ")"
+				}
+				fmt.Fprintf(w, "  %s: %s\n", label, a.Name)
+			}
+		}
+		var files []string
+		for _, f := range e.Files {
+			files = append(files, f.Name)
+		}
+		fmt.Fprintf(w, "import in this order: %s\n", strings.Join(files, ", "))
+		if len(e.Tick) > 0 {
+			fmt.Fprintf(w, "tick these rows, which %s will show as existing although they are new; leave every other such row unticked:\n", tool)
+			for _, t := range e.Tick {
+				fmt.Fprintf(w, "  %s: %s: %s (%s)\n", t.File, toolAccountName(e, t.Account), ppShown(t.As), t.Ref)
+			}
+		}
+	}
+	fmt.Fprintf(w, "next time: %s\n", copyCommand(path, "export", "-format", e.Tool, "-since", quoteArg(dir), "-dir", "<a new folder>"))
+}
+
+// toolWrote returns the first line that an export for a tool says, which
+// wrote to dir, going on from the export in since, "" for none: what it
+// wrote, and in which files. For PP, the rows of the ledger; its account
+// and portfolio files; and the securities and prices of securities.csv.
+// For Ghostfolio, the activities; the accounts of the file with their
+// balances; the manual assets that an activity is of, and those written for
+// their prices alone; and the symbols that its import asks Yahoo about.
+func toolWrote(e *history.ToolExport, dir, since string) string {
+	var written string
+	var parts []string
+	if e.Tool == "ghostfolio" {
+		n := toolActivities(e)
+		written = fmt.Sprintf("%d %s", n, pluralWord(n, "activity", "activities"))
+		accounts, balances := 0, 0
+		for _, a := range e.Accounts {
+			if a.Exported {
+				accounts++
+				balances += a.Balances
+			}
+		}
+		if accounts > 0 {
+			s := plural(accounts, "account")
+			if balances > 0 {
+				s += " with " + plural(balances, "balance")
+			}
+			parts = append(parts, s)
+		}
+		switch {
+		case e.Profiles > 0 && e.PricesOnly > 0:
+			parts = append(parts, fmt.Sprintf("%s (%d more with prices only)", plural(e.Profiles, "manual asset"), e.PricesOnly))
+		case e.Profiles > 0:
+			parts = append(parts, plural(e.Profiles, "manual asset"))
+		case e.PricesOnly > 0:
+			parts = append(parts, plural(e.PricesOnly, "manual asset")+" with prices only")
+		}
+		if e.Yahoo > 0 {
+			parts = append(parts, plural(e.Yahoo, "symbol")+" for Yahoo")
+		}
+	} else {
+		written = plural(e.Written, "row")
+		kinds := map[string]int{}
+		for _, f := range e.Files {
+			kinds[f.Kind]++
+		}
+		for _, k := range []string{"account", "portfolio"} {
+			if n := kinds[k]; n > 0 {
+				parts = append(parts, plural(n, k+" file"))
+			}
+		}
+		if e.Securities > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", e.Securities, pluralWord(e.Securities, "security", "securities")))
+		}
+		if e.Prices > 0 {
+			parts = append(parts, plural(e.Prices, "price"))
+		}
+	}
+	line := fmt.Sprintf("wrote %s for %s to %s", written, toolFormats[e.Tool].name, dir)
+	if since != "" {
+		line += ", since " + since
+	}
+	line += ", up to " + string(e.To)
+	if len(parts) > 0 {
+		line += ": " + strings.Join(parts, ", ")
+	}
+	return line
+}
+
+// toolActivities returns how many activities a Ghostfolio export's file
+// holds.
+func toolActivities(e *history.ToolExport) int {
+	n := 0
+	for _, f := range e.Files {
+		n += f.Rows
+	}
+	return n
+}
+
+// toolAccountName returns the name of the tool's account of the account of
+// the export e labelled label: its label, for an account of the chain that
+// the store does not hold.
+func toolAccountName(e *history.ToolExport, label string) string {
+	for _, a := range e.Accounts {
+		if a.Label == label && a.Name != "" {
+			return a.Name
+		}
+	}
+	return label
+}
+
+// toolCountLines says on w, of the export e for a tool from the store at
+// path, whose manifest is manifest, a line for each kind of row or
+// security that needs you, with how many there are, when there are some:
+// for Ghostfolio, the cash rows that the balances carry or not yet; the
+// rows left out and those written with a caveat, by code; the securities
+// whose symbol changed; the holdings that differ from the latest snapshot;
+// the rows flagged; the file transactions that wait for you; and for
+// Ghostfolio, the -manual symbols that nothing uses, masked, and the
+// symbols that Yahoo may no longer know. Going on from another export, it
+// counts no row or holding that that one listed alike.
+func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest string) {
+	tool, gf := toolFormats[e.Tool].name, e.Tool == "ghostfolio"
+	if gf {
+		notIn := 0
+		var taken []string
+		for _, c := range e.NotInBalances {
+			notIn += c.Rows
+			if c.Snapshot == "" {
+				taken = append(taken, c.Account+": none")
+				continue
+			}
+			taken = append(taken, fmt.Sprintf("%s: of %s, taken %s in New York", c.Account, c.Snapshot, c.Taken.In(nytime.NewYork()).Format("2006-01-02 15:04")))
+		}
+		cash := func(n int) string {
+			return fmt.Sprintf("%d %s", n, pluralWord(n, "deposit, withdrawal or journal is", "deposits, withdrawals and journals are"))
+		}
+		later := fmt.Sprintf("posted after the latest snapshot was taken (%s), which a later one will carry", strings.Join(taken, "; "))
+		switch {
+		case e.InBalances > 0 && notIn > 0:
+			fmt.Fprintf(w, "%s in the accounts' balances; %d %s not yet, %s\n", cash(e.InBalances), notIn, pluralWord(notIn, "is", "are"), later)
+		case e.InBalances > 0:
+			fmt.Fprintf(w, "%s in the accounts' balances\n", cash(e.InBalances))
+		case notIn > 0:
+			fmt.Fprintf(w, "%s not in the accounts' balances yet, %s\n", cash(notIn), later)
+		}
+	}
+	if n := toolRows(e.LeftOut); n > 0 {
+		fmt.Fprintf(w, "left out %s (%s lists each, with what to do): %s\n", plural(n, "row"), manifest, toolCounts(e.LeftOut))
+	}
+	if n := e.CaveatRows; n > 0 {
+		fmt.Fprintf(w, "wrote %s with %s (%s): %s\n", plural(n, "row"), pluralWord(n, "a caveat", "caveats"), manifest, toolCounts(e.Caveats))
+	}
+	if n := e.SymbolsChanged; n > 0 {
+		it := pluralWord(n, "it", "them")
+		advice := fmt.Sprintf("if %s holds %s under an earlier ticker, give %s the new one; once delisted, no price feed", tool, it, it)
+		if gf {
+			advice = fmt.Sprintf("if %s holds activities of %s under an earlier symbol, delete them: it does not follow the change", tool, it)
+		}
+		fmt.Fprintf(w, "%d %s changed symbol (%s): %s (docs/tools.md)\n", n, pluralWord(n, "security has", "securities have"), manifest, advice)
+	}
+	switch n := e.Holdings; {
+	case n == 1:
+		fmt.Fprintf(w, "1 holding differs from the latest snapshot (%s): a position opened before the store's rows, or a split left out; add it by hand (docs/tools.md)\n", manifest)
+	case n > 1:
+		fmt.Fprintf(w, "%d holdings differ from the latest snapshot (%s): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)\n", n, manifest)
+	}
+	// The rows flagged are written, given, combined or, for Ghostfolio, in
+	// the balances, which no export lists to delete: a balance is Schwab's.
+	if n := e.Flagged; n > 0 {
+		fmt.Fprintf(w, "%d %s of this export %s a flag that needs you (%s); if you uncount %s, the next -since export lists what to delete\n",
+			n, pluralWord(n, "row"), pluralWord(n, "carries", "carry"), copyCommand(path, "status", "-review"), pluralWord(n, "it", "one"))
+	}
+	waitingLine(w, path, e.Waiting)
+	if !gf {
+		return
+	}
+	if len(e.Unused) > 0 {
+		var unused []string
+		for _, u := range e.Unused {
+			unused = append(unused, plainCell(mask.Text(u)))
+		}
+		fmt.Fprintf(w, "-manual names %s, which nothing in this export uses\n", strings.Join(unused, " and "))
+	}
+	switch n := e.YahooIdle; {
+	case n == 1:
+		fmt.Fprintf(w, "1 symbol for Yahoo has no row since %s and is not held (%s lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual\n",
+			e.IdleSince, manifest)
+	case n > 1:
+		fmt.Fprintf(w, "%d symbols for Yahoo have no row since %s and are not held (%s lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual\n",
+			n, e.IdleSince, manifest)
+	}
+}
+
+// toolDeletions says on w what of the export e for a tool changed or went,
+// whose manifest is manifest: what the tool holds of each row, its account,
+// day, type and value, and how its PP Note or Ghostfolio comment names it,
+// for you to delete in the tool before importing; and for a row gone, what
+// became of it.
+func toolDeletions(w io.Writer, e *history.ToolExport, manifest string) {
+	if len(e.Changed)+len(e.Gone) == 0 {
+		return
+	}
+	gf := e.Tool == "ghostfolio"
+	fmt.Fprintf(w, "before importing, delete in %s what changed or went (%s lists each):\n", toolFormats[e.Tool].name, manifest)
+	held := func(c history.ToolChange) string {
+		ref, was, where := c.Ref, c.Was, "comment"
+		if c.NoteRef != "" {
+			ref = c.NoteRef
+		}
+		if !gf {
+			was, where = ppShown(was), "note"
+		}
+		return fmt.Sprintf("%s: %s (%s schwabtx %s %s)", toolAccountName(e, c.Account), was, where, c.Account, ref)
+	}
+	for _, c := range e.Changed {
+		fmt.Fprintf(w, "  %s: changed; the new form is in this export\n", held(c))
+	}
+	for _, g := range e.Gone {
+		// "uncounted: user" reads "uncounted (user)".
+		why := g.Why
+		if what, detail, ok := strings.Cut(why, ": "); ok {
+			why = what + " (" + detail + ")"
+		}
+		fmt.Fprintf(w, "  %s: gone, %s\n", held(g), why)
+	}
+}
+
+// toolRows returns how many rows counts counts.
+func toolRows(counts []history.ToolCount) int {
+	n := 0
+	for _, c := range counts {
+		n += c.Count
+	}
+	return n
+}
+
+// toolCounts returns counts as stderr says them: each code and its count,
+// in their order.
+func toolCounts(counts []history.ToolCount) string {
+	var parts []string
+	for _, c := range counts {
+		parts = append(parts, fmt.Sprintf("%s %d", c.Code, c.Count))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// ppShown returns what PP shows of a row's records, as its manifest writes
+// them, each with its file's kind first ("account 2024-04-04 Dividend
+// 3.86"), without that kind: the day, Type and Value.
+func ppShown(as string) string {
+	records := strings.Split(as, "; ")
+	for i, r := range records {
+		if kind, rest, ok := strings.Cut(r, " "); ok && (kind == "account" || kind == "portfolio") {
+			records[i] = rest
+		}
+	}
+	return strings.Join(records, "; ")
 }

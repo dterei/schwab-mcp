@@ -32,10 +32,11 @@ import (
 // mapping, everything here is a function of its arguments: the store's reads
 // come in a toolInput, and an earlier export as its manifest's bytes.
 
-// toolLayout is the layout of a tool export's files and manifest, the v1 that
-// ends the PP configurations' labels (5.6 of the design): an export goes on
-// only from an export of its own layout.
-const toolLayout = 1
+// ToolLayout is the layout of a tool export's files and manifest: what its
+// manifest.json says as its layout, and the v1 that ends the PP
+// configurations' labels (5.6 of the design). An export goes on only from
+// an export of its own layout.
+const ToolLayout = 1
 
 // outcomeGiven is a row, with -since, whose records the tool holds already
 // from an earlier export of the chain, unchanged (3.1 of the design): the
@@ -277,8 +278,8 @@ func parseChain(manifest []byte) (*toolChain, error) {
 	switch {
 	case c.Format != toolPP && c.Format != toolGF:
 		return nil, fmt.Errorf("not the manifest of a tool export: its format is %q", c.Format)
-	case c.Layout != toolLayout:
-		return nil, fmt.Errorf("the manifest of an export of layout %d, not %d", c.Layout, toolLayout)
+	case c.Layout != ToolLayout:
+		return nil, fmt.Errorf("the manifest of an export of layout %d, not %d", c.Layout, ToolLayout)
 	case c.ExportedAt == "" || c.Store == "" || c.Chain.ID == "":
 		return nil, errors.New("the manifest names no export, store or chain")
 	case !isDate(c.Chain.To):
@@ -311,7 +312,7 @@ func isDate(d nytime.Date) bool {
 func (c *toolChain) refuse(in *toolInput, dir string) error {
 	switch {
 	case c.Format != in.tool:
-		return fmt.Errorf("-since %s: %s is not the manifest of a -format %s export of layout %d", dir, filepath.Join(dir, "manifest.json"), in.tool, toolLayout)
+		return fmt.Errorf("-since %s: %s is not the manifest of a -format %s export of layout %d", dir, filepath.Join(dir, "manifest.json"), in.tool, ToolLayout)
 	case c.Store != in.store:
 		return fmt.Errorf("-since %s: that export was made from another store (made %s): export in full and redo in the tool (docs/tools.md)", dir, c.Store)
 	case in.to < c.Chain.To:

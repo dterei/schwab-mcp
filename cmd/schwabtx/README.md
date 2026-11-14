@@ -388,8 +388,9 @@ your decision.
 ### schwabtx export
 
 ```
-schwabtx export [-store PATH] [-what WHAT] [-format csv|jsonl] [-account ACCOUNT]
-                [-from DATE] [-to DATE] [-all] [-raw] [-show-accounts] [-o FILE | -dir DIR]
+schwabtx export [-store PATH] [-what WHAT] [-format csv|jsonl|pp|ghostfolio] [-account ACCOUNT]
+                [-from DATE] [-to DATE] [-all] [-raw] [-show-accounts]
+                [-manual SYMBOLS] [-since DIR] [-o FILE | -dir DIR]
 ```
 
 Writes the ledger, the counted transactions from the API and from files,
@@ -402,20 +403,40 @@ cover, goes to stderr. The tables (`-what`): `ledger`, `entries`,
 `positions`, `balances`, `lots`, `gaps`, `flags`, `coverage` and
 `securities`; [docs/store.md](../../docs/store.md#exports) has their columns.
 
+`-format pp` and `-format ghostfolio` write the ledger, every row up to
+`-to` (by default the day before today in New York) from each account's
+first, as the files that Portfolio Performance or Ghostfolio imports: to a
+new folder with `-dir`, with a `manifest.json` that says what the export
+wrote, what it left out and what it asks of you, as stderr does. Import
+each export once, before you make the next, and name the one you imported
+last with `-since`: the next writes only what the tool lacks, and lists what
+changed or went, to delete there first. [docs/tools.md](../../docs/tools.md)
+says how, for each tool.
+
 ```
 -store PATH       the store's file
 -what WHAT        a table, a comma-separated list of tables, or all (a list or
                   all needs -dir); default ledger
--format FORMAT    csv (the default), or jsonl for JSON Lines
+-format FORMAT    csv (the default), jsonl for JSON Lines, pp for Portfolio
+                  Performance, or ghostfolio (pp and ghostfolio write the
+                  ledger to a new -dir)
 -account ACCOUNT  only this account
--from DATE        only rows of this day or later
--to DATE          only rows of this day or earlier
+-from DATE        with csv and jsonl, only rows of this day or later
+-to DATE          only rows of this day or earlier (for pp and ghostfolio,
+                  by default the day before today in New York)
 -all              every entry and leg, counted or not
 -raw              add each row's raw bytes as Schwab or the file had them
                   (includes full account numbers)
 -show-accounts    add each row's full account number
+-manual SYMBOLS   with -format ghostfolio: these symbols, comma-separated, as
+                  manual assets priced from your snapshots, for those Yahoo
+                  does not know (later exports with -since keep them)
+-since DIR        with -format pp or ghostfolio: the folder of the export you
+                  imported last; write only what it did not, and list what
+                  changed or went
 -o FILE           write to FILE instead of stdout
--dir DIR          write each table to a file of its own in DIR, with manifest.json
+-dir DIR          write each table to a file of its own in DIR, with
+                  manifest.json (for pp and ghostfolio, a new folder)
 ```
 
 ### schwabtx store

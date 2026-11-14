@@ -314,7 +314,7 @@ func (o ToolOptions) check(now time.Time) (ToolOptions, *toolChain, error) {
 	since, err := parseChain(o.Since)
 	if err != nil {
 		return o, nil, fmt.Errorf("-since %s: %s is not the manifest of a -format %s export of layout %d",
-			o.SinceDir, filepath.Join(o.SinceDir, "manifest.json"), o.Tool, toolLayout)
+			o.SinceDir, filepath.Join(o.SinceDir, "manifest.json"), o.Tool, ToolLayout)
 	}
 	return o, since, nil
 }
@@ -740,7 +740,7 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 		Coverage       []ExportCoverage                 `json:"coverage"`
 	}{
 		ExportedAt: exportInstant(e.At), Schema: v.schema, Rules: v.derive, Calendar: v.calendar,
-		Store: in.store, Format: in.tool, Layout: toolLayout,
+		Store: in.store, Format: in.tool, Layout: ToolLayout,
 		Filters: toolFilters{To: in.to, Manual: []string{}},
 		Chain:   part.Chain, Files: []toolFileEntry{}, Accounts: part.Accounts, Units: toolUnits[in.tool],
 		Written: toolWritten{Types: map[string]int{}}, Given: part.Given, Securities: part.Securities,

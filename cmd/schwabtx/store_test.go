@@ -322,10 +322,10 @@ func TestImportHistoryAndResolve(t *testing.T) {
 		}
 	}
 
-	// The ledger leaves the held-out row out, and says so; the entries
-	// hold it, and say nothing of it.
-	if _, stderr := mustRun(t, "export"); !strings.Contains(stderr,
-		"\n1 file transaction waits for you to resolve it (schwabtx status -review) and is not in this export\n") {
+	// The ledger leaves the held-out row out, and says so, after what each
+	// source covers; the entries hold it, and say nothing of it.
+	if _, stderr := mustRun(t, "export"); stderr != "wrote 5 rows ledger\n  A1 ...398: api_file 2026-09-02 to 2026-09-21; file_unknown 2026-09-01 to 2026-09-22\n"+
+		"1 file transaction waits for you to resolve it (schwabtx status -review) and is not in this export\n" {
 		t.Errorf("export of the ledger said %q", stderr)
 	}
 	if entries, stderr := mustRun(t, "export", "-what", "entries"); !strings.Contains(entries, held+",") || strings.Contains(stderr, "wait") {
@@ -627,9 +627,11 @@ func TestClassifyOverride(t *testing.T) {
 
 // No output of the store's commands holds a full account number, unless
 // -show-accounts or -raw asks for one: the import's report, status, its
-// review and its details, edit, the exports and the store's own commands.
+// review and its details, edit, the exports, those for Portfolio
+// Performance and their refusals among them, and the store's own commands.
 // An export with -show-accounts to a file is readable only by you, and says
-// that it holds full numbers.
+// that it holds full numbers; so are the files of an export for a tool,
+// which writes nothing to stdout.
 func TestStoreCommandsMaskNumbers(t *testing.T) {
 	offline(t)
 	store := newStoreFile(t)
@@ -638,10 +640,11 @@ func TestStoreCommandsMaskNumbers(t *testing.T) {
 	raw, _ := dividendRaw(1001, number, "2026-09-01", "ABCD", 3.21)
 	raw = strings.Replace(raw, "Ordinary Dividend~ABCD", "JOURNAL FROM "+other+" ABCD", 1)
 	var outputs []string
-	run := func(args ...string) {
+	run := func(args ...string) (stdout, stderr string) {
 		t.Helper()
-		stdout, stderr := mustRun(t, args...)
+		stdout, stderr = mustRun(t, args...)
 		outputs = append(outputs, args[0]+"\n"+stdout+stderr)
+		return stdout, stderr
 	}
 	run("import", writeFile(t, dir, "snapshots.jsonl", snapshotFile(t, []time.Time{testNow}, number, other)),
 		writeFile(t, dir, "transactions.json", cliJSON(t, raw)),
@@ -675,16 +678,89 @@ func TestStoreCommandsMaskNumbers(t *testing.T) {
 		}
 		outputs = append(outputs, fmt.Sprint(err))
 	}
-	entries, err := os.ReadDir(filepath.Join(dir, "export"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		b, err := os.ReadFile(filepath.Join(dir, "export", e.Name()))
+	// The exports for a tool: one of an account that -account names by its
+	// whole number, which nothing says back; and one that goes on from it,
+	// with its account, and gives the tool what it gave, writing nothing.
+	// Each writes its files to its folder, readable only by you, and to
+	// stderr what it wrote, the accounts to make in the tool and the files
+	// to import. (TestToolExport writes Ghostfolio's files, and
+	// TestToolSummary says what an export for Ghostfolio says.)
+	pp, next := filepath.Join(dir, "pp"), filepath.Join(dir, "pp-next")
+	for _, c := range []struct {
+		folder      string
+		args        []string
+		head, names string
+		files       []string
+	}{
+		{
+			pp,
+			[]string{"export", "-format", "pp", "-account", number, "-dir", pp},
+			"wrote 2 rows for Portfolio Performance to " + pp + ", up to 2026-10-07: 1 account file\n",
+			"\nin Portfolio Performance, make a USD deposit account and a securities account for each account, named:\n  A1 ...398: Schwab A1 ...398\n" +
+				"import in this order: securities.csv, account-transactions-A1-398.csv\n",
+			[]string{"account-transactions-A1-398.csv", "manifest.json", "pp-account-transactions.json", "pp-portfolio-transactions.json", "pp-securities.json", "securities.csv"},
+		},
+		{
+			next,
+			[]string{"export", "-format", "pp", "-since", pp, "-dir", next},
+			"wrote 0 rows for Portfolio Performance to " + next + ", since " + pp + ", up to 2026-10-07\n" +
+				"  this assumes Portfolio Performance holds " + pp + " and every export before it, each imported once, with what it listed deleted and ticked\n",
+			"\nimport in this order: securities.csv\nnext time: schwabtx export -format pp -since " + quoteArg(next) + " -dir <a new folder>\n",
+			[]string{"manifest.json", "pp-account-transactions.json", "pp-portfolio-transactions.json", "pp-securities.json", "securities.csv"},
+		},
+	} {
+		stdout, stderr := run(c.args...)
+		if stdout != "" || !strings.HasPrefix(stderr, c.head) || !strings.Contains(stderr, c.names) {
+			t.Errorf("%q printed %q and said:\n%s", c.args, stdout, stderr)
+		}
+		entries, err := os.ReadDir(c.folder)
 		if err != nil {
 			t.Fatal(err)
 		}
-		outputs = append(outputs, e.Name()+"\n"+string(b))
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+			if info, err := e.Info(); err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+				t.Errorf("%s: %v, %v; want a file readable only by you", e.Name(), info, err)
+			}
+		}
+		if !slices.Equal(names, c.files) {
+			t.Errorf("%q wrote %q, want %q", c.args, names, c.files)
+		}
+		if info, err := os.Stat(c.folder); err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
+			t.Errorf("%s: %v, %v; want a folder readable only by you", c.folder, info, err)
+		}
+	}
+	// Going on from the export that the second one went on from already is
+	// refused, before the store is opened. A -manual symbol that no security
+	// has, beside one of the store, is said back masked, as every value an
+	// error says back is, once the store is read and before anything is
+	// written.
+	refused := filepath.Join(dir, "refused")
+	if _, _, err := runTx(t, "export", "-format", "pp", "-since", pp, "-dir", refused); err == nil ||
+		err.Error() != "-since "+pp+": "+next+" already went on from "+pp+"; name it with -since if you imported it, or move it away if you did not" {
+		t.Errorf("export -since an export that another went on from: %v", err)
+	}
+	_, _, err := runTx(t, "export", "-format", "ghostfolio", "-dir", refused, "-manual", "ABCD,6180 3398")
+	if err == nil || err.Error() != "-manual names ...398, which no security in the store has" {
+		t.Errorf("export -manual of no security's symbol: %v", err)
+	}
+	if _, serr := os.Stat(refused); !errors.Is(serr, fs.ErrNotExist) {
+		t.Errorf("the refused export made its folder: %v", serr)
+	}
+	outputs = append(outputs, fmt.Sprint(err))
+	for _, folder := range []string{filepath.Join(dir, "export"), pp, next} {
+		entries, err := os.ReadDir(folder)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			b, err := os.ReadFile(filepath.Join(folder, e.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			outputs = append(outputs, e.Name()+"\n"+string(b))
+		}
 	}
 	for _, o := range outputs {
 		for _, n := range []string{number, other} {
@@ -721,6 +797,387 @@ func TestStoreCommandsMaskNumbers(t *testing.T) {
 		if _, _, err := runTx(t, "export", "-what", what); err == nil || err.Error() != "-what "+what+" needs -dir" {
 			t.Errorf("export -what %s to stdout: %v", what, err)
 		}
+	}
+}
+
+// An export for a tool refuses, before it opens a store, the flags that are
+// for csv and jsonl; a folder that holds an export already, whatever its
+// files' case, or one whose files include the store's; and a -since that
+// names no manifest of an export of the format and layout, or one from
+// which an export in a folder beside it went on already. Refused, it makes
+// no folder. csv and jsonl refuse the tools' flags, and the folder of an
+// export for a tool. Each export here that is not refused goes on to open
+// the store, which is not there.
+func TestExportToolRefusals(t *testing.T) {
+	offline(t)
+	dir := t.TempDir()
+	// manifest writes a folder of dir with a manifest.json of content and
+	// the other files named, and returns its path.
+	manifest := func(name, content string, files ...string) string {
+		t.Helper()
+		folder := filepath.Join(dir, name)
+		if err := os.Mkdir(folder, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if content != "" {
+			writeFile(t, folder, "manifest.json", content)
+		}
+		for _, f := range files {
+			writeFile(t, folder, f, "")
+		}
+		return folder
+	}
+	// head returns what a tool export's manifest says of the export, as
+	// the checks read it: when it was made (at), its format, its chain's
+	// id and the export that it went on from ("null" for none).
+	head := func(at, format, chain, since string) string {
+		if since != "null" {
+			since = `"` + since + `"`
+		}
+		return fmt.Sprintf(`{"exported_at": %q, "format": %q, "layout": %d, "filters": {"since": %s}, "chain": {"id": %q}}`,
+			at, format, history.ToolLayout, since, chain)
+	}
+	const t1, t2, t3 = "2026-10-01T12:00:00Z", "2026-10-15T12:00:00Z", "2026-10-20T12:00:00Z"
+	// A chain of three exports, the second gone on from the first, the
+	// third from the second; beside them, what does not go on from them:
+	// an export of the other format, one of another chain, a file.
+	first := manifest("pp-1", head(t1, "pp", t1, "null"), "securities.csv", "pp-securities.json")
+	manifest("pp-2", head(t2, "pp", t1, t1))
+	third := manifest("pp-3", head(t3, "pp", t1, t2))
+	manifest("gf-2", head(t2, "ghostfolio", t1, t3))
+	manifest("pp-9", head(t2, "pp", "2026-01-01T00:00:00Z", t3))
+	writeFile(t, dir, "notes.txt", "")
+	gf := manifest("gf-1", head(t1, "ghostfolio", t1, "null"), "ghostfolio.json")
+	layout := manifest("pp-layout", strings.Replace(head(t1, "pp", t1, "null"), fmt.Sprintf(`"layout": %d`, history.ToolLayout), `"layout": 99`, 1))
+	csv := manifest("csv", `{"exported_at": "2026-10-01T12:00:00Z", "format": "csv", "filters": {"account": null}}`, "ledger.csv")
+	notJSON := manifest("broken", "{")
+	noManifest := manifest("empty", "")
+	upper := manifest("upper", "", "PP-Account-Transactions-V2.JSON")
+	upperManifest := manifest("upper-manifest", "", "Manifest.json")
+	noExport := manifest("no-export", strings.Replace(head(t1, "pp", t1, "null"), `"exported_at": "`+t1+`", `, "", 1))
+	noChain := manifest("no-chain", strings.Replace(head(t1, "pp", t1, "null"), `, "chain": {"id": "`+t1+`"}`, "", 1))
+	perAccount := manifest("accounts", "", "notes.txt", "portfolio-transactions-A3-120.csv")
+	gfOnly := manifest("gf-only", "", "Ghostfolio.json")
+	other := manifest("other", "", "notes.txt", "ledger.csv", "transactions.json")
+	out := filepath.Join(dir, "out")
+
+	// The store named as an export's file, in the folder that -dir names.
+	storeDir := filepath.Join(dir, "store")
+	storeLike := func(name string) string { return filepath.Join(storeDir, name) }
+
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-format", "pp", "-o", "ledger.csv"}, "-format pp writes several files and a manifest: give -dir DIR, not -o"},
+		{[]string{"-format", "ghostfolio", "-o", "x", "-dir", out}, "-format ghostfolio writes several files and a manifest: give -dir DIR, not -o"},
+		{[]string{"-format", "pp"}, "-format pp writes several files and a manifest: give -dir DIR"},
+		{[]string{"-format", "pp", "-dir", out, "-what", "ledger,entries"}, "-format pp writes the ledger: -what is for csv and jsonl"},
+		{[]string{"-format", "ghostfolio", "-dir", out, "-what", "all"}, "-format ghostfolio writes the ledger: -what is for csv and jsonl"},
+		{[]string{"-format", "ghostfolio", "-dir", out, "-all"}, "-format ghostfolio writes counted rows only: -all is for csv and jsonl"},
+		{[]string{"-format", "pp", "-dir", out, "-raw"}, "-format pp never writes full account numbers: -raw and -show-accounts are for csv and jsonl"},
+		// Given, whatever its value.
+		{[]string{"-format", "pp", "-dir", out, "-show-accounts=false"}, "-format pp never writes full account numbers: -raw and -show-accounts are for csv and jsonl"},
+		{
+			[]string{"-format", "pp", "-dir", out, "-from", "2026-01-01"},
+			"-format pp writes every row from the account's first, so that each position has its opening rows: -from is for csv and jsonl",
+		},
+		{[]string{"-format", "pp", "-dir", out, "-manual", "ABCD"}, "-manual is for -format ghostfolio"},
+		{[]string{"-manual", "ABCD"}, "-manual is for -format ghostfolio"},
+		{[]string{"-format", "jsonl", "-since", third, "-o", "x"}, "-since is for -format pp and ghostfolio"},
+		{[]string{"-format", "pp", "-dir", out, "-since", ""}, "-since needs a folder: the one of the export that you imported last"},
+		{[]string{"-format", "ghostfolio", "-dir", out, "-to", "2026-02-30"}, `-to "...230" is not a date: give YYYY-MM-DD or MM/DD/YYYY`},
+		{[]string{"-format", "pp", "-dir", filepath.Join(dir, "notes.txt")}, "-dir " + filepath.Join(dir, "notes.txt") + ": "},
+		{[]string{"-format", "pp", "-dir", out, "-since", third, "-account", "A1"}, "-since " + third + " goes on from the export in " + third + ", with its account: drop -account"},
+		// A folder that holds an export, by its manifest or a file of the
+		// format's names in any case; -since naming -dir is one.
+		{[]string{"-format", "pp", "-dir", first}, "-dir " + first + " holds an export already: write each export to a new folder, so that none is overwritten before it is imported"},
+		{[]string{"-format", "ghostfolio", "-dir", third, "-since", third}, "-dir " + third + " holds an export already: write each export to a new folder, so that none is overwritten before it is imported"},
+		{[]string{"-format", "pp", "-dir", upper}, "-dir " + upper + " holds an export already: write each export to a new folder, so that none is overwritten before it is imported"},
+		{[]string{"-format", "ghostfolio", "-dir", upperManifest}, "-dir " + upperManifest + " holds an export already: write each export to a new folder, so that none is overwritten before it is imported"},
+		{[]string{"-format", "pp", "-dir", perAccount}, "-dir " + perAccount + " holds an export already: write each export to a new folder, so that none is overwritten before it is imported"},
+		{[]string{"-format", "ghostfolio", "-dir", gfOnly}, "-dir " + gfOnly + " holds an export already: write each export to a new folder, so that none is overwritten before it is imported"},
+		{[]string{"-format", "pp", "-dir", csv}, "-dir " + csv + " holds an export already: write each export to a new folder, so that none is overwritten before it is imported"},
+		// A -since that is no manifest of an export of the format and
+		// layout.
+		{[]string{"-format", "pp", "-dir", out, "-since", noManifest}, "-since " + noManifest + ": " + filepath.Join(noManifest, "manifest.json") + " is not the manifest of a -format pp export of layout 1"},
+		{[]string{"-format", "pp", "-dir", out, "-since", notJSON}, "-since " + notJSON + ": " + filepath.Join(notJSON, "manifest.json") + " is not the manifest of a -format pp export of layout 1"},
+		{[]string{"-format", "pp", "-dir", out, "-since", csv}, "-since " + csv + ": " + filepath.Join(csv, "manifest.json") + " is not the manifest of a -format pp export of layout 1"},
+		{[]string{"-format", "ghostfolio", "-dir", out, "-since", third}, "-since " + third + ": " + filepath.Join(third, "manifest.json") + " is not the manifest of a -format ghostfolio export of layout 1"},
+		{[]string{"-format", "pp", "-dir", out, "-since", layout}, "-since " + layout + ": " + filepath.Join(layout, "manifest.json") + " is not the manifest of a -format pp export of layout 1"},
+		{[]string{"-format", "pp", "-dir", out, "-since", noExport}, "-since " + noExport + ": " + filepath.Join(noExport, "manifest.json") + " is not the manifest of a -format pp export of layout 1"},
+		{[]string{"-format", "pp", "-dir", out, "-since", noChain}, "-since " + noChain + ": " + filepath.Join(noChain, "manifest.json") + " is not the manifest of a -format pp export of layout 1"},
+		// One that an export beside it went on from already.
+		{
+			[]string{"-format", "pp", "-dir", out, "-since", first},
+			"-since " + first + ": " + filepath.Join(dir, "pp-2") + " already went on from " + first + "; name it with -since if you imported it, or move it away if you did not",
+		},
+		// An export into the store's folder over one of its files.
+		{[]string{"-format", "pp", "-store", storeLike("securities.csv"), "-dir", storeDir}, "-dir " + storeDir + " would put securities.csv over the store itself (or one of its files); choose another folder"},
+		{[]string{"-format", "pp", "-store", storeLike("pp-portfolio-transactions.json"), "-dir", storeDir}, "-dir " + storeDir + " would put pp-portfolio-transactions.json over the store itself (or one of its files); choose another folder"},
+		{[]string{"-format", "ghostfolio", "-store", storeLike("ghostfolio.json"), "-dir", storeDir}, "-dir " + storeDir + " would put ghostfolio.json over the store itself (or one of its files); choose another folder"},
+		{[]string{"-format", "ghostfolio", "-store", storeLike("manifest.json"), "-dir", storeDir}, "-dir " + storeDir + " would put manifest.json over the store itself (or one of its files); choose another folder"},
+		// csv and jsonl into the folder of an export for a tool.
+		{[]string{"-what", "all", "-dir", first}, "-dir " + first + " holds a pp export: write this one to another folder"},
+		{[]string{"-format", "jsonl", "-dir", gf}, "-dir " + gf + " holds a ghostfolio export: write this one to another folder"},
+		// What none of these refuses: the store is opened, and it is not
+		// there.
+		{[]string{"-format", "pp", "-dir", out, "-since", third, "-what", "ledger"}, "no store at "},
+		{[]string{"-format", "ghostfolio", "-dir", out, "-since", gf, "-manual", "ABCD", "-to", "2026-10-31"}, "no store at "},
+		{[]string{"-format", "pp", "-dir", noManifest, "-account", "A1"}, "no store at "},
+		{[]string{"-format", "pp", "-dir", other}, "no store at "},
+		{[]string{"-format", "ghostfolio", "-dir", perAccount}, "no store at "},
+		{[]string{"-format", "ghostfolio", "-dir", out, "-store", storeLike("securities.csv")}, "no store at "},
+		{[]string{"-what", "all", "-dir", csv}, "no store at "},
+	} {
+		// A message that ends in a space is the start of one, which the
+		// rest, said by the system, ends.
+		_, _, err := runTx(t, append([]string{"export"}, c.args...)...)
+		if err == nil || !strings.HasPrefix(err.Error(), c.want) || !strings.HasSuffix(c.want, " ") && err.Error() != c.want {
+			t.Errorf("export %q: %v, want %s", c.args, err, c.want)
+		}
+	}
+	for _, folder := range []string{out, storeDir} {
+		if _, err := os.Stat(folder); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("a refused export made %s: %v", folder, err)
+		}
+	}
+}
+
+// What an export for a tool says on stderr (8.2 of the tool exports'
+// design), from what it wrote, in full and going on from another: what it
+// wrote, the coverage, what it left out, wrote with a caveat, found changed
+// in symbol or in the holdings, flagged or did not write for want of a
+// decision, and for Ghostfolio the cash rows that the balances carry, the
+// -manual symbols that nothing uses, said back masked, and the symbols
+// Yahoo may no longer know; what to delete in the tool; for PP, the
+// accounts to make, the order of the files and the rows to tick; for
+// Ghostfolio, the cash to set; and the command that goes on from it, which
+// names the store when it is not the default one. Each line but the first
+// is there only when it has something to say, said for one or for several.
+func TestToolSummary(t *testing.T) {
+	store := filepath.Join(t.TempDir(), "history.db")
+	t.Setenv("SCHWAB_STORE_FILE", store)
+	a1 := history.ToolAccount{Label: "A1 ...135", Account: "...135", Nickname: "Individual", Name: "Schwab A1 ...135", Exported: true}
+	a2 := history.ToolAccount{Label: "A2 ...398", Account: "...398", Nickname: "Options & Margin", Name: "Schwab A2 ...398", Exported: true}
+	newly := func(a history.ToolAccount) history.ToolAccount {
+		a.New = true
+		return a
+	}
+	withCash := func(a history.ToolAccount, balances int, cash string, last nytime.Date) history.ToolAccount {
+		a.Balances, a.Cash, a.LastBalance = balances, cash, last
+		return a
+	}
+	evening := time.Date(2026, time.November, 10, 23, 5, 0, 0, time.UTC) // 18:05 in New York
+	for _, c := range []struct {
+		name, store, dir, since string
+		e                       history.ToolExport
+		want                    string
+	}{
+		{
+			name: "pp in full", dir: "pp-2026-11-13",
+			e: history.ToolExport{
+				Tool: "pp", To: "2026-11-12", Written: 17,
+				Files: []history.ToolFile{
+					{Name: "securities.csv", Kind: "securities", Rows: 23},
+					{Name: "account-transactions-A1-135.csv", Kind: "account", Account: "A1 ...135", Rows: 6},
+					{Name: "portfolio-transactions-A1-135.csv", Kind: "portfolio", Account: "A1 ...135", Rows: 4},
+					{Name: "account-transactions-A2-398.csv", Kind: "account", Account: "A2 ...398", Rows: 3, Tick: 1},
+					{Name: "portfolio-transactions-A2-398.csv", Kind: "portfolio", Account: "A2 ...398", Rows: 5},
+				},
+				Securities: 9, Prices: 14,
+				Coverage: []history.ExportCoverage{
+					{AccountID: 1, Account: "...135", Source: "api_file", From: "2023-06-13", To: "2025-06-01"},
+					{AccountID: 1, Account: "...135", Source: "file", From: "2023-02-01", To: "2024-05-31"},
+					{AccountID: 1, Account: "...135", Source: "realized", From: "2024-01-01", To: "2024-05-31"},
+					{AccountID: 1, Account: "...135", Source: "snapshot", From: "2026-11-02", To: "2026-11-10"},
+					{AccountID: 2, Account: "...398", Source: "api_file", From: "2025-01-15", To: "2026-08-03"},
+					{AccountID: 2, Account: "...398", Source: "snapshot", From: "2026-11-02", To: "2026-11-10"},
+				},
+				LeftOut:    []history.ToolCount{{Code: "other", Count: 1}},
+				CaveatRows: 1, Caveats: []history.ToolCount{{Code: "assumed_multiplier", Count: 1}},
+				SymbolsChanged: 1, Holdings: 2, Flagged: 1, Waiting: 1,
+				Accounts: []history.ToolAccount{newly(a1), newly(a2)},
+				Tick:     []history.ToolTick{{File: "account-transactions-A2-398.csv", Ref: "T73508261958", Account: "A2 ...398", As: "account 2026-03-02 Withdrawal 1000.00"}},
+			},
+			want: `wrote 17 rows for Portfolio Performance to pp-2026-11-13, up to 2026-11-12: 2 account files, 2 portfolio files, 9 securities, 14 prices
+  A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
+  A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
+left out 1 row (pp-2026-11-13/manifest.json lists each, with what to do): other 1
+wrote 1 row with a caveat (pp-2026-11-13/manifest.json): assumed_multiplier 1
+1 security has changed symbol (pp-2026-11-13/manifest.json): if Portfolio Performance holds it under an earlier ticker, give it the new one; once delisted, no price feed (docs/tools.md)
+2 holdings differ from the latest snapshot (pp-2026-11-13/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+1 row of this export carries a flag that needs you (schwabtx status -review); if you uncount it, the next -since export lists what to delete
+1 file transaction waits for you to resolve it (schwabtx status -review) and is not in this export
+in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
+  A1 ...135 (Individual): Schwab A1 ...135
+  A2 ...398 (Options & Margin): Schwab A2 ...398
+import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv, account-transactions-A2-398.csv, portfolio-transactions-A2-398.csv
+tick these rows, which Portfolio Performance will show as existing although they are new; leave every other such row unticked:
+  account-transactions-A2-398.csv: Schwab A2 ...398: 2026-03-02 Withdrawal 1000.00 (T73508261958)
+next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
+`,
+		},
+		{
+			name: "pp going on", dir: "pp-2026-12-01", since: "pp-2026-11-13",
+			e: history.ToolExport{
+				Tool: "pp", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 3, Late: 2,
+				Files: []history.ToolFile{
+					{Name: "securities.csv", Kind: "securities", Rows: 22},
+					{Name: "account-transactions-A1-135.csv", Kind: "account", Account: "A1 ...135", Rows: 1},
+					{Name: "portfolio-transactions-A1-135.csv", Kind: "portfolio", Account: "A1 ...135", Rows: 2, Tick: 1},
+				},
+				Securities: 2, Prices: 20,
+				Accounts: []history.ToolAccount{a1, {Label: "A2 ...398", Account: "...398", Name: "Schwab A2 ...398"}, {Label: "A3 ...777"}},
+				Changed: []history.ToolChange{
+					{Ref: "T73508261950", Account: "A1 ...135", Was: "account 2024-04-04 Dividend 3.86", Now: "account 2024-04-04 Dividend 3.68"},
+				},
+				Gone: []history.ToolChange{
+					{Ref: "T73508261944", Account: "A2 ...398", Was: "portfolio 2025-01-21 Buy 400.67", Why: "uncounted: user"},
+					{Ref: "T73508261948", Account: "A2 ...398", Was: "account 2025-02-03 Deposit 25.00", NoteRef: "Ca3b4c5d6.4", Why: "linked to T73508261949"},
+					{Ref: "C9e8d7c6b.2", Account: "A3 ...777", Was: "portfolio 2025-03-04 Sell 10.00; account 2025-03-04 Fees 15.00", Why: "no longer in the store"},
+				},
+				Tick: []history.ToolTick{{File: "portfolio-transactions-A1-135.csv", Ref: "T73508261960", Account: "A1 ...135", As: "portfolio 2026-11-20 Buy 1001.25"}},
+			},
+			want: `wrote 3 rows for Portfolio Performance to pp-2026-12-01, since pp-2026-11-13, up to 2026-11-30: 1 account file, 1 portfolio file, 2 securities, 20 prices
+  this assumes Portfolio Performance holds pp-2026-11-13 and every export before it, each imported once, with what it listed deleted and ticked
+  2 of them are dated on or before 2026-11-12, the end of pp-2026-11-13: they came late or were decided since
+before importing, delete in Portfolio Performance what changed or went (pp-2026-12-01/manifest.json lists each):
+  Schwab A1 ...135: 2024-04-04 Dividend 3.86 (note schwabtx A1 ...135 T73508261950): changed; the new form is in this export
+  Schwab A2 ...398: 2025-01-21 Buy 400.67 (note schwabtx A2 ...398 T73508261944): gone, uncounted (user)
+  Schwab A2 ...398: 2025-02-03 Deposit 25.00 (note schwabtx A2 ...398 Ca3b4c5d6.4): gone, linked to T73508261949
+  A3 ...777: 2025-03-04 Sell 10.00; 2025-03-04 Fees 15.00 (note schwabtx A3 ...777 C9e8d7c6b.2): gone, no longer in the store
+import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv
+tick these rows, which Portfolio Performance will show as existing although they are new; leave every other such row unticked:
+  portfolio-transactions-A1-135.csv: Schwab A1 ...135: 2026-11-20 Buy 1001.25 (T73508261960)
+next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
+`,
+		},
+		{
+			name: "pp going on, one of each", dir: "pp-2026-12-15", since: "pp-2026-12-01",
+			e: history.ToolExport{
+				Tool: "pp", To: "2026-12-14", Since: "2026-12-01T12:00:00Z", SinceTo: "2026-11-30", Written: 1, Late: 1,
+				Files:      []history.ToolFile{{Name: "securities.csv", Kind: "securities", Rows: 1}, {Name: "portfolio-transactions-A3-777.csv", Kind: "portfolio", Account: "A3 ...777", Rows: 1}},
+				Securities: 1, Prices: 1, CaveatRows: 2, Caveats: []history.ToolCount{{Code: "value_unknown", Count: 2}, {Code: "cash_not_written", Count: 1}},
+				LeftOut:        []history.ToolCount{{Code: "split", Count: 1}, {Code: "no_quantity", Count: 2}},
+				SymbolsChanged: 2, Holdings: 1, Flagged: 2, Waiting: 2,
+				Accounts: []history.ToolAccount{newly(history.ToolAccount{Label: "A3 ...777", Account: "...777", Nickname: "Joint\u202eTrust", Name: "Schwab A3 ...777", Exported: true}), a1},
+			},
+			want: `wrote 1 row for Portfolio Performance to pp-2026-12-15, since pp-2026-12-01, up to 2026-12-14: 1 portfolio file, 1 security, 1 price
+  this assumes Portfolio Performance holds pp-2026-12-01 and every export before it, each imported once, with what it listed deleted and ticked
+  1 of them is dated on or before 2026-11-30, the end of pp-2026-12-01: it came late or was decided since
+left out 3 rows (pp-2026-12-15/manifest.json lists each, with what to do): split 1, no_quantity 2
+wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_not_written 1
+2 securities have changed symbol (pp-2026-12-15/manifest.json): if Portfolio Performance holds them under an earlier ticker, give them the new one; once delisted, no price feed (docs/tools.md)
+1 holding differs from the latest snapshot (pp-2026-12-15/manifest.json): a position opened before the store's rows, or a split left out; add it by hand (docs/tools.md)
+2 rows of this export carry a flag that needs you (schwabtx status -review); if you uncount one, the next -since export lists what to delete
+2 file transactions wait for you to resolve them (schwabtx status -review) and are not in this export
+in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
+  A3 ...777 (Joint?Trust): Schwab A3 ...777
+import in this order: securities.csv, portfolio-transactions-A3-777.csv
+next time: schwabtx export -format pp -since pp-2026-12-15 -dir <a new folder>
+`,
+		},
+		{
+			// A row's was as a manifest edited by hand may hold it, without
+			// its file's kind.
+			name: "pp going on, nothing new", dir: "pp-2026-12-31", since: "pp-2026-12-15",
+			e: history.ToolExport{
+				Tool: "pp", To: "2026-12-30", Since: "2026-12-15T12:00:00Z", SinceTo: "2026-12-14", Given: 21,
+				Files:    []history.ToolFile{{Name: "securities.csv", Kind: "securities"}},
+				Accounts: []history.ToolAccount{a1},
+				Gone:     []history.ToolChange{{Ref: "T73508261961", Account: "A1 ...135", Was: "2026-12-01 Fees 1.00", Why: "uncounted: user"}},
+			},
+			want: `wrote 0 rows for Portfolio Performance to pp-2026-12-31, since pp-2026-12-15, up to 2026-12-30
+  this assumes Portfolio Performance holds pp-2026-12-15 and every export before it, each imported once, with what it listed deleted and ticked
+before importing, delete in Portfolio Performance what changed or went (pp-2026-12-31/manifest.json lists each):
+  Schwab A1 ...135: 2026-12-01 Fees 1.00 (note schwabtx A1 ...135 T73508261961): gone, uncounted (user)
+import in this order: securities.csv
+next time: schwabtx export -format pp -since pp-2026-12-31 -dir <a new folder>
+`,
+		},
+		{
+			name: "ghostfolio in full", dir: "gf-2026-11-13",
+			e: history.ToolExport{
+				Tool: "ghostfolio", To: "2026-11-12", Written: 10,
+				Files:    []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio", Rows: 12}},
+				Accounts: []history.ToolAccount{withCash(newly(a1), 10, "10234.56", "2026-11-10"), withCash(newly(a2), 8, "-12.34", "2026-11-10")},
+				Profiles: 5, PricesOnly: 2, Yahoo: 6, InBalances: 6,
+				NotInBalances: []history.ToolCashRows{{Account: "A1 ...135", Rows: 2, Snapshot: "2026-11-10", Taken: evening}},
+				Unused:        []string{"ABCD", "61803398", "XY\u200bZ"},
+				YahooIdle:     3, IdleSince: "2025-11-12",
+			},
+			want: `wrote 12 activities for Ghostfolio to gf-2026-11-13, up to 2026-11-12: 2 accounts with 18 balances, 5 manual assets (2 more with prices only), 6 symbols for Yahoo
+6 deposits, withdrawals and journals are in the accounts' balances; 2 are not yet, posted after the latest snapshot was taken (A1 ...135: of 2026-11-10, taken 2026-11-10 18:05 in New York), which a later one will carry
+-manual names ABCD and ...398 and XY?Z, which nothing in this export uses
+3 symbols for Yahoo have no row since 2025-11-12 and are not held (gf-2026-11-13/manifest.json lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual
+Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
+next time: schwabtx export -format ghostfolio -since gf-2026-11-13 -dir <a new folder>
+`,
+		},
+		{
+			name: "ghostfolio going on", store: filepath.Join(t.TempDir(), "other.db"), dir: "gf-2026-12-01", since: "gf-2026-11-13",
+			e: history.ToolExport{
+				Tool: "ghostfolio", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 4, Late: 1,
+				Files:    []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio", Rows: 1}},
+				Accounts: []history.ToolAccount{withCash(a1, 12, "10234.56", "2026-11-28"), withCash(a2, 10, "-12.34", "2026-11-28"), {Label: "A3 ...777", Name: "Schwab A3 ...777"}},
+				Profiles: 1, Yahoo: 1,
+				NotInBalances:  []history.ToolCashRows{{Account: "A2 ...398", Rows: 1, Snapshot: "2026-11-28", Taken: evening.AddDate(0, 0, 18)}, {Account: "A3 ...777", Rows: 1}},
+				LeftOut:        []history.ToolCount{{Code: "gf_cash", Count: 2}},
+				SymbolsChanged: 1, Holdings: 3, Flagged: 1, YahooIdle: 1, IdleSince: "2025-11-30",
+				Changed: []history.ToolChange{{Ref: "T73508261950", Account: "A1 ...135", Was: "2024-04-04 DIVIDEND 3.86", Now: "2024-04-04 DIVIDEND 3.68"}},
+				Gone:    []history.ToolChange{{Ref: "T73508261945", Account: "A2 ...398", Was: "2025-01-22 SELL 412.50 fee 0.65", Why: "left out: gf_cash"}},
+			},
+			want: `wrote 1 activity for Ghostfolio to gf-2026-12-01, since gf-2026-11-13, up to 2026-11-30: 2 accounts with 22 balances, 1 manual asset, 1 symbol for Yahoo
+  this assumes Ghostfolio holds gf-2026-11-13 and every export before it, each imported once, with what it listed deleted
+  1 of their rows is dated on or before 2026-11-12, the end of gf-2026-11-13: it came late or was decided since
+2 deposits, withdrawals and journals are not in the accounts' balances yet, posted after the latest snapshot was taken (A2 ...398: of 2026-11-28, taken 2026-11-28 18:05 in New York; A3 ...777: none), which a later one will carry
+left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_cash 2
+1 security has changed symbol (gf-2026-12-01/manifest.json): if Ghostfolio holds activities of it under an earlier symbol, delete them: it does not follow the change (docs/tools.md)
+3 holdings differ from the latest snapshot (gf-2026-12-01/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+1 row of this export carries a flag that needs you (schwabtx status -store STORE -review); if you uncount it, the next -since export lists what to delete
+1 symbol for Yahoo has no row since 2025-11-30 and is not held (gf-2026-12-01/manifest.json lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual
+before importing, delete in Ghostfolio what changed or went (gf-2026-12-01/manifest.json lists each):
+  Schwab A1 ...135: 2024-04-04 DIVIDEND 3.86 (comment schwabtx A1 ...135 T73508261950): changed; the new form is in this export
+  Schwab A2 ...398: 2025-01-22 SELL 412.50 fee 0.65 (comment schwabtx A2 ...398 T73508261945): gone, left out (gf_cash)
+Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
+set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
+  Schwab A1 ...135: 10234.56 (2026-11-28)
+  Schwab A2 ...398: -12.34 (2026-11-28)
+next time: schwabtx export -store STORE -format ghostfolio -since gf-2026-12-01 -dir <a new folder>
+`,
+		},
+		{
+			name: "ghostfolio, nothing to import", dir: "gf-2026-12-31", since: "gf-2026-12-01",
+			e: history.ToolExport{
+				Tool: "ghostfolio", To: "2026-12-30", Since: "2026-12-01T12:00:00Z", SinceTo: "2026-11-30",
+				Files:      []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio"}},
+				Accounts:   []history.ToolAccount{withCash(newly(history.ToolAccount{Label: "A3 ...777", Name: "Schwab A3 ...777", Exported: true}), 2, "40.00", "2026-12-30")},
+				PricesOnly: 2, InBalances: 3,
+			},
+			want: `wrote 0 activities for Ghostfolio to gf-2026-12-31, since gf-2026-12-01, up to 2026-12-30: 1 account with 2 balances, 2 manual assets with prices only
+  this assumes Ghostfolio holds gf-2026-12-01 and every export before it, each imported once, with what it listed deleted
+3 deposits, withdrawals and journals are in the accounts' balances
+Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
+set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
+  Schwab A3 ...777: 40.00 (2026-12-30)
+this file holds no activity: Ghostfolio's import dialog cannot import it; its accounts and balances come with the next export that has one, or by POST /api/v1/import
+next time: schwabtx export -format ghostfolio -since gf-2026-12-31 -dir <a new folder>
+`,
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			path := store
+			if c.store != "" {
+				path = c.store
+			}
+			var b strings.Builder
+			toolSummary(&b, path, &c.e, c.dir, c.since)
+			want := strings.NewReplacer("/manifest.json", string(filepath.Separator)+"manifest.json", "-store STORE", "-store "+quoteArg(path)).Replace(c.want)
+			if got := b.String(); got != want {
+				t.Errorf("it says:\n%s\nwant:\n%s", got, want)
+			}
+		})
 	}
 }
 

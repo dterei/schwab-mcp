@@ -560,7 +560,7 @@ func TestExportOptions(t *testing.T) {
 		{ExportOptions{What: []string{"all"}, Raw: true}, "ledger,entries,transactions,legs,file-transactions,imports,snapshots,positions,balances,lots,gaps,flags,coverage,securities"},
 		{ExportOptions{What: []string{"trades"}}, `error: unknown -what "trades"; one of ledger, entries, transactions, legs, file-transactions, imports, snapshots, positions, balances, lots, gaps, flags, coverage, securities, or all`},
 		{ExportOptions{What: []string{"ledger", "legs"}, Raw: true}, "error: -raw is kept for ledger, entries, transactions, file-transactions, snapshots and lots"},
-		{ExportOptions{Format: "xlsx"}, `error: -format is csv or jsonl, not "xlsx"`},
+		{ExportOptions{Format: "xlsx"}, `error: -format is csv, jsonl, pp or ghostfolio, not "xlsx"`},
 		{ExportOptions{Format: "jsonl", From: "2026-02-30"}, `error: "...230" is not a date (YYYY-MM-DD)`}, // masked, as free text is
 		{ExportOptions{To: "2/30/26"}, `error: "2/30/26" is not a date (YYYY-MM-DD)`},
 		{ExportOptions{From: "2026-03-01", To: "2026-02-01"}, "error: -from 2026-03-01 is after -to 2026-02-01"},

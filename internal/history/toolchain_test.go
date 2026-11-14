@@ -704,7 +704,7 @@ func TestToolChain(t *testing.T) {
 			if string(again) != string(want) {
 				t.Errorf("%s: read back as\n%s\nwritten as\n%s", tool, again, want)
 			}
-			if c.ExportedAt != rcAt1 || c.Store != s.in.store || c.Format != tool || c.Layout != toolLayout || c.Chain.ID != rcAt1 || c.Chain.To != s.in.to {
+			if c.ExportedAt != rcAt1 || c.Store != s.in.store || c.Format != tool || c.Layout != ToolLayout || c.Chain.ID != rcAt1 || c.Chain.To != s.in.to {
 				t.Errorf("%s: %s %s %s %d, chain %s to %s", tool, c.ExportedAt, c.Store, c.Format, c.Layout, c.Chain.ID, c.Chain.To)
 			}
 		}

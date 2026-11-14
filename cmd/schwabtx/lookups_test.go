@@ -1374,9 +1374,11 @@ func TestUsage(t *testing.T) {
 			t.Errorf("%s -h does not say the store is in %s:\n%s", cmd, where, stderr)
 		}
 	}
-	// export -h lists what -what takes, from the store's own table.
+	// export -h lists what -what takes, from the store's own table, and
+	// says what the tools' formats write.
 	if _, stderr, _ := runTx(t, "export", "-h"); !strings.Contains(stderr, "  ledger ") || !strings.Contains(stderr, "  securities ") ||
-		!strings.Contains(stderr, "(takes -raw)") {
+		!strings.Contains(stderr, "(takes -raw)") ||
+		!strings.Contains(stderr, "\nWrites what the store holds as CSV or JSON Lines, or the ledger as files for Portfolio Performance or Ghostfolio.") {
 		t.Errorf("export -h does not list what -what takes:\n%s", stderr)
 	}
 	if _, stderr, err := runTx(t, "login", "-h"); !strings.Contains(stderr, "no flags") {

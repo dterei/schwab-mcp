@@ -150,7 +150,8 @@ type ExportOptions struct {
 	// What names the tables (ExportKinds): one, several, or "all". None
 	// means the ledger.
 	What []string
-	// Format is "csv", or "jsonl" for JSON Lines. "" means csv.
+	// Format is "csv", or "jsonl" for JSON Lines. "" means csv. The tools'
+	// formats, pp and ghostfolio, are ExportTool's (ToolOptions).
 	Format string
 	// Account selects one account, as ImportOptions.Account does: A and its
 	// id, its number, the digits that end it, or its nickname. "" means
@@ -306,7 +307,7 @@ func (s *Store) Export(ctx context.Context, o ExportOptions) (*Export, error) {
 // once, in the order asked.
 func (o ExportOptions) tables() ([]exportTable, error) {
 	if o.Format != "" && o.Format != "csv" && o.Format != "jsonl" {
-		return nil, fmt.Errorf("-format is csv or jsonl, not %q", mask.Text(o.Format))
+		return nil, fmt.Errorf("-format is csv, jsonl, pp or ghostfolio, not %q", mask.Text(o.Format))
 	}
 	for _, d := range []nytime.Date{o.From, o.To} {
 		if _, err := time.Parse(time.DateOnly, string(d)); d != "" && err != nil {
