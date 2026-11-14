@@ -845,7 +845,8 @@ func TestToolChain(t *testing.T) {
 		if got := c.manual([]string{" XYZ", "abcd ", "EFGH", "", "efgh"}); !slices.Equal(got, []string{"ABCD", "xyz", "EFGH"}) {
 			t.Errorf("the chain's -manual and more: %q", got)
 		}
-		if got := (*toolChain)(nil).manual([]string{"ABC-B", " "}); !slices.Equal(got, []string{"ABC-B"}) {
+		// A class share is one symbol however it is spelled.
+		if got := (*toolChain)(nil).manual([]string{"ABC-B", " ", "abc/b", "ABC.B"}); !slices.Equal(got, []string{"ABC-B"}) {
 			t.Errorf("-manual alone: %q", got)
 		}
 	})
@@ -2041,6 +2042,128 @@ func TestToolReimport(t *testing.T) {
 		for _, s := range []*chainStep{e1, e2, e3} {
 			ppApply(t, m, s)
 			ppReconcile(t, m, s.in, s.events, s.outcomes)
+		}
+	})
+
+	t.Run("a security of two keys, a CUSIP under the API's", func(t *testing.T) {
+		t.Parallel()
+		// JKLM, which the store holds under a History file's key that knows
+		// no CUSIP and the API's key that knows one: PP finds every record of
+		// either by that WKN, as one security, and so does the replay. Two
+		// file buys alike; then the API's row of one of them, under the
+		// other key, takes its place: it is the same as the file row gone,
+		// which PP holds, and PP marks it as its own.
+		base := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106"}.toolCase().in
+		deposit := rcCash("T7f0nn100", 1, "2026-01-02 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000)
+		fileBuy := func(ref string) toolRow {
+			return rcFile(ref, 1, "2026-01-14", "Buy", "buy", keyTwoFile, "JKLM", centsOf(2_000_000), 150, -30_000)
+		}
+		b1, b2 := fileBuy("C7f0nn000.1"), fileBuy("C7f0nn000.2")
+		api := rcTrade("T7f0nn101", 1, "2026-01-14 10:30:00", "buy", keyTwoAPI, "JKLM", 2_000_000, 150, -30_000, 0)
+		first, then := base, base
+		first.to, first.rows, first.positions, first.snapshots = "2026-01-31", []toolRow{deposit, b1, b2}, nil, nil
+		then.to, then.rows, then.positions, then.snapshots = "2026-02-27", []toolRow{deposit, b1, api}, nil, nil
+		then.uncounted = []toolUncounted{{ref: b2.ref, account: 1, why: "linked", matchedWith: api.ref}}
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, tcInput(first), tool, nil, rcAt1)
+			e2 := chainStepOf(t, tcInput(then), tool, e1, rcAt2)
+			if tool == toolGF {
+				m := newGFModel()
+				for _, s := range []*chainStep{e1, e2} {
+					if _, err := gfApply(t, m, s); err != nil {
+						t.Fatal(err)
+					}
+					gfReconcile(t, s.in, s.events, s.outcomes, m)
+				}
+				continue
+			}
+			if got := rcMarks(e2); len(e2.res.sameAs) != 1 || e2.res.sameAs[0].Gone != b2.ref || !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:1 T7f0nn101"}) {
+				t.Errorf("the same %+v, PP marks %q", e2.res.sameAs, got)
+			}
+			m := newPPModel()
+			for _, s := range []*chainStep{e1, e2} {
+				ppApply(t, m, s)
+				ppReconcile(t, m, s.in, s.events, s.outcomes)
+			}
+		}
+
+		// The case's buy under the file's key, and its sale under the API's;
+		// then an API row of the buy that came late, alike, which PP marks,
+		// since it holds the file's buy of the one security: it is ticked;
+		// then the file's buy is linked to it, and goes.
+		late := rcTrade("T61002899", 1, "2024-03-11 10:00:00", "buy", keyTwoAPI, "JKLM", 10_000_000, 150, -150_000, 0)
+		late.flags = []string{"late_api_row"}
+		second, third := base, base
+		second.rows = append(slices.Clone(base.rows), late)
+		third.rows = []toolRow{base.rows[1], late}
+		third.uncounted = []toolUncounted{{ref: base.rows[0].ref, account: 1, why: "linked", matchedWith: late.ref}}
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, base, tool, nil, rcAt1)
+			e2 := chainStepOf(t, tcInput(second), tool, e1, rcAt2)
+			e3 := chainStepOf(t, tcInput(third), tool, e2, rcAt3)
+			if tool == toolGF {
+				m := newGFModel()
+				for _, s := range []*chainStep{e1, e2, e3} {
+					if _, err := gfApply(t, m, s); err != nil && len(s.gf.file.Activities) > 0 {
+						t.Fatal(err)
+					}
+					gfReconcile(t, s.in, s.events, s.outcomes, m)
+				}
+				continue
+			}
+			if got := rcMarks(e2); !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:1 T61002899 tick"}) {
+				t.Errorf("the late row: PP marks %q", got)
+			}
+			m := newPPModel()
+			for _, s := range []*chainStep{e1, e2, e3} {
+				ppApply(t, m, s)
+				ppReconcile(t, m, s.in, s.events, s.outcomes)
+			}
+		}
+	})
+
+	t.Run("a security of two keys delisted", func(t *testing.T) {
+		t.Parallel()
+		// Bought under a History file's key and sold under the API's, which
+		// knows the CUSIP; then the API's key is delisted, as only it
+		// learns, and pays a dividend. Ghostfolio's two rows, of one YAHOO
+		// asset before, are changed to one MANUAL asset, and the dividend is
+		// of it too, whose investment it has; PP finds both by their WKN, as
+		// before, and holds them as they were.
+		before := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106"}.toolCase().in
+		after := twoKeys{api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106"}.toolCase().in
+		before.to, before.positions, before.snapshots = "2026-03-31", nil, nil
+		dividend := rcCash("T61002898", 1, "2026-09-15 10:00:00", "DIVIDEND_OR_INTEREST", "Ordinary Dividend~ZZJ12K106", "dividend", 300)
+		dividend.securityKey, dividend.symbol = keyTwoAPI, "ZZJ12K106"
+		after.rows = append(slices.Clone(after.rows), dividend)
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, before, tool, nil, rcAt1)
+			e2 := chainStepOf(t, tcInput(after), tool, e1, rcAt2)
+			changed, _ := rcChanged(e2)
+			if tool == toolPP {
+				if len(changed) > 0 || !slices.Equal(e2.refs(outcomeWritten), []string{dividend.ref}) {
+					t.Errorf("PP: written %q, changed %q", e2.refs(outcomeWritten), changed)
+				}
+				m := newPPModel()
+				for _, s := range []*chainStep{e1, e2} {
+					ppApply(t, m, s)
+					ppReconcile(t, m, s.in, s.events, s.outcomes)
+				}
+				continue
+			}
+			if len(changed) != 2 || len(e2.gf.file.AssetProfiles) != 1 || e2.gf.file.AssetProfiles[0].Name != "Security (ZZJ12K106)" {
+				t.Errorf("Ghostfolio: changed %q, assets %+v", changed, e2.gf.file.AssetProfiles)
+			}
+			m := newGFModel()
+			for _, s := range []*chainStep{e1, e2} {
+				if _, err := gfApply(t, m, s); err != nil {
+					t.Fatal(err)
+				}
+				gfReconcile(t, s.in, s.events, s.outcomes, m)
+			}
+			if held, p := m.holdings(), m.performance(); len(held) != 1 || len(p.noInvestment) > 0 {
+				t.Errorf("Ghostfolio holds %v; no investment %v", held, p.noInvestment)
+			}
 		}
 	})
 

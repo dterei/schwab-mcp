@@ -310,10 +310,11 @@ func (r ppRecord) cells() []string {
 
 // ppIdentifiers returns the Ticker Symbol, WKN and Security Name that PP
 // gets for security s (3.5 of the design), by which PP finds the security
-// or makes it: its PP ticker, its CUSIP and its name. A security that would
-// have none of the three, having no description, no CUSIP and a ticker kept
-// from PP for its dot, is named by its latest symbol, else its key: PP
-// refuses a record of no security.
+// or makes it: its PP ticker, its CUSIP and its name, which every security
+// of the store that the tools take for one with it has alike (join). A
+// security that would have none of the three, having no description, no
+// CUSIP and a ticker kept from PP for its dot, is named by its latest
+// symbol, else its key: PP refuses a record of no security.
 func ppIdentifiers(s *toolSecurity) (ticker, wkn, name string) {
 	ticker, wkn, name = ppTrim(s.ppTicker()), ppTrim(s.cusip), ppTrim(s.name)
 	if ticker == "" && wkn == "" && name == "" {

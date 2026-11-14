@@ -363,14 +363,14 @@ func (c *toolChain) manual(more []string) []string {
 }
 
 // chainManualUnion returns the symbols of lists, trimmed, each once, as
-// -manual compares them, in their order.
+// -manual compares them (symbolForm), in their order.
 func chainManualUnion(lists ...[]string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, l := range lists {
 		for _, s := range l {
 			s = strings.TrimSpace(s)
-			if k := strings.ToUpper(s); s != "" && !seen[k] {
+			if k := symbolForm(s); s != "" && !seen[k] {
 				seen[k] = true
 				out = append(out, s)
 			}

@@ -2,7 +2,9 @@ package history
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"math/big"
 	"slices"
 	"strconv"
@@ -982,6 +984,16 @@ func TestToolMapping(t *testing.T) {
 				t.Errorf("%s%s: manual %q, symbol %s", c.key, c.symbol, s.manual, s.gfSymbol())
 			}
 		}
+		// A class share, whatever its spelling, Schwab's, Yahoo's or yours,
+		// is the one symbol of ABC.B, and is no typo.
+		for _, spelling := range []string{"ABC.B", "ABC-B", "abc/b", "ABC B"} {
+			c := toolCaseNamed("manual")
+			c.in.manual = []string{spelling}
+			in, events, _ := mapCase(c, toolGF)
+			if _, err := checkManual(in, events); err != nil || toolSecurityOf(in, keyClass, "").manual != "asked" {
+				t.Errorf("-manual %s: %q, %v", spelling, toolSecurityOf(in, keyClass, "").manual, err)
+			}
+		}
 		// A symbol that no security has had is refused, said back masked.
 		in.manual = []string{"XYZ", "6180 3398"}
 		if _, err := checkManual(in, events); err == nil || err.Error() != "-manual names ...398, which no security in the store has" {
@@ -1041,44 +1053,119 @@ func TestToolMapping(t *testing.T) {
 		if f := ppFileNamed(t, ppFiles(inPP, eventsPP), ppSecuritiesFile); f.rows != 1 {
 			t.Errorf("PP's securities: %d rows", f.rows)
 		}
-		// PP finds a security by its WKN, the CUSIP, whatever its ticker,
-		// and by its name when it has neither: renamed under one key, or
-		// with a ticker that PP takes none of, it is one security still.
-		for _, v := range []struct{ name, apiSymbol, fileSymbol, cusip, description string }{
-			{"renamed", "JKLN", "JKLM", "ZZJ12K106", ""},
-			{"dotted", "JKL.PRA", "JKL.PRA", "", "JKL TRUST PFD SER A"},
+		// The keys join by a ticker that both have had, or by a CUSIP, and
+		// take every identifier from both: the API's key renamed since, or
+		// delisted, which only it learns, the file's knowing neither; a
+		// ticker that keeps a dot in Yahoo's form, of which PP takes none; a
+		// class share that Schwab and the file spell otherwise; a CUSIP under
+		// one key alone; and the descriptions of either source, alike or not.
+		// Each tool holds one security still: PP finds every record's by one
+		// WKN, ticker or name, so that securities.csv lists it once and PP
+		// holds the six shares in it; Ghostfolio's activities are of one
+		// asset, which holds them; and the holdings check finds no difference.
+		for _, v := range []twoKeys{
+			{name: "renamed", api: []string{"JKLM", "JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", fileCUSIP: "ZZJ12K106", identity: "JKLN", changed: true},
+			{name: "renamed, a CUSIP under the API's key", api: []string{"JKLM", "JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", identity: "JKLN", changed: true},
+			{
+				name: "renamed, no ticker alike, a CUSIP under both", api: []string{"JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", fileCUSIP: "ZZJ12K106",
+				identity: "JKLN", changed: true,
+			},
+			// -manual names the ticker that the file's key alone had.
+			{
+				name: "renamed, -manual naming the old ticker", api: []string{"JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", fileCUSIP: "ZZJ12K106",
+				manual: "JKLM", identity: "JKLN", why: "asked", changed: true,
+			},
+			{
+				name: "delisted, a CUSIP under the API's key", api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106",
+				identity: "ZZJ12K106", why: "delisted", changed: true,
+			},
+			{
+				name: "delisted, described alike", api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106",
+				apiName: "JKLM SMALL CAP VALUE ETF", fileName: "JKLM SMALL CAP VALUE ETF", identity: "ZZJ12K106", why: "delisted", changed: true,
+			},
+			// A file that writes the CUSIP of a security that has gone.
+			{
+				name: "delisted under the file's key", api: []string{"JKLM"}, file: []string{"JKLM", "ZZJ12K106"}, apiCUSIP: "ZZJ12K106",
+				identity: "ZZJ12K106", why: "delisted", changed: true,
+			},
+			{
+				name: "dotted", api: []string{"JKL.PRA"}, file: []string{"JKL.PRA"}, apiName: "JKL TRUST PFD SER A", fileName: "JKL TRUST PFD SER A",
+				identity: "JKL.PRA", why: "not_plain",
+			},
+			{
+				name: "dotted, a CUSIP under the API's key", api: []string{"JKL.PRA"}, file: []string{"JKL.PRA"}, apiCUSIP: "ZZJ12K106",
+				apiName: "JKL TRUST PFD SER A", fileName: "JKL TRUST 5.25% PFD A", identity: "JKL.PRA", why: "not_plain",
+			},
+			{name: "a class share spelled two ways, named by -manual", api: []string{"JKL/B"}, file: []string{"JKL.B"}, manual: "jkl/b", identity: "JKL-B", why: "asked"},
 		} {
-			c := toolCaseNamed("two_keys")
-			symbols := map[string]string{keyTwoAPI: v.apiSymbol, keyTwoFile: v.fileSymbol}
-			for i := range c.in.securities {
-				if r := &c.in.securities[i]; symbols[r.key] != "" {
-					r.symbol, r.cusip = symbols[r.key], v.cusip
+			c := v.toolCase()
+			for _, tool := range []string{toolPP, toolGF} {
+				in, events, _ := mapCase(c, tool)
+				if diffs, _ := holdingsCheck(in, events); len(diffs) != 0 {
+					t.Errorf("%s %s: differences %+v", v.name, tool, diffs)
+				}
+				for _, e := range events {
+					if s := e.security; s.identity() != v.identity || s.manual != v.why || s.symbolsChanged() != v.changed {
+						t.Errorf("%s %s: %s is of %s, MANUAL %q, changed %v; want %s, %q, %v", v.name, tool, e.ref, s.identity(), s.manual, s.symbolsChanged(), v.identity, v.why, v.changed)
+					}
+				}
+				e := caseExport(t, c, tool)
+				// The manifest names a security whose symbol changed under each
+				// of its keys, its symbol now first: a delisted one's CUSIP.
+				var manifest struct {
+					SymbolsChanged []toolSymbolsEntry `json:"symbols_changed"`
+				}
+				if err := json.Unmarshal(e.manifest, &manifest); err != nil {
+					t.Fatal(err)
+				}
+				changed := manifest.SymbolsChanged
+				if v.changed != (len(changed) == 2) || slices.ContainsFunc(changed, func(s toolSymbolsEntry) bool { return s.Symbols[0] != v.identity }) {
+					t.Errorf("%s %s: symbols changed %+v", v.name, tool, changed)
+				}
+				s := chainStepFrom(t, e, t.TempDir())
+				if tool == toolPP {
+					if f := ppFileNamed(t, s.pp, ppSecuritiesFile); f.rows != 1 {
+						t.Errorf("%s: PP's securities: %d rows", v.name, f.rows)
+					}
+					m := newPPModel()
+					ppApply(t, m, s)
+					ppReconcile(t, m, e.in, e.events, e.outcomes)
+					if held := m.shares("Schwab A1 ...135"); len(held) != 1 || slices.Collect(maps.Values(held))[0] != 600_000_000 {
+						t.Errorf("%s: PP holds %v", v.name, held)
+					}
+					continue
+				}
+				symbols := map[string]bool{}
+				for _, a := range e.gf.file.Activities {
+					symbols[a.DataSource+" "+a.Symbol] = true
+				}
+				m := newGFModel()
+				if _, err := gfImport(m, s.file); err != nil {
+					t.Fatalf("%s: %v", v.name, err)
+				}
+				if held := m.holdings(); len(symbols) != 1 || len(e.gf.file.AssetProfiles) > 1 || len(held) != 1 || slices.Collect(maps.Values(held))[0].Cmp(big.NewRat(6, 1)) != 0 {
+					t.Errorf("%s: Ghostfolio's activities are of %v, %d assets, and it holds %v", v.name, symbols, len(e.gf.file.AssetProfiles), held)
 				}
 			}
-			for i := range c.in.names {
-				switch n := &c.in.names[i]; {
-				case symbols[n.key] != "" && n.kind == "symbol":
-					n.value = symbols[n.key]
-				case symbols[n.key] != "" && v.description != "":
-					n.value = v.description
-				}
+		}
+		// Two companies that had one ticker at different times, of two
+		// CUSIPs, are two securities, each known by its CUSIP: -manual
+		// naming the ticker makes two assets of them, not one.
+		reused := toolCaseNamed("two_keys")
+		reused.in.manual = []string{"JKLM"}
+		for i := range reused.in.securities {
+			if r := &reused.in.securities[i]; r.key == keyTwoAPI || r.key == keyTwoFile {
+				r.cusip = map[string]string{keyTwoAPI: "ZZJ12K106", keyTwoFile: "ZZJ99Z109"}[r.key]
 			}
-			for i := range c.in.rows {
-				c.in.rows[i].symbol = symbols[c.in.rows[i].securityKey]
-			}
-			in, events, _ := mapCase(c, toolPP)
-			if f := ppFileNamed(t, ppFiles(in, events), ppSecuritiesFile); f.rows != 1 {
-				t.Errorf("%s: PP's securities: %d rows", v.name, f.rows)
-			}
-			if diffs, _ := holdingsCheck(in, events); len(diffs) != 0 {
-				t.Errorf("%s: differences %+v", v.name, diffs)
-			}
-			// PP reads the files so, and holds the shares of both keys in
-			// that one security.
-			e := caseExport(t, c, toolPP)
-			m := newPPModel()
-			ppApply(t, m, chainStepFrom(t, e, t.TempDir()))
-			ppReconcile(t, m, e.in, e.events, e.outcomes)
+		}
+		inReused, eventsReused, _ := mapCase(reused, toolGF)
+		reusedProfiles, _ := gfAssets(inReused, eventsReused)
+		var names []string
+		for _, p := range reusedProfiles {
+			names = append(names, p.Name)
+		}
+		if !slices.Equal(names, []string{"Security (ZZJ12K106)", "Security (ZZJ99Z109)"}) {
+			t.Errorf("a ticker of two companies: assets %q", names)
 		}
 		for _, c := range []struct {
 			tool   string
@@ -1154,6 +1241,120 @@ func TestToolMapping(t *testing.T) {
 		in, events, _ = mapCase(late, toolGF)
 		if got := yahooIdle(in, events); fmt.Sprint(got) != fmt.Sprint([]toolIdle{{symbol: "JKLM", key: keyTwoAPI, last: "2026-04-01"}}) {
 			t.Errorf("idle %+v", got)
+		}
+	})
+
+	t.Run("groups", func(t *testing.T) {
+		t.Parallel()
+		// The store's securities that the tools take for one: by a ticker
+		// that they have had, in Yahoo's form, when those that had it know
+		// one CUSIP at most; by a CUSIP; and options by their OCC form. A
+		// ticker that securities of two CUSIPs had joins none of them and
+		// names neither; a security that had a ticker of each of two others
+		// of different CUSIPs, which would join them, joins neither.
+		in := tcInput(toolInput{})
+		add := func(key, assetType, cusip string, symbols ...string) {
+			in.securities = append(in.securities, toolSecurityRow{key: key, assetType: assetType, cusip: cusip, symbol: symbols[len(symbols)-1]})
+			for i, s := range symbols {
+				seen := tcNY("2024-01-02 10:00:00").AddDate(0, i, 0)
+				in.names = append(in.names, toolName{key: key, kind: "symbol", value: s, firstSeen: seen, lastSeen: seen})
+			}
+		}
+		add("x:66000101", "", "", "GRPA")
+		add("i:1000101", "EQUITY", "ZZG10A103", "GRPA")
+		add("i:1000102", "EQUITY", "ZZG10B101", "GRPB")
+		add("x:66000102", "", "", "GRPB", "GRPC")
+		add("i:1000103", "EQUITY", "ZZG10C109", "GRPC")
+		add("i:1000104", "FIXED_INCOME", "", "ZZBB")
+		add("x:66000104", "", "", "ZZBB")
+		add("x:66000105", "", "", "GRPD")
+		add("i:1000105", "EQUITY", "", "GRPD", "GRPE")
+		add("i:1000106", "EQUITY", "ZZG10E105", "GRPE")
+		add("i:1000107", "EQUITY", "ZZG10F102", "GRPE")
+		add("s:FILE:XYZ 06/20/2025 55.00 C@2025-07-01", "OPTION", "", "XYZ 06/20/2025 55.00 C")
+		add("s:FILE:"+symFutOpt+"@2025-04-01", "OPTION", "", symFutOpt)
+		for _, c := range []struct {
+			name       string
+			keys       []string
+			one        bool
+			identities []string
+			bond       bool
+		}{
+			// The file's key takes the API's CUSIP.
+			{"a ticker, a CUSIP under one key", []string{"x:66000101", "i:1000101"}, true, []string{"GRPA", "GRPA"}, false},
+			// GRPB's and GRPC's keys know a CUSIP each, and the file's key
+			// had both tickers: it joins neither, and neither ticker, which
+			// two of them had, names one.
+			{"a file's key between two CUSIPs", []string{"i:1000102", "x:66000102", "i:1000103"}, false, []string{"ZZG10B101", "x:66000102", "ZZG10C109"}, false},
+			// A bond with a ticker under the API's key, which the file's
+			// key, of no asset type, is too.
+			{"a bond with a ticker", []string{"i:1000104", "x:66000104"}, true, []string{"ZZBB", "ZZBB"}, true},
+			// GRPE, which two CUSIPs had, names neither of them, nor the
+			// group of GRPD, which knows no CUSIP: its first key does.
+			{"a group whose ticker two CUSIPs had", []string{"i:1000105", "x:66000105", "i:1000106", "i:1000107"}, false, []string{"i:1000105", "i:1000105", "ZZG10E105", "ZZG10F102"}, false},
+			// A file's option and the API's of one contract; and a futures
+			// option, which has no OCC form, by its symbol, named by the
+			// API's key.
+			{"an option of two keys", []string{keyOptCU, "s:FILE:XYZ 06/20/2025 55.00 C@2025-07-01"}, true, []string{"ZZO55C106", "ZZO55C106"}, false},
+			{"a futures option of two keys", []string{keyFutOpt, "s:FILE:" + symFutOpt + "@2025-04-01"}, true, []string{keyFutOpt, keyFutOpt}, false},
+		} {
+			ix := newToolIndex(&in)
+			var secs []*toolSecurity
+			var identities []string
+			for _, k := range c.keys {
+				s := ix.security(k, "")
+				secs = append(secs, s)
+				identities = append(identities, s.identity())
+				if s.bond != c.bond {
+					t.Errorf("%s: %s is a bond: %v", c.name, k, s.bond)
+				}
+			}
+			same := true
+			for _, s := range secs[1:] {
+				t1, w1, n1 := ppIdentifiers(secs[0])
+				t2, w2, n2 := ppIdentifiers(s)
+				same = same && s.rep == secs[0].rep && s.gfSymbol() == secs[0].gfSymbol() && t1 == t2 && w1 == w2 && n1 == n2
+			}
+			if same != c.one || !slices.Equal(identities, c.identities) {
+				t.Errorf("%s: one %v, identities %q, want %v, %q", c.name, same, identities, c.one, c.identities)
+			}
+		}
+	})
+
+	t.Run("PP's securities", func(t *testing.T) {
+		t.Parallel()
+		// The securities that PP takes for one, met in their order from a PP
+		// that holds none, as its import finds a row's security: by its
+		// ticker, then its WKN; else by a name that no security made before
+		// has but one, whose ticker and WKN do not differ from the row's.
+		sec := func(key, ticker, cusip, name string) *toolSecurity {
+			s := &toolSecurity{key: key, cusip: cusip, name: name}
+			if ticker != "" {
+				s.tickers = []string{ticker}
+			}
+			return s
+		}
+		secs := []*toolSecurity{
+			sec("i:1", "", "ZZG10A103", "SAME NAME A"),
+			sec("i:2", "", "ZZG10B101", "SAME NAME A"),
+			sec("i:3", "TKRA", "", "SAME NAME B"),
+			sec("i:4", "TKRB", "", "SAME NAME B"),
+			sec("i:5", "", "", "SAME NAME C"),
+			sec("i:6", "", "ZZG10C109", "SAME NAME C"),
+			sec("i:7", "TKRC", "", "SAME NAME D"),
+			sec("i:8", "", "ZZG10E105", "SAME NAME D"),
+			sec("i:9", "", "", "SAME NAME A"),
+			sec("i:10", "TKRA", "ZZG10F102", "OTHER"),
+		}
+		same := sameSecurity(toolPP, secs)
+		// i:2 and i:4 differ by WKN and ticker from the security of their
+		// name; i:6 and i:8 have one ticker or WKN where it has none of
+		// that; i:9's name is two securities'; i:10's ticker finds i:3.
+		want := map[string]string{"i:1": "i:1", "i:2": "i:2", "i:3": "i:3", "i:4": "i:4", "i:5": "i:5", "i:6": "i:5", "i:7": "i:7", "i:8": "i:7", "i:9": "i:9", "i:10": "i:3"}
+		for _, s := range secs {
+			if got := same[s.ref()].key; got != want[s.key] {
+				t.Errorf("%s is %s's security, want %s's", s.key, got, want[s.key])
+			}
 		}
 	})
 

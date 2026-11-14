@@ -834,7 +834,10 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 			entry.WrittenAs = s.gfSymbol()
 		}
 		if s.delisted {
-			entry.Symbols = slices.Insert(entry.Symbols, 0, s.symbol)
+			// Its CUSIP, which a delisted security, or another of the store's
+			// securities that the tools take for one with it, has for its
+			// symbol now.
+			entry.Symbols = slices.Insert(entry.Symbols, 0, s.cusip)
 		}
 		m.SymbolsChanged = append(m.SymbolsChanged, entry)
 	}

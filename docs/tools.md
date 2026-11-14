@@ -198,9 +198,12 @@ and the types' names, whatever PP's language and locale.
    writes the ticker in Yahoo's form (`BRK-B` for `BRK.B`), the CUSIP as
    WKN and the description seen first as name, but no ISIN; a new security
    gets PP's Yahoo feed when it has a ticker. Each security that stderr says
-   has changed symbol, listed under `symbols_changed`: give the PP security
-   that holds its rows the new ticker, or, once it is delisted, no price
-   feed, since its old ticker may now be another company's. An option's
+   has changed symbol, listed under `symbols_changed`: before you import,
+   give the PP security that holds its rows the new ticker, and its CUSIP
+   as WKN if it has none (PP made it before the store knew the CUSIP), or,
+   once it is delisted, no price feed, since its old ticker may now be
+   another company's; PP finds it by them, and else makes a second
+   security of the new ticker. An option's
    shares are its contracts times its multiplier, under its OCC symbol
    (`XYZ250221P00040000`); an option that expired, was assigned or exercised
    is closed by a delivery of value 0. A bond's shares are its face value in
@@ -296,10 +299,13 @@ with its description in its comment.
    ids may be another user's, Ghostfolio gives the accounts and assets new
    ids and finds them again by their names: do not rename them. An asset's
    name is made from what identifies the security: its ticker (`Security
-   (VBR)`), which the store's rows of it from every source share; an
-   option's symbol (`XYZ 2025-02-21 40 put (XYZ250221P00040000)`); and the
-   CUSIP of a bond or of a delisted security, whose ticker another company
-   may have taken. Its description is in its comment.
+   (VBR)`), which the store's rows of it from every source share, under
+   every key that the store holds it by; an option's symbol (`XYZ
+   2025-02-21 40 put (XYZ250221P00040000)`); the CUSIP of a bond, of a
+   delisted security, whose ticker another company may have taken, and of
+   one whose ticker a security of another CUSIP has had too; else its key
+   in the store (`Security (i:205187341)`), as for a futures option. Its
+   description is in its comment.
 5. **Fees and taxes** are FEE activities of the assets `Schwab fees` and
    `Schwab taxes`, which carry a price of 1 so that Ghostfolio takes them off
    net performance; their refunds are interest of the same asset, which

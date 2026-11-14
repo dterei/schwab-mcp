@@ -1387,14 +1387,26 @@ and the export after you decide one writes it.
   changes with whichever source saw the security last. Ghostfolio's MANUAL
   assets are named from their identity instead, after what they are: the
   ticker in Yahoo's form (`Security (VBR)`), but for an option, a delisted
-  security and a bond whose CUSIP the store knows; else the CUSIP
-  (`Bond` and its CUSIP), else the OCC symbol (`XYZ 2025-02-21 40 put
-  (XYZ250221P00040000)`), else the key (`Security (i:205187341)`); with the
-  description in their comment: on a shared instance Ghostfolio finds such
-  an asset again by its name alone. A security that the store holds under
-  two keys, a History file's and the API's, often with a CUSIP under one of
-  them only, has one ticker under both, so each tool holds it as one: one
-  row of PP's `securities.csv`, one Ghostfolio asset.
+  security, a bond whose CUSIP the store knows, and a ticker that a
+  security of another CUSIP has had too, as when a company takes a ticker
+  that another gave up; else the CUSIP (`Bond` and its CUSIP), else the OCC
+  symbol (`XYZ 2025-02-21 40 put (XYZ250221P00040000)`), else the key
+  (`Security (i:205187341)`); with the description in their comment: on a
+  shared instance Ghostfolio finds such an asset again by its name alone.
+- **One security under several keys.** The store joins two keys only when
+  they had one symbol at times that overlap, so a security that a History
+  file's rows and the API's rows name stays two when their years do not
+  meet, often with a CUSIP under one of them only, and only the API's key
+  learns that it was renamed or delisted. The exports take for one the
+  store's securities that share a CUSIP, the options of one OCC symbol, and
+  those that have had a ticker alike in Yahoo's form, when those that had
+  it know one CUSIP at most, and write each key's rows with what they have
+  had together: the latest ticker, the CUSIP, delisted when any key is, the
+  description seen first. Each tool then holds it as one: one row of PP's
+  `securities.csv`, found by one ticker or WKN, one Ghostfolio asset, one
+  holding to check. A ticker that securities of two CUSIPs have had joins
+  none of them, and each is known by its CUSIP; `schwabtx edit K:… -same
+  K:…` joins two keys in the store itself, when the export cannot tell.
 - **Options.** In PP an option's ticker is its OCC symbol in compact form,
   `XYZ250221P00040000`, the form Yahoo uses, and a futures option's is its
   symbol; in Ghostfolio every option is a MANUAL asset, since Yahoo's search

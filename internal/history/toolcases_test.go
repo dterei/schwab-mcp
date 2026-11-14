@@ -2,6 +2,7 @@ package history
 
 import (
 	"bytes"
+	"cmp"
 	"database/sql"
 	"flag"
 	"maps"
@@ -1438,6 +1439,62 @@ func toolCaseIdle() toolCase {
 			{"T61002703", "Buy 50.00 shares 1", "BUY 50.00 shares 1"},
 		},
 	}
+}
+
+// A twoKeys is a variant of the case two_keys: the symbols that the API's
+// key and the file's key have had, oldest first; the CUSIP that the store
+// knows of each key, "" for none; their descriptions, "" for the case's;
+// the symbol that -manual names, "" for none; and what the one security of
+// the two keys is: its identity, why Ghostfolio gets it as a MANUAL asset
+// ("" for YAHOO), and whether its symbol has changed.
+type twoKeys struct {
+	name                string
+	api, file           []string
+	apiCUSIP, fileCUSIP string
+	apiName, fileName   string
+	manual              string
+	identity, why       string
+	changed             bool
+}
+
+// toolCase returns the case two_keys with v's symbols, CUSIPs, descriptions
+// and -manual: the API's key had its first symbol on the day of its sale
+// and each later one a month after the one before; the file's key had its
+// last on the day of the file, and each before a month before the next;
+// the file's buy names the file key's first symbol, and the sale the API
+// key's first.
+func (v twoKeys) toolCase() toolCase {
+	c := toolCaseNamed("two_keys")
+	c.in.manual = nil
+	if v.manual != "" {
+		c.in.manual = []string{v.manual}
+	}
+	for i := range c.in.securities {
+		switch r := &c.in.securities[i]; r.key {
+		case keyTwoAPI:
+			r.symbol, r.cusip = v.api[len(v.api)-1], v.apiCUSIP
+		case keyTwoFile:
+			r.symbol, r.cusip = v.file[len(v.file)-1], v.fileCUSIP
+		}
+	}
+	c.in.names = slices.DeleteFunc(slices.Clone(c.in.names), func(n toolName) bool { return n.key == keyTwoAPI || n.key == keyTwoFile })
+	sold, filed := tcNY("2026-03-16 10:00:00"), tcNY("2026-11-11 09:00:00")
+	for i, s := range v.api {
+		seen := sold.AddDate(0, i, 0)
+		c.in.names = append(c.in.names, toolName{key: keyTwoAPI, kind: "symbol", value: s, firstSeen: seen, lastSeen: seen})
+	}
+	for i, s := range v.file {
+		seen := filed.AddDate(0, i+1-len(v.file), 0)
+		c.in.names = append(c.in.names, toolName{key: keyTwoFile, kind: "symbol", value: s, firstSeen: seen, lastSeen: seen})
+	}
+	c.in.names = append(c.in.names,
+		toolName{key: keyTwoAPI, kind: "description", value: cmp.Or(v.apiName, "JKLM SMALL-CAP VALUE ETF"), firstSeen: sold, lastSeen: sold},
+		toolName{key: keyTwoFile, kind: "description", value: cmp.Or(v.fileName, "JKLM SMALL CAP VALUE ETF"), firstSeen: filed, lastSeen: filed},
+	)
+	for i := range c.in.rows {
+		c.in.rows[i].symbol = map[string]string{keyTwoAPI: v.api[0], keyTwoFile: v.file[0]}[c.in.rows[i].securityKey]
+	}
+	return c
 }
 
 // toolCaseTwoKeys holds one security that the store holds under two keys,

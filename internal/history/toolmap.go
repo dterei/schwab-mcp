@@ -713,7 +713,19 @@ type toolSecurity struct {
 	assumed, badMultiplier bool
 	// name is the description that the store saw first (masked free text);
 	// with none, and neither ticker nor CUSIP, its latest symbol; else "".
-	name string
+	// described says that it is a description, and nameSeen when the store
+	// first saw it.
+	name      string
+	described bool
+	nameSeen  time.Time
+	// rep is the first, in the order of their keys (keyRank), of the
+	// store's securities that the tools take for one with it (groupAll),
+	// whose key or symbol names them all when nothing else does; reused
+	// says that its ticker is one that a security of another CUSIP has had
+	// too, as when a company takes a ticker that another gave up, so that
+	// it is not its identity.
+	rep    *toolSecurity
+	reused bool
 	// bondUnit says that it is a bond whose rows or snapshot prices do not
 	// follow face value and prices per 100 (4.4 of the design): its trades,
 	// deliveries and prices are left out.
@@ -797,31 +809,45 @@ func (s *toolSecurity) gfSymbol() string {
 
 // identity returns what identifies the security whatever store keys it
 // has: its ticker in Yahoo's form, which Ghostfolio knows a security by
-// that it asks Yahoo about, and which one security that the store holds
-// under two keys (a History file's and the API's, one of them with a CUSIP
-// and the other without) has under both; but for an option, a future, a
-// delisted security and a bond whose CUSIP the store knows, which have
-// none (identityTicker); else its CUSIP, else its OCC compact form, else
-// its key, else its symbol.
+// that it asks Yahoo about, and which the store's securities that the tools
+// take for one (a History file's key and the API's, with a CUSIP under one
+// of them only) have had alike; but for an option, a future, a delisted
+// security, a bond whose CUSIP the store knows, and a ticker that a
+// security of another CUSIP has had too, which have none (identityTicker);
+// else its CUSIP, else its OCC compact form, else the key, else the symbol,
+// of the first of them.
 func (s *toolSecurity) identity() string {
-	return cmp.Or(s.identityTicker(), s.cusip, s.occ, s.key, s.symbol)
+	r := s.first()
+	return cmp.Or(s.identityTicker(), s.cusip, s.occ, r.key, r.symbol)
 }
 
 // identityTicker returns the ticker in Yahoo's form that is the security's
 // identity, "" when it has none: it is an option or a future, which its
 // OCC form or its key names; it is delisted, its ticker another company's
-// now perhaps; it is a bond whose CUSIP the store knows; or it has no
-// ticker.
+// now perhaps; it is a bond whose CUSIP the store knows; its ticker is one
+// that a security of another CUSIP has had too, which two companies cannot
+// share as one identity; or it has no ticker.
 func (s *toolSecurity) identityTicker() string {
-	if s.occ != "" || s.assetType == "OPTION" || s.assetType == "FUTURE" || s.delisted || s.bond && s.cusip != "" {
+	if s.occ != "" || s.assetType == "OPTION" || s.assetType == "FUTURE" || s.delisted || s.bond && s.cusip != "" || s.reused {
 		return ""
 	}
 	return yahooForm(s.ticker())
 }
 
+// first returns the first of the store's securities that the tools take for
+// one with s, whose key or symbol names them when nothing else does: s
+// itself when it is alone.
+func (s *toolSecurity) first() *toolSecurity {
+	if s.rep != nil {
+		return s.rep
+	}
+	return s
+}
+
 // uuidName returns the name whose UUID is its Ghostfolio symbol as a
 // MANUAL asset (6.7 of the design), made from its identity.
 func (s *toolSecurity) uuidName() string {
+	r := s.first()
 	switch {
 	case s.identityTicker() != "":
 		return "security ticker:" + s.identityTicker()
@@ -829,10 +855,10 @@ func (s *toolSecurity) uuidName() string {
 		return "security cusip:" + s.cusip
 	case s.occ != "":
 		return "security option:" + s.occ
-	case s.key != "":
-		return "security key:" + s.key
+	case r.key != "":
+		return "security key:" + r.key
 	}
-	return "security symbol:" + s.symbol
+	return "security symbol:" + r.symbol
 }
 
 // gfName returns the name of its MANUAL asset in Ghostfolio (6.4 of the
@@ -900,6 +926,13 @@ type toolIndex struct {
 	manual   map[string]bool
 	secs     map[secRef]*toolSecurity
 	prices   map[string][]toolPrice
+	// bases are the securities as their own symbols and names make them
+	// (base); members, once groupAll has run, the bases of each security's
+	// group, by its ref; and reused the tickers (symbolForm) that securities
+	// of two groups have had.
+	bases   map[secRef]*toolSecurity
+	members map[secRef][]*toolSecurity
+	reused  map[string]bool
 }
 
 // newToolIndex indexes in.
@@ -907,6 +940,7 @@ func newToolIndex(in *toolInput) *toolIndex {
 	ix := &toolIndex{
 		in: in, accounts: map[int64]toolAccount{}, secRows: map[string]*toolSecurityRow{}, names: map[string][]toolName{},
 		legs: map[rowKey][]toolLeg{}, manual: map[string]bool{}, secs: map[secRef]*toolSecurity{}, prices: map[string][]toolPrice{},
+		bases: map[secRef]*toolSecurity{},
 	}
 	for _, a := range in.accounts {
 		ix.accounts[a.id] = a
@@ -925,12 +959,19 @@ func newToolIndex(in *toolInput) *toolIndex {
 		slices.SortFunc(ls, func(a, b toolLeg) int { return cmp.Compare(a.leg, b.leg) })
 	}
 	for _, m := range in.manual {
-		if m = strings.ToUpper(strings.TrimSpace(m)); m != "" {
+		if m = symbolForm(m); m != "" {
 			ix.manual[m] = true
 		}
 	}
 	return ix
 }
+
+// symbolForm returns symbol as the export compares symbols, -manual's with
+// a security's (6.6 of the design) and the tickers of two securities
+// (groupAll): without spaces at its ends, in upper case, in Yahoo's form,
+// so that BRK.B, BRK/B and brk-b name one class share, however Schwab, a
+// file or you spell it.
+func symbolForm(symbol string) string { return yahooForm(strings.ToUpper(strings.TrimSpace(symbol))) }
 
 // A rowKey names a ledger row: its account's id and its ref.
 type rowKey struct {
@@ -956,7 +997,10 @@ func toolSecurityOf(in *toolInput, key, symbol string) *toolSecurity {
 }
 
 // security returns the security of key, or of symbol alone when key is ""
-// (3.5 of the design); nil for neither.
+// (3.5 of the design); nil for neither: as its own symbols and names make
+// it (base), with what the store's securities that the tools take for one
+// with it have had in their place (join), so that the records of each of
+// them name the tools' one security alike.
 func (ix *toolIndex) security(key, symbol string) *toolSecurity {
 	if key == "" && symbol == "" {
 		return nil
@@ -966,6 +1010,24 @@ func (ix *toolIndex) security(key, symbol string) *toolSecurity {
 		id = secRef{symbol: symbol}
 	}
 	if s, ok := ix.secs[id]; ok {
+		return s
+	}
+	s := ix.join(ix.base(key, symbol))
+	s.manual = ix.gfManual(s)
+	ix.secs[id] = s
+	s.bondUnit = s.bond && !ix.followsFace(s)
+	return s
+}
+
+// base returns the security of key, or of symbol alone when key is "", as
+// its own symbols and names (Q4, Q5) make it, once: symbol stands for its
+// symbols when the store has none of a key's.
+func (ix *toolIndex) base(key, symbol string) *toolSecurity {
+	id := secRef{key: key}
+	if key == "" {
+		id = secRef{symbol: symbol}
+	}
+	if s, ok := ix.bases[id]; ok {
 		return s
 	}
 	s := &toolSecurity{key: key, multiplier: 1}
@@ -996,7 +1058,7 @@ func (ix *toolIndex) security(key, symbol string) *toolSecurity {
 			}
 		}
 		if first != nil {
-			s.name = first.value
+			s.name, s.described, s.nameSeen = first.value, true, first.firstSeen
 		}
 		s.assetType = row.assetType
 		s.symbol = row.symbol
@@ -1049,10 +1111,202 @@ func (ix *toolIndex) security(key, symbol string) *toolSecurity {
 			s.badMultiplier = true
 		}
 	}
-	s.manual = ix.gfManual(s)
-	ix.secs[id] = s
-	s.bondUnit = s.bond && !ix.followsFace(s)
+	ix.bases[id] = s
 	return s
+}
+
+// join returns a security of its own made from b, as base makes it, with
+// what the store's securities of its group have had (groupAll), so that each
+// of them is written alike: their symbols and tickers, the first's first,
+// their CUSIP and asset type, delisted when any of them is, a bond by those,
+// and the description that the store saw first of any of them; and whether
+// its ticker is one that a security of another group has had too.
+func (ix *toolIndex) join(b *toolSecurity) *toolSecurity {
+	ix.groupAll()
+	s := new(toolSecurity)
+	*s = *b
+	members := ix.members[b.ref()]
+	if len(members) == 0 {
+		// A security that no row, leg, position or name of the store names.
+		members = []*toolSecurity{b}
+	}
+	s.rep = members[0]
+	if len(members) > 1 {
+		s.symbols, s.tickers, s.cusip, s.assetType, s.delisted = nil, nil, "", "", false
+		var named *toolSecurity
+		for _, m := range members {
+			for _, sym := range m.symbols {
+				if !slices.Contains(s.symbols, sym) {
+					s.symbols = append(s.symbols, sym)
+				}
+			}
+			for _, t := range m.tickers {
+				if !slices.Contains(s.tickers, t) {
+					s.tickers = append(s.tickers, t)
+				}
+			}
+			s.cusip, s.assetType, s.delisted = cmp.Or(s.cusip, m.cusip), cmp.Or(s.assetType, m.assetType), s.delisted || m.delisted
+			if m.described && (named == nil || m.nameSeen.Before(named.nameSeen) || m.nameSeen.Equal(named.nameSeen) && m.name < named.name) {
+				named = m
+			}
+		}
+		s.bond = s.assetType == "FIXED_INCOME" || s.assetType == "" && !slices.ContainsFunc(s.symbols, func(sym string) bool { return !schwab.IsCUSIP(sym) })
+		// Every security of a group has a ticker or a CUSIP, which it joins
+		// by, so none is named by its symbol for want of both.
+		s.name, s.described = "", false
+		if named != nil {
+			s.name, s.described, s.nameSeen = named.name, true, named.nameSeen
+		}
+	}
+	if t := s.ticker(); t != "" {
+		s.reused = ix.reused[symbolForm(t)]
+	}
+	return s
+}
+
+// groupAll works out, once, which of the store's securities the tools take
+// for one, where the store holds them apart (3.5 of the design): the store
+// joins two keys only when they had one symbol at times that overlap, so a
+// security that a History file's rows name, under an ItemIssueId or a
+// symbol, and the API's rows, under an instrumentId, often stays two, a
+// CUSIP under one of them only; and when it is delisted or renamed, only
+// the API's key learns it. The groups are those that share a CUSIP, the
+// options of one OCC form, and those that have had a ticker alike
+// (symbolForm), or an option's or a future's symbol, when those that have
+// had it know at most one CUSIP between them: a ticker that two securities
+// of different CUSIPs have had, as when a company takes a ticker that
+// another gave up, joins none of them, and is reused. A group that its
+// tickers would give two CUSIPs, through a security that had a ticker of
+// each, is joined by its CUSIPs and OCC forms alone. Every security of the
+// store is grouped, whatever the export selects, and those of rows and legs
+// that have a symbol but no key, so that every export groups alike; the
+// first of a group, in the order of the keys (keyRank), then of the symbols
+// of those without, names it.
+func (ix *toolIndex) groupAll() {
+	if ix.members != nil {
+		return
+	}
+	ix.members, ix.reused = map[secRef][]*toolSecurity{}, map[string]bool{}
+	var all []*toolSecurity
+	seen := map[secRef]bool{}
+	add := func(key, symbol string) {
+		id := secRef{key: key}
+		if key == "" {
+			id = secRef{symbol: symbol}
+		}
+		if id == (secRef{}) || seen[id] {
+			return
+		}
+		seen[id] = true
+		all = append(all, ix.base(key, symbol))
+	}
+	// A row's or a leg's symbol stands for those of a key that the store
+	// has none of, as when security is first asked for it.
+	for i := range ix.in.rows {
+		add(ix.in.rows[i].securityKey, ix.in.rows[i].symbol)
+	}
+	for _, l := range ix.in.legs {
+		add(l.securityKey, l.symbol)
+	}
+	for _, r := range ix.in.securities {
+		add(r.key, "")
+	}
+	for _, n := range ix.in.names {
+		add(n.key, "")
+	}
+	for _, p := range ix.in.positions {
+		add(p.key, "")
+	}
+	slices.SortFunc(all, func(a, b *toolSecurity) int {
+		switch {
+		case a.key != "" && b.key != "":
+			return keyRank(a.key, b.key)
+		case a.key != "" || b.key != "":
+			// A key before a symbol alone.
+			return strings.Compare(b.key, a.key)
+		}
+		return strings.Compare(a.symbol, b.symbol)
+	})
+	parent := make([]int, len(all))
+	for i := range parent {
+		parent[i] = i
+	}
+	find := func(i int) int {
+		for parent[i] != i {
+			parent[i], i = parent[parent[i]], parent[i]
+		}
+		return i
+	}
+	union := func(a, b int) {
+		ra, rb := find(a), find(b)
+		parent[max(ra, rb)] = min(ra, rb)
+	}
+	cusips := func(is []int) int {
+		set := map[string]bool{}
+		for _, i := range is {
+			if c := all[i].cusip; c != "" {
+				set[c] = true
+			}
+		}
+		return len(set)
+	}
+	// By CUSIP and by OCC form, which name one security each.
+	first := map[string]int{}
+	for i, s := range all {
+		for _, id := range []string{"cusip " + s.cusip, "option " + s.occ} {
+			if strings.HasSuffix(id, " ") {
+				continue
+			}
+			if j, ok := first[id]; ok {
+				union(i, j)
+			} else {
+				first[id] = i
+			}
+		}
+	}
+	alone := slices.Clone(parent)
+	// By ticker: an option's or a future's symbol, which no stock has, joins
+	// the keys of one contract that has no OCC form, as a futures option.
+	holders := map[string][]int{}
+	for i, s := range all {
+		for _, t := range s.tickers {
+			if f := symbolForm(t); !slices.Contains(holders[f], i) {
+				holders[f] = append(holders[f], i)
+			}
+		}
+	}
+	for _, f := range slices.Sorted(maps.Keys(holders)) {
+		if hs := holders[f]; cusips(hs) <= 1 {
+			for _, i := range hs[1:] {
+				union(hs[0], i)
+			}
+		}
+	}
+	groups := map[int][]int{}
+	for i := range all {
+		groups[find(i)] = append(groups[find(i)], i)
+	}
+	for _, is := range groups {
+		if cusips(is) > 1 {
+			for _, i := range is {
+				parent[i] = alone[i]
+			}
+		}
+	}
+	members := map[int][]*toolSecurity{}
+	for i, s := range all {
+		members[find(i)] = append(members[find(i)], s)
+	}
+	for i, s := range all {
+		ix.members[s.ref()] = members[find(i)]
+	}
+	for f, hs := range holders {
+		roots := map[int]bool{}
+		for _, i := range hs {
+			roots[find(i)] = true
+		}
+		ix.reused[f] = len(roots) > 1
+	}
 }
 
 // gfManual returns why Ghostfolio gets s as a MANUAL asset, "" when it
@@ -1071,7 +1325,7 @@ func (ix *toolIndex) gfManual(s *toolSecurity) string {
 		return "not_plain"
 	}
 	for _, sym := range s.symbols {
-		if ix.manual[strings.ToUpper(sym)] || ix.manual[strings.ToUpper(yahooForm(sym))] {
+		if ix.manual[symbolForm(sym)] {
 			return "asked"
 		}
 	}
@@ -1280,52 +1534,66 @@ func listSecurities(in *toolInput, events []toolEvent) []toolListed {
 // sameSecurity returns, for each of secs by its ref, the ref of the first
 // of secs that tool takes for the same security, whatever store keys they
 // have, so that what the export writes and checks of a security is of the
-// tool's one security: for Ghostfolio, those of one data source and symbol;
-// for PP, those that one Ticker Symbol or one WKN finds, or, with neither,
-// one name, as PP finds a record's security (ppIdentifiers;
-// SecurityCache.java:65-159). One security that the store holds under two
-// keys, a History file's and the API's, has the same ticker under both.
+// tool's one security. The store's securities that the tools take for one
+// (groupAll) have one data source and symbol, and one Ticker Symbol, WKN
+// and Security Name. For Ghostfolio, those of one data source and symbol
+// are one; for PP, those that PP's import finds one of when it meets them
+// in the order of secs, as securities.csv lists them, from a PP that holds
+// none (SecurityCache.java:66-159): by the Ticker Symbol up to its first
+// dot, then the WKN, the first that finds one; else by the exact name, when
+// the name is no other's of them and no Ticker Symbol or WKN that both
+// have differs; else it is a new one.
 func sameSecurity(tool string, secs []*toolSecurity) map[secRef]secRef {
-	parent := make([]int, len(secs))
-	for i := range parent {
-		parent[i] = i
-	}
-	find := func(i int) int {
-		for parent[i] != i {
-			parent[i], i = parent[parent[i]], parent[i]
-		}
-		return i
-	}
-	first := map[string]int{}
-	join := func(i int, id string) {
-		j, ok := first[id]
-		if !ok {
-			first[id] = i
-			return
-		}
-		a, b := find(i), find(j)
-		parent[max(a, b)] = min(a, b)
-	}
-	for i, s := range secs {
-		if tool == toolGF {
-			join(i, "symbol "+s.gfDataSource()+" "+s.gfSymbol())
-			continue
-		}
-		switch ticker, wkn, name := ppIdentifiers(s); {
-		case ticker == "" && wkn == "":
-			join(i, "name "+name)
-		default:
-			if ticker != "" {
-				join(i, "ticker "+ticker)
+	of := make([]int, len(secs))
+	if tool == toolGF {
+		first := map[string]int{}
+		for i, s := range secs {
+			id := s.gfDataSource() + " " + s.gfSymbol()
+			if _, ok := first[id]; !ok {
+				first[id] = i
 			}
-			if wkn != "" {
-				join(i, "wkn "+wkn)
+			of[i] = first[id]
+		}
+	} else {
+		type made struct {
+			i                 int
+			ticker, wkn, name string
+		}
+		var pp []made
+		differ := func(a, b string) bool { return a != "" && b != "" && !strings.EqualFold(a, b) }
+		finds := func(ticker, wkn, name string) int {
+			prefix, _, _ := strings.Cut(ticker, ".")
+			for _, m := range pp {
+				if p, _, _ := strings.Cut(m.ticker, "."); prefix != "" && p == prefix {
+					return m.i
+				}
+			}
+			for _, m := range pp {
+				if wkn != "" && m.wkn == wkn {
+					return m.i
+				}
+			}
+			named := slices.DeleteFunc(slices.Clone(pp), func(m made) bool { return m.name != name })
+			if len(named) == 1 && !differ(ticker, named[0].ticker) && !differ(wkn, named[0].wkn) {
+				return named[0].i
+			}
+			return -1
+		}
+		for i, s := range secs {
+			ticker, wkn, name := ppIdentifiers(s)
+			if name == "" {
+				// BaseCSVExtractor.java:138-151.
+				name = "Imported security: " + cmp.Or(ticker, wkn)
+			}
+			if of[i] = finds(ticker, wkn, name); of[i] < 0 {
+				of[i] = i
+				pp = append(pp, made{i, ticker, wkn, name})
 			}
 		}
 	}
 	out := map[secRef]secRef{}
 	for i, s := range secs {
-		out[s.ref()] = secs[find(i)].ref()
+		out[s.ref()] = secs[of[i]].ref()
 	}
 	return out
 }
@@ -2326,19 +2594,18 @@ func yahooIdle(in *toolInput, events []toolEvent) []toolIdle {
 }
 
 // checkManual checks the symbols that -manual names (in.manual): each must
-// name a security of the store, as Schwab writes the symbol or as Yahoo
-// does, whatever the case, or the symbol of a row without a security key.
+// name a security of the store, or the symbol of a row without a security
+// key, compared in Yahoo's form whatever the case (symbolForm), however
+// Schwab, a file or you spell a class share.
 // It returns those that name a security that no record of events and no
 // price of the export uses (listSecurities): most are tickers that Yahoo
 // no longer serves, whose rows ended, which a chain keeps all the same. A
 // symbol that names nothing is a typo, said back masked.
 func checkManual(in *toolInput, events []toolEvent) ([]string, error) {
-	symbols := map[string][]secRef{} // as -manual compares them, to the securities that have had them
+	symbols := map[string][]secRef{} // as -manual compares them (symbolForm), to the securities that have had them
 	add := func(sym string, ref secRef) {
-		for _, form := range []string{strings.ToUpper(sym), strings.ToUpper(yahooForm(sym))} {
-			if !slices.Contains(symbols[form], ref) {
-				symbols[form] = append(symbols[form], ref)
-			}
+		if form := symbolForm(sym); !slices.Contains(symbols[form], ref) {
+			symbols[form] = append(symbols[form], ref)
 		}
 	}
 	for _, n := range in.names {
@@ -2360,7 +2627,7 @@ func checkManual(in *toolInput, events []toolEvent) ([]string, error) {
 		if v = strings.TrimSpace(v); v == "" {
 			continue
 		}
-		refs := symbols[strings.ToUpper(v)]
+		refs := symbols[symbolForm(v)]
 		if len(refs) == 0 {
 			return nil, fmt.Errorf("-manual names %s, which no security in the store has", mask.Text(v))
 		}

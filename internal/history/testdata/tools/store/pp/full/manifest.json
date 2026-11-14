@@ -255,10 +255,10 @@
       "T73508261942": {
         "day": "2026-03-13",
         "as": "portfolio 2026-03-13 Sell 603.36",
-        "fp": "5f76bf622c4e1efc",
+        "fp": "91a6098a9dbceefa",
         "keys": [
-          "c8aa3f6530d631c3",
-          "4ec1edcb29dc27f6"
+          "7ffa08b784b1a24f",
+          "aa66a9fd01637334"
         ]
       },
       "T73508261944": {
@@ -475,6 +475,7 @@
       "symbol": "META",
       "identity": "META",
       "ticker": "META",
+      "wkn": "30303M102",
       "name": "META PLATFORMS INC CLASS A"
     },
     {
