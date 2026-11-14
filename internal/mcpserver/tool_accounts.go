@@ -142,8 +142,8 @@ func (s *Server) listAccounts(ctx context.Context, c *call, _ struct{}) (listAcc
 	}
 	c.warnAccountProblems(problems)
 	if v.storeErr != nil {
-		e := s.toolError(c.tool, v.storeErr)
-		c.warn("store_unavailable", "The local history could not be read, so store_ref and kind are null: %s", e.msg)
+		c.warn("store_unavailable", "The local history could not be read, so store_ref and kind are null: %s",
+			c.errText(s.toolError(c.tool, v.storeErr)))
 	}
 	return out, nil
 }
@@ -167,7 +167,7 @@ func (c *call) accountsFromStore(ctx context.Context, cause error) (listAccounts
 	}
 	out := listAccountsOut{envelope: envelope{Source: sourceStore}, Accounts: []accountRow{}}
 	c.warn("api_unavailable", "Schwab could not be read, so the accounts come from the local history, "+
-		"without values or hashes: [%s] %s", Ident(e.code), e.msg)
+		"without values or hashes: %s", c.errText(e))
 	for _, a := range views {
 		number, ok := numberOf[a.ID]
 		if !ok {

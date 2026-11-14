@@ -474,6 +474,46 @@ func TestListAccountsWithoutTheStore(t *testing.T) {
 	}
 }
 
+// list_accounts quotes an error in a warning as get_transactions does:
+// whole, its code, its sentence and Schwab's detail. Here, an app that
+// Schwab does not serve yet, for which list_accounts answers from the
+// store (api_unavailable), and a store that a newer schwabtx wrote, which
+// leaves its refs null (store_unavailable).
+func TestListAccountsQuotesErrorsWhole(t *testing.T) {
+	t.Parallel()
+	reason := func(r result, code string) string {
+		ws, _ := r.value["warnings"].([]any)
+		for _, w := range ws {
+			if m, ok := w.(map[string]any); ok && m["code"] == code {
+				_, why, _ := strings.Cut(fmt.Sprint(m["message"]), ": ")
+				return why
+			}
+		}
+		return ""
+	}
+	notReady := newEnv(t)
+	notReady.fake.Override(schwabtest.AccountNumbersRoute, schwabtest.Whitelabel)
+	newer := storeCopy(t)
+	exec(t, rawStore(t, newer), "PRAGMA user_version = 2")
+	newerStore := newEnv(t, withStore(newer))
+	for _, tc := range []struct {
+		e            *env
+		warning, why string // why the reason starts with
+	}{
+		{notReady, "api_unavailable", "[app_not_ready] Schwab answers this way until"},
+		{newerStore, "store_unavailable", "[store_newer] The store was written by a newer schwabtx."},
+	} {
+		accounts := reason(tc.e.call("list_accounts", `{}`), tc.warning)
+		transactions := reason(tc.e.call("get_transactions", `{"from":"2025-01-01","to":"2025-12-31"}`), tc.warning)
+		if !strings.HasPrefix(transactions, tc.why) || accounts != transactions {
+			t.Errorf("%s: list_accounts quotes %q, get_transactions %q", tc.warning, accounts, transactions)
+		}
+	}
+	if why := reason(notReady.call("list_accounts", `{}`), "api_unavailable"); !strings.Contains(why, " Detail: HTTP 500 from Schwab") {
+		t.Errorf("api_unavailable quotes no detail of Schwab's: %q", why)
+	}
+}
+
 // An account that the directory does not know, as one shared at a login
 // since it was read, makes the directory read again, once, so that the
 // account comes with its hash.

@@ -1082,17 +1082,6 @@ func (w *txnWalk) warnings(coverage []coverageRow) {
 	}
 }
 
-// errText returns e's text, "[code] sentence Detail: detail", as a warning
-// quotes it: composed of e's pieces, which are masked already. As an error
-// to compose, it would be masked whole as free text, which mangles the
-// dates and IDs that the detail holds.
-func (c *call) errText(e *toolErr) FreeText {
-	if e.detail == "" {
-		return c.mask.compose("[%s] %s", e.code, e.msg)
-	}
-	return c.mask.compose("[%s] %s Detail: %s", e.code, e.msg, e.detail)
-}
-
 // andList joins names, each already safe, as a list: "a", "a and b", "a,
 // b and c".
 func (c *call) andList(names []FreeText) FreeText {

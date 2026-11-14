@@ -104,6 +104,17 @@ func (e *toolErr) Error() string {
 	return s
 }
 
+// errText returns e's text, "[code] sentence Detail: detail", as a warning
+// quotes it, in every tool alike: composed of e's pieces, which are masked
+// already. As an error to compose, it would be masked whole as free text,
+// which mangles the dates and IDs that the detail holds.
+func (c *call) errText(e *toolErr) FreeText {
+	if e.detail == "" {
+		return c.mask.compose("[%s] %s", e.code, e.msg)
+	}
+	return c.mask.compose("[%s] %s Detail: %s", e.code, e.msg, e.detail)
+}
+
 // errorFor returns the failure of code, saying what errorText says of it.
 func (s *Server) errorFor(code errorCode) *toolErr {
 	return &toolErr{code: code, msg: s.mask.words(errorText[code])}
