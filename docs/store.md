@@ -2240,10 +2240,17 @@ under `-race`:
 | `internal/nytime`, `internal/nyse`, `internal/mask`, `internal/history/schwabfile` | 5 s together | 1.0 to 2.8 s each, 6.7 to 7.0 s together, run side by side |
 | the whole `go test -race ./...` | no more than 20 s longer than before | (`internal/schwab`, the longest, takes 93 to 113 s) |
 
-A test that grows past 3 s under `-race` is cut down, but for
-`TestIncrementalEqualsRebuild`, the only check that each write derives what a
-rebuild does, which runs in CI with 4 seeds of 8 operations under `-race`
-(30 without). `make volume` runs it with 50 seeds of 30 operations, by
-hand, and `TestVolume` (behind `-history.volume`): a year of History exports
-of 3,000 rows a quarter and five years of snapshots, imported, rebuilt,
-checked and exported (about 50 s, without `-race`).
+A test that grows past 3 s under `-race` is cut down, but for two.
+`TestIncrementalEqualsRebuild` is the only check that each write derives
+what a rebuild does; it runs in CI with 4 seeds of 8 operations under
+`-race` (30 without), and `make volume` runs it with 50 seeds of 30
+operations, by hand, and `TestVolume` (behind `-history.volume`): a year
+of History exports of 3,000 rows a quarter and five years of snapshots,
+imported, rebuilt, checked and exported (about 50 s, without `-race`).
+`TestToolExport` is the only test of the exports for Portfolio Performance
+and Ghostfolio from a store: one store, whose build takes 1.8 s, serves
+every export of both tools, in full, of one account, refused, and in a
+chain of `-since` exports with imports and decisions between them, each
+imported into the tools' models. It takes 4.2 to 4.7 s under `-race`,
+alone on 4 CPUs, and runs beside the package's other tests; a store for
+each part would take more of the package's time than the one test does.

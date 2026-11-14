@@ -165,15 +165,15 @@ and the types' names, whatever PP's language and locale.
    Here you delete in PP the Interest of 0.42 of 2024-04-30 whose note is
    `schwabtx A1 ...135 T73508261949`, then import the `securities.csv` of
    `pp-2`, which holds the snapshot prices again, and its account file,
-   which holds the row as Fees. The export writes what changed whatever its
-   day: a row that came late or that you decided since, a journal paired
-   once its other side arrived, a revision, a ref that changed. A row that
-   you uncount after it was exported comes back under gone, to delete; a
-   file row that waits for you comes in a later export once you decide it;
-   and the left-out rows and holdings that an earlier export listed are
-   marked `before`, so that you are not asked twice. Never name an export
-   that you have not imported: the next one would take for granted what it
-   gave PP.
+   which holds the row as a Fees Refund, as PP books a fee that pays you.
+   The export writes what changed whatever its day: a row that came late or
+   that you decided since, a journal paired once its other side arrived, a
+   revision, a ref that changed. A row that you uncount after it was
+   exported comes back under gone, to delete; a file row that waits for you
+   comes in a later export once you decide it; and the left-out rows and
+   holdings that an earlier export listed are marked `before`, so that you
+   are not asked twice. Never name an export that you have not imported:
+   the next one would take for granted what it gave PP.
 
    A second full export of days that PP holds already is not safe: PP takes
    every changed row for a new one beside the old, and marks new rows equal
@@ -211,8 +211,11 @@ and the types' names, whatever PP's language and locale.
 ## Ghostfolio
 
 Ghostfolio takes one JSON file, `ghostfolio.json`, in its web app. It needs
-Ghostfolio 2.185.0 or later, and the YAHOO data source enabled on the
-instance. Its accounts carry the balances of your snapshots, which are
+Ghostfolio 3.44.0 or later, whose import takes an account without the
+`balance` that earlier versions require of it, or 3.45.0 or later on a
+shared instance such as ghostfol.io, where the import finds an account by
+its name only from that version on; and the YAHOO data source enabled on
+the instance. Its accounts carry the balances of your snapshots, which are
 Ghostfolio's cash: deposits, withdrawals and journals are no activities
 there. A security with a plain ticker is a YAHOO asset, which Yahoo prices;
 options, bonds, securities without a ticker or delisted, tickers that are
@@ -383,8 +386,9 @@ A row with no advice (`sweep_pair`, `zero_amount`) needs nothing. Of the
 rows written with a caveat, under `caveats`: set the value of a delivery
 written at 0 (`value_unknown`) in the tool; check one valued from a snapshot
 (`value_from_snapshot`); lower the cost basis of a `return_of_capital` by
-hand if you track it. A row flagged for your attention, under `flagged`, is
-one that the store may count twice until you decide it (`schwabtx status
--review`); if you uncount it, the next `-since` export lists it to delete.
-The file rows that wait for you, under `waiting`, come in a later export
-once you decide them.
+hand if you track it. The rows written, given, combined or in the balances
+that carry a flag that needs you are listed under `flagged`, among them
+those that the store may count twice until you decide them; `schwabtx
+status -review` says why each is flagged. If you uncount one, the next
+`-since` export lists it to delete. The file rows that wait for you, under
+`waiting`, come in a later export once you decide them.
