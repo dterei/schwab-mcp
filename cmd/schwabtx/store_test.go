@@ -1108,6 +1108,13 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 				Securities: 1, Prices: 1, CaveatRows: 2, Caveats: []history.ToolCount{{Code: "value_unknown", Count: 2}, {Code: "cash_not_written", Count: 1}},
 				LeftOut:        []history.ToolCount{{Code: "split", Count: 1}, {Code: "no_quantity", Count: 2}},
 				SymbolsChanged: 2, Holdings: 1, Flagged: 2, Waiting: 2,
+				Unsure: []history.ToolUnsure{
+					{Key: "x:66000017", Tickers: []string{"JKLM"}, TakenFor: "i:1000013", Securities: []history.ToolUnsureSecurity{{Key: "i:1000013", CUSIP: "ZZJ12K106"}, {Key: "i:1000213", CUSIP: "ZZJ12K205"}}},
+					{
+						Key: "s:FILE:GRPC FD@2025-01-02", Keys: []string{"s:FILE:GRPC FD@2025-01-02", "x:66000102"}, Tickers: []string{"GRPB", "GRPC-FD"},
+						Securities: []history.ToolUnsureSecurity{{Key: "i:1000102", CUSIP: "ZZG10B101"}, {CUSIP: "ZZG10D105"}, {Key: "i:1000103", CUSIP: "ZZG10C109"}},
+					},
+				},
 				Accounts: []history.ToolAccount{newly(history.ToolAccount{Label: "A3 ...777", Account: "...777", Nickname: "Joint\u202eTrust", Name: "Schwab A3 ...777", Exported: true}), a1},
 			},
 			want: `wrote 1 row for Portfolio Performance to pp-2026-12-15, since pp-2026-12-01, up to 2026-12-14: 1 portfolio file, 1 security, 1 price
@@ -1116,6 +1123,9 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 left out 3 rows (pp-2026-12-15/manifest.json lists each, with what to do): split 1, no_quantity 2
 wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_not_written 1
 2 securities have changed symbol (pp-2026-12-15/manifest.json): if Portfolio Performance holds them under an earlier ticker, give them the new one; once delisted, no price feed (docs/tools.md)
+2 keys of the store with no CUSIP had tickers that securities of other CUSIPs have had too (pp-2026-12-15/manifest.json lists them): the export cannot tell which each is; say which in the store (docs/tools.md):
+  x:66000017 (JKLM), written as i:1000013, which had it first: schwabtx edit K:x:66000017 -same K:i:1000013 (ZZJ12K106) or -same K:i:1000213 (ZZJ12K205)
+  s:FILE:GRPC FD@2025-01-02 (GRPB, GRPC-FD), on its own, its tickers each of another: schwabtx edit QUOTED -same K:i:1000102 (ZZG10B101) or -same K:i:1000103 (ZZG10C109)
 1 holding differs from the latest snapshot (pp-2026-12-15/manifest.json): a position opened before the store's rows, or a split left out; add it by hand (docs/tools.md)
 2 rows of this export carry a flag that needs you (schwabtx status -review); if you uncount one, the next -since export lists what to delete
 2 file transactions wait for you to resolve them (schwabtx status -review) and are not in this export
@@ -1193,6 +1203,9 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-13 -dir <a new f
 				NotInBalances:  []history.ToolCashRows{{Account: "A2 ...398", Rows: 1, Snapshot: "2026-11-28", Taken: evening.AddDate(0, 0, 18)}, {Account: "A3 ...777", Rows: 1}},
 				LeftOut:        []history.ToolCount{{Code: "gf_cash", Count: 2}},
 				SymbolsChanged: 1, Holdings: 3, Flagged: 1, YahooIdle: 1, IdleSince: "2025-11-30",
+				Unsure: []history.ToolUnsure{
+					{Key: "x:66000017", Tickers: []string{"JKLM"}, TakenFor: "i:1000013", Securities: []history.ToolUnsureSecurity{{Key: "i:1000013", CUSIP: "ZZJ12K106"}, {Key: "i:1000213", CUSIP: "ZZJ12K205"}}},
+				},
 				Changed: []history.ToolChange{{Ref: "T73508261950", Account: "A1 ...135", Was: "2024-04-04 DIVIDEND 3.86", Now: "2024-04-04 DIVIDEND 3.68"}},
 				Gone:    []history.ToolChange{{Ref: "T73508261945", Account: "A2 ...398", Was: "2025-01-22 SELL 412.50 fee 0.65", Why: "left out: gf_cash"}},
 			},
@@ -1202,6 +1215,8 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-13 -dir <a new f
 2 deposits, withdrawals and journals are not in the accounts' balances yet, posted after the latest snapshot was taken (A2 ...398: of 2026-11-28, taken 2026-11-28 18:05 in New York; A3 ...777: none), which a later one will carry
 left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_cash 2
 1 security has changed symbol (gf-2026-12-01/manifest.json): if Ghostfolio holds activities of it under an earlier symbol, delete them: it does not follow the change (docs/tools.md)
+1 key of the store with no CUSIP had a ticker that securities of other CUSIPs have had too (gf-2026-12-01/manifest.json lists it): the export cannot tell which it is; say which in the store (docs/tools.md):
+  x:66000017 (JKLM), written as i:1000013, which had it first: schwabtx edit -store STORE K:x:66000017 -same K:i:1000013 (ZZJ12K106) or -same K:i:1000213 (ZZJ12K205)
 3 holdings differ from the latest snapshot (gf-2026-12-01/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
 1 row of this export carries a flag that needs you (schwabtx status -store STORE -review); if you uncount it, the next -since export lists what to delete
 1 symbol for Yahoo has no row since 2025-11-30 and is not held (gf-2026-12-01/manifest.json lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual
@@ -1241,7 +1256,9 @@ next time: schwabtx export -format ghostfolio -since gf-2026-12-31 -dir <a new f
 			}
 			var b strings.Builder
 			toolSummary(&b, path, &c.e, c.dir, c.since)
-			want := strings.NewReplacer("/manifest.json", string(filepath.Separator)+"manifest.json", "-store STORE", "-store "+quoteArg(path)).Replace(c.want)
+			want := strings.NewReplacer(
+				"/manifest.json", string(filepath.Separator)+"manifest.json", "-store STORE", "-store "+quoteArg(path), "QUOTED", quoteArg("K:s:FILE:GRPC FD@2025-01-02"),
+			).Replace(c.want)
 			if got := b.String(); got != want {
 				t.Errorf("it says:\n%s\nwant:\n%s", got, want)
 			}

@@ -1414,10 +1414,17 @@ and the export after you decide one writes it.
   row of PP's `securities.csv`, found by one ticker or WKN, one Ghostfolio
   asset, one holding to check; `-manual` naming a ticker that any of its
   keys had makes the whole of it MANUAL, and an export that writes the rows
-  of any of them uses it. A ticker that securities of two CUSIPs have
-  had joins none of them, and each is known by its CUSIP; `schwabtx edit K:…
-  -same K:…` joins two keys in the store itself, when the export cannot
-  tell.
+  of any of them uses it. A ticker that securities of two CUSIPs have had,
+  as when a company takes a ticker that another gave up, or a security
+  keeps its ticker under a new CUSIP, joins neither to the other, each
+  known by its CUSIP. A key that knows no CUSIP, as a History file's often
+  does, and that such a ticker alone ties to them is written as the one
+  that had the ticker first, by when the store saw each, since a History
+  file's rows come before the API's; a key whose tickers are each of
+  another stays on its own, its rows perhaps of both. The export cannot be
+  sure of either: stderr and the manifest's `keys_unsure` list each, with
+  the command, `schwabtx edit K:… -same K:…`, that joins it in the store
+  itself to each security that it may be.
 - **Options.** In PP an option's ticker is its OCC symbol in compact form,
   `XYZ250221P00040000`, the form Yahoo uses, and a futures option's is its
   symbol; in Ghostfolio every option is a MANUAL asset, since Yahoo's search
@@ -1607,6 +1614,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several), and the accounts not checked |
 | `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`option`, `bond`, `no_ticker`, `delisted`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
 | `symbols_changed` | each security that a tool may hold under an earlier symbol, as the tool holds it: its key (the least, with `security_keys` when the store has several), how it is written now (`written_as`: its ticker, or `MANUAL` when the tool gets no price feed for it) and every ticker it has had (`symbols`) |
+| `keys_unsure` | each key of the store that knows no CUSIP and had a ticker that securities of other CUSIPs have had too, which the export writes or prices: its key (with `security_keys` when the export takes several for one), the `tickers` it shares with them, the key of the one it is written as (`taken_for`, null when it stays on its own), and each of those `securities`, by its key, with its `cusip` and the `command` that joins the key to it in the store |
 | `coverage` | each account's coverage by source, as the manifest of `-dir` |
 
 ### Later exports

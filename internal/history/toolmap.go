@@ -947,6 +947,9 @@ type toolIndex struct {
 	bases   map[secRef]*toolSecurity
 	members map[secRef][]*toolSecurity
 	reused  map[string]bool
+	// unsure are, by the ref of each of their securities, the groups that
+	// groupAll cannot be sure of (placeAlone).
+	unsure map[secRef]*toolUnsure
 	// groups are the securities that each group is written as (group), and
 	// groupPrices its prices (pricesOfGroup), by the ref of its first.
 	groups      map[secRef]*toolSecurity
@@ -1295,16 +1298,20 @@ func (ix *toolIndex) multiplier(members []*toolSecurity) (m int64, assumed, bad 
 // of different CUSIPs have had, as when a company takes a ticker that
 // another gave up, joins none of them, and is reused. A group that its
 // tickers would give two CUSIPs, through a security that had a ticker of
-// each, is joined by its CUSIPs and OCC forms alone. Every security of the
-// store is grouped, whatever the export selects, and those of rows and legs
-// that have a symbol but no key, so that every export groups alike; the
-// first of a group, in the order of the keys (keyRank), then of the symbols
-// of those without, names it.
+// each, is joined by its CUSIPs and OCC forms alone. Then a group with a
+// key that knows no CUSIP, as a History file's key often does, and that
+// those joins leave tied by its tickers to securities of other CUSIPs, is
+// placed among them (placeAlone): it is taken for the one that had its
+// ticker first, or stays on its own when its tickers are each of another.
+// Every security of the store is grouped, whatever the export selects, and
+// those of rows and legs that have a symbol but no key, so that every
+// export groups alike; the first of a group, in the order of the keys
+// (keyRank), then of the symbols of those without, names it.
 func (ix *toolIndex) groupAll() {
 	if ix.members != nil {
 		return
 	}
-	ix.members, ix.reused = map[secRef][]*toolSecurity{}, map[string]bool{}
+	ix.members, ix.reused, ix.unsure = map[secRef][]*toolSecurity{}, map[string]bool{}, map[secRef]*toolUnsure{}
 	var all []*toolSecurity
 	seen := map[secRef]bool{}
 	add := func(key, symbol string) {
@@ -1411,6 +1418,9 @@ func (ix *toolIndex) groupAll() {
 			}
 		}
 	}
+	for _, j := range ix.placeAlone(all, find, holders, cusips) {
+		union(j[0], j[1])
+	}
 	members := map[int][]*toolSecurity{}
 	for i, s := range all {
 		members[find(i)] = append(members[find(i)], s)
@@ -1425,6 +1435,160 @@ func (ix *toolIndex) groupAll() {
 		}
 		ix.reused[f] = len(roots) > 1
 	}
+}
+
+// A toolUnsure is a group of the store's securities that knows no CUSIP and
+// whose tickers securities of other CUSIPs have had too, so that the export
+// cannot be sure which of them it is (placeAlone): it takes it for the one
+// that had its ticker first, or leaves it on its own, and lists it for you
+// to say which it is in the store (keysUnsure).
+type toolUnsure struct {
+	// keys are the keys of the group, in the order of keys (keyRank), and
+	// tickers those of its tickers (symbolForm) that the others have had.
+	keys, tickers []string
+	// of are the securities that it may be, each by the first of its keys
+	// and its CUSIP, in that order; taken is the one of them that it is
+	// written as, -1 for none.
+	of    []toolUnsureOf
+	taken int
+}
+
+// A toolUnsureOf is a security that a toolUnsure may be: the first of its
+// keys, "" for none, and its CUSIP.
+type toolUnsureOf struct{ key, cusip string }
+
+// placeAlone returns the joins that groupAll makes, after those by CUSIP,
+// OCC form and ticker, of the groups of all (find) that have a key, know no
+// CUSIP and had a ticker that securities of other CUSIPs have had too (3.5
+// of the design): each as the roots of the two groups that it joins.
+//   - One that a ticker of it ties to one security of a CUSIP alone joins
+//     it: the joins by ticker made that join, and undid it for another key
+//     of their group, which had tickers of two CUSIPs.
+//   - One whose tickers securities of two or more CUSIPs have had alike,
+//     which the joins by ticker leave on its own, as when the store holds a
+//     reorganized security's new CUSIP or another company under the ticker
+//     of a History file's key, is taken for the one of them that had one of
+//     its tickers first, by the names of their keys, a History file's rows
+//     coming before the API's; when none of them says, the first of them.
+//   - One whose tickers are each of another stays on its own: its rows may
+//     be of each.
+//
+// The export cannot be sure of the last two, which a tool would otherwise
+// split, or take for whichever its ticker finds: each of their securities
+// is recorded in ix.unsure.
+func (ix *toolIndex) placeAlone(all []*toolSecurity, find func(int) int, holders map[string][]int, cusips func([]int) int) [][2]int {
+	groups := map[int][]int{}
+	for i := range all {
+		groups[find(i)] = append(groups[find(i)], i)
+	}
+	// first returns when the group of root c had the ticker f first, by the
+	// names of its keys, and false when no name says.
+	first := func(c int, f string) (time.Time, bool) {
+		var at time.Time
+		ok := false
+		for _, i := range groups[c] {
+			if all[i].key == "" {
+				continue
+			}
+			for _, n := range ix.names[all[i].key] {
+				if n.kind == "symbol" && symbolForm(n.value) == f && (!ok || n.firstSeen.Before(at)) {
+					at, ok = n.firstSeen, true
+				}
+			}
+		}
+		return at, ok
+	}
+	var joins [][2]int
+	for _, r := range slices.Sorted(maps.Keys(groups)) {
+		is := groups[r]
+		if cusips(is) > 0 || !slices.ContainsFunc(is, func(i int) bool { return all[i].key != "" }) {
+			continue
+		}
+		// The groups of a CUSIP that had each of its tickers, and those of
+		// them that alone of such groups had one.
+		ties, only := map[int][]string{}, map[int]bool{}
+		var forms []string
+		for _, i := range is {
+			for _, t := range all[i].tickers {
+				f := symbolForm(t)
+				if slices.Contains(forms, f) {
+					continue
+				}
+				forms = append(forms, f)
+				var of []int
+				for _, h := range holders[f] {
+					if c := find(h); c != r && cusips(groups[c]) > 0 && !slices.Contains(of, c) {
+						of = append(of, c)
+					}
+				}
+				for _, c := range of {
+					ties[c] = append(ties[c], f)
+				}
+				if len(of) == 1 {
+					only[of[0]] = true
+				}
+			}
+		}
+		if len(ties) == 0 {
+			continue
+		}
+		if len(only) == 1 {
+			for c := range only {
+				joins = append(joins, [2]int{r, c})
+			}
+			continue
+		}
+		u := &toolUnsure{taken: -1}
+		for _, i := range is {
+			if all[i].key != "" {
+				u.keys = append(u.keys, all[i].key)
+			}
+		}
+		of := slices.Sorted(maps.Keys(ties))
+		var at time.Time
+		for k, c := range of {
+			o := toolUnsureOf{key: all[c].key}
+			for _, i := range groups[c] {
+				o.cusip = cmp.Or(o.cusip, all[i].cusip)
+			}
+			u.of = append(u.of, o)
+			for _, f := range ties[c] {
+				if !slices.Contains(u.tickers, f) {
+					u.tickers = append(u.tickers, f)
+				}
+				if t, ok := first(c, f); len(only) == 0 && ok && (u.taken < 0 || t.Before(at)) {
+					u.taken, at = k, t
+				}
+			}
+		}
+		if len(only) == 0 {
+			u.taken = max(u.taken, 0)
+			joins = append(joins, [2]int{r, of[u.taken]})
+		}
+		slices.Sort(u.tickers)
+		for _, i := range is {
+			ix.unsure[all[i].ref()] = u
+		}
+	}
+	return joins
+}
+
+// keysUnsure returns, in the order of the first of their keys, the groups
+// that the export of in writes or prices (listSecurities) and cannot be
+// sure of (placeAlone): it takes each for the security of another CUSIP
+// that had its ticker first, or leaves it on its own, and you say which it
+// is in the store.
+func keysUnsure(in *toolInput, events []toolEvent) []*toolUnsure {
+	ix := newToolIndex(in)
+	ix.groupAll()
+	var out []*toolUnsure
+	for _, l := range listSecurities(in, events) {
+		if u := ix.unsure[l.security.ref()]; u != nil && !slices.Contains(out, u) {
+			out = append(out, u)
+		}
+	}
+	slices.SortFunc(out, func(a, b *toolUnsure) int { return keyRank(a.keys[0], b.keys[0]) })
+	return out
 }
 
 // gfManual returns why Ghostfolio gets s as a MANUAL asset, "" when it

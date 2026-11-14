@@ -2100,34 +2100,43 @@ func TestToolReimport(t *testing.T) {
 		// The case's buy under the file's key, and its sale under the API's;
 		// then an API row of the buy that came late, alike, which PP marks,
 		// since it holds the file's buy of the one security: it is ticked;
-		// then the file's buy is linked to it, and goes.
+		// then the file's buy is linked to it, and goes. Alike when the store
+		// holds a security of another CUSIP under the ticker too, which the
+		// file's key is not taken for, as it had the ticker later.
 		late := rcTrade("T61002899", 1, "2024-03-11 10:00:00", "buy", keyTwoAPI, "JKLM", 10_000_000, 150, -150_000, 0)
 		late.flags = []string{"late_api_row"}
-		second, third := base, base
-		second.rows = append(slices.Clone(base.rows), late)
-		third.rows = []toolRow{base.rows[1], late}
-		third.uncounted = []toolUncounted{{ref: base.rows[0].ref, account: 1, why: "linked", matchedWith: late.ref}}
-		for _, tool := range []string{toolPP, toolGF} {
-			e1 := chainStepOf(t, base, tool, nil, rcAt1)
-			e2 := chainStepOf(t, tcInput(second), tool, e1, rcAt2)
-			e3 := chainStepOf(t, tcInput(third), tool, e2, rcAt3)
-			if tool == toolGF {
-				m := newGFModel()
-				for _, s := range []*chainStep{e1, e2, e3} {
-					if _, err := gfApply(t, m, s); err != nil && len(s.gf.file.Activities) > 0 {
-						t.Fatal(err)
+		other := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", other: "ZZJ12K205"}.toolCase().in
+		for _, c := range []struct {
+			name string
+			base toolInput
+		}{{"two keys", base}, {"and a third of another CUSIP", other}} {
+			base := c.base
+			second, third := base, base
+			second.rows = append(slices.Clone(base.rows), late)
+			third.rows = []toolRow{base.rows[1], late}
+			third.uncounted = []toolUncounted{{ref: base.rows[0].ref, account: 1, why: "linked", matchedWith: late.ref}}
+			for _, tool := range []string{toolPP, toolGF} {
+				e1 := chainStepOf(t, base, tool, nil, rcAt1)
+				e2 := chainStepOf(t, tcInput(second), tool, e1, rcAt2)
+				e3 := chainStepOf(t, tcInput(third), tool, e2, rcAt3)
+				if tool == toolGF {
+					m := newGFModel()
+					for _, s := range []*chainStep{e1, e2, e3} {
+						if _, err := gfApply(t, m, s); err != nil && len(s.gf.file.Activities) > 0 {
+							t.Fatal(err)
+						}
+						gfReconcile(t, s.in, s.events, s.outcomes, m)
 					}
-					gfReconcile(t, s.in, s.events, s.outcomes, m)
+					continue
 				}
-				continue
-			}
-			if got := rcMarks(e2); !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:1 T61002899 tick"}) {
-				t.Errorf("the late row: PP marks %q", got)
-			}
-			m := newPPModel()
-			for _, s := range []*chainStep{e1, e2, e3} {
-				ppApply(t, m, s)
-				ppReconcile(t, m, s.in, s.events, s.outcomes)
+				if got := rcMarks(e2); !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:1 T61002899 tick"}) {
+					t.Errorf("the late row, %s: PP marks %q", c.name, got)
+				}
+				m := newPPModel()
+				for _, s := range []*chainStep{e1, e2, e3} {
+					ppApply(t, m, s)
+					ppReconcile(t, m, s.in, s.events, s.outcomes)
+				}
 			}
 		}
 	})

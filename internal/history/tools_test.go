@@ -102,6 +102,7 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 			Profiles  []struct{ Status string }
 		} `json:"ghostfolio"`
 		SymbolsChanged []struct{ SecurityKey string } `json:"symbols_changed"`
+		KeysUnsure     []toolUnsureEntry              `json:"keys_unsure"`
 		Coverage       []ExportCoverage               `json:"coverage"`
 	}
 	if err := json.Unmarshal(e.manifest, &m); err != nil {
@@ -226,6 +227,15 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	}
 	check("holdings that differ", e.Holdings, holdings)
 	check("securities whose symbol changed", e.SymbolsChanged, len(m.SymbolsChanged))
+	var unsure []ToolUnsure
+	for _, u := range m.KeysUnsure {
+		k := ToolUnsure{Key: u.SecurityKey, Keys: u.SecurityKeys, Tickers: u.Tickers, TakenFor: deref(u.TakenFor)}
+		for _, s := range u.Securities {
+			k.Securities = append(k.Securities, ToolUnsureSecurity{Key: s.SecurityKey, CUSIP: s.CUSIP, Command: s.Command})
+		}
+		unsure = append(unsure, k)
+	}
+	check("keys unsure", e.Unsure, unsure)
 	var unused []string
 	for _, s := range m.Chain.Manual {
 		if s.Unused {

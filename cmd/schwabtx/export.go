@@ -689,6 +689,7 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 		}
 		fmt.Fprintf(w, "%d %s changed symbol (%s): %s (docs/tools.md)\n", n, pluralWord(n, "security has", "securities have"), manifest, advice)
 	}
+	unsureLines(w, path, e.Unsure, manifest)
 	switch n := e.Holdings; {
 	case n == 1:
 		fmt.Fprintf(w, "1 holding differs from the latest snapshot (%s): a position opened before the store's rows, or a split left out; add it by hand (docs/tools.md)\n", manifest)
@@ -719,6 +720,38 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 	case n > 1:
 		fmt.Fprintf(w, "%d symbols for Yahoo have no row since %s and are not held (%s lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual\n",
 			n, e.IdleSince, manifest)
+	}
+}
+
+// unsureLines says on w which keys of the store, with no CUSIP, had a
+// ticker that securities of other CUSIPs have had too, which an export whose
+// manifest is manifest cannot be sure of (history.ToolUnsure): how it writes
+// each, and the command that says which security each is, for each that it
+// may be, in the store at path.
+func unsureLines(w io.Writer, path string, unsure []history.ToolUnsure, manifest string) {
+	switch n := len(unsure); {
+	case n == 1:
+		fmt.Fprintf(w, "1 key of the store with no CUSIP had a ticker that securities of other CUSIPs have had too (%s lists it): the export cannot tell which it is; say which in the store (docs/tools.md):\n", manifest)
+	case n > 1:
+		fmt.Fprintf(w, "%d keys of the store with no CUSIP had tickers that securities of other CUSIPs have had too (%s lists them): the export cannot tell which each is; say which in the store (docs/tools.md):\n", n, manifest)
+	}
+	for _, u := range unsure {
+		as := "on its own, its tickers each of another"
+		if u.TakenFor != "" {
+			as = "written as " + u.TakenFor + ", which had it first"
+		}
+		var commands []string
+		for _, s := range u.Securities {
+			if s.Key == "" {
+				continue
+			}
+			c := "-same " + quoteArg("K:"+s.Key)
+			if len(commands) == 0 {
+				c = copyCommand(path, "edit", quoteArg("K:"+u.Key), "-same", quoteArg("K:"+s.Key))
+			}
+			commands = append(commands, c+" ("+s.CUSIP+")")
+		}
+		fmt.Fprintf(w, "  %s (%s), %s: %s\n", plainCell(u.Key), plainCell(strings.Join(u.Tickers, ", ")), as, strings.Join(commands, " or "))
 	}
 }
 

@@ -116,6 +116,10 @@ type ToolExport struct {
 	// SymbolsChanged the securities, as the tool holds them, that a tool
 	// holding them under an earlier symbol needs telling of.
 	Flagged, Waiting, Holdings, SymbolsChanged int
+	// Unsure are the keys of the store that know no CUSIP and had a ticker
+	// that securities of other CUSIPs have had too, which the export writes
+	// as one of them, or on their own, and cannot be sure of.
+	Unsure []ToolUnsure
 	// Unused are the symbols that the chain's -manual names and that
 	// nothing in the export uses, as given.
 	Unused []string
@@ -244,6 +248,59 @@ type ToolTick struct {
 	File, Ref, Account, As string
 }
 
+// A ToolUnsure is a key of the store that knows no CUSIP, as a History
+// file's key often does, and had a ticker that securities of other CUSIPs
+// have had too, as when the store holds a reorganized security's new CUSIP
+// or another company under that ticker (3.5 of the design): a tool export
+// cannot be sure which of them it is, and writes its rows as the one that
+// had its ticker first, or on their own when its tickers are each of
+// another. You say which it is in the store, with one of the commands.
+type ToolUnsure struct {
+	// Key is its key, and Keys every key of the store that the export takes
+	// for one security with it, when there are several; Tickers those of its
+	// tickers, in Yahoo's form, that the others have had.
+	Key     string
+	Keys    []string
+	Tickers []string
+	// TakenFor is the key of the security that the export writes it as, ""
+	// when it stays on its own.
+	TakenFor string
+	// Securities are those that it may be, in the order of their keys.
+	Securities []ToolUnsureSecurity
+}
+
+// A ToolUnsureSecurity is a security that a ToolUnsure may be: the first of
+// its keys, its CUSIP, and the command, naming no -store, that tells the
+// store that the ToolUnsure's key is of it; Key and Command are "" for a
+// security that the store holds under no key.
+type ToolUnsureSecurity struct {
+	Key, CUSIP, Command string
+}
+
+// toolUnsures returns the keys that the groups unsure stand for, as an
+// export says them.
+func toolUnsures(unsure []*toolUnsure) []ToolUnsure {
+	var out []ToolUnsure
+	for _, u := range unsure {
+		t := ToolUnsure{Key: u.keys[0], Tickers: slices.Clone(u.tickers)}
+		if len(u.keys) > 1 {
+			t.Keys = slices.Clone(u.keys)
+		}
+		if u.taken >= 0 {
+			t.TakenFor = u.of[u.taken].key
+		}
+		for _, o := range u.of {
+			s := ToolUnsureSecurity{Key: o.key, CUSIP: o.cusip}
+			if o.key != "" {
+				s.Command = "schwabtx edit " + shellQuote("K:"+t.Key) + " -same " + shellQuote("K:"+o.key)
+			}
+			t.Securities = append(t.Securities, s)
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
 // A ToolCount is how many rows of a tool export have a code: a reason for
 // which they were left out, or a caveat.
 type ToolCount struct {
@@ -351,7 +408,7 @@ func exportTool(in *toolInput, o ToolOptions, since *toolChain, at time.Time, v 
 	}
 	e := &ToolExport{
 		At: at, Tool: in.tool, To: in.to, Coverage: in.coverage, Waiting: len(in.waiting), Late: res.late,
-		SameAs: len(res.sameAs), SymbolsChanged: len(res.symbolsChanged), Unused: unused,
+		SameAs: len(res.sameAs), SymbolsChanged: len(res.symbolsChanged), Unsure: toolUnsures(keysUnsure(in, res.written)), Unused: unused,
 		in: in, events: events, outcomes: outcomes, res: res, store: store,
 	}
 	if in.account != 0 {
@@ -704,6 +761,22 @@ type (
 		WrittenAs    string   `json:"written_as"`
 		Symbols      []string `json:"symbols"`
 	}
+	// A toolUnsureEntry is a key that the export cannot be sure of
+	// (ToolUnsure): taken_for is null when it stays on its own.
+	toolUnsureEntry struct {
+		SecurityKey  string               `json:"security_key"`
+		SecurityKeys []string             `json:"security_keys,omitempty"`
+		Tickers      []string             `json:"tickers"`
+		TakenFor     *string              `json:"taken_for"`
+		Securities   []toolUnsureSecurity `json:"securities"`
+	}
+	// A toolUnsureSecurity is a security that a toolUnsureEntry may be
+	// (ToolUnsureSecurity).
+	toolUnsureSecurity struct {
+		SecurityKey string `json:"security_key"`
+		CUSIP       string `json:"cusip"`
+		Command     string `json:"command"`
+	}
 )
 
 // manifestOf returns the export's manifest.json (8.1 of the design), with
@@ -712,8 +785,8 @@ type (
 // chain's part (part) at its keys; its files, in the order to import them;
 // the units; what it wrote, changed, ticked, left out or flagged, and what
 // waits for you; the holdings check; for Ghostfolio, what its import asks
-// Yahoo about and what is MANUAL; the securities whose symbol changed; and
-// the coverage. A key of the other tool's only is left out. Descriptions
+// Yahoo about and what is MANUAL; the securities whose symbol changed; the
+// keys that it cannot be sure of; and the coverage. A key of the other tool's only is left out. Descriptions
 // and kinds are the store's masked free text, and the commands name no
 // -store.
 func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) ([]byte, error) {
@@ -747,6 +820,7 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 		Holdings       chainHoldings                    `json:"holdings"`
 		Ghostfolio     *toolGhostfolioEntry             `json:"ghostfolio,omitempty"`
 		SymbolsChanged []toolSymbolsEntry               `json:"symbols_changed"`
+		KeysUnsure     []toolUnsureEntry                `json:"keys_unsure"`
 		Coverage       []ExportCoverage                 `json:"coverage"`
 	}{
 		ExportedAt: exportInstant(e.At), Schema: v.schema, Rules: v.derive, Calendar: v.calendar,
@@ -757,7 +831,7 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 		Changed: orEmpty(res.changed), Gone: orEmpty(res.gone), LeftOut: part.LeftOut,
 		Caveats: []toolCaveatEntry{}, Combined: []toolCombinedEntry{}, Flagged: []toolFlaggedEntry{},
 		Waiting: []toolWaitingEntry{}, Holdings: part.Holdings, SymbolsChanged: []toolSymbolsEntry{},
-		Coverage: orEmpty(in.coverage),
+		KeysUnsure: []toolUnsureEntry{}, Coverage: orEmpty(in.coverage),
 	}
 	if e.Account != "" {
 		m.Filters.Account = &e.Account
@@ -850,6 +924,16 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 			entry.Symbols = slices.Insert(entry.Symbols, 0, s.cusip)
 		}
 		m.SymbolsChanged = append(m.SymbolsChanged, entry)
+	}
+	for _, u := range e.Unsure {
+		entry := toolUnsureEntry{SecurityKey: u.Key, SecurityKeys: u.Keys, Tickers: u.Tickers, Securities: []toolUnsureSecurity{}}
+		if u.TakenFor != "" {
+			entry.TakenFor = &u.TakenFor
+		}
+		for _, s := range u.Securities {
+			entry.Securities = append(entry.Securities, toolUnsureSecurity{SecurityKey: s.Key, CUSIP: s.CUSIP, Command: s.Command})
+		}
+		m.KeysUnsure = append(m.KeysUnsure, entry)
 	}
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)

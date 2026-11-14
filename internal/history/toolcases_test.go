@@ -224,6 +224,9 @@ const (
 	// and the API's, as it does when nothing joins them (two_keys).
 	keyTwoFile = "x:66000017"
 	keyTwoAPI  = "i:1000013"
+	// keyTwoOther is a security of another CUSIP that a twoKeys variant
+	// may hold under the API key's first ticker (twoKeys.other).
+	keyTwoOther = "i:1000213"
 	// The API's key of the bond that keyBondB is a History file's key of.
 	keyBondAPI = "i:2000001"
 )
@@ -1482,11 +1485,14 @@ func toolCaseIdle() toolCase {
 // knows of each key, "" for none; their descriptions, "" for the case's;
 // when the History file was exported, which dates every name of the file's
 // key, the zero time for the case's 2026-11-11; the symbol that -manual
-// names, "" for none; and what the one security of the two keys is: its
-// identity, why Ghostfolio gets it as a MANUAL asset ("" for YAHOO), and
-// whether its symbol has changed. A file names its rows by the ticker of
-// its export, so a security that only the API's key saw renamed or
-// delisted is of a file exported before that.
+// names, "" for none; the CUSIP of a third key, of a security that had
+// the API key's first ticker later (keyTwoOther: another company, or the
+// security's own new CUSIP after a reorganization), "" for none; and what
+// the one security of the two keys is: its identity, why Ghostfolio gets
+// it as a MANUAL asset ("" for YAHOO), and whether its symbol has changed.
+// A file names its rows by the ticker of its export, so a security that
+// only the API's key saw renamed or delisted is of a file exported before
+// that.
 type twoKeys struct {
 	name                string
 	api, file           []string
@@ -1494,6 +1500,7 @@ type twoKeys struct {
 	apiName, fileName   string
 	filed               time.Time
 	manual              string
+	other               string
 	identity, why       string
 	changed             bool
 }
@@ -1503,12 +1510,13 @@ type twoKeys struct {
 // the day of its sale, 2026-03-16.
 var tcFiledEarly = tcNY("2026-01-15 09:00:00")
 
-// toolCase returns the case two_keys with v's symbols, CUSIPs, descriptions
-// and -manual: the API's key had its first symbol on the day of its sale
-// and each later one a month after the one before; the file's key had its
-// last on the day of the file, and each before a month before the next;
-// the file's buy names the file key's first symbol, and the sale the API
-// key's first.
+// toolCase returns the case two_keys with v's symbols, CUSIPs, descriptions,
+// -manual and third key: the API's key had its first symbol on the day of
+// its sale and each later one a month after the one before; the file's key
+// had its last on the day of the file, and each before a month before the
+// next; the third key had the API key's first symbol on 2026-06-01, after
+// the sale, and has no row; the file's buy names the file key's first
+// symbol, and the sale the API key's first.
 func (v twoKeys) toolCase() toolCase {
 	c := toolCaseNamed("two_keys")
 	c.in.manual = nil
@@ -1537,6 +1545,14 @@ func (v twoKeys) toolCase() toolCase {
 		toolName{key: keyTwoAPI, kind: "description", value: cmp.Or(v.apiName, "JKLM SMALL-CAP VALUE ETF"), firstSeen: sold, lastSeen: sold},
 		toolName{key: keyTwoFile, kind: "description", value: cmp.Or(v.fileName, "JKLM SMALL CAP VALUE ETF"), firstSeen: filed, lastSeen: filed},
 	)
+	if v.other != "" {
+		taken := tcNY("2026-06-01 10:00:00")
+		c.in.securities = append(slices.Clone(c.in.securities), toolSecurityRow{key: keyTwoOther, assetType: "COLLECTIVE_INVESTMENT", symbol: v.api[0], cusip: v.other})
+		c.in.names = append(c.in.names,
+			toolName{key: keyTwoOther, kind: "symbol", value: v.api[0], firstSeen: taken, lastSeen: taken},
+			toolName{key: keyTwoOther, kind: "description", value: "JKLM OTHER FUND", firstSeen: taken, lastSeen: taken},
+		)
+	}
 	for i := range c.in.rows {
 		c.in.rows[i].symbol = map[string]string{keyTwoAPI: v.api[0], keyTwoFile: v.file[0]}[c.in.rows[i].securityKey]
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -1169,6 +1170,22 @@ func TestToolMapping(t *testing.T) {
 				apiName: "JKL TRUST PFD SER A", fileName: "JKL TRUST 5.25% PFD A", identity: "JKL.PRA", why: "not_plain",
 			},
 			{name: "a class share spelled two ways, named by -manual", api: []string{"JKL/B"}, file: []string{"JKL.B"}, manual: "jkl/b", identity: "JKL-B", why: "asked"},
+			// A third key had the ticker later, of another CUSIP: the file's
+			// key, which knows none, is tied by its ticker to two securities,
+			// and is taken for the API's, which had it first; the ticker,
+			// which two CUSIPs had, names neither.
+			{
+				name: "a third key of the ticker, of another CUSIP", api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", other: "ZZJ12K205",
+				identity: "ZZJ12K106",
+			},
+			{
+				name: "a third key of the ticker, -manual naming it", api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", other: "ZZJ12K205",
+				manual: "JKLM", identity: "ZZJ12K106", why: "asked",
+			},
+			{
+				name: "a third key of the ticker, the API's delisted", api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106",
+				other: "ZZJ12K205", filed: tcFiledEarly, identity: "ZZJ12K106", why: "delisted", changed: true,
+			},
 		} {
 			c := v.toolCase()
 			for _, tool := range []string{toolPP, toolGF} {
@@ -1182,6 +1199,18 @@ func TestToolMapping(t *testing.T) {
 					}
 				}
 				e := caseExport(t, c, tool)
+				// The file's key that a third key's ticker leaves tied to two
+				// securities is listed, with the command for each.
+				var unsure []ToolUnsure
+				if v.other != "" {
+					same := "schwabtx edit K:" + keyTwoFile + " -same K:"
+					unsure = []ToolUnsure{{Key: keyTwoFile, Tickers: []string{"JKLM"}, TakenFor: keyTwoAPI, Securities: []ToolUnsureSecurity{
+						{Key: keyTwoAPI, CUSIP: v.apiCUSIP, Command: same + keyTwoAPI}, {Key: keyTwoOther, CUSIP: v.other, Command: same + keyTwoOther},
+					}}}
+				}
+				if !reflect.DeepEqual(e.Unsure, unsure) {
+					t.Errorf("%s %s: unsure %+v", v.name, tool, e.Unsure)
+				}
 				// The manifest names a security whose symbol changed once, as the
 				// tool holds it, under the least of its keys with both keys, its
 				// symbol now first: a delisted one's CUSIP. stderr counts one.
@@ -1337,7 +1366,9 @@ func TestToolMapping(t *testing.T) {
 		// one CUSIP at most; by a CUSIP; and options by their OCC form. A
 		// ticker that securities of two CUSIPs had joins none of them and
 		// names neither; a security that had a ticker of each of two others
-		// of different CUSIPs, which would join them, joins neither.
+		// of different CUSIPs, which would join them, joins neither. One
+		// that knows no CUSIP and whose ticker two of them had is taken for
+		// the one that had it first.
 		in := tcInput(toolInput{})
 		add := func(key, assetType, cusip string, symbols ...string) {
 			in.securities = append(in.securities, toolSecurityRow{key: key, assetType: assetType, cusip: cusip, symbol: symbols[len(symbols)-1]})
@@ -1357,6 +1388,13 @@ func TestToolMapping(t *testing.T) {
 		add("i:1000105", "EQUITY", "", "GRPD", "GRPE")
 		add("i:1000106", "EQUITY", "ZZG10E105", "GRPE")
 		add("i:1000107", "EQUITY", "ZZG10F102", "GRPE")
+		add("i:1000108", "EQUITY", "ZZG10H108", "GRPG", "GRPH")
+		add("i:1000109", "EQUITY", "ZZG10J104", "GRPH")
+		add("x:66000106", "", "", "GRPH")
+		add("i:1000110", "EQUITY", "ZZG10K101", "GRPK")
+		add("i:1000111", "EQUITY", "ZZG10L109", "GRPL")
+		add("x:66000107", "", "", "GRPK", "GRPL")
+		add("x:66000108", "", "", "GRPK")
 		add("s:FILE:XYZ 06/20/2025 55.00 C@2025-07-01", "OPTION", "", "XYZ 06/20/2025 55.00 C")
 		add("s:FILE:"+symFutOpt+"@2025-04-01", "OPTION", "", symFutOpt)
 		for _, c := range []struct {
@@ -1375,9 +1413,18 @@ func TestToolMapping(t *testing.T) {
 			// A bond with a ticker under the API's key, which the file's
 			// key, of no asset type, is too.
 			{"a bond with a ticker", []string{"i:1000104", "x:66000104"}, true, []string{"ZZBB", "ZZBB"}, true},
-			// GRPE, which two CUSIPs had, names neither of them, nor the
-			// group of GRPD, which knows no CUSIP: its first key does.
-			{"a group whose ticker two CUSIPs had", []string{"i:1000105", "x:66000105", "i:1000106", "i:1000107"}, false, []string{"i:1000105", "i:1000105", "ZZG10E105", "ZZG10F102"}, false},
+			// GRPE, which two CUSIPs had, names neither of them; the group of
+			// GRPD, which knows no CUSIP and is tied to them by GRPE alone, is
+			// taken for the one that had it first, of two that had it at once
+			// the first in the order of the keys.
+			{"a group whose ticker two CUSIPs had", []string{"i:1000105", "x:66000105", "i:1000106", "i:1000107"}, false, []string{"ZZG10E105", "ZZG10E105", "ZZG10E105", "ZZG10F102"}, false},
+			// The one that had GRPH first is the second in the order of the
+			// keys.
+			{"a file's key of a ticker that two CUSIPs had", []string{"x:66000106", "i:1000109", "i:1000108"}, false, []string{"ZZG10J104", "ZZG10J104", "ZZG10H108"}, false},
+			// x:66000108 had GRPK, which of the CUSIPs only i:1000110's had,
+			// beside x:66000107, between two CUSIPs, which undid the join: it
+			// joins it all the same, and x:66000107 stays on its own.
+			{"a file's key beside one between two CUSIPs", []string{"x:66000108", "i:1000110", "x:66000107", "i:1000111"}, false, []string{"ZZG10K101", "ZZG10K101", "x:66000107", "ZZG10L109"}, false},
 			// A file's option and the API's of one contract; and a futures
 			// option, which has no OCC form, by its symbol, named by the
 			// API's key.
@@ -1403,6 +1450,29 @@ func TestToolMapping(t *testing.T) {
 			}
 			if same != c.one || !slices.Equal(identities, c.identities) {
 				t.Errorf("%s: one %v, identities %q, want %v, %q", c.name, same, identities, c.one, c.identities)
+			}
+		}
+		// What the export cannot be sure of, which it lists: the file's key
+		// between two CUSIPs, on its own, and each group taken for the one
+		// that had its ticker first, by the names of their keys.
+		ix := newToolIndex(&in)
+		ix.groupAll()
+		for _, c := range []struct {
+			key  string
+			want toolUnsure
+		}{
+			{"x:66000102", toolUnsure{keys: []string{"x:66000102"}, tickers: []string{"GRPB", "GRPC"}, of: []toolUnsureOf{{"i:1000102", "ZZG10B101"}, {"i:1000103", "ZZG10C109"}}, taken: -1}},
+			{"x:66000105", toolUnsure{keys: []string{"i:1000105", "x:66000105"}, tickers: []string{"GRPE"}, of: []toolUnsureOf{{"i:1000106", "ZZG10E105"}, {"i:1000107", "ZZG10F102"}}, taken: 0}},
+			{"x:66000106", toolUnsure{keys: []string{"x:66000106"}, tickers: []string{"GRPH"}, of: []toolUnsureOf{{"i:1000108", "ZZG10H108"}, {"i:1000109", "ZZG10J104"}}, taken: 1}},
+			{"x:66000107", toolUnsure{keys: []string{"x:66000107"}, tickers: []string{"GRPK", "GRPL"}, of: []toolUnsureOf{{"i:1000110", "ZZG10K101"}, {"i:1000111", "ZZG10L109"}}, taken: -1}},
+		} {
+			if u := ix.unsure[secRef{key: c.key}]; u == nil || !reflect.DeepEqual(*u, c.want) {
+				t.Errorf("%s: unsure %+v, want %+v", c.key, u, c.want)
+			}
+		}
+		for _, k := range []string{"x:66000101", "x:66000108", "i:1000106"} {
+			if u := ix.unsure[secRef{key: k}]; u != nil {
+				t.Errorf("%s: unsure %+v", k, *u)
 			}
 		}
 		// One contract's keys give it one multiplier: a row's contract

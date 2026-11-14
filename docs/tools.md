@@ -40,6 +40,18 @@ made up.
   otherwise, start over in the tool (below).
 - **Do not rename** the accounts that you make for an export, or that it
   makes, and in Ghostfolio its assets: the tools find them again by name.
+- **A key that the export cannot place.** A History file's rows name a
+  security by a key of the file, which often knows no CUSIP. When securities
+  of two CUSIPs have had its ticker (a company that took a ticker another
+  gave up, or a security that kept its ticker under a new CUSIP), the export
+  writes its rows as the one that had the ticker first, since a file's rows
+  come before the API's, or, when its tickers are each of another, on their
+  own. stderr and the manifest's `keys_unsure` name each such key, with a
+  `schwabtx edit K:… -same K:…` for each security it may be. Run the one
+  that is right, and the store joins the two keys: if that is not how the
+  export wrote it, export again before you import, in a new folder (delete
+  the one not imported); once imported, the next `-since` export lists what
+  changed, to delete.
 
 ## Portfolio Performance
 
