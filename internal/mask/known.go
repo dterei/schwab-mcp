@@ -15,8 +15,8 @@ const minKnown = 6
 const hashRun = 32
 
 // Known is the set of full account numbers that a process has seen, which
-// it masks wherever they stand: a second net beside Text, which masks by
-// pattern alone and so misses a number of fewer than 8 digits, and which
+// it masks wherever they stand whole: a second net beside Text, which masks
+// by pattern alone and so misses a number of fewer than 8 digits, and which
 // is never run over identifiers. It is safe for concurrent use. Its zero
 // value is an empty set, and so is a nil *Known, which only reads.
 type Known struct {
