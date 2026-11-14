@@ -122,12 +122,17 @@ func Read(path string) (File, error) {
 	if err != nil {
 		return File{}, fmt.Errorf("reading the config file: %w", withoutPath(err))
 	}
+	// The version first, on its own: a newer schwabtx may have changed what
+	// a field holds, and its file is newer, not one that cannot be read.
+	var head struct {
+		Version int `json:"version"`
+	}
+	if json.Unmarshal(b, &head) == nil && head.Version > Version {
+		return File{}, ErrNewer
+	}
 	var f File
 	if err := json.Unmarshal(b, &f); err != nil {
 		return File{}, notRead(err)
-	}
-	if f.Version > Version {
-		return File{}, ErrNewer
 	}
 	if err := json.Unmarshal(b, &f.other); err != nil {
 		return File{}, notRead(err)

@@ -261,16 +261,21 @@ func TestSetupRefuses(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, content := range []string{`{"version":2,"app_key":"k"}`, `{"app_key":`} {
-		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+	newer := path + " was written by a newer schwabtx; run that version's setup"
+	for _, tc := range []struct{ content, start, end string }{
+		{`{"version":2,"app_key":"k"}`, newer, ""},
+		{`{"version":2,"app_key":{"keychain":"schwabtx"}}`, newer, ""}, // a field whose type a newer schwabtx changed
+		{`{"app_key":`, path + ": the config file is not JSON", "; move it aside, and run schwabtx setup again"},
+	} {
+		if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		_, _, err := runTx(t, "setup")
-		if err == nil || !strings.HasPrefix(err.Error(), path) {
-			t.Errorf("over %s: %v, want an error that names the file", content, err)
+		if err == nil || !strings.HasPrefix(err.Error(), tc.start) || !strings.HasSuffix(err.Error(), tc.end) {
+			t.Errorf("over %s: %v, want an error that starts %q and ends %q", tc.content, err, tc.start, tc.end)
 		}
-		if b, err := os.ReadFile(path); err != nil || string(b) != content {
-			t.Errorf("over %s: the file holds %s, %v", content, b, err)
+		if b, err := os.ReadFile(path); err != nil || string(b) != tc.content {
+			t.Errorf("over %s: the file holds %s, %v", tc.content, b, err)
 		}
 	}
 }

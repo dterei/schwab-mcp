@@ -205,6 +205,7 @@ func TestReadErrors(t *testing.T) {
 		is                  error
 	}{
 		{"a newer version", `{"version":2,"app_secret":"` + testSecret + `"}`, "newer schwabtx", ErrNewer},
+		{"a newer version with a field of another type", `{"version":2,"app_key":{"keychain":"` + testSecret + `"}}`, "newer schwabtx", ErrNewer},
 		{"not JSON", `{"app_secret":"` + testSecret + `" x}`, "not JSON (at byte", nil},
 		{"cut short", `{"app_secret":"` + testSecret, "not JSON", nil},
 		{"a field of another type", `{"app_secret":` + testSecret[:4] + `, "version":1}`, "not JSON", nil},
@@ -320,6 +321,12 @@ func TestForServer(t *testing.T) {
 			name: "a newer version", content: `{"version":2,"app_key":"` + testKey + `","store_file":"` + quoted(store) + `"}`,
 			getenv: env("SCHWAB_APP_KEY", "other-key"),
 			key:    Setting{"other-key", FromEnv}, base: Setting{schwab.DefaultBaseURL, FromDefault},
+			token: Setting{defaultToken, FromDefault}, store: Setting{defaultStore, FromDefault}, rate: Setting{"", FromDefault},
+			problems: []Problem{{CodeNewerVersion, "config_file", "?"}},
+		},
+		{
+			name: "a newer version with fields of other types", content: `{"version":2,"token_file":["a","b"],"store_file":7}`, getenv: env(),
+			base:  Setting{schwab.DefaultBaseURL, FromDefault},
 			token: Setting{defaultToken, FromDefault}, store: Setting{defaultStore, FromDefault}, rate: Setting{"", FromDefault},
 			problems: []Problem{{CodeNewerVersion, "config_file", "?"}},
 		},
