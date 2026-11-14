@@ -9,9 +9,8 @@ import (
 	"io"
 	"slices"
 	"strings"
-	"unicode"
 
-	"github.com/dterei/schwab-mcp/internal/history"
+	"github.com/dterei/schwab-mcp/internal/lookup"
 	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
@@ -85,7 +84,7 @@ func runLookup(ctx context.Context, name string, args []string, stdout, stderr i
 	if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected argument %q", fs.Arg(0))
 	}
-	sel := parseSelector(*account)
+	sel := lookup.ParseSelector(*account)
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -113,7 +112,7 @@ func runLookup(ctx context.Context, name string, args []string, stdout, stderr i
 	problems := make([][]schwab.Problem, len(accounts))
 	for i, a := range accounts {
 		as[i].account = a
-		problems[i] = lookupProblems(a)
+		problems[i] = lookup.Problems(a)
 	}
 	if w := problemsWarning("account", problems); w != "" {
 		warn(w + "; the table may not show those fields as Schwab sent them, and -json prints Schwab's own JSON")
@@ -122,31 +121,31 @@ func runLookup(ctx context.Context, name string, args []string, stdout, stderr i
 	// The nicknames are in the user's preferences, a request of their own,
 	// which the table's names need, and so does a nickname given to
 	// -account.
-	asked := sel.nickname != "" || l.names && !*asJSON
+	asked := sel.Nickname != "" || l.names && !*asJSON
 	if asked {
 		prefs, err := c.preferences(ctx)
 		switch {
 		case err == nil:
 			nameAccounts(as, prefs)
-			if n, places := problemPlaces([][]schwab.Problem{nicknameProblems(prefs)}); n > 0 {
+			if n, places := problemPlaces([][]schwab.Problem{lookup.NicknameProblems(prefs)}); n > 0 {
 				warn("the user preferences differed from what Schwab has sent before (" + places + "); a nickname may be missing")
 			}
 		case ctx.Err() != nil:
 			return fmt.Errorf("fetching the user preferences: %w", err)
-		case sel.nickname != "":
-			return fmt.Errorf("fetching the user preferences, to find the account named %q: %w", sel.shown(), err)
+		case sel.Nickname != "":
+			return fmt.Errorf("fetching the user preferences, to find the account named %q: %w", sel.Shown(), err)
 		default:
 			warn("the table leaves out the accounts' nicknames: fetching the user preferences: " + err.Error())
 		}
 	}
-	picked, err := sel.pick(as)
+	picked, err := pick(sel, as)
 	if err != nil && !asked {
 		// The error lists the accounts, by their nicknames too when they
 		// can be read: they tell apart accounts whose masked numbers do
 		// not, and -account takes them.
 		if prefs, perr := c.preferences(ctx); perr == nil {
 			nameAccounts(as, prefs)
-			_, err = sel.pick(as)
+			_, err = pick(sel, as)
 		} else if ctx.Err() != nil {
 			return fmt.Errorf("fetching the user preferences: %w", perr)
 		}
@@ -172,111 +171,26 @@ func runLookup(ctx context.Context, name string, args []string, stdout, stderr i
 	return writeTable(stdout, cols, rows)
 }
 
-// lookupProblems returns the problems of a and of its positions, as
-// accountProblems does, with one for each open profit or loss that a
-// position lacks of a side that it holds, which Schwab sends on every
-// position of that side.
-func lookupProblems(a schwab.Account) []schwab.Problem {
-	ps := accountProblems(a)
-	for _, p := range a.SecuritiesAccount.Positions {
-		_, missing := openPL(p)
-		for _, m := range missing {
-			ps = append(ps, schwab.Problem{Path: "securitiesAccount.positions." + m.Path, What: m.What})
-		}
+// pick returns the accounts of as that s names, as lookup.Selector.Pick
+// picks them. It never guesses: no account, or several, is an error that
+// lists the accounts.
+func pick(s lookup.Selector, as []namedAccount) ([]namedAccount, error) {
+	got, perr := s.Pick(named(as))
+	if perr == nil {
+		return unnamed(got), nil
 	}
-	return ps
-}
-
-// selector is the account that -account names: by the digits that its
-// number ends in, or by its nickname. All three are empty when it names
-// none.
-type selector struct{ given, digits, nickname string }
-
-// parseSelector reads -account's value as every command reads it
-// (history.SelectorDigits). Digits, with or without a leading
-// "...", as the tables and Schwab mask numbers, and with dashes or spaces of
-// any kind among them, as schwab.com writes a number, name the account
-// whose number ends in them; a whole number names its account too.
-// Anything else names the account with that nickname, as sameName compares
-// them, so a nickname of digits alone cannot be given, though its account's
-// number can.
-func parseSelector(v string) selector {
-	v = strings.TrimSpace(v)
-	s := selector{given: v}
-	if digits, ok := history.SelectorDigits(v); ok {
-		s.digits = digits
-	} else {
-		s.nickname = v
-	}
-	return s
-}
-
-// shown returns -account's value as an error shows it: as given, but with
-// no more of an account number than the tables show. Each run of more than
-// 3 digits, which may be part of a number, shows as ... and its last 3, as
-// the tables mask a number, whether the value names digits or a nickname.
-// A run goes on across anything but a letter, so that the digits of a
-// number written with dots, dashes or spaces of any kind among them make
-// one run.
-func (s selector) shown() string {
-	rs := []rune(s.given)
-	var b strings.Builder
-	for i := 0; i < len(rs); {
-		if !unicode.IsDigit(rs[i]) {
-			b.WriteRune(rs[i])
-			i++
-			continue
-		}
-		var digits []rune
-		end := i // just after the run's last digit
-		for j := i; j < len(rs) && !unicode.IsLetter(rs[j]); j++ {
-			if unicode.IsDigit(rs[j]) {
-				digits, end = append(digits, rs[j]), j+1
-			}
-		}
-		switch {
-		case len(digits) <= 3:
-			b.WriteString(string(rs[i:end]))
-		case strings.HasSuffix(b.String(), "..."): // masked already, as the tables mask
-			b.WriteString(string(digits[len(digits)-3:]))
-		default:
-			b.WriteString(mask.Number(string(digits)))
-		}
-		i = end
-	}
-	return b.String()
-}
-
-// pick returns the accounts of as that s names: all of them when it names
-// none, and else the one whose number ends in its digits, or whose
-// nickname is the same name as its own. It never guesses: no account, or
-// several, is an error that lists the accounts.
-func (s selector) pick(as []namedAccount) ([]namedAccount, error) {
-	if s.given == "" {
-		return as, nil
-	}
-	var got []namedAccount
-	for _, a := range as {
-		n := a.account.SecuritiesAccount.AccountNumber
-		// A nickname is the one Schwab sent, or as the tables show it.
-		if s.digits != "" && n != "" && strings.HasSuffix(n, s.digits) ||
-			s.nickname != "" && (sameName(a.nickname, s.nickname) || sameName(mask.Text(a.nickname), mask.Text(s.nickname))) {
-			got = append(got, a)
-		}
-	}
-	switch {
-	case len(got) == 1:
-		return got, nil
-	case len(got) == 0:
+	matches := unnamed(perr.Matches)
+	switch perr.Kind {
+	case lookup.NoMatch:
 		return nil, fmt.Errorf("no account matches -account %q: the login shares %s; to share another, run `schwabtx login` and tick it",
-			s.shown(), labels(as))
-	case s.nickname != "":
-		return nil, fmt.Errorf("-account %q matches %d accounts, %s; give the last digits of its number instead", s.shown(), len(got), labels(got))
-	case nicknamed(got):
-		return nil, fmt.Errorf("-account %q matches %d accounts, %s; give its nickname instead", s.shown(), len(got), labels(got))
+			s.Shown(), labels(as))
+	case lookup.AmbiguousNickname:
+		return nil, fmt.Errorf("-account %q matches %d accounts, %s; give the last digits of its number instead", s.Shown(), len(matches), labels(matches))
+	case lookup.AmbiguousNicknamedDigits:
+		return nil, fmt.Errorf("-account %q matches %d accounts, %s; give its nickname instead", s.Shown(), len(matches), labels(matches))
 	}
 	return nil, fmt.Errorf("-account %q matches %d accounts, %s; give more digits of its number, which `schwabtx accounts -show-accounts` prints",
-		s.shown(), len(got), labels(got))
+		s.Shown(), len(matches), labels(matches))
 }
 
 // labels lists as by their labels.
@@ -288,191 +202,32 @@ func labels(as []namedAccount) string {
 	return strings.Join(ls, ", ")
 }
 
-// nicknamed reports whether each of as has a nickname, and no two the same
-// as -account compares them, so that a nickname picks any one of them.
-func nicknamed(as []namedAccount) bool {
+// named returns as as internal/lookup takes them, in the same order.
+func named(as []namedAccount) []lookup.Named {
+	ns := make([]lookup.Named, len(as))
 	for i, a := range as {
-		if strings.TrimSpace(a.nickname) == "" {
-			return false
-		}
-		for _, b := range as[:i] {
-			if sameName(a.nickname, b.nickname) {
-				return false
-			}
-		}
+		ns[i] = lookup.Named{Account: a.account, Nickname: a.nickname}
 	}
-	return true
+	return ns
 }
 
-// sameName reports whether two nicknames are the same as -account compares
-// them in every command (history.SameNickname): as the tables and the
-// errors show a nickname, with no white space at its ends and a run of it
-// within as one space, and whatever their case.
-func sameName(a, b string) bool { return history.SameNickname(a, b) }
+// unnamed returns ns as the tables take them, in the same order.
+func unnamed(ns []lookup.Named) []namedAccount {
+	as := make([]namedAccount, len(ns))
+	for i, n := range ns {
+		as[i] = namedAccount{account: n.Account, nickname: n.Nickname}
+	}
+	return as
+}
 
-// nameAccounts gives each of as the nickName of the first account of prefs
-// with its number. The preferences may list accounts that were not shared
-// at login, which is not known, so an account that GET /accounts did not
-// list gets no row of its own; an account that the preferences leave out
-// gets no nickname.
+// nameAccounts gives each of as the nickname that prefs gives its
+// account, as lookup.NameAccounts does.
 func nameAccounts(as []namedAccount, prefs schwab.UserPreference) {
-	nicknames := map[string]string{}
-	for _, p := range prefs.Accounts {
-		if _, seen := nicknames[p.AccountNumber]; p.AccountNumber != "" && !seen {
-			nicknames[p.AccountNumber] = p.NickName
-		}
-	}
+	ns := named(as)
+	lookup.NameAccounts(ns, prefs)
 	for i := range as {
-		if n := as[i].account.SecuritiesAccount.AccountNumber; n != "" {
-			as[i].nickname = nicknames[n]
-		}
+		as[i].nickname = ns[i].Nickname
 	}
-}
-
-// nicknameProblems returns the problems of prefs that can cost an account
-// its nickname: those at an account's number or nickname, or above them. A
-// change to the streamer's details or to the offers costs none.
-func nicknameProblems(prefs schwab.UserPreference) []schwab.Problem {
-	var ps []schwab.Problem
-	for _, p := range prefs.Problems {
-		if covers(p, "accounts.nickName") || covers(p, "accounts.accountNumber") {
-			ps = append(ps, p)
-		}
-	}
-	return ps
-}
-
-// covers reports whether p is at path, or at a key above it: whether what
-// Schwab sent at path could not be read, or is uncertain.
-func covers(p schwab.Problem, path string) bool {
-	return p.Path == "" || p.Path == path || strings.HasPrefix(path, p.Path+".")
-}
-
-// unreadable reports whether ps, the problems of a record, cover path.
-func unreadable(ps []schwab.Problem, path string) bool {
-	return slices.ContainsFunc(ps, func(p schwab.Problem) bool { return covers(p, path) })
-}
-
-// figure returns v, the figure at path in a record with the problems ps:
-// none when Schwab did not send it, or it could not be read.
-func figure(ps []schwab.Problem, path string, v *float64) money {
-	if unreadable(ps, path) {
-		return money{}
-	}
-	return moneyOf(v)
-}
-
-// unsent reports whether Schwab did not send v, the figure at path in a
-// record with the problems ps, though nothing that it sent there was
-// unreadable.
-func unsent(ps []schwab.Problem, path string, v *float64) bool {
-	return v == nil && !unreadable(ps, path)
-}
-
-// currentAt is where an account keeps its current balances.
-const currentAt = "securitiesAccount.currentBalances."
-
-// balance is what the accounts and balances tables show of an account, as
-// of the request.
-type balance struct {
-	value, cash, buyingPower money
-	// Whether Schwab did not send the figure that each of the three would
-	// be, though nothing that it sent there was unreadable.
-	noValue, noCash, noBuyingPower bool
-	// cashDiffers is whether the cash is none because it is not what the
-	// account's value leaves once its holdings are taken out.
-	cashDiffers bool
-}
-
-// balanceOf returns a's balance.
-func balanceOf(a schwab.Account) balance {
-	ps, cur, agg := a.Problems, a.SecuritiesAccount.CurrentBalances, a.AggregatedBalance
-	var b balance
-
-	// The value is the current liquidation value, or else the aggregated
-	// balance's current one, which a margin account's current balances can
-	// lack. The initial balances' liquidation value is as of the start of
-	// the session, and the aggregated balance's other one as of a time that
-	// is not known.
-	b.value = figure(ps, currentAt+"liquidationValue", cur.LiquidationValue)
-	if !b.value.ok {
-		b.value = figure(ps, "aggregatedBalance.currentLiquidationValue", agg.CurrentLiquidationValue)
-	}
-	b.noValue = unsent(ps, currentAt+"liquidationValue", cur.LiquidationValue) &&
-		unsent(ps, "aggregatedBalance.currentLiquidationValue", agg.CurrentLiquidationValue)
-
-	// A cash that is not what the value leaves once the holdings are taken
-	// out, by more than a cent, is not all of the account's cash, or not
-	// cash alone.
-	b.cash, b.noCash = cash(ps, cur), unsent(ps, currentAt+"cashBalance", cur.CashBalance)
-	if left := leftOver(ps, cur); b.cash.ok && left.ok {
-		if d := b.cash.cents - left.cents; d < -1 || d > 1 {
-			b.cash, b.cashDiffers = money{}, true
-		}
-	}
-
-	// The buying power is a margin account's buyingPower, for stock that it
-	// can buy on margin. A cash account has none, and what it has to trade
-	// with is cashAvailableForTrading. Another type has neither.
-	var key string
-	var v *float64
-	switch a.SecuritiesAccount.Type {
-	case "MARGIN":
-		key, v = "buyingPower", cur.BuyingPower
-	case "CASH":
-		key, v = "cashAvailableForTrading", cur.CashAvailableForTrading
-	}
-	if key != "" {
-		b.buyingPower, b.noBuyingPower = figure(ps, currentAt+key, v), unsent(ps, currentAt+key, v)
-	}
-	return b
-}
-
-// cash returns the cash in cur, the current balances of an account with
-// the problems ps: cashBalance or, when that is 0 and marginBalance is
-// sent, marginBalance plus shortBalance, where a margin account with short
-// positions or a debit can keep its cash (jkoelker/schwab-mcp#222). An
-// absent shortBalance counts as 0, but an absent cashBalance is none, not
-// 0: a margin account's answer of 2024 sent none, with marginBalance and
-// shortBalance both 0, though the account held cash. Money market funds
-// are positions, not cash.
-func cash(ps []schwab.Problem, cur schwab.Balances) money {
-	c := figure(ps, currentAt+"cashBalance", cur.CashBalance)
-	if !c.ok || c.cents != 0 || cur.MarginBalance == nil && !unreadable(ps, currentAt+"marginBalance") {
-		return c
-	}
-	short := money{ok: true} // an absent shortBalance counts as 0
-	if cur.ShortBalance != nil || unreadable(ps, currentAt+"shortBalance") {
-		short = figure(ps, currentAt+"shortBalance", cur.ShortBalance)
-	}
-	return figure(ps, currentAt+"marginBalance", cur.MarginBalance).plus(short)
-}
-
-// leftOver returns what the value in cur, the current balances of an
-// account with the problems ps, leaves once the market values of its
-// holdings are taken out, or none unless Schwab sent each of those
-// figures. In every answer seen, the value is cashBalance plus those
-// market values, moneyMarketFund and savings, the last two always 0, so
-// that what is left is the cash. Where it is not, what the cash leaves out
-// is not known: savings or moneyMarketFund, whatever they hold, or short
-// proceeds in shortBalance beside a cashBalance that is not 0, which #222
-// does not cover.
-func leftOver(ps []schwab.Problem, cur schwab.Balances) money {
-	left := figure(ps, currentAt+"liquidationValue", cur.LiquidationValue)
-	for _, held := range []struct {
-		key string
-		v   *float64
-	}{
-		{"longMarketValue", cur.LongMarketValue},
-		{"shortMarketValue", cur.ShortMarketValue},
-		{"longOptionMarketValue", cur.LongOptionMarketValue},
-		{"shortOptionMarketValue", cur.ShortOptionMarketValue},
-		{"mutualFundValue", cur.MutualFundValue},
-		{"bondValue", cur.BondValue},
-	} {
-		left = left.minus(figure(ps, currentAt+held.key, held.v))
-	}
-	return left
 }
 
 // accountsTable returns the table of accounts: each account's number,
@@ -481,15 +236,15 @@ func accountsTable(as []namedAccount, show bool) ([]column, [][]string, []string
 	cols := []column{{head: "ACCOUNT"}, {head: "NAME"}, {head: "TYPE"}, {head: "VALUE", right: true}}
 	var rows [][]string
 	var warnings []string
-	total := money{ok: true}
+	total := lookup.FromCents(0)
 	for _, a := range as {
-		b := balanceOf(a.account)
+		b := lookup.BalanceOf(a.account)
 		rows = append(rows, []string{
 			accountCell(a.account.SecuritiesAccount.AccountNumber, show), a.name(show),
-			plainCell(a.account.SecuritiesAccount.Type), b.value.String(),
+			plainCell(a.account.SecuritiesAccount.Type), b.Value.String(),
 		})
-		total = total.plus(b.value)
-		if b.noValue {
+		total = total.Plus(b.Value)
+		if b.NoValue {
 			warnings = append(warnings, "Schwab sent no current value for "+a.label())
 		}
 	}
@@ -514,19 +269,19 @@ func balancesTable(as []namedAccount, show bool) ([]column, [][]string, []string
 	}
 	var rows [][]string
 	var warnings []string
-	totalValue, totalCash := money{ok: true}, money{ok: true}
+	totalValue, totalCash := lookup.FromCents(0), lookup.FromCents(0)
 	for _, a := range as {
-		b := balanceOf(a.account)
+		b := lookup.BalanceOf(a.account)
 		rows = append(rows, []string{
 			accountCell(a.account.SecuritiesAccount.AccountNumber, show), a.name(show),
-			plainCell(a.account.SecuritiesAccount.Type), b.value.String(), b.cash.String(), b.buyingPower.String(),
+			plainCell(a.account.SecuritiesAccount.Type), b.Value.String(), b.Cash.String(), b.BuyingPower.String(),
 		})
-		totalValue, totalCash = totalValue.plus(b.value), totalCash.plus(b.cash)
+		totalValue, totalCash = totalValue.Plus(b.Value), totalCash.Plus(b.Cash)
 		var missing []string
 		for _, f := range []struct {
 			name string
 			no   bool
-		}{{"value", b.noValue}, {"cash", b.noCash}, {"buying power", b.noBuyingPower}} {
+		}{{"value", b.NoValue}, {"cash", b.NoCash}, {"buying power", b.NoBuyingPower}} {
 			if f.no {
 				missing = append(missing, f.name)
 			}
@@ -534,7 +289,7 @@ func balancesTable(as []namedAccount, show bool) ([]column, [][]string, []string
 		if len(missing) > 0 {
 			warnings = append(warnings, "Schwab sent no current "+orList(missing)+" for "+a.label())
 		}
-		if b.cashDiffers {
+		if b.CashDiffers {
 			warnings = append(warnings, "Schwab's cash for "+a.label()+" is not its value less its holdings, so CASH shows -")
 		}
 	}
@@ -550,73 +305,6 @@ func orList(words []string) string {
 		return strings.Join(words, "")
 	}
 	return strings.Join(words[:len(words)-1], ", ") + " or " + words[len(words)-1]
-}
-
-// holding is what the positions table shows of a position.
-type holding struct {
-	symbol, description string
-	quantity, price     string // or - for none
-	value, cost, gain   money
-}
-
-// holdingOf returns what the positions table shows of p: its quantity and
-// market value, negative for a short position, the value with an option's
-// multiplier in it; its average price, the tax-lot average per share with
-// fees and adjustments in it, what a share cost or, short, brought in; its
-// open profit or loss, positive for a gain whether long or short; and its
-// cost, the value less the open profit or loss, which for a short position
-// is its proceeds, negative. Each is none when a figure that it needs
-// could not be read, or was not sent. The cost needs no multiplier, which
-// positions do not carry, and value - cost = open profit or loss to the
-// cent, since the value and the open profit or loss are rounded first.
-func holdingOf(p schwab.Position) holding {
-	ps := p.Problems
-	h := holding{symbol: p.Instrument.Symbol, description: p.Instrument.Description, quantity: "-", price: "-"}
-	if !unreadable(ps, "longQuantity") && !unreadable(ps, "shortQuantity") {
-		h.quantity = formatQuantity(p.LongQuantity - p.ShortQuantity)
-	}
-	if !unreadable(ps, "averagePrice") {
-		h.price = formatPrice(p.AveragePrice)
-	}
-	if !unreadable(ps, "marketValue") {
-		h.value = amount(p.MarketValue)
-	}
-	h.gain, _ = openPL(p)
-	h.cost = h.value.minus(h.gain)
-	return h
-}
-
-// openPL returns p's open profit or loss: longOpenProfitLoss plus
-// shortOpenProfitLoss, since a position carries only its own side's, and
-// the other's is absent, which reads as 0. It is none when either could
-// not be read, or a quantity, which says which sides p holds; or when p
-// lacks the figure of a side that it holds, which Schwab sends on every
-// position of that side. missing has a problem for each such figure, since
-// no problem of p's names it, with its path in p.
-func openPL(p schwab.Position) (gain money, missing []schwab.Problem) {
-	ps := p.Problems
-	for _, key := range []string{"longQuantity", "shortQuantity", "longOpenProfitLoss", "shortOpenProfitLoss"} {
-		if unreadable(ps, key) {
-			return money{}, nil
-		}
-	}
-	// Whether each figure was sent, which the record's 0 does not say;
-	// what could not be read of them is a problem of p's, above.
-	var sent struct {
-		Long  *float64 `json:"longOpenProfitLoss"`
-		Short *float64 `json:"shortOpenProfitLoss"`
-	}
-	_ = json.Unmarshal(p.Raw, &sent)
-	if p.LongQuantity != 0 && sent.Long == nil {
-		missing = append(missing, schwab.Problem{Path: "longOpenProfitLoss", What: "missing, though Schwab sends it on every long position"})
-	}
-	if p.ShortQuantity != 0 && sent.Short == nil {
-		missing = append(missing, schwab.Problem{Path: "shortOpenProfitLoss", What: "missing, though Schwab sends it on every short position"})
-	}
-	if missing != nil {
-		return money{}, missing
-	}
-	return amount(p.LongOpenProfitLoss).plus(amount(p.ShortOpenProfitLoss)), nil
 }
 
 // positionsTable returns the table of positions: each position's account,
@@ -638,12 +326,12 @@ func positionsTable(as []namedAccount, show bool) ([]column, [][]string, []strin
 		{head: "DESCRIPTION"},
 	}
 	var rows [][]string
-	value, cost, gain := money{ok: true}, money{ok: true}, money{ok: true}
+	value, cost, gain := lookup.FromCents(0), lookup.FromCents(0), lookup.FromCents(0)
 	for _, a := range as {
 		number := accountCell(a.account.SecuritiesAccount.AccountNumber, show)
-		if unreadable(a.account.Problems, "securitiesAccount.positions") {
+		if lookup.Unreadable(a.account.Problems, "securitiesAccount.positions") {
 			rows = append(rows, []string{number, "?", "-", "-", "-", "-", "-", ""})
-			value, cost, gain = money{}, money{}, money{}
+			value, cost, gain = lookup.Money{}, lookup.Money{}, lookup.Money{}
 			continue
 		}
 		// Byte order, which puts an OCC symbol, its root padded to six
@@ -651,23 +339,23 @@ func positionsTable(as []namedAccount, show bool) ([]column, [][]string, []strin
 		ps := slices.Clone(a.account.SecuritiesAccount.Positions)
 		slices.SortStableFunc(ps, func(x, y schwab.Position) int { return strings.Compare(x.Instrument.Symbol, y.Instrument.Symbol) })
 		for _, p := range ps {
-			h := holdingOf(p)
-			symbol := plainCell(h.symbol)
+			h := lookup.HoldingOf(p)
+			symbol := plainCell(h.Symbol)
 			if symbol == "" {
 				symbol = "?"
 			}
-			description := textCell(freeText(h.description, show), 40)
+			description := textCell(freeText(h.Description, show), 40)
 			if p.Instrument.AssetType == schwab.AssetOption {
 				// An option's description ends with its expiration, strike
 				// and type, which say more than the start of its
 				// underlying's name: the option's symbol starts with the
 				// underlying's own.
-				description = tailCell(freeText(h.description, show), 40)
+				description = tailCell(freeText(h.Description, show), 40)
 			}
 			rows = append(rows, []string{
-				number, symbol, h.quantity, h.price, h.value.String(), h.cost.String(), h.gain.String(), description,
+				number, symbol, h.Quantity.String(), h.Price.String(), h.Value.String(), h.Cost.String(), h.Gain.String(), description,
 			})
-			value, cost, gain = value.plus(h.value), cost.plus(h.cost), gain.plus(h.gain)
+			value, cost, gain = value.Plus(h.Value), cost.Plus(h.Cost), gain.Plus(h.Gain)
 		}
 	}
 	if len(rows) > 1 {
@@ -683,7 +371,7 @@ func positionsTable(as []namedAccount, show bool) ([]column, [][]string, []strin
 func positionsSummary(as []namedAccount) string {
 	n, unread := 0, 0
 	for _, a := range as {
-		if unreadable(a.account.Problems, "securitiesAccount.positions") {
+		if lookup.Unreadable(a.account.Problems, "securitiesAccount.positions") {
 			unread++
 			continue
 		}
