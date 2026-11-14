@@ -1,0 +1,3 @@
+Date,Time,Type,Value,Transaction Currency,Shares,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Securities Account
+2025-03-03,,Buy,4982.50,USD,5000,,,9128ZZQ15,EXAMPLE TREASURY NOTE 4.25% 08/15/2034,schwabtx A1 ...135 Ca1b2c3d4.1: BOND,Schwab A1 ...135,Schwab A1 ...135
+2026-08-17,,Sell,5000.00,USD,5000,,,9128ZZQ15,EXAMPLE TREASURY NOTE 4.25% 08/15/2034,schwabtx A1 ...135 Ca1b2c3d4.3 with Ca1b2c3d4.4: BOND,Schwab A1 ...135,Schwab A1 ...135

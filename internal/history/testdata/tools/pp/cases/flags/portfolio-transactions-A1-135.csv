@@ -1,0 +1,5 @@
+Date,Time,Type,Value,Transaction Currency,Shares,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Securities Account
+2025-06-02,10:00,Buy,50.00,USD,1,,XYZ,98389B100,XYZ CORP COMMON STOCK,schwabtx A1 ...135 T61002201: TRADE,Schwab A1 ...135,Schwab A1 ...135
+2025-07-02,,Buy,50.00,USD,1,,XYZ,98389B100,XYZ CORP COMMON STOCK,schwabtx A1 ...135 Cb1c2d3e4.2: XYZ CORP,Schwab A1 ...135,Schwab A1 ...135
+2025-07-03,10:00,Buy,51.00,USD,1,,XYZ,98389B100,XYZ CORP COMMON STOCK,schwabtx A1 ...135 T61002202: TRADE,Schwab A1 ...135,Schwab A1 ...135
+2025-07-07,,Sell,53.00,USD,1,,XYZ,98389B100,XYZ CORP COMMON STOCK,schwabtx A1 ...135 Cb1c2d3e4.4 with Cb1c2d3e4.3: XYZ CORP,Schwab A1 ...135,Schwab A1 ...135

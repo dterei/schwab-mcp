@@ -1,0 +1,3 @@
+Date,Time,Type,Value,Transaction Currency,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Offset Account
+2025-07-01,,Dividend,25.00,USD,,XYZ,98389B100,XYZ CORP COMMON STOCK,schwabtx A1 ...135 Cb1c2d3e4.1: XYZ CORP,Schwab A1 ...135,
+2025-07-04,10:00,Withdrawal,10.00,USD,,,,,schwabtx A1 ...135 T61002203: ACH Debit,Schwab A1 ...135,

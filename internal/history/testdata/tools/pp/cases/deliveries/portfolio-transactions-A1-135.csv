@@ -1,0 +1,13 @@
+Date,Time,Type,Value,Transaction Currency,Shares,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Securities Account
+2026-05-05,09:00,Delivery (Inbound),260.00,USD,5,,XYZ,98389B100,XYZ CORP COMMON STOCK,schwabtx A1 ...135 T61001502: JOURNALED SHARES,,Schwab A1 ...135
+2026-06-01,,Delivery (Inbound),312.50,USD,10,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 Cb0c1d2e3.1: SHARES,,Schwab A1 ...135
+2026-06-02,,Delivery (Outbound),120.00,USD,4,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 Cb0c1d2e3.2: SHARES,,Schwab A1 ...135
+2026-06-03,,Delivery (Inbound),9950.00,USD,10000,,,9128ZZQ15,EXAMPLE TREASURY NOTE 4.25% 08/15/2034,schwabtx A1 ...135 Cb0c1d2e3.3: SHARES,,Schwab A1 ...135
+2026-07-24,,Delivery (Inbound),157.50,USD,3,,XYZ,98389B100,XYZ CORP COMMON STOCK,schwabtx A1 ...135 Cb0c1d2e3.4: SHARES; value from the snapshot,,Schwab A1 ...135
+2026-07-27,10:00,Delivery (Inbound),105.00,USD,2,,XYZ,98389B100,XYZ CORP COMMON STOCK,schwabtx A1 ...135 T61001509: JOURNALED SHARES; value from the snapshot,,Schwab A1 ...135
+2026-08-03,,Delivery (Inbound),0.00,USD,1,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 Cb0c1d2e3.5: SHARES; value unknown: set it,,Schwab A1 ...135
+2026-08-10,10:00,Delivery (Outbound),50.00,USD,1,,XYZ,98389B100,XYZ CORP COMMON STOCK,schwabtx A1 ...135 T61001503: SECURITY TRANSFER; its cash of -25.00 is not in this file,,Schwab A1 ...135
+2026-08-12,,Delivery (Outbound),30.00,USD,1,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 Cb0c1d2e3.6: SHARES,,Schwab A1 ...135
+2026-08-13,,Delivery (Inbound),30.00,USD,1,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 Cb0c1d2e3.7: SHARES,,Schwab A1 ...135
+2026-08-16,,Delivery (Inbound),30.00,USD,1,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 Cb0c1d2e3.10: SHARES,,Schwab A1 ...135
+2026-09-01,10:00,Delivery (Outbound),30.50,USD,1,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 T61001506: JOURNALED SHARES,,Schwab A1 ...135

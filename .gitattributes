@@ -3,6 +3,9 @@
 # The fake Schwab serves its fixtures byte for byte, so they keep the bytes
 # they were written with in every checkout.
 internal/schwab/schwabtest/testdata/** -text
+# The golden files of the export for Portfolio Performance are the bytes it
+# writes, which a checkout must not change.
+internal/history/testdata/tools/pp/** -text
 # schwabfile's fixtures are schwab.com's files as written, byte order marks,
 # line ends and Windows-1252 included, which a checkout must not change.
 internal/history/schwabfile/testdata/** -text

@@ -1,0 +1,5 @@
+Date,Time,Type,Value,Transaction Currency,Shares,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Securities Account
+2025-11-11,10:00,Buy,30.00,USD,1,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 T61002701: TRADE,Schwab A1 ...135,Schwab A1 ...135
+2025-11-11,11:00,Buy,40.00,USD,1,,ABCD,ZZB123458,ABCD INDUSTRIES INC,schwabtx A1 ...135 T61002702: TRADE,Schwab A1 ...135,Schwab A1 ...135
+2025-11-11,12:00,Buy,25.00,USD,1,,,,QRS TRUST PFD SER K,schwabtx A1 ...135 T61002704: TRADE,Schwab A1 ...135,Schwab A1 ...135
+2025-11-12,10:00,Buy,50.00,USD,1,,XYZ,98389B100,XYZ CORP COMMON STOCK,schwabtx A1 ...135 T61002703: TRADE,Schwab A1 ...135,Schwab A1 ...135

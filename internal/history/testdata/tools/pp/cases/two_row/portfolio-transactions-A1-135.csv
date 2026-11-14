@@ -1,0 +1,4 @@
+Date,Time,Type,Value,Transaction Currency,Shares,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Securities Account
+2025-01-15,,Buy,1000.00,USD,25,,ABCD,ZZB123458,ABCD INDUSTRIES INC,schwabtx A1 ...135 C0a1b2c3d.1: MERGER,Schwab A1 ...135,Schwab A1 ...135
+2025-08-01,,Sell,1234.50,USD,25,,ABCD,ZZB123458,ABCD INDUSTRIES INC,schwabtx A1 ...135 C0a1b2c3d.2 with C0a1b2c3d.3: MERGER,Schwab A1 ...135,Schwab A1 ...135
+2025-12-01,,Sell,62.00,USD,2,,EFGH,,EFGH TOTAL MARKET ETF,schwabtx A1 ...135 C0a1b2c3d.12 with C0a1b2c3d.13: MERGER,Schwab A1 ...135,Schwab A1 ...135

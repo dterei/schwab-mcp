@@ -1,0 +1,10 @@
+Date,Time,Type,Value,Transaction Currency,Shares,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Securities Account
+2025-01-14,00:15,Buy,1052.82,USD,50,2.82,/ZZH25_P5050:XCME,,EXAMPLE INDEX FUTURE PUT 5050 MAR 25,schwabtx A2 ...398 T61001705: TRADE,Schwab A2 ...398,Schwab A2 ...398
+2025-02-03,,Buy,210.65,USD,100,0.65,XYZ250321C00045000,,CALL XYZ CORP $45 EXP 03/21/25,schwabtx A2 ...398 Cd0e1f2a3.1: OPTION; multiplier 100 assumed,Schwab A2 ...398,Schwab A2 ...398
+2025-02-04,10:00,Sell,318.70,USD,200,1.30,XYZ250221P00040000,,XYZ 02/21/2025 40.00 P,schwabtx A2 ...398 T61001701: TRADE,Schwab A2 ...398,Schwab A2 ...398
+2025-02-21,,Delivery (Inbound),0.00,USD,200,,XYZ250221P00040000,,XYZ 02/21/2025 40.00 P,schwabtx A2 ...398 Cd0e1f2a3.2: OPTION; closed at 0,,Schwab A2 ...398
+2025-03-21,,Delivery (Outbound),0.00,USD,100,,XYZ250321C00045000,,CALL XYZ CORP $45 EXP 03/21/25,schwabtx A2 ...398 Cd0e1f2a3.3: OPTION; multiplier 100 assumed; closed at 0,,Schwab A2 ...398
+2025-04-17,,Delivery (Inbound),0.00,USD,100,,XYZ250221P00040000,,XYZ 02/21/2025 40.00 P,schwabtx A2 ...398 Cd0e1f2a3.4: OPTION; closed at 0,,Schwab A2 ...398
+2025-04-18,,Delivery (Outbound),0.00,USD,100,,XYZ260918C00050000,,XYZ 09/18/2026 50.00 C,schwabtx A2 ...398 Cd0e1f2a3.5: OPTION; closed at 0,,Schwab A2 ...398
+2025-04-19,,Delivery (Outbound),0.00,USD,100,,XYZ260918C00050000,,XYZ 09/18/2026 50.00 C,schwabtx A2 ...398 Cd0e1f2a3.6: OPTION; closed at 0,,Schwab A2 ...398
+2025-05-16,23:00,Delivery (Outbound),0.00,USD,100,,XYZ250221P00040000,,XYZ 02/21/2025 40.00 P,schwabtx A2 ...398 T61001702: Removed due to Expiration; closed at 0,,Schwab A2 ...398

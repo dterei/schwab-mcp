@@ -1,0 +1,7 @@
+Date,Time,Type,Value,Transaction Currency,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Offset Account
+2025-03-03,10:15,Deposit,10000.00,USD,,,,,schwabtx A1 ...135 T61001101: Wire Incoming,Schwab A1 ...135,
+2025-03-04,09:00,Withdrawal,250.00,USD,,,,,schwabtx A1 ...135 T61001102: ACH Debit,Schwab A1 ...135,
+2025-03-10,,Deposit,500.00,USD,,,,,schwabtx A1 ...135 Ce1a2b3c4.3: Tfr EXAMPLE BANK,Schwab A1 ...135,
+2025-03-11,,Withdrawal,1500.00,USD,,,,,schwabtx A1 ...135 Ce1a2b3c4.4: WIRE TO EXAMPLE BANK,Schwab A1 ...135,
+2025-04-01,11:00,Deposit,75.00,USD,,,,,schwabtx A1 ...135 T61001105: JOURNAL FRM ...999,Schwab A1 ...135,
+2025-04-02,11:00,Withdrawal,25.00,USD,,,,,schwabtx A1 ...135 T61001106: JOURNAL TO ...999,Schwab A1 ...135,

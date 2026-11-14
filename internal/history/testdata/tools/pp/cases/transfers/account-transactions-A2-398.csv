@@ -1,0 +1,5 @@
+Date,Time,Type,Value,Transaction Currency,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Offset Account
+2026-03-02,09:30,Transfer (Outbound),1000.00,USD,,,,,schwabtx A2 ...398 T61001201 to A1 ...135 T61001202: JOURNAL TO ...135,Schwab A2 ...398,Schwab A1 ...135
+2026-04-01,10:00,Deposit,299.00,USD,,,,,"schwabtx A2 ...398 T61001204: JOURNAL FRM ...135; paired with A1 ...135 T61001203, written apart",Schwab A2 ...398,
+2026-06-01,10:00,Deposit,150.00,USD,,,,,"schwabtx A2 ...398 T61001208: JOURNAL FRM ...135; paired with A1 ...135 T61001207, written apart",Schwab A2 ...398,
+2026-07-01,10:00,Withdrawal,80.00,USD,,,,,"schwabtx A2 ...398 T61001209: JOURNAL TO ...135; paired with A1 ...135 T61001210, written apart",Schwab A2 ...398,

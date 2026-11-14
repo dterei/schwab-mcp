@@ -1,0 +1,23 @@
+{
+  "label": "schwabtx portfolio transactions v1",
+  "target": "portfolio-transaction",
+  "delimiter": ",",
+  "encoding": "UTF-8",
+  "skipLines": 0,
+  "isFirstLineHeader": true,
+  "columns": [
+    {"label": "Date", "field": "date", "format": "yyyy-MM-dd"},
+    {"label": "Time", "field": "time"},
+    {"label": "Type", "field": "type", "format": "BUY=Buy;SELL=Sell;TRANSFER_IN=Transfer (Inbound);TRANSFER_OUT=Transfer (Outbound);DELIVERY_INBOUND=Delivery (Inbound);DELIVERY_OUTBOUND=Delivery (Outbound)"},
+    {"label": "Value", "field": "value", "format": "0,000.00"},
+    {"label": "Transaction Currency", "field": "currency"},
+    {"label": "Shares", "field": "shares", "format": "0,000.00"},
+    {"label": "Fees", "field": "fees", "format": "0,000.00"},
+    {"label": "Ticker Symbol", "field": "ticker"},
+    {"label": "WKN", "field": "wkn"},
+    {"label": "Security Name", "field": "name"},
+    {"label": "Note", "field": "note"},
+    {"label": "Cash Account", "field": "account"},
+    {"label": "Securities Account", "field": "portfolio"}
+  ]
+}

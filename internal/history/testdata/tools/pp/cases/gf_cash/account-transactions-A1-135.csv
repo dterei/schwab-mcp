@@ -1,0 +1,9 @@
+Date,Time,Type,Value,Transaction Currency,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Offset Account
+2026-11-08,,Deposit,50.00,USD,,,,,schwabtx A1 ...135 Ca2b3c4d5.3: Tfr EXAMPLE BANK,Schwab A1 ...135,
+2026-11-09,,Deposit,30.00,USD,,,,,schwabtx A1 ...135 Ca2b3c4d5.1: Tfr EXAMPLE BANK,Schwab A1 ...135,
+2026-11-09,,Deposit,90.00,USD,,,,,schwabtx A1 ...135 T61002305: Funds Received,Schwab A1 ...135,
+2026-11-10,,Deposit,40.00,USD,,,,,schwabtx A1 ...135 Ca2b3c4d5.2: Tfr EXAMPLE BANK,Schwab A1 ...135,
+2026-11-10,17:00,Deposit,10.00,USD,,,,,schwabtx A1 ...135 T61002301: ACH Credit Received,Schwab A1 ...135,
+2026-11-10,18:05,Deposit,11.00,USD,,,,,schwabtx A1 ...135 T61002306: ACH Credit Received,Schwab A1 ...135,
+2026-11-10,19:00,Deposit,20.00,USD,,,,,schwabtx A1 ...135 T61002302: ACH Credit Received,Schwab A1 ...135,
+2026-11-11,10:00,Deposit,60.00,USD,,,,,schwabtx A1 ...135 T61002303: ACH Credit Received,Schwab A1 ...135,
