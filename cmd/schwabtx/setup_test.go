@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	configfile "github.com/dterei/schwab-mcp/internal/config"
 	"github.com/dterei/schwab-mcp/internal/history"
@@ -44,8 +45,8 @@ func readSaved(t *testing.T) configfile.File {
 // setup saves the app key and secret from the environment and the paths
 // as schwabtx finds them in this shell, made absolute, in a file readable
 // only by you, and prints them without the secret and with no more of the
-// key than its last three characters. -print prints the same and saves
-// nothing.
+// key than its last three characters, and none of a key of fewer than 12.
+// -print prints the same and saves nothing.
 func TestSetup(t *testing.T) {
 	f, tokenFile := setup(t)
 	tokenFile = loginFile(t, tokenFile)
@@ -80,6 +81,20 @@ func TestSetup(t *testing.T) {
 	}
 	assertNoFile(t, path)
 	t.Setenv("SCHWAB_TOKEN_FILE", tokenFile)
+	// A key of 11 characters, here of 12 bytes, shows none of itself; one
+	// of 12 shows its last three.
+	for _, tc := range []struct{ key, line string }{
+		{"café-11-xyz", "\n  app key      from SCHWAB_APP_KEY\n"},
+		{"cafés-12-xyz", "\n  app key      from SCHWAB_APP_KEY (ends in ...xyz)\n"},
+	} {
+		t.Setenv("SCHWAB_APP_KEY", tc.key)
+		stdout, _, err = runTx(t, "setup", "-print")
+		if err != nil || !strings.Contains(stdout, tc.line) || strings.Count(stdout, "xyz") != strings.Count(tc.line, "xyz") {
+			t.Errorf("setup -print with a key of %d characters: %v, printed\n%s", utf8.RuneCountInString(tc.key), err, stdout)
+		}
+	}
+	assertNoFile(t, path)
+	t.Setenv("SCHWAB_APP_KEY", testKey)
 
 	saved := "Saved " + path + ", readable only by you:\n" + lines +
 		"schwabtx now reads the key and secret from this file when the environment\nhas none, so .env needs them no longer.\n"
