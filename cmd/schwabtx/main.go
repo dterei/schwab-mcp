@@ -140,7 +140,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		if err := login(ctx, cfg, auth, stdin, stdout); err != nil {
 			return err
 		}
-		warnLoginDrift(cfg.TokenFile, stderr)
+		warnLoginDrift(auth.TokenFile(), stderr)
 		return nil
 	case "setup":
 		return runSetup(ctx, args, stdout, stderr)

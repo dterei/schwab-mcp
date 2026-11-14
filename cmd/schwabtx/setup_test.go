@@ -48,6 +48,7 @@ func readSaved(t *testing.T) configfile.File {
 // nothing.
 func TestSetup(t *testing.T) {
 	f, tokenFile := setup(t)
+	tokenFile = loginFile(t, tokenFile)
 	store := newStoreFile(t)
 	path := configPath(t)
 	rate, err := filepath.Abs(schwab.DefaultRateFile(testKey, tokenFile))
@@ -74,7 +75,7 @@ func TestSetup(t *testing.T) {
 	// commands take it here.
 	t.Setenv("SCHWAB_TOKEN_FILE", "token.json")
 	stdout, _, err = runTx(t, "setup", "-print")
-	if abs, aerr := filepath.Abs("token.json"); err != nil || aerr != nil || !strings.Contains(stdout, "  token file   "+abs+" (from SCHWAB_TOKEN_FILE)\n") {
+	if abs, aerr := filepath.Abs("token.json"); err != nil || aerr != nil || !strings.Contains(stdout, "  token file   "+loginFile(t, abs)+" (from SCHWAB_TOKEN_FILE)\n") {
 		t.Errorf("setup -print with a relative SCHWAB_TOKEN_FILE: %v, printed\n%s", err, stdout)
 	}
 	assertNoFile(t, path)
@@ -163,24 +164,46 @@ func TestSetupKeepsTheSavedApp(t *testing.T) {
 
 // setup refuses, and saves nothing, without a key and secret, over a file
 // it cannot read or that a newer schwabtx wrote, for a store whose files
-// would take in the token or rate file or config.json, for a base URL that
-// a login refuses, and for an argument it does not take.
+// would take in the token file (named as its path names it, or as a login
+// keeps it), the rate file or config.json, for a base URL that a login
+// refuses, and for an argument it does not take.
 func TestSetupRefuses(t *testing.T) {
 	_, tokenFile := setup(t)
 	path := configPath(t)
-	for _, tc := range []struct {
+	type refusal struct {
 		name string
 		env  []string // pairs of a variable and its value
 		args []string
 		want string // the start of the error
-	}{
+	}
+	refusals := []refusal{
 		{"no key", []string{"SCHWAB_APP_KEY", ""}, nil, "SCHWAB_APP_KEY and SCHWAB_APP_SECRET must be set for schwabtx setup"},
 		{"no secret", []string{"SCHWAB_APP_SECRET", " "}, nil, "SCHWAB_APP_KEY and SCHWAB_APP_SECRET must be set for schwabtx setup"},
 		{"a store that is the token file", nil, []string{"-store", tokenFile}, "the token file, " + tokenFile + ", is the store at"},
 		{"a store that is config.json", nil, []string{"-store", path}, "config.json, " + path + ", is the store at"},
 		{"plain http to another computer", []string{"SCHWAB_BASE_URL", "http://example.com"}, nil, `the base URL "http://example.com" is plain http`},
 		{"an argument", nil, []string{"now"}, `unexpected argument "now"`},
-	} {
+	}
+	if runtime.GOOS != "windows" {
+		// A token file not made yet, in a folder not made yet, under a link,
+		// which a login follows: the store is that file, named as its path
+		// names it or as the login keeps it.
+		target := t.TempDir()
+		link := filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := filepath.EvalSymlinks(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		linked, kept := filepath.Join(link, "cfg", "token.json"), filepath.Join(resolved, "cfg", "token.json")
+		env := []string{"SCHWAB_TOKEN_FILE", linked}
+		refusals = append(refusals,
+			refusal{"a store that is the token file under a link", env, []string{"-store", linked}, "the token file, " + linked + ", is the store at"},
+			refusal{"a store where a login keeps that token file", env, []string{"-store", kept}, "the token file, " + kept + ", is the store at"})
+	}
+	for _, tc := range refusals {
 		t.Run(tc.name, func(t *testing.T) {
 			for i := 0; i+1 < len(tc.env); i += 2 {
 				t.Setenv(tc.env[i], tc.env[i+1])
@@ -343,16 +366,7 @@ func TestSetupPathsAgree(t *testing.T) {
 			saved := readSaved(t)
 
 			// The login's token file, which login saved to.
-			cfg, err := loadConfig()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if want, err := filepath.Abs(cfg.TokenFile); err != nil || saved.TokenFile != want {
-				t.Errorf("token file %s, the commands' %s (%v)", saved.TokenFile, want, err)
-			}
-			if _, err := os.Stat(saved.TokenFile); err != nil {
-				t.Errorf("no login at the saved token file: %v", err)
-			}
+			assertLoginAt(t, saved.TokenFile)
 			// The store of the store commands, with the same -store.
 			if want, err := storePath(tc.store); err != nil || saved.StoreFile != want || !filepath.IsAbs(saved.StoreFile) {
 				t.Errorf("store %s, the store commands' %s (%v)", saved.StoreFile, want, err)
@@ -384,6 +398,104 @@ func TestSetupPathsAgree(t *testing.T) {
 			}
 		})
 	}
+
+	// A SCHWAB_TOKEN_FILE that climbs out of a folder reached through a link
+	// names the file next to the link's target, where login saves the login,
+	// relative to a working directory under the link or written whole. setup
+	// saves that file, not the one that the path names when ".." is taken
+	// by name, and the rate file that the client keeps beside it when there
+	// is no user cache directory.
+	if runtime.GOOS == "windows" {
+		return // Windows takes ".." by name, and links need extra rights
+	}
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "disk", "repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "home"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "home", "repo")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Fatal(err)
+	}
+	disk, err := filepath.EvalSymlinks(filepath.Join(dir, "disk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, tokenFile string
+		noCache         bool // no user cache directory, which only XDG_CACHE_HOME and HOME give on Linux
+	}{
+		{"relative", "../token.json", false},
+		{"absolute", link + "/../token.json", false}, // not filepath.Join, which takes ".." by name
+		{"no cache directory", "../token.json", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.noCache && runtime.GOOS != "linux" {
+				t.Skip("the user cache directory comes from more than XDG_CACHE_HOME and HOME")
+			}
+			t.Chdir(link) // and PWD, as a shell's cd sets it
+			t.Setenv("SCHWAB_TOKEN_FILE", tc.tokenFile)
+			t.Setenv("SCHWAB_STORE_FILE", "")
+			if tc.noCache {
+				t.Setenv("XDG_CACHE_HOME", "")
+				t.Setenv("HOME", "")
+			}
+			doLogin(t)
+			if _, _, err := runTx(t, "setup"); err != nil {
+				t.Fatal(err)
+			}
+			saved := readSaved(t)
+			want := filepath.Join(disk, "token.json")
+			if saved.TokenFile != want {
+				t.Errorf("token file %s, want %s, where login saved the login", saved.TokenFile, want)
+			}
+			assertLoginAt(t, saved.TokenFile)
+			rate := schwab.DefaultRateFile(testKey, want)
+			if tc.noCache && filepath.Dir(rate) != disk {
+				t.Fatalf("with no cache directory, the rate file is %s", rate)
+			}
+			if saved.RateFile != rate {
+				t.Errorf("rate file %s, want %s", saved.RateFile, rate)
+			}
+			if err := os.Remove(saved.RateFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+			if _, _, err := runTx(t, "accounts"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(saved.RateFile); err != nil {
+				t.Errorf("the client kept no rate limit at %s: %v", saved.RateFile, err)
+			}
+			if c := configfile.ForServer(func(string) string { return "" }, configPath(t)); c.TokenFile.Value != saved.TokenFile || len(c.Problems) != 0 {
+				t.Errorf("the server would read %+v", c)
+			}
+		})
+	}
+}
+
+// loginFile returns where a login keeps itself when SCHWAB_TOKEN_FILE is
+// tokenFile, and so what setup saves: the path made absolute, with every
+// link followed, as schwab.Auth takes it.
+func loginFile(t *testing.T, tokenFile string) string {
+	t.Helper()
+	st, err := schwab.StatusOf(tokenFile, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st.TokenFile
+}
+
+// assertLoginAt fails the test unless tokenFile, made absolute with every
+// link followed already, holds a login, as the MCP server reads it there.
+func assertLoginAt(t *testing.T, tokenFile string) {
+	t.Helper()
+	st, err := schwab.StatusOf(tokenFile, nil)
+	if err != nil || !st.LoggedIn || st.TokenFile != tokenFile {
+		t.Errorf("no login at the token file %s: %+v, %v", tokenFile, st, err)
+	}
 }
 
 // When config.json names another token file than login saves to, login
@@ -391,7 +503,7 @@ func TestSetupPathsAgree(t *testing.T) {
 // or with no config.json, it says nothing.
 func TestLoginWarnsOfAnotherTokenFile(t *testing.T) {
 	_, tokenFile := setup(t)
-	warning := "warning: the MCP server reads its login from " + tokenFile +
+	warning := "warning: the MCP server reads its login from " + loginFile(t, tokenFile) +
 		" (config.json); run schwabtx setup in this terminal to point it here\n"
 	if out := doLogin(t); strings.Contains(out, "MCP server") {
 		t.Errorf("without config.json, login printed\n%s", out)
@@ -406,16 +518,45 @@ func TestLoginWarnsOfAnotherTokenFile(t *testing.T) {
 	if out := doLogin(t); strings.Count(out, warning) != 1 {
 		t.Errorf("with another token file, login printed\n%s\nwant once\n%s", out, warning)
 	}
+	if runtime.GOOS == "windows" {
+		return // links need extra rights on Windows, which takes ".." by name
+	}
 	// The same file under another name is the same file.
-	if runtime.GOOS != "windows" {
-		link := filepath.Join(t.TempDir(), "link")
-		if err := os.Symlink(filepath.Dir(tokenFile), link); err != nil {
-			t.Fatal(err)
-		}
-		t.Setenv("SCHWAB_TOKEN_FILE", filepath.Join(link, filepath.Base(tokenFile)))
-		if out := doLogin(t); strings.Contains(out, "MCP server") {
-			t.Errorf("with the token file under a link, login printed\n%s", out)
-		}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(filepath.Dir(tokenFile), link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCHWAB_TOKEN_FILE", filepath.Join(link, filepath.Base(tokenFile)))
+	if out := doLogin(t); strings.Contains(out, "MCP server") {
+		t.Errorf("with the token file under a link, login printed\n%s", out)
+	}
+	// And so is a config.json that names it under a link, as one saved by
+	// hand may.
+	if err := configfile.Save(configPath(t), configfile.File{AppKey: testKey, AppSecret: testSecret, TokenFile: filepath.Join(link, filepath.Base(tokenFile))}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCHWAB_TOKEN_FILE", tokenFile)
+	if out := doLogin(t); strings.Contains(out, "MCP server") {
+		t.Errorf("with config.json naming the token file under a link, login printed\n%s", out)
+	}
+	// A ".." after the link leads out of the link's target, where login
+	// saves the login, and not to the folder that holds the link, which
+	// that path names when ".." is taken by name.
+	t.Setenv("SCHWAB_TOKEN_FILE", link+"/../token.json") // not filepath.Join, which takes ".." by name
+	byName := filepath.Join(filepath.Dir(link), "token.json")
+	if err := configfile.Save(configPath(t), configfile.File{AppKey: testKey, AppSecret: testSecret, TokenFile: byName}); err != nil {
+		t.Fatal(err)
+	}
+	warning = "warning: the MCP server reads its login from " + byName +
+		" (config.json); run schwabtx setup in this terminal to point it here\n"
+	if out := doLogin(t); strings.Count(out, warning) != 1 {
+		t.Errorf("with config.json naming %s, login printed\n%s\nwant once\n%s", byName, out, warning)
+	}
+	if _, _, err := runTx(t, "setup"); err != nil {
+		t.Fatal(err)
+	}
+	if out := doLogin(t); strings.Contains(out, "MCP server") {
+		t.Errorf("after setup, login printed\n%s", out)
 	}
 }
 

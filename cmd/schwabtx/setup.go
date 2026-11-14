@@ -18,8 +18,9 @@ import (
 // runSetup saves config.json, for the MCP server: the app key and secret,
 // from SCHWAB_APP_KEY and SCHWAB_APP_SECRET or as the file had them, and
 // the token file, the store and the rate file as schwabtx resolves them in
-// this shell, made absolute, so that the server uses the same files
-// whatever environment its client gives it. With -print it says what it
+// this shell, made absolute, the token file with every link followed, as
+// login saves to it, so that the server uses the same files whatever
+// environment its client gives it. With -print it says what it
 // would save, and saves nothing. The secret is never printed, and the key
 // only as its last three characters.
 func runSetup(_ context.Context, args []string, stdout, stderr io.Writer) error {
@@ -76,17 +77,24 @@ the environment has none. Give -store as the store commands take it.
 		return errors.New("SCHWAB_APP_KEY and SCHWAB_APP_SECRET must be set for schwabtx setup, which saves them (see README.md)")
 	}
 
-	// The paths as every command finds them in this shell: the login's
-	// (loadConfig), the store's (-store as the store commands take it) and
-	// the client's rate file, each made absolute.
+	// The paths as every command finds them in this shell, each made
+	// absolute: the token file where a login keeps the login (loadConfig's,
+	// as schwab.Auth resolves it), the store (-store as the store commands
+	// take it) and the client's rate file. The server takes the base URL
+	// that a login takes.
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	tokenFile, err := filepath.Abs(cfg.TokenFile)
-	if err != nil {
-		return fmt.Errorf("finding the token file's path: %w", err)
+	baseURL := ""
+	if strings.TrimSpace(os.Getenv("SCHWAB_BASE_URL")) != "" {
+		baseURL = cfg.BaseURL
 	}
+	auth, err := schwab.NewAuth(schwab.Config{AppKey: key.value, AppSecret: secret.value, BaseURL: baseURL, TokenFile: cfg.TokenFile})
+	if err != nil {
+		return err
+	}
+	tokenFile := auth.TokenFile() // with links followed, as login saves to it
 	storeFile, err := storePath(*store)
 	if err != nil {
 		return err
@@ -95,16 +103,18 @@ the environment has none. Give -store as the store commands take it.
 	if err != nil {
 		return fmt.Errorf("finding the rate file's path: %w", err)
 	}
-	baseURL := ""
-	if strings.TrimSpace(os.Getenv("SCHWAB_BASE_URL")) != "" {
-		baseURL = cfg.BaseURL
+	// Nothing that the server opens may be one of the store's files. The
+	// token file is checked under the name that its path gives it too:
+	// IsCompanion finds two names of one file by the file or its folder,
+	// and a file not made yet, in a folder not made yet, has neither, so
+	// that a link in one path and not the other would hide it.
+	named, err := filepath.Abs(cfg.TokenFile)
+	if err != nil {
+		return fmt.Errorf("finding the token file's path: %w", err)
 	}
-	// The server takes the base URL that a login takes, and nothing that
-	// it opens may be one of the store's files.
-	if _, err := schwab.NewAuth(schwab.Config{AppKey: key.value, AppSecret: secret.value, BaseURL: baseURL, TokenFile: tokenFile}); err != nil {
-		return err
-	}
-	for _, f := range []struct{ what, path string }{{"config.json", path}, {"the token file", tokenFile}, {"the rate file", rateFile}} {
+	for _, f := range []struct{ what, path string }{
+		{"config.json", path}, {"the token file", tokenFile}, {"the token file", named}, {"the rate file", rateFile},
+	} {
 		if name, ok := companionOf(f.path, storeFile); ok {
 			return fmt.Errorf("%s, %s, is the store at %s or one of its files (%s); give the store another path", f.what, f.path, storeFile, name)
 		}
@@ -206,16 +216,14 @@ func savedConfig() (configfile.File, bool) {
 }
 
 // warnLoginDrift says on stderr when config.json, which the MCP server
-// reads, names another token file than tokenFile, where login has just
-// saved the login, with what points the server here. Without config.json,
-// as before schwabtx setup, it says nothing.
+// reads, names another token file than tokenFile, the file that login has
+// just saved the login to (schwab.Auth's TokenFile), with what points the
+// server here. Without config.json, as before schwabtx setup, it says
+// nothing.
 func warnLoginDrift(tokenFile string, stderr io.Writer) {
 	f, ok := savedConfig()
-	if !ok || f.TokenFile == "" {
-		return
-	}
 	// One file by name, or under two names (sameStore compares any files).
-	if abs, err := filepath.Abs(tokenFile); err == nil && sameStore(abs, f.TokenFile) {
+	if !ok || f.TokenFile == "" || sameStore(tokenFile, f.TokenFile) {
 		return
 	}
 	fmt.Fprintf(stderr, "warning: the MCP server reads its login from %s (config.json); run schwabtx setup in this terminal to point it here\n", f.TokenFile)

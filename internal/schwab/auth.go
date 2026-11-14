@@ -373,6 +373,12 @@ type Status struct {
 	Rejected error
 }
 
+// TokenFile returns the file that the login is kept in: Config.TokenFile
+// made absolute, with every link followed, as the system takes the path
+// when it opens the file, so that a ".." after a link leads out of the
+// link's target. It is the file that Login saves to and Status names.
+func (a *Auth) TokenFile() string { return a.tokenFile }
+
 // Status reads the token file and describes the login in it, as StatusOf
 // does, with whether Schwab refused it when this process last tried to
 // refresh it. It makes no request to Schwab, and does not wait for a

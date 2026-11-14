@@ -1006,8 +1006,8 @@ func TestTokenFileUnderALinkedFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want = filepath.Join(want, "cfg", "token.json"); st.TokenFile != want {
-		t.Errorf("token file %s, want %s", st.TokenFile, want)
+	if want = filepath.Join(want, "cfg", "token.json"); st.TokenFile != want || a.TokenFile() != want {
+		t.Errorf("token file %s, and TokenFile %s, want %s", st.TokenFile, a.TokenFile(), want)
 	}
 }
 
@@ -1230,10 +1230,11 @@ func TestRelativeTokenFileThroughALink(t *testing.T) {
 	}
 	t.Chdir(link) // sets PWD to the link, as a shell's cd does
 	for _, name := range []string{"../token.json", "../cfg/../token.json"} {
-		st, err := newTestAuth(t, f, name, c).Status()
+		a := newTestAuth(t, f, name, c)
+		st, err := a.Status()
 		want, _ := filepath.EvalSymlinks(filepath.Join(dir, "real"))
-		if err != nil || !st.LoggedIn || st.TokenFile != filepath.Join(want, "token.json") {
-			t.Errorf("%s from the link: %+v, %v; want the login in %s", name, st, err, filepath.Join(want, "token.json"))
+		if err != nil || !st.LoggedIn || st.TokenFile != filepath.Join(want, "token.json") || a.TokenFile() != st.TokenFile {
+			t.Errorf("%s from the link: %+v, %v, TokenFile %s; want the login in %s", name, st, err, a.TokenFile(), filepath.Join(want, "token.json"))
 		}
 	}
 	// A file not made yet, below a folder not made yet, under the link.
