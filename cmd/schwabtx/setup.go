@@ -188,11 +188,13 @@ var schwabHost = apiHost(schwab.DefaultBaseURL)
 
 // schwabsAddress reports whether baseURL, without its trailing "/", is
 // schwab.DefaultBaseURL, where every client goes without a base URL,
-// written in any case and with or without its port.
+// written in any case and with or without its port. An address with a
+// user, a query or a fragment, even an empty one, is not, so that setup
+// refuses it as a login does (schwab.NewAuth).
 func schwabsAddress(baseURL string) bool {
 	u, err := url.Parse(baseURL)
 	return err == nil && u.Scheme == "https" && strings.EqualFold(u.Hostname(), schwabHost) && (u.Port() == "" || u.Port() == "443") &&
-		u.User == nil && u.Path == "" && u.RawQuery == "" && !u.ForceQuery && u.Fragment == ""
+		u.User == nil && u.Path == "" && !strings.ContainsAny(baseURL, "?#")
 }
 
 // readConfig reads config.json where setup saves it, and returns its path:

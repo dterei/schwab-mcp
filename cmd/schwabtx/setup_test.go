@@ -120,8 +120,9 @@ func TestSetup(t *testing.T) {
 	}
 
 	// Schwab's own address in SCHWAB_BASE_URL is no other server: nothing is
-	// saved of it, and no host printed. Another address on Schwab's host is
-	// saved, and its host printed as Schwab's.
+	// saved of it, and no host printed. Another address on Schwab's host, by
+	// its path or its port, and in any case, is saved, and its host printed
+	// as Schwab's.
 	for _, base := range []string{schwab.DefaultBaseURL + "/", "HTTPS://API.SchwabAPI.com:443"} {
 		t.Setenv("SCHWAB_BASE_URL", base)
 		stdout, _, err = runTx(t, "setup")
@@ -132,13 +133,19 @@ func TestSetup(t *testing.T) {
 			t.Errorf("with SCHWAB_BASE_URL %s, config.json holds\n%s, %v; want no base_url", base, b, err)
 		}
 	}
-	t.Setenv("SCHWAB_BASE_URL", schwab.DefaultBaseURL+"/v9")
-	stdout, _, err = runTx(t, "setup")
-	if err != nil || !strings.Contains(stdout, "\n  api host     api.schwabapi.com (from SCHWAB_BASE_URL)\n") {
-		t.Errorf("setup with SCHWAB_BASE_URL %s/v9: %v, printed\n%s", schwab.DefaultBaseURL, err, stdout)
-	}
-	if got := readSaved(t); got.BaseURL != schwab.DefaultBaseURL+"/v9" {
-		t.Errorf("with SCHWAB_BASE_URL %s/v9, saved %+v", schwab.DefaultBaseURL, got)
+	for _, tc := range []struct{ base, host string }{
+		{schwab.DefaultBaseURL + "/v9", "api.schwabapi.com"},
+		{"https://API.SCHWABAPI.COM/v9", "API.SCHWABAPI.COM"},
+		{"https://api.schwabapi.com:8443", "api.schwabapi.com:8443"},
+	} {
+		t.Setenv("SCHWAB_BASE_URL", tc.base)
+		stdout, _, err = runTx(t, "setup")
+		if err != nil || !strings.Contains(stdout, "\n  api host     "+tc.host+" (from SCHWAB_BASE_URL)\n") {
+			t.Errorf("setup with SCHWAB_BASE_URL %s: %v, printed\n%s", tc.base, err, stdout)
+		}
+		if got := readSaved(t); got.BaseURL != tc.base {
+			t.Errorf("with SCHWAB_BASE_URL %s, saved %+v", tc.base, got)
+		}
 	}
 }
 
@@ -206,7 +213,8 @@ func TestSetupKeepsTheSavedApp(t *testing.T) {
 // it cannot read or that a newer schwabtx wrote, for a store whose files
 // would take in the token file (named as its path names it, or as a login
 // keeps it), the rate file or config.json, for a base URL that a login
-// refuses, and for an argument it does not take.
+// refuses, on Schwab's host too (plain http, or with a user, a query or a
+// fragment, even an empty one), and for an argument it does not take.
 func TestSetupRefuses(t *testing.T) {
 	_, tokenFile := setup(t)
 	path := configPath(t)
@@ -227,7 +235,18 @@ func TestSetupRefuses(t *testing.T) {
 		{"a store that is config.json", nil, []string{"-store", path}, "config.json, " + path + ", is the store at"},
 		{"a store that is the rate file", nil, []string{"-store", rate}, "the rate file, " + rate + ", is the store at"},
 		{"plain http to another computer", []string{"SCHWAB_BASE_URL", "http://example.com"}, nil, `the base URL "http://example.com" is plain http`},
+		{"plain http to Schwab's host", []string{"SCHWAB_BASE_URL", "http://api.schwabapi.com"}, nil, `the base URL "http://api.schwabapi.com" is plain http`},
 		{"an argument", nil, []string{"now"}, `unexpected argument "now"`},
+	}
+	for _, tc := range []struct{ name, base string }{
+		{"a user", "https://user@api.schwabapi.com"},
+		{"a query", "https://api.schwabapi.com?x=1"},
+		{"an empty query", "https://api.schwabapi.com?"},
+		{"a fragment", "https://api.schwabapi.com#top"},
+		{"an empty fragment", "https://api.schwabapi.com#"},
+	} {
+		want := `the base URL "` + tc.base + `" is not an https or http address without a user, query or fragment`
+		refusals = append(refusals, refusal{tc.name + " on Schwab's host", []string{"SCHWAB_BASE_URL", tc.base}, nil, want})
 	}
 	if runtime.GOOS != "windows" {
 		// A token file not made yet, in a folder not made yet, under a link,
