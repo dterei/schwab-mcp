@@ -1,6 +1,7 @@
 package mask
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"sync"
@@ -131,5 +132,44 @@ func TestKnownTextTakesLinearTime(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Text took more than 10 seconds over a megabyte")
+	}
+}
+
+// HasNumber judges a JSON number by its value, as JSON does, so that a
+// known number written with a fraction or an exponent is still found, and
+// finds only the known numbers' values: no other integer, no number with a
+// fraction, nothing in a nil Known.
+func TestKnownHasNumber(t *testing.T) {
+	var k Known
+	k.Add("29470135", "1234567")
+	for _, tc := range []struct {
+		n    json.Number
+		want bool
+	}{
+		{"29470135", true},
+		{"-29470135", true},
+		{"29470135.0", true},
+		{"29470135.000", true},
+		{"2.9470135E7", true},
+		{"2.9470135e+7", true},
+		{"294701350e-1", true},
+		{"1234567", true},
+		{"1.234567e6", true},
+		{"2947013.5", false},
+		{"129470135", false},
+		{"294701350", false},
+		{"29470135.5", false},
+		{"2.9470135", false},
+		{"0", false},
+		{"1e999999", false},
+		{"123456", false},
+	} {
+		if got := k.HasNumber(tc.n); got != tc.want {
+			t.Errorf("HasNumber(%s) = %v, want %v", tc.n, got, tc.want)
+		}
+	}
+	var none *Known
+	if none.HasNumber("29470135") {
+		t.Error("a nil Known has 29470135")
 	}
 }

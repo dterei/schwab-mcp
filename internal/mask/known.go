@@ -1,6 +1,7 @@
 package mask
 
 import (
+	"encoding/json"
 	"iter"
 	"strings"
 	"sync"
@@ -81,6 +82,15 @@ func (k *Known) Contains(s string) bool {
 		return true
 	}
 	return false
+}
+
+// HasNumber reports whether n, a number as JSON writes it, is a known
+// number, judged by its value as JSON judges a number: with 29470135 known,
+// 29470135, -29470135, 29470135.0 and 2.9470135E7 all are, while
+// 2947013.5 and 129470135 are not.
+func (k *Known) HasNumber(n json.Number) bool {
+	digits, integer := integerDigits(n)
+	return integer && k.has(digits)
 }
 
 // has reports whether n, a string of digits, is a known number.
