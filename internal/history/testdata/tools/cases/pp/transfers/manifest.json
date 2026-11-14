@@ -31,7 +31,7 @@
       "kind": "account",
       "configuration": "pp-account-transactions.json",
       "account": "A1 ...135",
-      "rows": 5,
+      "rows": 7,
       "tick": 0
     },
     {
@@ -50,7 +50,7 @@
       "nickname": "Individual",
       "name": "Schwab A1 ...135",
       "exported": true,
-      "last_day": "2026-07-01",
+      "last_day": "2026-08-03",
       "new": true
     },
     {
@@ -73,12 +73,12 @@
     "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
   },
   "written": {
-    "rows": 9,
+    "rows": 11,
     "types": {
-      "Deposit": 3,
+      "Deposit": 4,
       "Transfer (Inbound)": 1,
       "Transfer (Outbound)": 1,
-      "Withdrawal": 4
+      "Withdrawal": 5
     }
   },
   "given": {
@@ -123,6 +123,22 @@
         "fp": "4c099cf008e2caf4",
         "keys": [
           "7a765f0ddfef2c6d"
+        ]
+      },
+      "T61001211": {
+        "day": "2026-08-03",
+        "as": "account 2026-08-03 Withdrawal 100.00",
+        "fp": "b6121dd0b8b14e08",
+        "keys": [
+          "057241c524003d9d"
+        ]
+      },
+      "T61001212": {
+        "day": "2026-08-03",
+        "as": "account 2026-08-03 Deposit 100.00",
+        "fp": "5294cf9e0ecd2d7b",
+        "keys": [
+          "b810707661b49cd4"
         ]
       }
     },

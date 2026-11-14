@@ -64,7 +64,7 @@ var toolMapping = []toolMap{
 	{"withdrawal", "amount > 0", "deposit", "account: Deposit", "account balance"},
 	{"withdrawal", "amount < 0", "withdrawal", "account: Withdrawal", "account balance"},
 	{
-		"journal", "cash, paired with a counted journal of the opposite amount, both booked `journal`, both accounts exported", "transfer",
+		"journal", "cash, paired with a counted journal of another account of the opposite amount, both booked `journal`, both accounts exported", "transfer",
 		"account: Transfer (Outbound) in the paying account's file, Transfer (Inbound) in the receiving one's", "account balances",
 	},
 	{"journal", "cash, any other, amount > 0", "deposit", "account: Deposit", "account balance"},
@@ -1814,12 +1814,16 @@ func (m *toolMapper) deliveryEvent(i int, q sql.NullInt64, s *toolSecurity, deli
 }
 
 // cashJournal maps row i, a journal of cash (3.4.3 of the design): as a
-// transfer when it is paired with a counted journal of the opposite amount,
-// both booked journal, both of accounts that the export selects; else by
-// its sign, saying why a pair is written apart.
+// transfer when it is paired with a counted journal of another account of
+// the opposite amount, both booked journal, both of accounts that the export
+// selects; else by its sign, saying why a pair of two accounts is written
+// apart. A pair within one account, which you can pair by hand, is a
+// deposit and a withdrawal, which net to nothing: a transfer of an account
+// to itself names that account as its own Offset Account, and PP imports it
+// once from each side.
 func (m *toolMapper) cashJournal(i int) {
 	r := &m.in.rows[i]
-	if r.pairKind != "journal" || r.pairRef == "" || !r.partner.counted {
+	if r.pairKind != "journal" || r.pairRef == "" || !r.partner.counted || r.pairAccount == r.account {
 		m.cash(i, nil)
 		return
 	}

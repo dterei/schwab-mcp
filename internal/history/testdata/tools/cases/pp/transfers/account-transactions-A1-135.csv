@@ -4,3 +4,5 @@ Date,Time,Type,Value,Transaction Currency,Fees,Ticker Symbol,WKN,Security Name,N
 2026-05-04,10:00,Withdrawal,200.00,USD,,,,,schwabtx A1 ...135 T61001205: JOURNAL TO ...398,Schwab A1 ...135,
 2026-06-01,10:00,Withdrawal,150.00,USD,,,,,schwabtx A1 ...135 T61001207: JOURNAL TO ...398,Schwab A1 ...135,
 2026-07-01,10:00,Deposit,80.00,USD,,,,,schwabtx A1 ...135 T61001210: JOURNAL FRM ...398,Schwab A1 ...135,
+2026-08-03,10:00,Withdrawal,100.00,USD,,,,,schwabtx A1 ...135 T61001211: JOURNAL TO ...135,Schwab A1 ...135,
+2026-08-03,10:00,Deposit,100.00,USD,,,,,schwabtx A1 ...135 T61001212: JOURNAL FRM ...135,Schwab A1 ...135,

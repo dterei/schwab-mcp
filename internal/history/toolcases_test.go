@@ -435,8 +435,9 @@ func toolCaseCash() toolCase {
 // toolCaseTransfers holds journals of cash between two accounts that the
 // export selects: a transfer, whose receiving side is dated a day after
 // the paying one; a pair whose amounts differ; one whose partner is not
-// counted; and a pair with a side that you booked, payer and receiver.
-// One account's balance is negative.
+// counted; and a pair with a side that you booked, payer and receiver. And
+// a pair within one account, which you paired by hand. One account's
+// balance is negative.
 func toolCaseTransfers() toolCase {
 	journal := func(ref string, account int64, clock, description, category string, amount int64, pair string, pairAccount int64) toolRow {
 		return toolRow{
@@ -459,6 +460,8 @@ func toolCaseTransfers() toolCase {
 				journal("T61001208", 2, "2026-06-01 10:00:07", "JOURNAL FRM ...135", "journal", 15_000, "T61001207", 1),
 				journal("T61001209", 2, "2026-07-01 10:00:00", "JOURNAL TO ...135", "journal", -8000, "T61001210", 1),
 				journal("T61001210", 1, "2026-07-01 10:00:09", "JOURNAL FRM ...398", "deposit", 8000, "T61001209", 2),
+				journal("T61001211", 1, "2026-08-03 10:00:00", "JOURNAL TO ...135", "journal", -10_000, "T61001212", 1),
+				journal("T61001212", 1, "2026-08-03 10:00:05", "JOURNAL FRM ...135", "journal", 10_000, "T61001211", 1),
 			},
 			snapshots: []toolSnapshot{
 				{account: 1, marketDate: "2026-11-10", fetchedAt: tcNY("2026-11-10 18:05:00"), cash: centsOf(500_000)},
@@ -475,6 +478,8 @@ func toolCaseTransfers() toolCase {
 			{"T61001208", "Deposit 150.00 [pair_not_journal]", "in_balances"},
 			{"T61001209", "Withdrawal 80.00 [pair_not_journal]", "in_balances"},
 			{"T61001210", "Deposit 80.00", "in_balances"},
+			{"T61001211", "Withdrawal 100.00", "in_balances"},
+			{"T61001212", "Deposit 100.00", "in_balances"},
 		},
 	}
 }

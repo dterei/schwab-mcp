@@ -1213,7 +1213,7 @@ accounts' balances, and takes no negative value.
 | `deposit` | amount < 0 | withdrawal | account: Withdrawal | account balance |
 | `withdrawal` | amount > 0 | deposit | account: Deposit | account balance |
 | `withdrawal` | amount < 0 | withdrawal | account: Withdrawal | account balance |
-| `journal` | cash, paired with a counted journal of the opposite amount, both booked `journal`, both accounts exported | transfer | account: Transfer (Outbound) in the paying account's file, Transfer (Inbound) in the receiving one's | account balances |
+| `journal` | cash, paired with a counted journal of another account of the opposite amount, both booked `journal`, both accounts exported | transfer | account: Transfer (Outbound) in the paying account's file, Transfer (Inbound) in the receiving one's | account balances |
 | `journal` | cash, any other, amount > 0 | deposit | account: Deposit | account balance |
 | `journal` | cash, any other, amount < 0 | withdrawal | account: Withdrawal | account balance |
 | `journal` | shares, quantity > 0 | delivery in | portfolio: Delivery (Inbound) | BUY |
@@ -1436,7 +1436,8 @@ then started over.
   category, which is written by that category (`pair_not_journal`), one
   whose other account the export leaves out, as an `-account` export does
   (`pair_outside`). An unpaired journal is, as far as the store knows, a
-  move from outside your accounts. A transfer's Offset Account names only
+  move from outside your accounts; a pair within one account, which you
+  paired by hand, is a Deposit and a Withdrawal, which net to nothing. A transfer's Offset Account names only
   an account of the export, since PP sends a transfer whose account it
   cannot find to the review page's first, even the transfer's own. When
   the other side is dated after `-to`, the side up to `-to` is still the
