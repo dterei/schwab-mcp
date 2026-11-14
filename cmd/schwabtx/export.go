@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -127,7 +128,7 @@ func runExport(ctx context.Context, args []string, stdout, stderr io.Writer) (er
 		// The folder of an export for a tool is that export's: this one's
 		// manifest would replace its manifest, from which the next export
 		// for the tool goes on.
-		if m, _, err := readToolManifest(*dir); err == nil {
+		if m, err := readToolManifest(*dir); err == nil {
 			if _, ok := toolFormats[m.Format]; ok {
 				return fmt.Errorf("-dir %s holds a %s export: write this one to another folder", *dir, m.Format)
 			}
@@ -373,28 +374,63 @@ func toolDirIsNew(dir, format string) error {
 // before it opens the store (9 of the tool exports' design): its
 // exported_at, which names the export; its format and layout; its chain's
 // id, the exported_at of the chain's first export; and the exported_at of
-// the export that it went on from, "" for a full export.
+// the export that it went on from, "" for a full export. They are the
+// manifest's keys exported_at, format, layout, chain and filters.
 type toolManifest struct {
-	ExportedAt string `json:"exported_at"`
-	Format     string `json:"format"`
-	Layout     int    `json:"layout"`
+	ExportedAt string
+	Format     string
+	Layout     int
 	Chain      struct {
 		ID string `json:"id"`
-	} `json:"chain"`
+	}
 	Filters struct {
 		Since string `json:"since"`
-	} `json:"filters"`
+	}
 }
 
-// readToolManifest reads the manifest.json of the folder dir: what it says
-// of the export in dir, if it is a tool export's, and its bytes.
-func readToolManifest(dir string) (toolManifest, []byte, error) {
-	var m toolManifest
-	b, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
-	if err == nil {
-		err = json.Unmarshal(b, &m)
+// readToolManifest reads what the manifest.json of the folder dir says of
+// the export in dir, if it is a tool export's (decodeToolManifest).
+func readToolManifest(dir string) (toolManifest, error) {
+	f, err := os.Open(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		return toolManifest{}, err
 	}
-	return m, b, err
+	defer f.Close()
+	return decodeToolManifest(f)
+}
+
+// decodeToolManifest reads from r what a manifest.json says of the export
+// (toolManifest), and of the JSON no more than it needs: an export writes
+// those keys first, before its files and the chain's given, which grow with
+// the history (8.1 of the tool exports' design), so that the check of
+// every folder beside a -since folder reads little of each. A key that
+// comes later is found all the same, at the cost of reading up to it; one
+// that is not there is left zero.
+func decodeToolManifest(r io.Reader) (toolManifest, error) {
+	var m toolManifest
+	d := json.NewDecoder(r)
+	if t, err := d.Token(); err != nil || t != json.Delim('{') {
+		return m, cmp.Or(err, errors.New("a manifest is a JSON object"))
+	}
+	want := map[string]any{
+		"exported_at": &m.ExportedAt, "format": &m.Format, "layout": &m.Layout, "chain": &m.Chain, "filters": &m.Filters,
+	}
+	for len(want) > 0 && d.More() {
+		t, err := d.Token()
+		if err != nil {
+			return m, err
+		}
+		key, _ := t.(string)
+		v, ok := want[key]
+		if !ok {
+			v = new(json.RawMessage)
+		}
+		delete(want, key)
+		if err := d.Decode(v); err != nil {
+			return m, err
+		}
+	}
+	return m, nil
 }
 
 // sinceManifest returns the bytes of the manifest.json of the export in the
@@ -406,7 +442,11 @@ func readToolManifest(dir string) (toolManifest, []byte, error) {
 // which, ticked again, would come in twice. ExportTool checks the rest of
 // it.
 func sinceManifest(dir, format string) ([]byte, error) {
-	m, b, err := readToolManifest(dir)
+	b, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	var m toolManifest
+	if err == nil {
+		m, err = decodeToolManifest(bytes.NewReader(b))
+	}
 	if err != nil || m.Format != format || m.Layout != history.ToolLayout || m.ExportedAt == "" || m.Chain.ID == "" {
 		return nil, fmt.Errorf("-since %s: %s is not the manifest of a -format %s export of layout %d",
 			dir, filepath.Join(dir, "manifest.json"), format, history.ToolLayout)
@@ -422,7 +462,7 @@ func sinceManifest(dir, format string) ([]byte, error) {
 	}
 	// dir itself is among them, and never went on from itself.
 	for _, e := range entries {
-		next, _, err := readToolManifest(filepath.Join(parent, e.Name()))
+		next, err := readToolManifest(filepath.Join(parent, e.Name()))
 		if err == nil && next.Format == m.Format && next.Chain.ID == m.Chain.ID && next.Filters.Since == m.ExportedAt {
 			return nil, fmt.Errorf("-since %s: %s already went on from %s; name it with -since if you imported it, or move it away if you did not",
 				dir, filepath.Join(dir, "..", e.Name()), dir)

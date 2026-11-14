@@ -944,6 +944,47 @@ func TestExportToolRefusals(t *testing.T) {
 	}
 }
 
+// The -since check reads of each manifest beside the folder only what it
+// needs: the keys that an export writes first, before its files and the
+// chain's given, which grow with the history. So a manifest whose given
+// holds years of rows reads whole when cut a few kilobytes after them; and
+// one whose keys come in another order is read up to the last of them.
+func TestDecodeToolManifest(t *testing.T) {
+	const head = `{
+  "exported_at": "2026-10-20T12:00:00.000Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2023-05-01T14:00:00.000Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {"account": null, "to": "2026-10-19", "manual": [], "since": "2026-10-15T12:00:00.000Z"},
+  "chain": {"id": "2026-10-01T12:00:00.000Z", "account": null, "manual": [], "to": "2026-10-19"}`
+	var given strings.Builder
+	given.WriteString(`"given": {"A1 ...135": {`)
+	for i := range 20_000 {
+		if i > 0 {
+			given.WriteString(", ")
+		}
+		fmt.Fprintf(&given, `"T7%09d": {"day": "2026-01-02", "as": "portfolio 2026-01-02 Buy 100.00", "fp": "0123456789abcdef"}`, i)
+	}
+	given.WriteString("}}")
+	tail := `"files": [], "accounts": [], ` + given.String()
+	want := toolManifest{ExportedAt: "2026-10-20T12:00:00.000Z", Format: "pp", Layout: 1}
+	want.Chain.ID, want.Filters.Since = "2026-10-01T12:00:00.000Z", "2026-10-15T12:00:00.000Z"
+	for _, c := range []struct {
+		name string
+		r    io.Reader
+	}{
+		{"cut after its head", io.LimitReader(strings.NewReader(head+",\n  "+tail+"}"), int64(len(head)+4<<10))},
+		{"its keys in another order", strings.NewReader("{" + tail + "," + head[1:] + "}")},
+	} {
+		if got, err := decodeToolManifest(c.r); err != nil || got != want {
+			t.Errorf("%s: %+v, %v; want %+v", c.name, got, err, want)
+		}
+	}
+}
+
 // What an export for a tool says on stderr (8.2 of the tool exports'
 // design), from what it wrote, in full and going on from another: what it
 // wrote, the coverage, what it left out, wrote with a caveat, found changed
