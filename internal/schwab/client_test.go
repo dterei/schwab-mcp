@@ -376,17 +376,24 @@ func TestCheckPathTakesSchwabsPaths(t *testing.T) {
 	}
 }
 
-// A base URL that would send the token elsewhere, or is not one, is refused.
+// A base URL that would send the token elsewhere, or is not one, is refused,
+// and so is plain http to another computer, which would send the app key,
+// the secret and the refresh token unencrypted.
 func TestNewAuthChecksTheBaseURL(t *testing.T) {
 	for _, base := range []string{
 		"api.schwabapi.com", "ftp://api.schwabapi.com", "https://", "https://user@api.schwabapi.com",
 		"https://api.schwabapi.com/?x=1", "https://api.schwabapi.com/#", "https://api.schwabapi.com/%zz",
+		"http://example.com", "http://api.schwabapi.com", "http://10.0.0.1:8080", "http://0.0.0.0:8080", "http://[::]:8080",
+		"http://localhost.example.com", "http://127.0.0.1.example.com", "http://127.1", "http://[::ffff:8.8.8.8]",
 	} {
 		if _, err := NewAuth(Config{AppKey: testKey, AppSecret: testSecret, BaseURL: base, TokenFile: filepath.Join(t.TempDir(), "t.json")}); err == nil {
 			t.Errorf("%q: no error", base)
 		}
 	}
-	for _, base := range []string{"https://api.schwabapi.com", "http://127.0.0.1:8080", "https://example.com/prefix/"} {
+	for _, base := range []string{
+		"https://api.schwabapi.com", "http://127.0.0.1:8080", "https://example.com/prefix/", "http://localhost:41234",
+		"HTTP://LOCALHOST", "http://[::1]:8080", "http://127.255.255.254", "http://[::ffff:127.0.0.1]:8080",
+	} {
 		if _, err := NewAuth(Config{AppKey: testKey, AppSecret: testSecret, BaseURL: base, TokenFile: filepath.Join(t.TempDir(), "t.json")}); err != nil {
 			t.Errorf("%q: %v", base, err)
 		}

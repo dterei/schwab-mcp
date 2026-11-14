@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -93,7 +94,10 @@ type Config struct {
 	// CallbackURL must match one of the app's callback URLs exactly. Empty
 	// means DefaultCallbackURL.
 	CallbackURL string
-	// BaseURL is where Schwab's API is. Empty means DefaultBaseURL.
+	// BaseURL is where Schwab's API is. Empty means DefaultBaseURL. It is
+	// https, or plain http to this computer alone, such as a fake's
+	// address: the token requests send the app key, the secret and the
+	// refresh token to it.
 	BaseURL string
 	// TokenFile holds the login for every process that uses it. Empty means
 	// DefaultTokenFile. Next to it are lock files, which are never deleted:
@@ -209,9 +213,13 @@ func NewAuth(cfg Config) (*Auth, error) {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = DefaultBaseURL
 	}
-	if u, err := url.Parse(cfg.BaseURL); err != nil || u.Scheme != "https" && u.Scheme != "http" || u.Host == "" ||
-		u.User != nil || strings.ContainsAny(cfg.BaseURL, "?#") {
+	u, err := url.Parse(cfg.BaseURL)
+	if err != nil || u.Scheme != "https" && u.Scheme != "http" || u.Host == "" || u.User != nil || strings.ContainsAny(cfg.BaseURL, "?#") {
 		return nil, fmt.Errorf("the base URL %q is not an https or http address without a user, query or fragment", cfg.BaseURL)
+	}
+	if u.Scheme == "http" && !loopback(u.Hostname()) {
+		return nil, fmt.Errorf("the base URL %q is plain http to another computer, which would send the app key, the secret and the tokens "+
+			"unencrypted; give an https address, or http to this computer (127.0.0.1, ::1 or localhost)", cfg.BaseURL)
 	}
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: 30 * time.Second, Transport: newTransport()}
@@ -227,6 +235,16 @@ func NewAuth(cfg Config) (*Auth, error) {
 		lock: filelock.Acquire, tryLock: filelock.TryAcquire,
 		sleep: sleep, jitter: equalJitter,
 	}, nil
+}
+
+// loopback reports whether host, a URL's host without its port, is this
+// computer: an address of 127.0.0.0/8 or ::1, or the name localhost.
+func loopback(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
 }
 
 // newTransport returns Go's default transport with a health check for HTTP/2
