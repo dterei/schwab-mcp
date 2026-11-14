@@ -1292,11 +1292,15 @@ accounts' balances, and takes no negative value.
   when it has one). PP's Time is the API row's time on New York's clock,
   `HH:mm`, and empty for a file row, which has none, and for a fill whose
   time falls on another day than the trade day it is booked on. Ghostfolio
-  takes an instant: the day at noon UTC, plus the New York seconds since
-  midnight as milliseconds (`2025-01-21T12:00:39.912Z` for 11:05:12), so
-  that the day's activities keep their order and the day stays the New York
-  day from UTC−11 to UTC+11. An option close takes the end of that window;
-  a row with no time its start, a sale a millisecond after a purchase.
+  takes an instant: the day at noon UTC, plus two milliseconds for each New
+  York second since midnight (`2025-01-21T12:01:19.824Z` for 11:05:12),
+  and one more for a sale, so that the day's activities keep their order
+  and the day stays the New York day from UTC−11 to UTC+11. Ghostfolio
+  holds a security as one across your accounts and runs the activities of
+  one instant in no set order, so a sale and a purchase of one second, as
+  the two sides of a journal of shares between your accounts can be, never
+  share one: the purchase comes first. An option close takes the end of
+  that window; a row with no time its start.
 
 ### Left out
 

@@ -572,9 +572,11 @@ type gfChecked struct {
 // activities checks the activities (3.4, 6.5 and 6.6 of the design) one by
 // one, then together: no two of one comment, which makes them unlike by
 // Ghostfolio's duplicate key too, since the key holds the comment
-// (gfDuplicateKey); no BUY and SELL of one symbol in one account at one
-// instant, whose order Ghostfolio would choose; and deliveries at
-// plausible prices.
+// (gfDuplicateKey); no BUY and SELL of one asset at one instant, in any
+// accounts, whose order Ghostfolio would choose, since its calculator holds
+// an asset as one across every account (portfolio-calculator.ts:155-196,
+// 2091-2215) and orders one instant's activities by their random ids
+// (activities.service.ts:648-651,679); and deliveries at plausible prices.
 func (c *gfChecker) activities(list []any) {
 	var all []gfChecked
 	for i, v := range list {
@@ -591,9 +593,9 @@ func (c *gfChecker) activities(list []any) {
 		if !a.ok || a.typ != "BUY" && a.typ != "SELL" {
 			continue
 		}
-		at := a.account + " " + a.symbol + " " + a.date
+		at := a.source + " " + a.symbol + " " + a.date
 		if prev, ok := instants[at]; ok && !strings.HasSuffix(prev, " "+a.typ) {
-			c.add("%s is a %s at the instant of a %s of its symbol in its account, so their order is Ghostfolio's to choose", a.where, a.typ, strings.Fields(prev)[1])
+			c.add("%s is a %s at the instant of a %s of its asset, so their order is Ghostfolio's to choose", a.where, a.typ, strings.Fields(prev)[1])
 		}
 		instants[at] = a.where + " " + a.typ
 	}
@@ -640,7 +642,7 @@ func (c *gfChecker) activity(where string, v any) (gfChecked, bool) {
 	a.typ, okType = c.enum(where, obj, "type", gfTypes, true)
 	a.date, okDate = c.str(where, obj, "date", true)
 	if okDate && !gfNoon(a.date) {
-		c.add("%s.date is %q, not a day at noon UTC plus up to 86400 milliseconds", where, a.date)
+		c.add("%s.date is %q, not a day at noon UTC plus up to 172801 milliseconds", where, a.date)
 		okDate = false
 	}
 	var okFee, okQuantity, okPrice bool
@@ -658,7 +660,8 @@ func (c *gfChecker) activity(where string, v any) (gfChecked, bool) {
 }
 
 // gfNoon reports whether date is a day after 1970 at noon UTC plus 0 to
-// 86 400 milliseconds, as the export dates an activity (6.5 of the design).
+// 172 801 milliseconds, as the export dates an activity (6.5 of the
+// design): two for each second of the day, and one more for a SELL.
 func gfNoon(date string) bool {
 	m := gfNoonForm.FindStringSubmatch(date)
 	if m == nil || !gfDayAt(gfNoonForm, date) {
@@ -668,7 +671,7 @@ func gfNoon(date string) bool {
 	second, _ := strconv.Atoi(m[3])
 	milli, _ := strconv.Atoi(m[4])
 	offset := (minute*60+second)*1000 + milli
-	return second < 60 && offset <= 86_400
+	return second < 60 && offset <= 172_801
 }
 
 // source checks an activity's symbol against its data source: a MANUAL one
@@ -1477,7 +1480,7 @@ func TestToolCheckersGF(t *testing.T) {
 		{"a quantity below 0", func(top gfObject) { act(top, "T71000102")["quantity"] = json.Number("-10") }, "quantity must not be less than 0"},
 		{"a unit price below 0", func(top gfObject) { act(top, "T71000102")["unitPrice"] = json.Number("-50") }, "unitPrice must not be less than 0"},
 		{"a date at midnight", func(top gfObject) { act(top, "T71000102")["date"] = "2025-02-03T00:00:00.000Z" }, "not a day at noon UTC"},
-		{"a date past the day's window", func(top gfObject) { act(top, "T71000102")["date"] = "2025-02-03T12:01:26.401Z" }, "not a day at noon UTC"},
+		{"a date past the day's window", func(top gfObject) { act(top, "T71000102")["date"] = "2025-02-03T12:02:52.802Z" }, "not a day at noon UTC"},
 		{"a date before 1970", func(top gfObject) { act(top, "T71000102")["date"] = "1969-07-21T12:00:00.000Z" }, "not a day at noon UTC"},
 		{"a day that is no date", func(top gfObject) { act(top, "T71000102")["date"] = "2025-02-30T12:00:00.000Z" }, "not a day at noon UTC"},
 		{"a currency other than USD", func(top gfObject) { act(top, "T71000102")["currency"] = "EUR" }, `currency is "EUR", not USD`},
@@ -1528,6 +1531,10 @@ func TestToolCheckersGF(t *testing.T) {
 		{"two activities of one comment", func(top gfObject) { appendTo(top, "activities", act(top, "T71000102")) }, "so Ghostfolio could take one for the other"},
 		{"a BUY and a SELL of one asset at one instant", func(top gfObject) {
 			act(top, "T71000103")["date"] = act(top, "T71000101")["date"]
+		}, "is a SELL at the instant of a BUY"},
+		{"a BUY and a SELL of one asset at one instant in two accounts", func(top gfObject) {
+			sell, buy := act(top, "T71000103"), act(top, "T71000101")
+			sell["date"], sell["accountId"], sell["comment"] = buy["date"], act(top, "T71000102")["accountId"], "schwabtx A1 ...135 T71000103"
 		}, "is a SELL at the instant of a BUY"},
 		{"a bond delivered at 100 times its price", func(top gfObject) { act(top, "Cg0a1b2c3.5")["unitPrice"] = json.Number("99.5") }, "more than 3 times off"},
 		{"a delivery a hundredth of the price of its day", func(top gfObject) {

@@ -624,21 +624,26 @@ func (e *toolEvent) clock() (int, bool) {
 
 // gfOffset returns the milliseconds that Ghostfolio's date of the record
 // adds to noon UTC of its day (6.5 of the design), so that a day's
-// activities keep their order: an option close 86 400, after every other;
-// a record with a time on its day its seconds since New York's midnight;
-// any other 0, or 1 for a SELL, so that a day's purchases come first.
+// activities keep their order: two for each second of the record's place
+// in the day, and one more for a SELL. Its place is an option close's
+// 86 400, after every other; a record with a time on its day, its seconds
+// since New York's midnight; any other's 0, so that a purchase of the day
+// comes first. Ghostfolio holds a security as one across every account and
+// orders the activities of one instant at random, so a BUY and a SELL of
+// one second, as the two sides of a journal of shares can be, never share
+// one: the BUY comes first.
 func (e *toolEvent) gfOffset() int64 {
-	switch e.kind {
-	case evCloseOut, evCloseIn:
-		return 86_400
-	}
-	if seconds, ok := e.clock(); ok {
-		return int64(seconds)
+	var place int64
+	switch seconds, ok := e.clock(); {
+	case e.kind == evCloseOut || e.kind == evCloseIn:
+		place = 86_400
+	case ok:
+		place = int64(seconds)
 	}
 	if e.kind.gfType() == "SELL" {
-		return 1
+		return 2*place + 1
 	}
-	return 0
+	return 2 * place
 }
 
 // gfDate returns Ghostfolio's date of the record (gfInstant).

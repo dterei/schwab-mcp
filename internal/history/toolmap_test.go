@@ -682,22 +682,35 @@ func TestToolMapping(t *testing.T) {
 				t.Errorf("%s at %s is not before %s at %s", order[i-1], dates[order[i-1]], order[i], dates[order[i]])
 			}
 		}
-		for _, same := range [][2]string{{"T61002506 leg 4", "T61002506 leg 5"}, {"Cc3d4e5f6.4", "Cc3d4e5f6.5"}} {
-			if dates[same[0]] != dates[same[1]] || dates[same[0]] == "" {
-				t.Errorf("%s at %s and %s at %s", same[0], dates[same[0]], same[1], dates[same[1]])
-			}
+		// Two purchases without a time share one instant, and a trade's legs
+		// their row's, but a SELL's, a millisecond later.
+		if a, b := dates["Cc3d4e5f6.4"], dates["Cc3d4e5f6.5"]; a != b || a == "" {
+			t.Errorf("two timeless purchases at %s and %s", a, b)
 		}
 		for key, want := range map[string]string{
-			"T61002501":   "2025-01-21T12:00:39.912Z",
-			"Cc3d4e5f6.1": "2025-01-21T12:01:26.400Z",
-			"Cc3d4e5f6.2": "2025-01-23T12:00:00.000Z",
-			"Cc3d4e5f6.3": "2025-01-23T12:00:00.001Z",
-			"T61002504":   "2025-01-24T12:00:00.000Z",
-			"T61002505":   "2025-01-24T12:00:37.800Z",
+			"T61002501":       "2025-01-21T12:01:19.824Z",
+			"Cc3d4e5f6.1":     "2025-01-21T12:02:52.801Z",
+			"Cc3d4e5f6.2":     "2025-01-23T12:00:00.000Z",
+			"Cc3d4e5f6.3":     "2025-01-23T12:00:00.001Z",
+			"T61002504":       "2025-01-24T12:00:00.000Z",
+			"T61002505":       "2025-01-24T12:01:15.601Z",
+			"T61002506 leg 4": "2025-01-27T12:01:26.400Z",
+			"T61002506 leg 5": "2025-01-27T12:01:26.401Z",
 		} {
 			if dates[key] != want {
 				t.Errorf("%s at %s, want %s", key, dates[key], want)
 			}
+		}
+		// A journal of shares between two accounts whose sides are of one
+		// second: Ghostfolio, which holds the security as one across every
+		// account, gets the BUY first.
+		_, deliveries, _ := mapCase(toolCaseNamed("deliveries"), toolGF)
+		journal := map[string]string{}
+		for _, e := range deliveries {
+			journal[e.ref] = e.gfDate()
+		}
+		if out, in := journal["T61001506"], journal["T61001507"]; out != "2026-09-01T12:01:12.001Z" || in != "2026-09-01T12:01:12.000Z" {
+			t.Errorf("the journal of one second: its SELL at %s, its BUY at %s", out, in)
 		}
 		// PP's Time: an evening fill booked on the next day has none.
 		for _, e := range events {

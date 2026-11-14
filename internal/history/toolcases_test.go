@@ -712,7 +712,9 @@ func toolCaseTwoRow() toolCase {
 // category and sign; a bond's, priced per 100 of face; one priced at 0.00,
 // valued from a snapshot; one with no price at all, one that moved cash
 // too, one whose cash is off the grid, an option's, a journal of two
-// securities, and three left out.
+// securities, and three left out. The last journal pair's sides are of one
+// second, a SELL in one account and a BUY in the other, which Ghostfolio
+// must not get at one instant.
 func toolCaseDeliveries() toolCase {
 	journal := func(ref string, account int64, clock, key, symbol string, quantity int64, price sql.NullFloat64, pair string, pairAccount int64) toolRow {
 		return toolRow{
@@ -771,7 +773,7 @@ func toolCaseDeliveries() toolCase {
 				file("Cb0c1d2e3.11", "2026-08-17", "Journaled Shares", "transfer_in", keyFuture, symFuture, 1_000_000, 5050),
 				twoSecurities,
 				journal("T61001506", 1, "2026-09-01 10:00:00", keyEFGH, "EFGH", -1_000_000, sql.NullFloat64{}, "T61001507", 2),
-				journal("T61001507", 2, "2026-09-01 10:00:04", keyEFGH, "EFGH", 1_000_000, tcPrice(30.5), "T61001506", 1),
+				journal("T61001507", 2, "2026-09-01 10:00:00", keyEFGH, "EFGH", 1_000_000, tcPrice(30.5), "T61001506", 1),
 			},
 			legs: []toolLeg{
 				{account: 2, ref: "T61001505", leg: 1, symbol: "XYZ", securityKey: keyXYZ, quantity: centsOf(-2_000_000), price: tcPrice(52)},
