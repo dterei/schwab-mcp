@@ -106,9 +106,12 @@ and the types' names, whatever PP's language and locale.
      **Tick exactly the rows that stderr and the manifest's `tick` list for
      that file**, and leave every other such row unticked: those are the
      second halves of transfers between your accounts, which came in with
-     their first, as PP books both sides of a transfer at once. A row listed
-     is new although PP takes it for one it holds: a withdrawal of the day
-     and amount of a transfer's, or a trade equal to one that PP holds.
+     their first, as PP books both sides of a transfer at once, and, in a
+     later export, rows that PP holds already under another ref, which
+     stderr counts and the manifest lists under `same_as` (a file row now
+     linked to its API row). A row listed is new although PP takes it for
+     one it holds: a withdrawal of the day and amount of a transfer's, or a
+     trade equal to one that PP holds.
 4. **Negative shares.** After an import, PP opens a dialog that names each
    security whose shares fall below zero ("Security '...' in portfolio
    '...' has negative shares"). While a short position is open, a written
@@ -131,7 +134,13 @@ and the types' names, whatever PP's language and locale.
 6. **With `-since`** naming the folder that you imported last, once you
    have imported it, and a new folder. Before importing, delete in PP what
    it lists as changed or gone, each transfer once: deleting either half of
-   a transfer in PP deletes both. Then import in the order printed, and tick
+   a transfer in PP deletes both. Each is listed with how its note begins;
+   a transfer's note names its paying side first, in both accounts
+   (`schwabtx A2 ...398 T73600000101 to A1 ...135 T73600000102`). A row
+   listed as changed in the same form is one that PP holds under the note of
+   a row that has come back since, such as a file row counted again beside
+   the API row that took its place: delete it, and the export writes both,
+   each under its own note. Then import in the order printed, and tick
    exactly the rows it lists to tick. Say that you book the interest
    adjustment of the walk-through as a fee:
 

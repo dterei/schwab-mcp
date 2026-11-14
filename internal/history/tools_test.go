@@ -159,10 +159,10 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	check("rows in the balances", e.InBalances, inBalances)
 	var changed, gone []ToolChange
 	for _, c := range m.Changed {
-		changed = append(changed, ToolChange{Ref: c.Ref, Account: c.Account, Was: c.Was, NoteRef: c.NoteRef, Now: c.Now})
+		changed = append(changed, ToolChange{Ref: c.Ref, Account: c.Account, Was: c.Was, NoteRef: c.NoteRef, Transfer: c.Transfer, Now: c.Now})
 	}
 	for _, g := range m.Gone {
-		gone = append(gone, ToolChange{Ref: g.Ref, Account: g.Account, Was: g.Was, NoteRef: g.NoteRef, Why: g.Why})
+		gone = append(gone, ToolChange{Ref: g.Ref, Account: g.Account, Was: g.Was, NoteRef: g.NoteRef, Transfer: g.Transfer, Why: g.Why})
 	}
 	check("rows changed", e.Changed, changed)
 	check("rows gone", e.Gone, gone)

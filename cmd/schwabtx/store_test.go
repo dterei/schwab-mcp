@@ -1021,7 +1021,7 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 		{
 			name: "pp going on", dir: "pp-2026-12-01", since: "pp-2026-11-13",
 			e: history.ToolExport{
-				Tool: "pp", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 3, Late: 2,
+				Tool: "pp", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 3, Late: 2, SameAs: 1,
 				Files: []history.ToolFile{
 					{Name: "securities.csv", Kind: "securities", Rows: 22},
 					{Name: "account-transactions-A1-135.csv", Kind: "account", Account: "A1 ...135", Rows: 1},
@@ -1033,6 +1033,10 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 					{Ref: "T73508261950", Account: "A1 ...135", Was: "account 2024-04-04 Dividend 3.86", Now: "account 2024-04-04 Dividend 3.68"},
 				},
 				Gone: []history.ToolChange{
+					{
+						Ref: "T73508261953", Account: "A1 ...135", Was: "account 2025-02-10 Transfer (Inbound) 500.00",
+						Transfer: "A2 ...398 T73508261952 to A1 ...135 T73508261953", Why: "uncounted: user",
+					},
 					{Ref: "T73508261944", Account: "A2 ...398", Was: "portfolio 2025-01-21 Buy 400.67", Why: "uncounted: user"},
 					{Ref: "T73508261948", Account: "A2 ...398", Was: "account 2025-02-03 Deposit 25.00", NoteRef: "Ca3b4c5d6.4", Why: "linked to T73508261949"},
 					{Ref: "C9e8d7c6b.2", Account: "A3 ...777", Was: "portfolio 2025-03-04 Sell 10.00; account 2025-03-04 Fees 15.00", Why: "no longer in the store"},
@@ -1042,8 +1046,10 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 			want: `wrote 3 rows for Portfolio Performance to pp-2026-12-01, since pp-2026-11-13, up to 2026-11-30: 1 account file, 1 portfolio file, 2 securities, 20 prices
   this assumes Portfolio Performance holds pp-2026-11-13 and every export before it, each imported once, with what it listed deleted and ticked
   2 of them are dated on or before 2026-11-12, the end of pp-2026-11-13: they came late or were decided since
+  1 of them is a row that Portfolio Performance holds under another ref (pp-2026-12-01/manifest.json lists it under same_as): it shows it as existing; leave it unticked
 before importing, delete in Portfolio Performance what changed or went (pp-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 Dividend 3.86 (note schwabtx A1 ...135 T73508261950): changed; the new form is in this export
+  Schwab A1 ...135: 2025-02-10 Transfer (Inbound) 500.00 (note schwabtx A2 ...398 T73508261952 to A1 ...135 T73508261953): gone, uncounted (user)
   Schwab A2 ...398: 2025-01-21 Buy 400.67 (note schwabtx A2 ...398 T73508261944): gone, uncounted (user)
   Schwab A2 ...398: 2025-02-03 Deposit 25.00 (note schwabtx A2 ...398 Ca3b4c5d6.4): gone, linked to T73508261949
   A3 ...777: 2025-03-04 Sell 10.00; 2025-03-04 Fees 15.00 (note schwabtx A3 ...777 C9e8d7c6b.2): gone, no longer in the store
@@ -1076,6 +1082,27 @@ in Portfolio Performance, make a USD deposit account and a securities account fo
   A3 ...777 (Joint?Trust): Schwab A3 ...777
 import in this order: securities.csv, portfolio-transactions-A3-777.csv
 next time: schwabtx export -format pp -since pp-2026-12-15 -dir <a new folder>
+`,
+		},
+		{
+			// Rows under new refs, which PP marks as existing, and a row of the
+			// same form under its own Note in place of another's.
+			name: "pp going on, new refs", dir: "pp-2026-12-20", since: "pp-2026-12-15",
+			e: history.ToolExport{
+				Tool: "pp", To: "2026-12-19", Since: "2026-12-15T12:00:00Z", SinceTo: "2026-12-14", Written: 3, SameAs: 2,
+				Files:    []history.ToolFile{{Name: "securities.csv", Kind: "securities", Rows: 1}, {Name: "portfolio-transactions-A1-135.csv", Kind: "portfolio", Account: "A1 ...135", Rows: 3}},
+				Accounts: []history.ToolAccount{a1},
+				Changed: []history.ToolChange{
+					{Ref: "T73508261962", Account: "A1 ...135", Was: "portfolio 2026-01-07 Buy 60.00", NoteRef: "C9e8d7c6b.5", Now: "portfolio 2026-01-07 Buy 60.00"},
+				},
+			},
+			want: `wrote 3 rows for Portfolio Performance to pp-2026-12-20, since pp-2026-12-15, up to 2026-12-19: 1 portfolio file
+  this assumes Portfolio Performance holds pp-2026-12-15 and every export before it, each imported once, with what it listed deleted and ticked
+  2 of them are rows that Portfolio Performance holds under another ref (pp-2026-12-20/manifest.json lists them under same_as): it shows them as existing; leave them unticked
+before importing, delete in Portfolio Performance what changed or went (pp-2026-12-20/manifest.json lists each):
+  Schwab A1 ...135: 2026-01-07 Buy 60.00 (note schwabtx A1 ...135 C9e8d7c6b.5): changed; the new form is in this export
+import in this order: securities.csv, portfolio-transactions-A1-135.csv
+next time: schwabtx export -format pp -since pp-2026-12-20 -dir <a new folder>
 `,
 		},
 		{

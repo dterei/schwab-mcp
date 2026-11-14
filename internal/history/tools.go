@@ -94,7 +94,8 @@ type ToolExport struct {
 	Changed, Gone []ToolChange
 	// SameAs counts, for PP, the rows gone under one ref that the export
 	// writes under another, alike in everything PP keeps: PP keeps the one
-	// it holds, so neither is to delete or to tick.
+	// it holds, and marks the new one as existing, so neither is to delete
+	// or to tick. Late counts none of them.
 	SameAs int
 	// Tick are, for PP, the rows that PP will mark as existing although
 	// they are new, which you tick on its review page.
@@ -222,8 +223,10 @@ type ToolChange struct {
 	// for PP, each record's file, day, Type and Value, as "portfolio
 	// 2025-01-21 Buy 400.67"; for Ghostfolio, each activity's day, type and
 	// value, with its fee. NoteRef is the ref that its PP Note names, when
-	// it is not Ref.
-	Was, NoteRef string
+	// it is not Ref; Transfer, for a side of a PP transfer, the head of the
+	// Note that PP holds of the transfer, which names its paying side first,
+	// as "A2 ...398 T61001201 to A1 ...135 T61001202", "" for any other row.
+	Was, NoteRef, Transfer string
 	// Now is, for a row changed, what the export writes of it, in Was's
 	// form; Why is, for a row gone, what became of it: uncounted with the
 	// store's reason, linked to the row that counts in its place, no longer
@@ -481,10 +484,10 @@ func (e *ToolExport) count() {
 		}
 	}
 	for _, c := range e.res.changed {
-		e.Changed = append(e.Changed, ToolChange{Ref: c.Ref, Account: c.Account, Was: c.Was, NoteRef: c.NoteRef, Now: c.Now})
+		e.Changed = append(e.Changed, ToolChange{Ref: c.Ref, Account: c.Account, Was: c.Was, NoteRef: c.NoteRef, Transfer: c.Transfer, Now: c.Now})
 	}
 	for _, g := range e.res.gone {
-		e.Gone = append(e.Gone, ToolChange{Ref: g.Ref, Account: g.Account, Was: g.Was, NoteRef: g.NoteRef, Why: g.Why})
+		e.Gone = append(e.Gone, ToolChange{Ref: g.Ref, Account: g.Account, Was: g.Was, NoteRef: g.NoteRef, Transfer: g.Transfer, Why: g.Why})
 	}
 	for _, t := range ppTickList(e.marks) {
 		e.Tick = append(e.Tick, ToolTick(t))
