@@ -1026,7 +1026,7 @@ func TestUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"schwabtx login ", "schwabtx [flags] ", "schwabtx accounts ", "schwabtx positions ", "schwabtx balances ",
+		"schwabtx login ", "schwabtx setup ", "schwabtx [flags] ", "schwabtx accounts ", "schwabtx positions ", "schwabtx balances ",
 		"schwabtx snapshot ", "schwabtx import ", "schwabtx status ", "schwabtx edit ", "schwabtx export ", "schwabtx store ",
 		`"schwabtx <command> -h"`, "SCHWAB_STORE_FILE",
 	} {

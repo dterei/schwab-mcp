@@ -8,6 +8,7 @@
 // Usage:
 //
 //	schwabtx login           one-time browser login (repeat every 7 days)
+//	schwabtx setup           save the app key, secret and paths for the MCP server
 //	schwabtx [flags]         print the most recent transactions
 //	schwabtx accounts        list the accounts with their nicknames and values
 //	schwabtx positions       print each account's positions
@@ -61,7 +62,21 @@ func loadConfig() (config, error) {
 		TokenFile:   strings.TrimSpace(os.Getenv("SCHWAB_TOKEN_FILE")),
 	}
 	if cfg.AppKey == "" || cfg.AppSecret == "" {
-		return cfg, errors.New("SCHWAB_APP_KEY and SCHWAB_APP_SECRET must be set (see README.md)")
+		// The key and secret that schwabtx setup saved, in place of those
+		// that the environment lacks.
+		key, secret, err := savedApp()
+		if err != nil {
+			return cfg, fmt.Errorf("SCHWAB_APP_KEY and SCHWAB_APP_SECRET must be set, or saved with schwabtx setup (see README.md); %w", err)
+		}
+		if cfg.AppKey == "" {
+			cfg.AppKey = key
+		}
+		if cfg.AppSecret == "" {
+			cfg.AppSecret = secret
+		}
+	}
+	if cfg.AppKey == "" || cfg.AppSecret == "" {
+		return cfg, errors.New("SCHWAB_APP_KEY and SCHWAB_APP_SECRET must be set, or saved with schwabtx setup (see README.md)")
 	}
 	if cfg.CallbackURL == "" {
 		cfg.CallbackURL = schwab.DefaultCallbackURL
@@ -122,7 +137,13 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		if err != nil {
 			return err
 		}
-		return login(ctx, cfg, auth, stdin, stdout)
+		if err := login(ctx, cfg, auth, stdin, stdout); err != nil {
+			return err
+		}
+		warnLoginDrift(cfg.TokenFile, stderr)
+		return nil
+	case "setup":
+		return runSetup(ctx, args, stdout, stderr)
 	case "transactions":
 		return runTransactions(ctx, args, stdout, stderr)
 	case "snapshot":
@@ -153,6 +174,7 @@ func usage(w io.Writer) {
 recent transactions, and saves snapshots of your positions and balances.
 
   schwabtx login        one-time browser login (Schwab makes you repeat it every 7 days)
+  schwabtx setup        save the app key, secret and paths in config.json, for the MCP server
   schwabtx [flags]      print the most recent transactions across all accounts
   schwabtx accounts     list your accounts with their nicknames, types and values
   schwabtx positions    print what each account holds, with cost and open profit or loss
@@ -169,8 +191,9 @@ commands use without a login:
   schwabtx store        check, rebuild, back up or restore the store
 
 Run "schwabtx -h" or "schwabtx <command> -h" for flags. Credentials come from
-SCHWAB_APP_KEY and SCHWAB_APP_SECRET, and the store is SCHWAB_STORE_FILE or
--store; see README.md.
+SCHWAB_APP_KEY and SCHWAB_APP_SECRET, or else from the config.json that
+schwabtx setup saves, and the store is SCHWAB_STORE_FILE or -store; see
+README.md.
 `)
 }
 

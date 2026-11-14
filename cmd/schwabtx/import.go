@@ -184,8 +184,10 @@ file that schwabtx snapshot writes. Importing a file again adds nothing.
 // when it is missing, which made says. A dry run makes no store: when the
 // store is missing, it opens a new store of its own, the same as an empty
 // one, in a folder of its own. closeStore closes the store, and removes
-// that folder.
+// that folder. It first warns when the MCP server reads another store
+// (warnStoreDrift).
 func openImportStore(ctx context.Context, path string, dryRun bool, stderr io.Writer) (s *history.Store, made bool, closeStore func(), err error) {
+	warnStoreDrift(path, stderr)
 	_, statErr := os.Stat(path)
 	missing := errors.Is(statErr, fs.ErrNotExist)
 	if dryRun && missing {

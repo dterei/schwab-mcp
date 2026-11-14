@@ -155,8 +155,10 @@ func storeOptions(path string, mustExist bool, stderr io.Writer) history.Options
 }
 
 // openStore opens the store at path, as storeOptions says, for a command
-// that needs one there and makes none.
+// that needs one there and makes none. It first warns when the MCP server
+// reads another store (warnStoreDrift).
 func openStore(ctx context.Context, path string, stderr io.Writer) (*history.Store, error) {
+	warnStoreDrift(path, stderr)
 	return history.Open(ctx, storeOptions(path, true, stderr))
 }
 

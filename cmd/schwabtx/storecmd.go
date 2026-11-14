@@ -117,8 +117,10 @@ file alone can damage.
 
 // restoreStore replaces what the store at path holds with what the backup
 // holds, through SQLite, or with dryRun says what each holds, and makes a
-// store that is missing.
+// store that is missing. It first warns when the MCP server reads another
+// store (warnStoreDrift).
 func restoreStore(ctx context.Context, path, backup string, dryRun bool, stdout, stderr io.Writer) error {
+	warnStoreDrift(path, stderr)
 	_, statErr := os.Stat(path)
 	r, err := history.Restore(ctx, storeOptions(path, false, stderr), backup, dryRun)
 	if err != nil {
