@@ -588,13 +588,21 @@ func assertLoginAt(t *testing.T, tokenFile string) {
 
 // When config.json names another token file than login saves to, login
 // says so, naming the server's and what points it here; with the same one,
-// or with no config.json, it says nothing.
+// with a config.json that names none, or with no config.json, it says
+// nothing.
 func TestLoginWarnsOfAnotherTokenFile(t *testing.T) {
 	_, tokenFile := setup(t)
 	warning := "warning: the MCP server reads its login from " + loginFile(t, tokenFile) +
 		" (config.json); run schwabtx setup in this terminal to point it here\n"
 	if out := doLogin(t); strings.Contains(out, "MCP server") {
 		t.Errorf("without config.json, login printed\n%s", out)
+	}
+	// A config.json saved by hand may name no token file.
+	if err := configfile.Save(configPath(t), configfile.File{AppKey: testKey, AppSecret: testSecret}); err != nil {
+		t.Fatal(err)
+	}
+	if out := doLogin(t); strings.Contains(out, "MCP server") {
+		t.Errorf("with a config.json that names no token file, login printed\n%s", out)
 	}
 	if _, _, err := runTx(t, "setup"); err != nil {
 		t.Fatal(err)
@@ -650,7 +658,8 @@ func TestLoginWarnsOfAnotherTokenFile(t *testing.T) {
 
 // When config.json names another store than a store command opens, the
 // command says so once, naming the server's store and what points it
-// here; with the same store, or with no config.json, it says nothing.
+// here; with the same store, with a config.json that names none, or with
+// no config.json, it says nothing.
 func TestStoreCommandsWarnOfAnotherStore(t *testing.T) {
 	offline(t)
 	other := newStoreFile(t)
@@ -665,6 +674,12 @@ func TestStoreCommandsWarnOfAnotherStore(t *testing.T) {
 	}
 	if stderr := warned("status"); strings.Contains(stderr, "MCP server") {
 		t.Errorf("without config.json, status warned %q", stderr)
+	}
+	if err := configfile.Save(configPath(t), configfile.File{AppKey: testKey, AppSecret: testSecret}); err != nil {
+		t.Fatal(err)
+	}
+	if stderr := warned("status"); strings.Contains(stderr, "MCP server") {
+		t.Errorf("with a config.json that names no store, status warned %q", stderr)
 	}
 	if err := configfile.Save(configPath(t), configfile.File{AppKey: testKey, AppSecret: testSecret, StoreFile: other}); err != nil {
 		t.Fatal(err)
