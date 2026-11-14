@@ -67,9 +67,10 @@ const withheld = "[withheld]"
 
 // A Report says what JSON replaced, for a log and for tests.
 type Report struct {
-	// AccountNumbers counts the account numbers masked: the values of
-	// AccountNumber, and the known numbers in the values of the other
-	// classes and in keys; Tags the tags reduced to their origin or
+	// AccountNumbers counts the values and keys in which an account number
+	// was masked, each once, however many numbers it held: the values of
+	// AccountNumber, and the values of the other classes and the keys that
+	// held a known number. Tags counts the tags reduced to their origin or
 	// withheld; Withheld the values withheld, of Withheld and of Unknown;
 	// and UnknownIntegers the integers of Unknown masked. Free text that
 	// Text masked by pattern is not counted.

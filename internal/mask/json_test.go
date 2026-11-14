@@ -377,6 +377,11 @@ func TestMaskJSONShape(t *testing.T) {
 	if want := (Report{AccountNumbers: 3, Tags: 1, Paths: []string{"accountNumber", "...135", "tag"}}); err != nil || !reflect.DeepEqual(r, want) {
 		t.Errorf("the report = %+v, %v; want %+v", r, err, want)
 	}
+	// A value or a key that holds two known numbers counts once.
+	_, r, err = JSON([]byte(`{"symbol":"29470135 and 1234567","x":{"29470135 1234567":1}}`), testClass, testKnown())
+	if want := (Report{AccountNumbers: 2, Paths: []string{"symbol", "x....135 ...567"}}); err != nil || !reflect.DeepEqual(r, want) {
+		t.Errorf("the report of two numbers in a value and in a key = %+v, %v; want %+v", r, err, want)
+	}
 
 	// The path reaches classOf from the root, through arrays, and is the
 	// caller's to keep.
