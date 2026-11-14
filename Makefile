@@ -16,7 +16,7 @@ RACE ?= -race
 FUZZTIME ?= 30s
 FUZZPKGS := ./internal/schwab ./internal/mask ./internal/history/schwabfile
 
-.PHONY: all check build test volume fuzz cover lint libc fmt tidy vuln clean help
+.PHONY: all check build test volume fuzz cover lint libc schemas fmt tidy vuln clean help
 
 all: check
 
@@ -24,6 +24,7 @@ check: ## Everything CI checks
 	go mod tidy -diff
 	$(MAKE) --no-print-directory libc
 	$(MAKE) --no-print-directory lint
+	$(MAKE) --no-print-directory schemas
 	go test $(RACE) -shuffle=on ./...
 	$(GOVULNCHECK) ./...
 
@@ -74,6 +75,15 @@ libc: ## Check that modernc.org/libc is the one modernc.org/sqlite requires
 		exit 1; \
 	fi
 
+# CI's schemas job: Ajv, set up as clients built on the TypeScript MCP SDK set
+# it up, compiles each schema the MCP server serves (scripts/ajvcheck). npm ci
+# installs the versions that package-lock.json pins.
+schemas: ## Compile the MCP server's schemas with Ajv as the TypeScript MCP SDK's clients do (needs npm)
+	@if command -v npm >/dev/null; then \
+		npm ci --ignore-scripts --prefix scripts/ajvcheck && \
+		node scripts/ajvcheck/check.mjs internal/mcpserver/testdata/schemas/*.json; \
+	else echo "npm not found; skipping the MCP server's schemas"; fi
+
 fmt: ## Format the code (gofumpt and goimports)
 	$(GOLANGCI_LINT) fmt
 
@@ -83,8 +93,8 @@ tidy: ## Tidy go.mod and go.sum
 vuln: ## Check for known vulnerabilities in the code and the Go toolchain
 	$(GOVULNCHECK) ./...
 
-clean: ## Remove build and test output
-	rm -rf bin coverage.out
+clean: ## Remove build and test output, and the schemas check's packages
+	rm -rf bin coverage.out scripts/ajvcheck/node_modules
 
 help: ## List the targets
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'

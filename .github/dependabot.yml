@@ -25,3 +25,20 @@ updates:
     groups:
       github-actions:
         patterns: ['*']
+
+  # Ajv and ajv-formats for CI's schemas job, which compiles the MCP server's
+  # schemas as clients built on the TypeScript MCP SDK do. That SDK takes
+  # ajv ^8.17.1 and ajv-formats ^3.0.1, so a new major version would reach
+  # no such client until the SDK moves to it.
+  - package-ecosystem: npm
+    directory: /scripts/ajvcheck
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+    groups:
+      ajvcheck:
+        patterns: ['*']
