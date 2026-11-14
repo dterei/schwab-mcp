@@ -29,12 +29,14 @@ Schwab & Co.
 | [`schwabtx snapshot`](cmd/schwabtx/README.md#snapshots): save your current positions and balances; [run it daily](cmd/schwabtx/schedule) with launchd, cron or Task Scheduler | Works |
 | [The store](docs/store.md) (milestone 2): `schwabtx import` of snapshots, of `schwabtx transactions -json` and of [schwab.com's History and Realized Gain/Loss exports](docs/schwab-exports.md), each transaction counted once and classified; `status`, `edit` to settle what it flags; `export` as CSV or JSON Lines; backups | Works |
 | `schwabtx sync`: your whole history from Schwab's API into the store, kept current (milestone 2) | Waits for the live probes |
-| Export formats for Portfolio Performance and Ghostfolio (milestone 2) | Planned |
+| [Exports for Portfolio Performance and Ghostfolio](docs/tools.md) (milestone 2): `schwabtx export -format pp` and `-format ghostfolio` write the store's ledger as the files that each imports, and later exports with `-since` only what the tool lacks, with what to delete there first | Works; not yet imported into a running Portfolio Performance or Ghostfolio |
 | Go client for Schwab's API (milestone 1): the login, retries under a shared rate limit, and the account records | In progress, internal for now |
 | MCP server, read-only first (milestone 3) | Planned |
 
 The [roadmap](docs/ROADMAP.md) has the plan and the full feature list,
 [docs/store.md](docs/store.md) describes the store and its commands,
+[docs/tools.md](docs/tools.md) how to import its exports into Portfolio
+Performance and Ghostfolio,
 [docs/schwab-api.md](docs/schwab-api.md) has notes on the API itself,
 [docs/schwab-exports.md](docs/schwab-exports.md) on schwab.com's exports, and
 [docs/prior-art.md](docs/prior-art.md) surveys existing Schwab MCP servers and
@@ -111,11 +113,13 @@ go run ./cmd/schwabtx import transactions.json   # Schwab's own rows, until sync
 go run ./cmd/schwabtx import ~/Downloads/*_Transactions_*.json   # schwab.com's History exports
 go run ./cmd/schwabtx status -review             # what waits for you, and how to settle it
 go run ./cmd/schwabtx export -o ledger.csv       # each transaction once, for your calculator
+go run ./cmd/schwabtx export -format pp -dir pp-1   # or ghostfolio: files for that tool to import
 ```
 
 [docs/schwab-exports.md](docs/schwab-exports.md) says how to export History
-from schwab.com, and [docs/store.md](docs/store.md) walks through what each
-command prints.
+from schwab.com, [docs/store.md](docs/store.md) walks through what each
+command prints, and [docs/tools.md](docs/tools.md) says how to import the
+exports into Portfolio Performance or Ghostfolio.
 
 On Windows, where `chmod` does not apply, keep the clone inside your user
 profile, which other users cannot read, and load `.env` in PowerShell
@@ -207,8 +211,9 @@ internal/history/schwabfile/
 internal/nyse/, internal/nytime/
                 the NYSE's sessions since 2000, and New York's time zone
 internal/mask/  account numbers and free text masked to the last 3 digits
-docs/           roadmap, the store, notes on the Schwab API and schwab.com's
-                exports, the live mode and a survey of prior art
+docs/           roadmap, the store, importing its exports into Portfolio
+                Performance and Ghostfolio, notes on the Schwab API and
+                schwab.com's exports, the live mode and a survey of prior art
 .github/        CI and Dependabot
 ```
 

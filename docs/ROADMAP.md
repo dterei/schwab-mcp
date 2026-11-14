@@ -349,12 +349,35 @@ The data your return calculators need, kept complete and current.
       positions and balances, closed lots, coverage, gaps and flags, with
       raw JSON optional. Each account's coverage by source is printed with
       it, and an export of an unchanged store is the same bytes
-- [ ] Export formats for existing tools: Portfolio Performance and Ghostfolio.
-      What is left is the two formats: the ledger already holds what both
-      need (the type from the category, the security by symbol or CUSIP,
-      shares, gross, fees, net, date; journal pairs mark moves between your
-      accounts), so they will be `schwabtx export -format pp` and
-      `-format ghostfolio` over the same rows
+- [x] Export formats for existing tools: Portfolio Performance and
+      Ghostfolio. `schwabtx export -format pp` writes the ledger as CSV
+      files for Portfolio Performance's import wizard, with the import
+      configurations that make them read alike in any language, and
+      `-format ghostfolio` as one JSON file for Ghostfolio's import, with
+      accounts, their balances from the snapshots, and assets priced from
+      them where Yahoo has no price. Every row is mapped by its category
+      and sign, options by their contracts times the multiplier, bonds by
+      face value, a cash merger's two rows as one sale, a journal between
+      two exported accounts as one transfer in Portfolio Performance; what
+      neither tool can take is left out with a reason and what to do, and
+      each account's holdings are checked against its latest snapshot,
+      which shows the positions opened before the store's rows. Neither
+      tool updates or deletes on
+      import, so each export's manifest records what it gave the tool, and
+      `-since` writes only what the tool lacks, whatever its day, with what
+      to delete there first and, for Portfolio Performance, which new rows
+      to tick that it will take for existing ones
+      ([how to import them](tools.md))
+- [ ] A first import of the tool exports into a running Portfolio
+      Performance and Ghostfolio. The files are tested against the import
+      code of Portfolio Performance 0.90.0 and Ghostfolio 3.99.0, as read,
+      and imported into models of both, but not yet into either tool. What
+      is left is to import the walk-through's exports and the tests' cases
+      into each by hand: the import configurations first, then Portfolio
+      Performance's Buy and Sell from its portfolio file, the rows its
+      review page marks as existing beside the tick list, and whether
+      Ghostfolio takes a fee of an asset priced at 1 off net performance;
+      the files that each accepts then become the tests' anchor
 - [x] `schwabtx accounts`, `positions` and `balances` for quick lookups:
       each account's nickname, type and value; its positions, with
       quantity, average cost, value, cost basis and open profit or loss,
@@ -604,7 +627,7 @@ Everything planned, by area.
 | History | Local store of transactions, snapshots and schwab.com's files, with backups | done |
 | History | Import of schwab.com History and Realized Gain/Loss CSVs, each transaction counted once | done |
 | History | CSV and JSON Lines export | done |
-| History | Portfolio Performance and Ghostfolio export | M2 |
+| History | Portfolio Performance and Ghostfolio export | done |
 | Lookups | Accounts, positions and balances at a glance (`schwabtx accounts`, `positions`, `balances`) | done |
 | MCP | Read-only tools for accounts, positions, history, orders, market data | M3 |
 | MCP | Resources, prompts, structured output, tool annotations, masked account numbers | M3 |
@@ -642,8 +665,9 @@ it.
 - **Does a fill between 6 PM and midnight in New York, in the futures or
   overnight sessions, carry its instant in `tradeDate`, or the next day's
   midnight?** A futures-option fill at 00:15 carried its instant. It decides
-  which day such a fill is booked on. Probe: Q2, in the default run, which
-  needs such a fill in your history.
+  which day such a fill is booked on, and whether the tool exports can write
+  its time. Probe: Q2, in the default run, which needs such a fill in your
+  history.
 - **When do initial balances move to the new session**, and do they then
   hold the close? A snapshot taken after that could stand for the close.
   The store keeps every snapshot, with both liquidation values and every
@@ -691,7 +715,8 @@ it.
   transactions?** No public sample shows an expiration, an assignment, a
   transfer in kind or a corporate action; those are probably
   RECEIVE_AND_DELIVER rows. This decides the classification rules in
-  milestone 2. Until then the store books such rows `other`, flagged
+  milestone 2, and which of the API's rows the tool exports close an option
+  with. Until then the store books such rows `other`, flagged
   `awaits_probe` for you to set a category, and links them to History rows,
   whose actions say what they were; an answer is new rules and a rebuild.
   Probe: Q11, in the default run, which counts the shapes of

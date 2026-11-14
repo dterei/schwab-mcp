@@ -10,8 +10,9 @@ whether it counts, and why.
 This page is the reference: what the store holds and where, how it is
 opened and written, the commands with what they print, importing
 schwab.com's files and the snapshot file, counting each transaction once and
-settling what the store flags, exports, backups, privacy, the views that
-later milestones read, and the tests' time. The commands' flags are in the
+settling what the store flags, exports, those for Portfolio Performance and
+Ghostfolio among them, backups, privacy, the views that later milestones
+read, and the tests' time. The commands' flags are in the
 [CLI's README](../cmd/schwabtx/README.md#the-store), and what schwab.com's
 exports hold is in [Schwab's exports](schwab-exports.md).
 
@@ -533,7 +534,42 @@ $ schwabtx export -what ledger,snapshots
 error: -what ledger,snapshots needs -dir
 ```
 
-[Exports](#exports) has the tables, their columns and formats.
+`-format pp` and `-format ghostfolio` write the ledger as the files that
+Portfolio Performance and Ghostfolio import, each export to a new folder,
+with a `manifest.json` that says what it wrote, what it left out and what
+it asks of you:
+
+```
+$ schwabtx export -format pp -dir pp
+wrote 17 rows for Portfolio Performance to pp, up to 2026-11-13: 2 account files, 2 portfolio files, 10 securities, 6 prices
+  A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
+  A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
+  A3 ...783: snapshot 2026-11-02 to 2026-11-10
+12 holdings differ from the latest snapshot (pp/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
+  A1 ...135: Schwab A1 ...135
+  A2 ...398: Schwab A2 ...398
+import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv, account-transactions-A2-398.csv, portfolio-transactions-A2-398.csv
+next time: schwabtx export -format pp -since pp -dir <a new folder>
+$ schwabtx export -format ghostfolio -dir gf
+wrote 13 activities for Ghostfolio to gf, up to 2026-11-13: 3 accounts with 12 balances, 5 manual assets (1 more with prices only), 5 symbols for Yahoo
+  A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
+  A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
+  A3 ...783: snapshot 2026-11-02 to 2026-11-10
+4 deposits, withdrawals and journals are in the accounts' balances
+12 holdings differ from the latest snapshot (gf/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+2 symbols for Yahoo have no row since 2025-11-13 and are not held (gf/manifest.json lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual
+Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
+next time: schwabtx export -format ghostfolio -since gf -dir <a new folder>
+```
+
+The holdings differ because the walk-through's made-up snapshots and rows
+were not made to agree; in your store a difference is most often a
+position opened before the store's rows (see [Hard cases](#hard-cases)).
+[Exports](#exports) has the tables, their columns and formats, [Exports for
+Portfolio Performance and
+Ghostfolio](#exports-for-portfolio-performance-and-ghostfolio) what the
+tools' files hold, and [docs/tools.md](tools.md) how to import them.
 
 ### Upkeep
 
@@ -1003,8 +1039,9 @@ detail, as `warning: code: detail`.
 ## Exports
 
 ```
-schwabtx export [-store PATH] [-what WHAT] [-format csv|jsonl] [-account ACCOUNT]
-                [-from DATE] [-to DATE] [-all] [-raw] [-show-accounts] [-o FILE | -dir DIR]
+schwabtx export [-store PATH] [-what WHAT] [-format csv|jsonl|pp|ghostfolio] [-account ACCOUNT]
+                [-from DATE] [-to DATE] [-all] [-raw] [-show-accounts]
+                [-manual SYMBOLS] [-since DIR] [-o FILE | -dir DIR]
 ```
 
 `-what` names one of these tables, a comma-separated list of them, or
@@ -1076,11 +1113,494 @@ entry, counted or not.
   writes them, so that a slow reader of its output (`| less`) keeps no
   transaction open.
 
-Portfolio Performance and Ghostfolio formats are not written yet. The ledger
-holds what both need (the type from the category, the security by symbol or
-CUSIP, shares, gross, fees, net, date; journal pairs mark moves between your
-accounts), so they will be `-format pp` and `-format ghostfolio` over the
-same rows.
+`-format pp` and `-format ghostfolio` write the ledger as the files that
+Portfolio Performance and Ghostfolio import, and take `-manual` and
+`-since`: see [Exports for Portfolio Performance and
+Ghostfolio](#exports-for-portfolio-performance-and-ghostfolio).
+
+## Exports for Portfolio Performance and Ghostfolio
+
+```
+schwabtx export -format pp|ghostfolio -dir DIR [-store PATH] [-account ACCOUNT] [-to DATE]
+                [-manual SYMBOLS] [-since DIR]
+```
+
+`-format pp` and `-format ghostfolio` write the ledger as the files that
+[Portfolio Performance](https://www.portfolio-performance.info) (PP) and
+[Ghostfolio](https://ghostfol.io) import: the counted rows of every account,
+or of `-account`'s, from each account's first row up to `-to`, by default
+the day before today in New York, so that a day still in progress is never
+split between two exports. They write to a folder that holds no export yet,
+made readable only by you, with a `manifest.json` that says what the export
+wrote, what it left out and what it asks of you, and they print the same in
+short on stderr. They write no table but the ledger, and refuse `-all`,
+`-from`, `-raw`, `-show-accounts` and `-o`, each with why: they write every
+counted row from each account's first, so that each position has its
+opening rows, and never a full account number. [Portfolio Performance and
+Ghostfolio](tools.md) says how to import them, step by step; this section
+says what they hold and why.
+
+The files are written for PP 0.90.0 and Ghostfolio 3.99.0: the tests check
+them by those versions' import rules, as read in their code, and import
+them into models of both tools; none has yet been imported into a running
+PP or Ghostfolio.
+
+### The files
+
+| File | For | What it holds |
+| --- | --- | --- |
+| `securities.csv` | PP | a row per security that the rows name, and a row per snapshot price of each security that PP has no price feed for, named by a row or held by an exported account |
+| `account-transactions-A1-135.csv` | PP | the account's rows that move only cash: deposits, withdrawals, transfers, dividends, interest, fees and taxes |
+| `portfolio-transactions-A1-135.csv` | PP | the account's rows that move shares: buys, sells and deliveries |
+| `pp-securities.json`, `pp-account-transactions.json`, `pp-portfolio-transactions.json` | PP | the import configurations: each file's columns, by position, their formats, and the names of the types, whatever PP's language and locale |
+| `ghostfolio.json` | Ghostfolio | the accounts with their balances, the MANUAL assets with their prices, and the activities |
+| `manifest.json` | both | what the export wrote, left out and asks of you, and what the next export with `-since` goes on from |
+
+An account gets each of its two PP files when it has a row for it. PP's
+files are CSV as the store's own exports write it: UTF-8 without a byte
+order mark, comma-separated, a header row, RFC 4180 quoting, lines ending in
+LF; dates `YYYY-MM-DD`, amounts with `.` for decimals, and the types by
+their English names, which the configurations map in any language.
+Ghostfolio's file has the shape of Ghostfolio's own export without its
+`meta` and `user`. The walk-through's `pp/portfolio-transactions-A2-398.csv`:
+
+```
+Date,Time,Type,Value,Transaction Currency,Shares,Fees,Ticker Symbol,WKN,Security Name,Note,Cash Account,Securities Account
+2025-01-14,00:15,Buy,1052.82,USD,50,2.82,/ESH25_P5050:XCME,,E-MINI S&P 500 OPTIONS MAR 25 5050 PUT,schwabtx A2 ...398 T73508261945: TRADE,Schwab A2 ...398,Schwab A2 ...398
+2025-01-21,11:05,Buy,400.67,USD,200,0.67,XYZ250221P00040000,,XYZ 02/21/2025 40.00 P,schwabtx A2 ...398 T73508261944: TRADE,Schwab A2 ...398,Schwab A2 ...398
+2026-03-13,09:55,Sell,603.36,USD,1,0.04,META,30303M102,META PLATFORMS INC CLASS A,schwabtx A2 ...398 T73508261942: TRADE,Schwab A2 ...398,Schwab A2 ...398
+2026-08-04,11:22,Sell,311.31,USD,100,0.69,XYZ260918C00050000,,XYZ 09/18/2026 50.00 C,schwabtx A2 ...398 T73508261941: TRADE,Schwab A2 ...398,Schwab A2 ...398
+```
+
+and the second of those rows in `gf/ghostfolio.json`:
+
+```
+    {
+      "accountId": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
+      "comment": "schwabtx A2 ...398 T73508261944",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "date": "2025-01-21T12:00:39.912Z",
+      "fee": 0.67,
+      "quantity": 200,
+      "symbol": "fc94e404-4c85-87f0-962e-bb88e7134119",
+      "type": "BUY",
+      "unitPrice": 2
+    },
+```
+
+### What becomes of each row
+
+Every ledger row up to `-to` has one outcome: **written**, as one record or
+more (a trade of several legs is a record per leg); **given**, with
+`-since`, when the tool holds it already, unchanged; **combined**, the
+shares row of a two-row cash event, which its cash row's sale carries;
+**in balances**, for Ghostfolio, a deposit, withdrawal or journal that the
+account's balances carry; or **left out**, with a reason and what to do.
+The mapping reads nothing of an earlier export: a full export and one made
+with `-since` map every row alike.
+
+### The mapping
+
+By category and sign. PP's Type follows the amount's sign within the
+category, and Value is written unsigned, since a Type says which way the
+cash goes; Ghostfolio has no activity for cash flows, whose cash is the
+accounts' balances, and takes no negative value.
+
+| Category | When | Event | PP file: Type | Ghostfolio |
+| --- | --- | --- | --- | --- |
+| `deposit` | amount > 0 | deposit | account: Deposit | account balance |
+| `deposit` | amount < 0 | withdrawal | account: Withdrawal | account balance |
+| `withdrawal` | amount > 0 | deposit | account: Deposit | account balance |
+| `withdrawal` | amount < 0 | withdrawal | account: Withdrawal | account balance |
+| `journal` | cash, paired with a counted journal of the opposite amount, both booked `journal`, both accounts exported | transfer | account: Transfer (Outbound) in the paying account's file, Transfer (Inbound) in the receiving one's | account balances |
+| `journal` | cash, any other, amount > 0 | deposit | account: Deposit | account balance |
+| `journal` | cash, any other, amount < 0 | withdrawal | account: Withdrawal | account balance |
+| `journal` | shares, quantity > 0 | delivery in | portfolio: Delivery (Inbound) | BUY |
+| `journal` | shares, quantity < 0 | delivery out | portfolio: Delivery (Outbound) | SELL |
+| `transfer_in` | quantity > 0 | delivery in | portfolio: Delivery (Inbound) | BUY |
+| `transfer_in` | quantity < 0 | delivery out | portfolio: Delivery (Outbound) | SELL |
+| `transfer_out` | quantity > 0 | delivery in | portfolio: Delivery (Inbound) | BUY |
+| `transfer_out` | quantity < 0 | delivery out | portfolio: Delivery (Outbound) | SELL |
+| `buy` | quantity > 0 | buy | portfolio: Buy | BUY |
+| `buy` | quantity < 0 (a Cancel Buy) | sell | portfolio: Sell | SELL |
+| `sell` | quantity < 0 | sell | portfolio: Sell | SELL |
+| `sell` | quantity > 0 (a Cancel Sell) | buy | portfolio: Buy | BUY |
+| `sell` | no quantity, with the shares row of its two-row event | sell | portfolio: Sell | SELL |
+| `dividend` | amount > 0 | dividend | account: Dividend | DIVIDEND |
+| `dividend` | amount < 0 | fees | account: Fees | FEE |
+| `interest` | amount > 0, no security | interest | account: Interest | INTEREST |
+| `interest` | amount > 0, a security (a bond's coupon) | dividend | account: Dividend | DIVIDEND (INTEREST of the interest profile when the bond is left out) |
+| `interest` | amount < 0 | interest charge | account: Interest Charge | FEE |
+| `fee` | amount < 0 | fees | account: Fees | FEE |
+| `fee` | amount > 0 | fees refund | account: Fees Refund | INTEREST of the fees profile |
+| `tax` | amount < 0 | taxes | account: Taxes | FEE |
+| `tax` | amount > 0 | tax refund | account: Tax Refund | INTEREST of the taxes profile |
+| `other` | an option expired, assigned or exercised, no cash, quantity < 0 | close out | portfolio: Delivery (Outbound), Value 0 | SELL at 0 |
+| `other` | the same, quantity > 0 | close in | portfolio: Delivery (Inbound), Value 0 | BUY at 0 |
+| `other` | the shares of a two-row cash event | (with its cash row) | (one Sell) | (one SELL) |
+| `other` | anything else, and sweep pairs | left out | left out | left out |
+
+- **Two PP files by what moves.** PP's portfolio file takes a Buy or Sell
+  with its cash, as its account file does, so every row that moves shares
+  is in one file: split between two files, shares delivered in and sold
+  later would fall below zero after the first file's import, and PP would
+  open its dialog of negative shares.
+- **Fees and taxes in Ghostfolio** are FEE activities of two MANUAL assets,
+  `Schwab fees` and `Schwab taxes`, as Ghostfolio's own dialog makes a fee,
+  and interest is INTEREST of a third, `Schwab interest`. Each carries one
+  price of 1, so that Ghostfolio values it, which it must for its fees to
+  come off net performance; its quantity stays 0, so it adds no value. A
+  refund cannot be a negative fee, and a dividend of an asset with no
+  investment sets the whole portfolio's dividend yield to 0, so refunds are
+  INTEREST of the same asset, which Ghostfolio counts as interest, not in
+  performance.
+- **A negative dividend** (an adjustment) is a fee in both tools, and so
+  lowers performance as the adjustment does. **A coupon** is a PP Dividend
+  of the bond, since PP's Interest takes no security. **Withholding** stays
+  a row of its own, a PP Taxes of the security and a Ghostfolio FEE, beside
+  its dividend.
+
+### Values
+
+- **Trades.** A Buy's Value is the cash paid, fees included, and a Sell's
+  the cash received, net of fees; Fees are the trade's fees, and PP derives
+  the gross and the price from them. Ghostfolio gets the shares as its
+  quantity, the gross over the shares, to 10 places, as its unit price, and
+  the fees as its fee. A sale
+  whose fees exceed its proceeds is, in PP, a Sell of the proceeds and a
+  Fees row of the fees (caveat `fees_apart`); a negative fee, a rebate, is
+  folded into the price; fees off the cent grid ride in the price
+  (`fees_unknown`), so that the cash is right in both tools.
+- **Deliveries** (shares moved in or out without a trade) carry no cash.
+  Their value, which in PP is also the new cost basis, is the shares times
+  the price that the delivering side's row gives, divided by 100 for a
+  bond; else the security's snapshot price on the delivering side's day,
+  from any account (`value_from_snapshot`); else 0 (`value_unknown`), to set
+  in the tool. Both sides of a journal of shares between your accounts take
+  the one price.
+- **Cash rows.** PP's Value is the amount, unsigned, and a dividend's Fees
+  its fees. Ghostfolio's DIVIDEND is a quantity of 1 at the dividend before
+  fees, with its fees as `fee`, and its INTEREST a quantity of 1 at the
+  amount; its FEE is the amount as `fee`, at a quantity and price of 0.
+- **Numbers** come from the store's integer cents and millionths, and every
+  quotient from exact fractions, never a float: money with two places,
+  shares as the store's quantity times an option's multiplier, without
+  trailing zeros, and prices rounded half away from zero to 8 places
+  (Ghostfolio's trade prices to 10).
+- **Days and times.** A row's day is the store's (a file row's "as of" date
+  when it has one). PP's Time is the API row's time on New York's clock,
+  `HH:mm`, and empty for a file row, which has none, and for a fill whose
+  time falls on another day than the trade day it is booked on. Ghostfolio
+  takes an instant: the day at noon UTC, plus the New York seconds since
+  midnight as milliseconds (`2025-01-21T12:00:39.912Z` for 11:05:12), so
+  that the day's activities keep their order and the day stays the New York
+  day from UTC−11 to UTC+11. An option close takes the end of that window;
+  a row with no time its start, a sale a millisecond after a purchase.
+
+### Left out
+
+Each row left out is in the manifest's `left_out`, with its day, kind,
+description, symbol, quantity and amount, the reason, and what to do (its
+`advice` and a `command`); [what the manifest asks of
+you](tools.md#what-the-manifest-asks-of-you) says what each advice means in
+each tool.
+
+| Reason | Means | Advice |
+| --- | --- | --- |
+| `no_day` | a row with neither a trade date nor a time | `check` with `schwabtx status REF` |
+| `sweep_pair` | a bank sweep and its return, which move cash within the account | none |
+| `other` | booked `other` | by kind: `split`, `corporate_action`, or `set_category` with `schwabtx edit REF -category C` |
+| `no_amount` | the amount, or a leg's quantity or cost, is off the cent or millionth grid | `check` with `schwabtx status REF` |
+| `zero_amount` | a cash row of 0.00 | none |
+| `no_quantity` | a trade or move without a quantity (Cash In Lieu, the cash row of an event whose shares row is not found) | `by_hand` |
+| `no_security` | needs a security, has none | `set_security` with `schwabtx edit REF -security K:…` |
+| `signs_disagree` | a trade's cash has its quantity's sign | `check` with `schwabtx status REF` |
+| `legs_mismatch` | a trade of several legs whose legs do not add up to its cash | `check` |
+| `future` | a futures contract | `by_hand` |
+| `multiplier` | an option whose multiplier is not a whole number from 1 to 10000 | `by_hand` |
+| `bond_unit` | a bond whose rows or prices do not follow face value and prices per 100 | `check`: the probe run settles the API's unit |
+| `gf_cash` | Ghostfolio: a cash row posted after the account's latest snapshot was taken (one with only a date: on or after the day it was taken), or of an account with no snapshot, which no balance carries yet | `set_cash`: a later snapshot carries it; set the account's cash in Ghostfolio to that snapshot's, or take snapshots (`schwabtx snapshot`) of an account that has none |
+
+A row booked `other` is advised by its kind: `split` for Stock Split,
+Reverse Split, Options Frwd Split and Options Frwd Split Adj;
+`corporate_action` for Stock Merger, Name Change, Conversion, Spin-off,
+Stock Div Dist, Cash Merger Adj, Full Redemption and Exchange or Exercise
+(when it is not an option close); `set_category` for any other. The shares
+row of a two-row cash event whose cash row is left out is left out with the
+cash row's reason, and names it (`with`).
+
+### Caveats
+
+A row written, but not quite as the store holds it, is in the manifest's
+`caveats`, and PP's Note says so in words (`value from the snapshot`):
+
+| Caveat | For | Means |
+| --- | --- | --- |
+| `value_unknown` | both | a delivery with no price on either side and no snapshot price of its day, written at 0: set its value in the tool |
+| `value_from_snapshot` | both | a delivery with no price, valued at the security's snapshot price of the day it was delivered |
+| `assumed_multiplier` | both | an option without a multiplier, taken as 100 |
+| `cash_not_written` | both | a delivery that moved cash too, which the delivery does not carry |
+| `fees_unknown` | both | fees off the cent grid, written as 0: the cash is right and the fees ride in the price |
+| `pair_amounts_differ` | both | a journal whose partner's amount is not the opposite of its own, written by its sign |
+| `pair_not_journal` | both | a journal whose partner you booked as another category, each written by its own |
+| `pair_outside` | both | a journal with an account that the export leaves out, written by its sign |
+| `return_of_capital` | both | a return of capital, written as a dividend: it should lower the cost basis, which neither tool can do |
+| `option_closed_at_zero` | both | an option expired, assigned or exercised, closed by a delivery of value 0 |
+| `fees_apart` | Portfolio Performance | a sale whose fees exceed its proceeds, written as a Sell of the proceeds and a Fees row of the fees |
+| `coupon_as_interest` | Ghostfolio | a coupon of a bond whose trades are left out (bond_unit), written as interest of the interest profile |
+
+**Rows the store may count twice** until you decide (`late_api_row`,
+`near_duplicate`, `counts_differ`, `missing_from_later`, `absent_earlier`,
+`split_by_security`; see [Settling what the store
+flags](#settling-what-the-store-flags)) are written as the ledger counts
+them, and listed under `flagged`, with every other row written, given,
+combined or in the balances that carries a flag that needs you. They are
+not held back: most of those flags stay on a row after you decide, since
+the store derives them again from the files' evidence, so a row held back
+on them would wait for ever. Written, the tool counts what the store counts;
+when a decision uncounts one, the next `-since` export lists it as gone, to
+delete in the tool. The file rows that wait for you, held out or uncertain,
+are not counted, so not written: the manifest lists them under `waiting`,
+and the export after you decide one writes it.
+
+### Securities
+
+- **Ticker**: the latest of the security's symbols that is not a CUSIP
+  (Schwab sends a delisted security's CUSIP for its symbol, and files write
+  bonds and a corporate action's old side under one). A security is
+  **delisted** when its latest symbol is a CUSIP but it had a ticker before.
+  Class shares take Yahoo's form, which both tools' feeds use (`BRK.B`,
+  `BRK/B` and `BRK B` are `BRK-B`).
+- **CUSIP**, written as PP's WKN, which is how PP's own importers of US
+  brokers write it. **No ISIN** is written: PP looks a security up by ISIN
+  before anything else and takes the first it finds, so `US` and the CUSIP
+  would send the rows of a US stock to a security that you keep in euros
+  under the same ISIN, where each would be refused; it would be wrong for
+  issuers outside the US, and says nothing that the CUSIP does not.
+- **Name**: the description that the store saw first, which changes only
+  when an older History file brings an earlier one; the one seen last
+  changes with whichever source saw the security last. Ghostfolio's MANUAL
+  assets are named from their identity instead, their CUSIP, else their OCC
+  symbol, else their key, after what they are (`XYZ 2025-02-21 40 put
+  (XYZ250221P00040000)`, `Bond` and its CUSIP, `Security (i:205187341)`),
+  with the description in their comment: on a shared instance Ghostfolio
+  finds such an asset again by its name alone.
+- **Options.** In PP an option's ticker is its OCC symbol in compact form,
+  `XYZ250221P00040000`, the form Yahoo uses, and a futures option's is its
+  symbol; in Ghostfolio every option is a MANUAL asset, since Yahoo's search
+  leaves options out and an expired contract cannot resolve. **Bonds** are
+  a `FIXED_INCOME` security, or one known only by CUSIPs, as files name
+  bonds and CDs.
+- **Without a price feed**, a security gets prices from the snapshots: in PP
+  an option, a bond, a security without a ticker or delisted, and one whose
+  ticker keeps a `.` in Yahoo's form (PP compares tickers only up to a `.`);
+  in Ghostfolio, as MANUAL assets, the same and a ticker that is not a plain
+  one of Yahoo's (up to six letters and digits, and a class), and those that
+  `-manual` names. A price is the snapshot position's market value over its
+  shares, per market date, from the latest snapshot of that date, rounded to
+  8 places; one that rounds to 0 is not written. PP gets them in
+  `securities.csv`, for each such security that a written row names or that
+  an exported account held; Ghostfolio in each MANUAL asset's `marketData`.
+- **Symbols changed.** A tool does not follow a security's change of symbol
+  by itself: PP keeps the ticker, and so the price feed, of the security it
+  made, and Ghostfolio ties activities to their symbol. So stderr and the
+  manifest's `symbols_changed` name each security, but options, that has
+  had two tickers that differ in Yahoo's form, or is delisted; with
+  `-since`, each whose identifiers written differ from the earlier
+  export's.
+
+### Accounts
+
+Each account has a **label**, `A1 ...135`: its ref in the store and its
+masked number. It depends on the account alone, so an account that joins
+the store later changes no label. The tools' accounts are named `Schwab
+A1 ...135`, never by nickname, which you can change at Schwab, since both
+tools find an account by its name; stderr and the manifest show the
+nickname beside it. PP's file names carry `A1-135`, and Ghostfolio's account
+id is a UUID made from the label (version 8, SHA-256), the same in every
+export. A store made again from scratch may number its accounts otherwise;
+a `-since` export refuses a manifest of another store, and the tools are
+then started over.
+
+### Cash and transfers
+
+- **PP.** A cash journal between two exported accounts, paired with a
+  counted journal of the opposite amount and both booked `journal`, is a
+  Transfer, written in both accounts' files with the paying side's day,
+  time and text: PP books both sides from either row, and takes the row it
+  meets second as existing, which you leave unticked. Any other cash
+  journal is a Deposit or Withdrawal by its sign, with a caveat when it has
+  a partner: one whose partner's amount is not the opposite of its own
+  (`pair_amounts_differ`), one whose partner you booked as another
+  category, which is written by that category (`pair_not_journal`), one
+  whose other account the export leaves out, as an `-account` export does
+  (`pair_outside`). An unpaired journal is, as far as the store knows, a
+  move from outside your accounts. A transfer's Offset Account names only
+  an account of the export, since PP sends a transfer whose account it
+  cannot find to the review page's first, even the transfer's own.
+- **Ghostfolio** has no cash activities: its cash is each account's
+  balances, from every snapshot's cash, signed, one per market date, in
+  every file whatever `-to` says, since Ghostfolio takes them only in the
+  import that makes the account. A deposit, withdrawal or journal is in the
+  balances when the account's latest snapshot was taken after it was
+  posted (a row with only a date, on an earlier day); any other is left
+  out, `gf_cash`, until a later snapshot carries it. Imports never move
+  Ghostfolio's cash afterwards, so every `-since` export prints each
+  account's latest snapshot cash, to set there.
+
+### Hard cases
+
+- **Options.** Neither tool has a multiplier, so an option's shares are its
+  contracts times its multiplier, Schwab's when it is a whole number from 1
+  to 10000, 100 for a file's option, which has none (`assumed_multiplier`),
+  else the row is left out (`multiplier`); the price follows from the cash.
+  A short option shows as a negative holding in PP, whose dialog of
+  negative shares is then expected, and as a short position, which
+  Ghostfolio supports only weakly.
+- **Trades of several legs** (a spread) are a record per security leg, at
+  the leg's cost, with all of the row's fees on the leg of the largest cost;
+  a row whose legs do not add up to its cash is left out, `legs_mismatch`.
+- **An option that expired, was assigned or exercised** (booked `other`, no
+  cash) is closed by a delivery of value 0 in PP and a SELL or BUY at 0 in
+  Ghostfolio, so that it does not keep its last trade price for ever: a
+  file's Expired, Assigned, Exercised and Exchange or Exercise rows, and an
+  API row whose description says that the option was removed due to
+  expiration. How the API shows the others waits for the live probes. An
+  assignment's or exercise's stock trade is a trade of its own.
+- **Bonds, CDs and Treasuries** are written in face value: a bond's shares
+  are its face in dollars, its trades' prices follow from the cash (about 1
+  per dollar of face), its row's price per 100 of face is divided by 100 for
+  a delivery, and its snapshot prices are per dollar of face. Schwab's API
+  unit for bonds is not checked yet, so a bond whose trades or prices do
+  not fit face value and prices per 100 is left out, `bond_unit`, rather
+  than mix two units in one holding; its coupons are still written, in
+  Ghostfolio as interest (`coupon_as_interest`).
+- **Splits** are left out with advice `split`, never written as deliveries:
+  PP restates earlier rows with its split wizard, Ghostfolio's splits are an
+  admin's, and whether Schwab's later exports restate the quantities before
+  a split is not settled, so new shares written could count twice.
+- **Corporate actions.** A cash merger's two rows (Cash Merger, the cash, and
+  Cash Merger Adj, the shares) and a bond's redemption are written as one
+  sale of the shares for the cash, under the cash row's ref, when each row
+  has the other alone; the shares row is then `combined`. A merger into
+  stock, a name change, a conversion, a spin-off or a stock dividend is left
+  out with advice `corporate_action`, since the store does not hold the
+  values that would carry the cost basis over.
+- **Shares moved without a trade** (a journal of shares between your
+  accounts, a transfer in or out, a vest) are deliveries in each account's
+  own file, never PP's transfer between securities accounts, whose second
+  import PP would not recognize. PP then closes the lot in one account and
+  opens it in the other at the delivery's value; to carry the lot over,
+  replace the two deliveries by PP's own transfer, by hand.
+- **Sweeps and money market funds.** A bank sweep and its return are left
+  out, as they move cash within the account; a money market fund held as a
+  security is written like any other, and `-manual` covers one that Yahoo
+  does not serve.
+- **Reversals.** A Cancel Buy is written as a Sell, which nets the Buy it
+  cancels; a cancel whose cash has the original's sign is left out,
+  `signs_disagree`.
+- **Accounts with files only, or snapshots only.** Rows that only files hold
+  are written alike, without a time, on their "as of" days, with an
+  option's multiplier assumed; the coverage lines say which days the files
+  cover. An account with snapshots and no rows gets no PP file, but its
+  securities' prices, and in Ghostfolio an account with its balances, which
+  the import dialog takes only with an activity (see [the
+  how-to](tools.md#ghostfolio)).
+- **Futures** are left out, `future`: neither tool models a margined
+  contract. **A delisted security** gets no PP ticker, so that PP finds it
+  by its CUSIP and no feed fills its days with the prices of a company that
+  later took the ticker; Ghostfolio gets it as MANUAL, since Yahoo would
+  refuse the whole import over it. **A renamed security** (`FB` to `META`)
+  takes its latest ticker in every row: PP, finding no security of the new
+  ticker, finds it by its CUSIP and keeps its records, needing only the new
+  ticker for its feed; without a CUSIP, and in Ghostfolio always, the rows
+  given under the old symbol are listed as changed, to delete.
+- **Positions opened before the store's rows** have no opening row, so a
+  later sale takes PP's shares below zero and gives Ghostfolio a negative
+  holding, and in Ghostfolio a dividend of a holding with no investment
+  sets the portfolio's dividend yield to 0. The export does not invent
+  opening rows, whose day and cost the store does not hold. It checks
+  instead each account's shares of each security that its written, given
+  and combined rows leave, up to its latest snapshot on or before `-to`,
+  against that snapshot's position, and lists each difference under
+  `holdings`, with the accounts that have no snapshot to check, counted on
+  stderr. Splits and corporate actions left out, and trades left out, show
+  there too. The walk-through's store shows 12, since its made-up snapshots
+  and rows were not made to agree.
+
+### The manifest
+
+Written last, indented, with HTML characters left as they are (`Options &
+Margin`). Descriptions and nicknames in it are masked free text, as in the
+ledger, and its commands name no `-store`. Its keys, in order:
+
+| Key | Holds |
+| --- | --- |
+| `exported_at`, `schema`, `rules`, `calendar` | as the manifest of `-dir`: when, and the store's versions; `exported_at` also names the export to the next one |
+| `store` | when the store was made, which a `-since` export must match |
+| `format`, `layout` | `pp` or `ghostfolio`, and `1`, the layout of the files |
+| `filters` | `account` (its label, or null), `to`, `manual` (masked), and `since`, the `exported_at` of the export this one goes on from, or null |
+| `chain` | `id`, the `exported_at` of the chain's first export; `account`, `A<id>` or null for every account; `manual`, each with `unused` when nothing used it; and `to` |
+| `files` | the files to import, in order, each with its `kind`, its `configuration` for PP, its `account`, `rows`, and for PP how many rows to `tick` |
+| `accounts` | each account written, and each that the chain wrote before: `label`, `account`, `nickname`, `name`, `exported`, `last_day`, `new`, and for Ghostfolio its `ghostfolio_id`, its `balances` (how many, the first and last, or why none) and its latest `cash` |
+| `units` | how each value is written |
+| `written` | the ledger rows written, and the records per Type |
+| `given` | per account and ref, what the tool holds of each row once this export is imported: `day`, `as` (what the tool shows), `fp` (a hash of what it keeps), `with` (the shares row that it carries), and for PP `keys` (the hashes of what its duplicate check compares), `note_ref` (the ref that its Note names, when not its own) and `transfer` |
+| `securities` | each security that the chain wrote, with its identity and the identifiers written for it |
+| `changed`, `gone` | the rows that the tool holds and that this export writes otherwise, or neither writes nor gives: `ref`, `account`, `was`, and `now` or `why` |
+| `same_as` | PP: rows gone under one ref and written under another, alike in all that PP keeps: nothing to do |
+| `tick` | PP: the rows that PP will mark as existing although they are new: `file`, `ref`, `account`, `as` |
+| `left_out`, `caveats`, `combined` | the rows left out, written with a caveat, and carried by a sale |
+| `in_balances` | Ghostfolio: per account, the cash rows that its balances carry |
+| `flagged`, `waiting` | the rows with a flag that needs you, with their flags, and the file rows that wait for you, each with the command that shows it |
+| `holdings` | each difference from the latest snapshot, and the accounts not checked |
+| `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`option`, `bond`, `no_ticker`, `delisted`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
+| `symbols_changed` | each security that a tool may hold under an earlier symbol: its key, how it is written now (`written_as`: its ticker, or `MANUAL` when the tool gets no price feed for it) and every ticker it has had (`symbols`) |
+| `coverage` | each account's coverage by source, as the manifest of `-dir` |
+
+### Later exports
+
+Neither tool updates or deletes what it holds when it imports, and the
+store changes days it has exported by itself: the API serves a row late, a
+file row's day is an "as of" date before the file that brings it, a decision
+counts a held-out row or uncounts a counted one, a journal pairs when its
+other side arrives, a row is revised or takes a new ref. An export chosen by
+day would see none of that. So each manifest records what its export gave
+the tool, row by row (`given`), and `-since DIR`, naming the folder of the
+export you imported last, writes only what that one's chain did not give,
+whatever its day:
+
+- a row not given before is written; those dated on or before DIR's `-to`
+  are counted on stderr, as having come late or been decided since;
+- a row given with the same `fp` is given, and not written again;
+- a row given otherwise is written, and listed under `changed`, with what
+  the tool shows of it (`was`), to delete there before importing: a journal
+  paired after its first side went in by its sign is one, the pair now a
+  transfer;
+- a row given that this export neither writes nor gives is listed under
+  `gone`, with why: uncounted (and the store's reason), linked to another
+  ref, no longer in the store, combined with another row's sale, left out
+  (and the reason), or, in Ghostfolio, now cash in the balances. In PP, a
+  gone row alike in everything PP keeps to a row written under a new ref
+  (a file row now linked to its API row) is `same_as`: nothing to delete
+  or tick;
+- for PP, `tick` replays PP's duplicate check over the files in their import
+  order, from what the chain gave less what changed and went, and lists each
+  new row that PP will mark as existing, but the second half of a transfer;
+  a full export makes the list too;
+- left-out rows and holdings that DIR listed alike are marked `before`, and
+  stderr counts only the others.
+
+The chain keeps its account and its `-manual` list: a `-since` export takes
+no `-account`, and adds what `-manual` names to the chain's. It refuses a
+DIR that holds no manifest of the format and layout, an export of another
+store, a `-to` before DIR's, and a DIR from which another export beside it
+has gone on already: naming an export older than the last would list its
+rows to tick again. A full export assumes the tool holds nothing of its
+accounts: a first import, or a redo after deleting them there (in
+[Portfolio Performance](tools.md#starting-over), in
+[Ghostfolio](tools.md#redoing-an-account)).
 
 ## Backup and restore
 
@@ -1149,6 +1669,11 @@ masked:
   since a symbol may be a CUSIP of 9 digits that matching and grouping
   read. Schwab writes no account number there; one a file wrote there
   would show in full.
+- **The exports for Portfolio Performance and Ghostfolio** hold no full
+  account number: they take neither `-raw` nor `-show-accounts`, name each
+  account by its label (`A1 ...135`), and write the store's masked free
+  text, its descriptions and nicknames, as it is, and a file's symbols as
+  the file wrote them, as every export does.
 - **No view** reads an account number, raw JSON, a file's name or its bytes.
   Every view column is free text or an identifier ([The views](#the-views)
   says which). The tests hold every view to it: SQLite's authorizer shows

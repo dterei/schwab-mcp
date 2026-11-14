@@ -12,12 +12,17 @@ import (
 // TestDocsListEverything proves that docs/store.md lists, in their order,
 // every view with each of its columns and their kinds (viewColumns), every
 // flag with what it can be on, its severity and its meaning (flagDefs),
-// every kind of decision (decisionKinds), and every table that export
-// writes with its view, what it holds and whether -raw adds to it
-// (exportTables); and that docs/schwab-exports.md lists every action of a
-// History export with its family and category (fileFamilies). Each list is
-// compared whole, so a name the code lacks fails as a name the docs lack
-// does, and the docs cannot drift from the code.
+// every kind of decision (decisionKinds), every table that export writes
+// with its view, what it holds and whether -raw adds to it (exportTables),
+// and, for the exports for Portfolio Performance and Ghostfolio, every line
+// of their mapping (toolMapping), every reason a row is left out with what
+// it means and what the manifest advises (toolReasons), and every caveat
+// with its tool and meaning (toolCaveats); that docs/tools.md says what
+// each advice of the manifest asks of you (leftOutAdvice); and that
+// docs/schwab-exports.md lists every action of a History export with its
+// family and category (fileFamilies). Each list is compared whole, so a
+// name the code lacks fails as a name the docs lack does, and the docs
+// cannot drift from the code.
 func TestDocsListEverything(t *testing.T) {
 	store := readDoc(t, "store.md")
 
@@ -86,6 +91,55 @@ func TestDocsListEverything(t *testing.T) {
 		compareLists(t, "export tables", got, want)
 	})
 
+	t.Run("tools", func(t *testing.T) {
+		section := docSection(t, store, "Exports for Portfolio Performance and Ghostfolio")
+		var got, want []string
+		for _, m := range toolMapping {
+			want = append(want, strings.Join([]string{"`" + m.category + "`", m.when, m.event, m.pp, m.gf}, " | "))
+		}
+		for _, cells := range subsectionRows(t, section, "The mapping") {
+			got = append(got, strings.Join(cells, " | "))
+		}
+		compareLists(t, "lines of the tool exports' mapping", got, want)
+
+		got, want = nil, nil
+		for _, r := range toolReasons {
+			want = append(want, strings.Join([]string{"`" + r.code + "`", r.means, r.advice}, " | "))
+		}
+		for _, cells := range subsectionRows(t, section, "Left out") {
+			got = append(got, strings.Join(cells, " | "))
+		}
+		compareLists(t, "reasons a tool export leaves a row out", got, want)
+
+		got, want = nil, nil
+		tools := map[string]string{"": "both", toolPP: "Portfolio Performance", toolGF: "Ghostfolio"}
+		for _, c := range toolCaveats {
+			want = append(want, strings.Join([]string{"`" + c.code + "`", tools[c.tool], c.means}, " | "))
+		}
+		for _, cells := range subsectionRows(t, section, "Caveats") {
+			got = append(got, strings.Join(cells, " | "))
+		}
+		compareLists(t, "caveats of the tool exports", got, want)
+	})
+
+	t.Run("advice", func(t *testing.T) {
+		// Every advice that leftOutAdvice gives, in the order of the
+		// reasons, a row booked other tried as a split, as another
+		// corporate action and as neither.
+		var got, want []string
+		for _, r := range toolReasons {
+			for _, kind := range []string{"Stock Split", "Stock Merger", "Journal"} {
+				if advice, _ := leftOutAdvice(r.code, &toolRow{ref: "T1", kind: kind}); advice != "" && !slices.Contains(want, "`"+advice+"`") {
+					want = append(want, "`"+advice+"`")
+				}
+			}
+		}
+		for _, cells := range codeRows(t, readDoc(t, "tools.md"), "What the manifest asks of you") {
+			got = append(got, cells[0])
+		}
+		compareLists(t, "advice of a tool export's manifest", got, want)
+	})
+
 	t.Run("actions", func(t *testing.T) {
 		var got, want []string
 		for _, f := range fileFamilies {
@@ -133,14 +187,37 @@ func docSection(t *testing.T, doc, heading string) string {
 // rule have none.
 func codeRows(t *testing.T, doc, heading string) [][]string {
 	t.Helper()
+	rows := codeRowsOf(docSection(t, doc, heading))
+	if len(rows) == 0 {
+		t.Fatalf("the section %q has no table", heading)
+	}
+	return rows
+}
+
+// subsectionRows returns codeRows of the part of section under the heading
+// "### heading", up to the next heading of that level.
+func subsectionRows(t *testing.T, section, heading string) [][]string {
+	t.Helper()
+	_, rest, ok := strings.Cut(section, "\n### "+heading+"\n")
+	if !ok {
+		t.Fatalf("the section has no part %q", heading)
+	}
+	part, _, _ := strings.Cut(rest, "\n### ")
+	rows := codeRowsOf(part)
+	if len(rows) == 0 {
+		t.Fatalf("the part %q has no table", heading)
+	}
+	return rows
+}
+
+// codeRowsOf returns the cells of the rows, in the tables of text, whose
+// first cell is code.
+func codeRowsOf(text string) [][]string {
 	var rows [][]string
-	for line := range strings.Lines(docSection(t, doc, heading)) {
+	for line := range strings.Lines(text) {
 		if cells := tableRow(line); len(cells) > 0 && isCode(cells[0]) {
 			rows = append(rows, cells)
 		}
-	}
-	if len(rows) == 0 {
-		t.Fatalf("the section %q has no table", heading)
 	}
 	return rows
 }

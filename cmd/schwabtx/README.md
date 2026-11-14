@@ -272,6 +272,7 @@ schwabtx status -review            # what waits for you, each with the command t
 schwabtx status C3a9e21b0.17       # one thing in full
 schwabtx edit T73508261949 -category fee
 schwabtx export > ledger.csv       # the counted transactions, as a calculator reads them
+schwabtx export -format pp -dir pp-1   # the same, for Portfolio Performance to import
 schwabtx store backup ~/history-backup.db
 ```
 
@@ -283,7 +284,10 @@ schwab.com as JSON, every type and no symbol, in ranges of under a year
 then `schwabtx status -review`, and settle what it lists with
 `schwabtx edit`. A transaction that several exports hold, or that Schwab's
 API rows hold, counts once; one that only a file holds, on days the API's
-rows cover, waits for you to say what it is.
+rows cover, waits for you to say what it is. To follow your accounts in
+Portfolio Performance or Ghostfolio, export the ledger for it and import
+that, and later exports with `-since`
+([docs/tools.md](../../docs/tools.md) says how).
 
 Flags may come before or after the arguments
 (`schwabtx edit T73508261949 -category fee` and
@@ -411,7 +415,9 @@ wrote, what it left out and what it asks of you, as stderr does. Import
 each export once, before you make the next, and name the one you imported
 last with `-since`: the next writes only what the tool lacks, and lists what
 changed or went, to delete there first. [docs/tools.md](../../docs/tools.md)
-says how, for each tool.
+says how, for each tool, and
+[docs/store.md](../../docs/store.md#exports-for-portfolio-performance-and-ghostfolio)
+what the files hold.
 
 ```
 -store PATH       the store's file
