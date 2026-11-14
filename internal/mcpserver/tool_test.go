@@ -409,9 +409,11 @@ func withFit() envOption {
 // it fits: cut names each list cut, with how many items it shows of how
 // many, and the warning list_cut says so. One that is no fitter, or has
 // nothing left to cut, is too_big. An answer within the cap is untouched.
-func TestSizeCap(t *testing.T) {
-	t.Parallel()
-	e := newEnv(t, withFit())
+var _ = addSizeCases(sizeCase{name: "fitter", opts: []envOption{withFit()}, run: sizeFitter},
+	sizeCase{name: "margin", opts: []envOption{withBackstopAllowed(), withRows()}, run: sizeMargin})
+
+// sizeFitter is TestSizeCap's case of a fitter.
+func sizeFitter(t *testing.T, e *env) {
 	small := e.call("fit", `{"items":3,"fills":3,"raw":true}`)
 	if small.isError || len(small.value["cut"].([]any)) != 0 || slices.Contains(small.warnings(), "list_cut") || small.value["raw"] == nil {
 		t.Errorf("a small answer was cut: %s", small.text)
@@ -493,18 +495,18 @@ func TestPageRows(t *testing.T) {
 	}
 }
 
-// The margin between the page budget and the cap holds what comes after a
-// page is cut: a page filled to the budget, then given three warnings of
-// 300 characters, partial, zeros_as_null and value_withheld's own, stays
-// within the cap.
-func TestSizeCapMargin(t *testing.T) {
-	t.Parallel()
-	type rowsOut struct {
-		envelope
-		page
-		Rows []Ident `json:"rows"`
-	}
-	e := newEnv(t, withBackstopAllowed(), withTools(func(s *Server) {
+// rowsOut is the rows tool's answer, a page of rows.
+type rowsOut struct {
+	envelope
+	page
+	Rows []Ident `json:"rows"`
+}
+
+// withRows registers rows, which answers a page filled to the budget, then
+// given three warnings of 300 characters, partial, zeros_as_null and
+// value_withheld's own, which come after a page is cut.
+func withRows() envOption {
+	return withTools(func(s *Server) {
 		testTool(s, "rows", nil, func(_ context.Context, c *call, _ struct{}) (rowsOut, error) {
 			out := rowsOut{envelope: envelope{Source: sourceLocal}, Rows: []Ident{}}
 			fixed, err := encode(out)
@@ -527,7 +529,12 @@ func TestSizeCapMargin(t *testing.T) {
 			c.warn("value_withheld", "%s", Ident(strings.Repeat("v", 300)))
 			return out, nil
 		})
-	}))
+	})
+}
+
+// sizeMargin is TestSizeCap's case of the margin between the page budget
+// and the cap: the rows tool's answer stays within the cap.
+func sizeMargin(t *testing.T, e *env) {
 	r := e.call("rows", `{}`)
 	if r.isError {
 		t.Fatal(r.text)

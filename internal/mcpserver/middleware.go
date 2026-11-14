@@ -93,6 +93,9 @@ func (s *Server) sanitize(method string, err error) error {
 // structured content stays so, and a structured content with warnings
 // gains value_withheld.
 func (s *Server) backstopResult(method string, res mcp.Result) {
+	if s.mask.off {
+		return
+	}
 	hits := 0
 	text := func(t string) string {
 		if hidden := s.mask.known.Text(s.mask.hide(t)); hidden != t {

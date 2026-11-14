@@ -32,6 +32,8 @@ type masker struct {
 	// homes are the home directory as given, with links resolved, and on
 	// Windows in its short form, each cleaned, the longest first.
 	homes []string
+	// off turns the backstop off, for a test.
+	off bool
 }
 
 // newMasker returns a masker that knows home, the user's home directory
@@ -175,6 +177,9 @@ func (m *masker) compose(format string, args ...any) FreeText {
 // cleanErr returns e with the secrets and the known numbers replaced in
 // its text, or e itself when it holds none: the backstop of an error.
 func (m *masker) cleanErr(e *toolErr) *toolErr {
+	if m.off {
+		return e
+	}
 	msg, detail := m.known.Text(m.hide(string(e.msg))), m.known.Text(m.hide(string(e.detail)))
 	if msg == string(e.msg) && detail == string(e.detail) {
 		return e
@@ -254,6 +259,9 @@ func (m *masker) json(raw []byte, classOf func([]string) mask.Class) (json.RawMe
 func (m *masker) backstop(b []byte) ([]byte, int, error) {
 	if !json.Valid(b) {
 		return nil, 0, errors.New("the backstop was given what is not JSON")
+	}
+	if m.off {
+		return b, 0, nil
 	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.UseNumber()

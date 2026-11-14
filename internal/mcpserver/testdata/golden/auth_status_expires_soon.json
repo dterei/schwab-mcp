@@ -1,0 +1,29 @@
+{
+  "source": "local",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [],
+  "logged_in": true,
+  "login_at": "2026-11-07T16:40:00-05:00",
+  "expires_at": "2026-11-14T16:40:00-05:00",
+  "hours_left": 24,
+  "expires_soon": true,
+  "refused": false,
+  "app_configured": true,
+  "app_from": "config file",
+  "api_host": "127.0.0.1:PORT",
+  "config_file": "~/.config/schwabtx/config.json",
+  "config_problems": [],
+  "token_file": "~/.config/schwabtx/token.json",
+  "token_file_from": "config file",
+  "rate_file": "~/.cache/schwabtx/rate",
+  "rate_file_from": "config file",
+  "store": {
+    "file": "history.db",
+    "from": "config file",
+    "exists": true,
+    "usable": true,
+    "problem": null,
+    "waiting": 2
+  },
+  "action": "Ask the user to run `schwabtx login` in their own terminal before 2026-11-14 16:40 ET; do not run it yourself, it needs their browser."
+}

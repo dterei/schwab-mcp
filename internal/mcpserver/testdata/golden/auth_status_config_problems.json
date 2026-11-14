@@ -1,0 +1,33 @@
+{
+  "source": "local",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [],
+  "logged_in": true,
+  "login_at": "2026-11-13T16:40:00-05:00",
+  "expires_at": "2026-11-20T16:40:00-05:00",
+  "hours_left": 168,
+  "expires_soon": false,
+  "refused": false,
+  "app_configured": true,
+  "app_from": "config file",
+  "api_host": "127.0.0.1:PORT",
+  "config_file": "~/.config/schwabtx/config.json",
+  "config_problems": [
+    "config_file: others could read it; it is now readable only by you (~/.config/schwabtx/config.json)",
+    "SCHWAB_STORE_FILE: its path is not absolute (history.db)",
+    "arguments: the server was started with an argument it does not take; quote a path that holds a space"
+  ],
+  "token_file": "~/.config/schwabtx/token.json",
+  "token_file_from": "config file",
+  "rate_file": "~/.cache/schwabtx/rate",
+  "rate_file_from": "config file",
+  "store": {
+    "file": "history.db",
+    "from": "config file",
+    "exists": true,
+    "usable": true,
+    "problem": null,
+    "waiting": 2
+  },
+  "action": "The server was started with an argument it does not take; a path that holds a space must be quoted in a shell line, or be one element of a JSON `args` list, as `schwabtx setup` prints it."
+}

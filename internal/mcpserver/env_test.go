@@ -327,7 +327,9 @@ type envConfig struct {
 	register  []func(*Server)
 	fake      []func(*schwabtest.Server)
 	cfg       []func(*config.Config)
-	hookFails bool // the backstop's hook fails the test
+	hookFails bool   // the backstop's hook fails the test
+	tokenFile string // the token file; "" for ~/.config/schwabtx/token.json
+	cfgFile   string // the config file; "" for ~/.config/schwabtx/config.json
 }
 
 // An envOption sets up newEnv.
@@ -342,6 +344,24 @@ func withoutLogin() envOption { return func(c *envConfig) { c.loggedIn = false }
 // withLoginAt makes the login at at, by the fake's clock and the Auth's,
 // so that it lapses 7 days later.
 func withLoginAt(at time.Time) envOption { return func(c *envConfig) { c.loginAt = at } }
+
+// withStore makes the server read the store at path.
+func withStore(path string) envOption { return func(c *envConfig) { c.store = path } }
+
+// withoutStore names a store where there is none.
+func withoutStore() envOption { return func(c *envConfig) { c.noStore = true } }
+
+// withoutFixtures leaves the fake's world empty.
+func withoutFixtures() envOption { return func(c *envConfig) { c.fixtures = false } }
+
+// withHome makes the server's home folder dir.
+func withHome(dir string) envOption { return func(c *envConfig) { c.home = dir } }
+
+// withTokenFile keeps the login in path.
+func withTokenFile(path string) envOption { return func(c *envConfig) { c.tokenFile = path } }
+
+// withConfigFile names path as the config file the server read.
+func withConfigFile(path string) envOption { return func(c *envConfig) { c.cfgFile = path } }
 
 // withOptions changes the server's options before New.
 func withOptions(f func(*Options)) envOption {
@@ -391,7 +411,10 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	if cfg.fixtures {
 		e.fake.LoadFixtures()
 	}
-	e.tokenFile = filepath.Join(e.home, ".config", "schwabtx", "token.json")
+	e.tokenFile = cfg.tokenFile
+	if e.tokenFile == "" {
+		e.tokenFile = filepath.Join(e.home, ".config", "schwabtx", "token.json")
+	}
 	if cfg.loggedIn {
 		auth, err := schwab.NewAuth(schwab.Config{
 			AppKey: schwabtest.AppKey, AppSecret: schwabtest.AppSecret, BaseURL: e.fake.URL(),
@@ -416,8 +439,12 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	default:
 		e.storePath = sharedStore(t)
 	}
+	cfgFile := cfg.cfgFile
+	if cfgFile == "" {
+		cfgFile = filepath.Join(e.home, ".config", "schwabtx", "config.json")
+	}
 	conf := config.Config{
-		File:      filepath.Join(e.home, ".config", "schwabtx", "config.json"),
+		File:      cfgFile,
 		AppKey:    config.Setting{Value: schwabtest.AppKey, From: config.FromFile},
 		AppSecret: config.Setting{Value: schwabtest.AppSecret, From: config.FromFile},
 		BaseURL:   config.Setting{Value: e.fake.URL(), From: config.FromFile},
@@ -758,4 +785,9 @@ func (c *fakeClock) set(t time.Time) {
 // that takes In and answers Out, with a slot, and the arguments' rules.
 func testTool[In, Out any](s *Server, name string, args map[string]argRule, h handler[In, Out]) {
 	addTool(s, toolDef{name: name, title: "A test's tool", description: "A tool of the tests'.", slot: true, args: args}, h)
+}
+
+// callParams returns the parameters of a call of tool with no arguments.
+func callParams(tool string) *mcp.CallToolParams {
+	return &mcp.CallToolParams{Name: tool, Arguments: json.RawMessage(`{}`)}
 }

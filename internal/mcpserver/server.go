@@ -58,8 +58,10 @@ type Options struct {
 	// 12.4), 5 and 2 seconds when 0.
 	StoreLockWait, StoreBusy time.Duration
 	// onBackstop is told of every value that the backstop replaced, which
-	// the tests fail on.
-	onBackstop func(tool string, n int)
+	// the tests fail on; backstopOff turns the backstop off, for the test
+	// that shows the layers above it hold on their own.
+	onBackstop  func(tool string, n int)
+	backstopOff bool
 }
 
 // Server is the MCP server. It is safe for concurrent use.
@@ -119,6 +121,7 @@ func New(o Options) (*Server, error) {
 		runners:  map[string]func(context.Context, json.RawMessage) ([]byte, *toolErr){},
 		slots:    make(chan struct{}, o.MaxCalls),
 	}
+	s.mask.off = o.backstopOff
 	s.root, s.cancelRoot = context.WithCancel(context.Background())
 	s.log = slog.New(&logHandler{inner: o.Logger.Handler(), m: s.mask})
 	s.store = newStoreHandle(s, o.Config.StoreFile.Value, o.StoreLockWait, o.StoreBusy)
@@ -135,6 +138,7 @@ func New(o Options) (*Server, error) {
 	s.mcp.AddReceivingMiddleware(s.middleware)
 	// Each tool file registers its tools, and the resources and prompts
 	// that go with them.
+	s.registerAuth()
 	s.registerAccounts()
 	s.registerTransactions()
 	return s, nil
