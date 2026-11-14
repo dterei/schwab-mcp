@@ -2173,6 +2173,57 @@ func TestToolReimport(t *testing.T) {
 		}
 	})
 
+	t.Run("a bond of two keys that the API counts otherwise", func(t *testing.T) {
+		t.Parallel()
+		// A bond bought in a History file's rows, under its key, and
+		// given; then its sale comes in the API's rows, under the API's
+		// key, which counts it in bonds of $1000 where the file counts
+		// dollars of face. The tools hold the two keys as one bond, whose
+		// unit is now off: the buy given is listed gone, left out for its
+		// unit as the sale is, and neither tool keeps a holding that no row
+		// closes.
+		securities, names := tcSecurities()
+		deposit := rcCash("T61009900", 1, "2025-05-01 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 2_000_000)
+		buy := rcFile("Cf7a8b9d0.1", 1, "2025-06-01", "Buy", "buy", keyBondB, "ZZT10A109", centsOf(10_000_000_000), 99.5, -995_000)
+		sale := rcTrade("T61009901", 1, "2026-06-01 10:00:00", "sell", keyBondAPI, "ZZT10A109", -10_000_000, 99.6, 996_000, 0)
+		first := toolInput{to: "2026-05-29", rows: []toolRow{deposit, buy}}
+		then := toolInput{
+			securities: append(slices.Clone(securities), toolSecurityRow{key: keyBondAPI, assetType: "FIXED_INCOME", cusip: "ZZT10A109", symbol: "ZZT10A109"}),
+			names: append(slices.Clone(names),
+				toolName{key: keyBondAPI, kind: "symbol", value: "ZZT10A109", firstSeen: tcNY("2026-06-01 10:00:00"), lastSeen: tcNY("2026-06-01 10:00:00")}),
+			rows: []toolRow{deposit, buy, sale},
+		}
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, tcInput(first), tool, nil, rcAt1)
+			e2 := chainStepOf(t, tcInput(then), tool, e1, rcAt2)
+			changed, gone := rcChanged(e2)
+			if len(changed) > 0 || len(gone) != 1 || !strings.HasPrefix(gone[0], buy.ref+" left out: bond_unit: ") || e2.res.outcomes[2].reason != "bond_unit" {
+				t.Errorf("%s: changed %q, gone %q, the sale %+v", tool, changed, gone, e2.res.outcomes[2])
+			}
+			if tool == toolGF {
+				m := newGFModel()
+				for _, s := range []*chainStep{e1, e2} {
+					if _, err := gfApply(t, m, s); err != nil && len(s.gf.file.Activities) > 0 {
+						t.Fatal(err)
+					}
+					gfReconcile(t, s.in, s.events, s.outcomes, m)
+				}
+				if held := m.holdings(); len(held) != 0 {
+					t.Errorf("Ghostfolio holds %v", held)
+				}
+				continue
+			}
+			m := newPPModel()
+			for _, s := range []*chainStep{e1, e2} {
+				ppApply(t, m, s)
+				ppReconcile(t, m, s.in, s.events, s.outcomes)
+			}
+			if held := m.shares("Schwab A1 ...135"); len(held) != 0 {
+				t.Errorf("PP holds %v", held)
+			}
+		}
+	})
+
 	t.Run("5 a redo", func(t *testing.T) {
 		t.Parallel()
 		// PP: every account of the export deleted, and the full export of

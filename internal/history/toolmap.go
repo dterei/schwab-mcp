@@ -115,7 +115,7 @@ var toolReasons = []toolReason{
 	{"signs_disagree", "a trade's cash has its quantity's sign", "`check` with `schwabtx status REF`"},
 	{"legs_mismatch", "a trade of several legs whose legs do not add up to its cash", "`check`"},
 	{"future", "a futures contract", "`by_hand`"},
-	{"multiplier", "an option whose multiplier is not a whole number from 1 to 10000", "`by_hand`"},
+	{"multiplier", "an option whose multiplier is not a whole number from 1 to 10000, or whose keys in the store give two", "`by_hand`"},
 	{"bond_unit", "a bond whose rows or prices do not follow face value and prices per 100", "`check`: the probe run settles the API's unit"},
 	{
 		"gf_cash", "Ghostfolio: a cash row posted after the account's latest snapshot was taken (one with only a date: on or after the day it was taken), or of an account with no snapshot, which no balance carries yet",
@@ -717,10 +717,11 @@ type toolSecurity struct {
 	contract schwab.OCC
 	occ      string
 	// multiplier is what a quantity of 1 stands for in shares: an option's
-	// multiplier, else 1. assumed says that an option's multiplier of 100
-	// is assumed, for want of one; badMultiplier that an option's
-	// multiplier is not a whole number from 1 to 10 000, which leaves its
-	// rows out.
+	// multiplier, one for all of the store's securities that the tools
+	// take for one (multiplier), else 1. assumed says that an option's
+	// multiplier of 100 is assumed, for want of one; badMultiplier that an
+	// option's multiplier is not a whole number from 1 to 10 000, or not
+	// one, which leaves its rows out.
 	multiplier             int64
 	assumed, badMultiplier bool
 	// name is the description that the store saw first (masked free text);
@@ -738,7 +739,8 @@ type toolSecurity struct {
 	// it is not its identity.
 	rep    *toolSecurity
 	reused bool
-	// bondUnit says that it is a bond whose rows or snapshot prices do not
+	// bondUnit says that it is a bond whose rows or snapshot prices, of any
+	// of the store's securities that the tools take for one with it, do not
 	// follow face value and prices per 100 (4.4 of the design): its trades,
 	// deliveries and prices are left out.
 	bondUnit bool
@@ -945,6 +947,10 @@ type toolIndex struct {
 	bases   map[secRef]*toolSecurity
 	members map[secRef][]*toolSecurity
 	reused  map[string]bool
+	// groups are the securities that each group is written as (group), and
+	// groupPrices its prices (pricesOfGroup), by the ref of its first.
+	groups      map[secRef]*toolSecurity
+	groupPrices map[secRef][]toolPrice
 }
 
 // newToolIndex indexes in.
@@ -952,7 +958,7 @@ func newToolIndex(in *toolInput) *toolIndex {
 	ix := &toolIndex{
 		in: in, accounts: map[int64]toolAccount{}, secRows: map[string]*toolSecurityRow{}, names: map[string][]toolName{},
 		legs: map[rowKey][]toolLeg{}, manual: map[string]bool{}, secs: map[secRef]*toolSecurity{}, prices: map[string][]toolPrice{},
-		bases: map[secRef]*toolSecurity{},
+		bases: map[secRef]*toolSecurity{}, groups: map[secRef]*toolSecurity{}, groupPrices: map[secRef][]toolPrice{},
 	}
 	for _, a := range in.accounts {
 		ix.accounts[a.id] = a
@@ -1025,10 +1031,10 @@ func toolSecurityOf(in *toolInput, key, symbol string) *toolSecurity {
 }
 
 // security returns the security of key, or of symbol alone when key is ""
-// (3.5 of the design); nil for neither: as its own symbols and names make
-// it (base), with what the store's securities that the tools take for one
-// with it have had in their place (join), so that the records of each of
-// them name the tools' one security alike.
+// (3.5 of the design); nil for neither: the security that the store's
+// securities that the tools take for one with it are written as (group),
+// under its own key or symbol, so that the records of each of them name the
+// tools' one security alike, in one unit.
 func (ix *toolIndex) security(key, symbol string) *toolSecurity {
 	if key == "" && symbol == "" {
 		return nil
@@ -1040,11 +1046,43 @@ func (ix *toolIndex) security(key, symbol string) *toolSecurity {
 	if s, ok := ix.secs[id]; ok {
 		return s
 	}
-	s := ix.join(ix.base(key, symbol))
-	s.manual = ix.gfManual(s)
+	b := ix.base(key, symbol)
+	s := new(toolSecurity)
+	*s = *ix.group(b)
+	s.key, s.symbol = b.key, b.symbol
 	ix.secs[id] = s
-	s.bondUnit = s.bond && !ix.followsFace(s)
 	return s
+}
+
+// group returns, once for all of them, the security that b and the store's
+// securities that the tools take for one with it (membersOf) are written
+// as: what they have had together (join), why Ghostfolio gets it as a MANUAL
+// asset, and, for a bond, whether its unit is off, by the rows and prices
+// of every one of them (4.4 of the design), so that no tool keeps a holding
+// that the rows of one key opened and those of another, left out, would
+// close. It is under the key or symbol of the first of them.
+func (ix *toolIndex) group(b *toolSecurity) *toolSecurity {
+	members := ix.membersOf(b)
+	if g, ok := ix.groups[members[0].ref()]; ok {
+		return g
+	}
+	g := ix.join(members)
+	g.manual = ix.gfManual(g)
+	g.bondUnit = g.bond && !ix.followsFace(g)
+	ix.groups[members[0].ref()] = g
+	return g
+}
+
+// membersOf returns the store's securities that the tools take for one with
+// s (groupAll), as their own symbols and names make them (base), in the
+// order of their keys: s's alone when no row, leg, position or name of the
+// store names it.
+func (ix *toolIndex) membersOf(s *toolSecurity) []*toolSecurity {
+	ix.groupAll()
+	if members := ix.members[s.ref()]; len(members) > 0 {
+		return members
+	}
+	return []*toolSecurity{ix.base(s.key, s.symbol)}
 }
 
 // base returns the security of key, or of symbol alone when key is "", as
@@ -1120,45 +1158,40 @@ func (ix *toolIndex) base(key, symbol string) *toolSecurity {
 		s.name = s.symbol
 	}
 	if s.assetType == "OPTION" {
-		for _, sym := range slices.Sorted(slices.Values(s.symbols)) {
-			if c, ok := contract(sym); ok {
-				if occ := occCompact(c); occ != "" {
-					s.contract, s.occ = c, occ
-					break
-				}
-			}
-		}
-		switch m := row.multiplier; {
-		case key == "" || !m.Valid:
-			s.multiplier, s.assumed = 100, true
-		case m.Float64 == math.Trunc(m.Float64) && m.Float64 >= 1 && m.Float64 <= 10_000:
-			s.multiplier = int64(m.Float64)
-		default:
-			s.badMultiplier = true
-		}
+		s.contract, s.occ = optionContract(s.symbols)
 	}
 	ix.bases[id] = s
 	return s
 }
 
-// join returns a security of its own made from b, as base makes it, with
-// what the store's securities of its group have had (groupAll), so that each
-// of them is written alike: their symbols and tickers, in the order of one
-// security's, each by when any of them saw it last, so that the latest
-// ticker is the one that any of them saw last; their CUSIP and asset type;
-// delisted when the latest of those symbols is a CUSIP, as of one security,
-// never because one of them alone reads so; a bond by those; and the
-// description that the store saw first of any of them; and whether its
-// ticker is one that a security of another group has had too.
-func (ix *toolIndex) join(b *toolSecurity) *toolSecurity {
-	ix.groupAll()
-	s := new(toolSecurity)
-	*s = *b
-	members := ix.members[b.ref()]
-	if len(members) == 0 {
-		// A security that no row, leg, position or name of the store names.
-		members = []*toolSecurity{b}
+// optionContract returns the option contract that symbols name, and its OCC
+// compact form (3.5 of the design): the first of them, sorted, that parses
+// as a contract with one; none for a futures option.
+func optionContract(symbols []string) (schwab.OCC, string) {
+	for _, sym := range slices.Sorted(slices.Values(symbols)) {
+		if c, ok := contract(sym); ok {
+			if occ := occCompact(c); occ != "" {
+				return c, occ
+			}
+		}
 	}
+	return schwab.OCC{}, ""
+}
+
+// join returns the security that members, the store's securities that the
+// tools take for one (membersOf), are written as, under the first one's key
+// or symbol: what they have had together, so that each of them is written
+// alike: their symbols and tickers, in the order of one security's, each by
+// when any of them saw it last, so that the latest ticker is the one that
+// any of them saw last; their CUSIP and asset type; delisted when the latest
+// of those symbols is a CUSIP, as of one security, never because one of them
+// alone reads so; a bond by those; the description that the store saw first
+// of any of them; for an option, one contract and one multiplier, which a
+// futures option that a History file names has none of (multiplier); and
+// whether its ticker is one that a security of another group has had too.
+func (ix *toolIndex) join(members []*toolSecurity) *toolSecurity {
+	s := new(toolSecurity)
+	*s = *members[0]
 	s.rep = members[0]
 	if len(members) > 1 {
 		s.symbols, s.tickers, s.cusip, s.assetType = nil, nil, "", ""
@@ -1211,10 +1244,42 @@ func (ix *toolIndex) join(b *toolSecurity) *toolSecurity {
 			s.name, s.described, s.nameSeen = named.name, true, named.nameSeen
 		}
 	}
+	s.contract, s.occ = schwab.OCC{}, ""
+	s.multiplier, s.assumed, s.badMultiplier = 1, false, false
+	if s.assetType == "OPTION" {
+		s.contract, s.occ = optionContract(s.symbols)
+		s.multiplier, s.assumed, s.badMultiplier = ix.multiplier(members)
+	}
 	if t := s.ticker(); t != "" {
 		s.reused = ix.reused[symbolForm(t)]
 	}
 	return s
+}
+
+// multiplier returns the multiplier of an option that the store holds as
+// members (4.1 of the design): the one that those of them that the store
+// knows one of know, when it is a whole number from 1 to 10 000, else bad;
+// 100, assumed, when none knows one, as of a History file's option alone,
+// or of a row's contract without a key. Of a futures option that a History
+// file's key and the API's name, the API's is the one, which the file's,
+// whose symbol no contract parses, would take for 1, and an option of a
+// file 100: so each of its rows, of either key, counts its contracts alike.
+// Two that know different ones are bad, which leaves the option's rows out
+// (multiplier): no one unit is known for them.
+func (ix *toolIndex) multiplier(members []*toolSecurity) (m int64, assumed, bad bool) {
+	var known []float64
+	for _, s := range members {
+		if r := ix.secRows[s.key]; s.key != "" && r != nil && r.multiplier.Valid && !slices.Contains(known, r.multiplier.Float64) {
+			known = append(known, r.multiplier.Float64)
+		}
+	}
+	switch {
+	case len(known) == 0:
+		return 100, true, false
+	case len(known) == 1 && known[0] == math.Trunc(known[0]) && known[0] >= 1 && known[0] <= 10_000:
+		return int64(known[0]), false, false
+	}
+	return 1, false, true
 }
 
 // groupAll works out, once, which of the store's securities the tools take
@@ -1386,13 +1451,19 @@ func (ix *toolIndex) gfManual(s *toolSecurity) string {
 }
 
 // followsFace reports whether bond s follows face value and prices per 100
-// in every row and price that the export selects (4.4 of the design): each
-// trade with a price and a gross, or leg of a trade of several legs with a
-// price and a cost, costs 0.8 to 1.25 times its face at that price, and
-// each snapshot price is 0.2 to 5 per dollar of face. Accrued interest and
-// fees ride in a trade's cash; a unit 100 times off cannot pass. A journal
-// moves no cash, so its legs say nothing of the unit.
+// in every row and price that the export selects (4.4 of the design), of
+// any of the store's securities that the tools take for one with it
+// (membersOf), whose rows the tools hold in one holding: each trade with a
+// price and a gross, or leg of a trade of several legs with a price and a
+// cost, costs 0.8 to 1.25 times its face at that price, and each snapshot
+// price (pricesOfGroup) is 0.2 to 5 per dollar of face. Accrued interest
+// and fees ride in a trade's cash; a unit 100 times off cannot pass. A
+// journal moves no cash, so its legs say nothing of the unit.
 func (ix *toolIndex) followsFace(s *toolSecurity) bool {
+	members := ix.membersOf(s)
+	is := func(key, symbol string) bool {
+		return slices.ContainsFunc(members, func(m *toolSecurity) bool { return m.is(key, symbol) })
+	}
 	low, high := big.NewRat(4, 5), big.NewRat(5, 4)
 	// costs reports whether a trade of quantity q, in millionths, at price
 	// per 100 of face, for gross cents, passes.
@@ -1416,16 +1487,16 @@ func (ix *toolIndex) followsFace(s *toolSecurity) bool {
 			continue
 		}
 		trades[rowKey{r.account, r.ref}] = true
-		if s.is(r.securityKey, r.symbol) && !costs(r.quantity, r.gross, r.price) {
+		if is(r.securityKey, r.symbol) && !costs(r.quantity, r.gross, r.price) {
 			return false
 		}
 	}
 	for _, l := range ix.in.legs {
-		if trades[rowKey{l.account, l.ref}] && s.is(l.securityKey, l.symbol) && !costs(l.quantity, l.cost, l.price) {
+		if trades[rowKey{l.account, l.ref}] && is(l.securityKey, l.symbol) && !costs(l.quantity, l.cost, l.price) {
 			return false
 		}
 	}
-	for _, p := range ix.pricesOf(s.key, s.multiplier) {
+	for _, p := range ix.pricesOfGroup(s) {
 		if p.price.Cmp(big.NewRat(1, 5)) < 0 || p.price.Cmp(big.NewRat(5, 1)) > 0 {
 			return false
 		}
@@ -1480,6 +1551,32 @@ func (ix *toolIndex) pricesOf(key string, m int64) []toolPrice {
 	return out
 }
 
+// pricesOfGroup returns the prices of s and of the store's securities that
+// the tools take for one with it (membersOf), whose multiplier is s's,
+// worked out once: for each market date, the price of the first of them, in
+// the order of their keys, that has one (pricesOf), as securities.csv and a
+// Ghostfolio asset take them (mergeListed); in the order of their dates.
+func (ix *toolIndex) pricesOfGroup(s *toolSecurity) []toolPrice {
+	members := ix.membersOf(s)
+	if p, ok := ix.groupPrices[members[0].ref()]; ok {
+		return p
+	}
+	byKey := slices.SortedFunc(slices.Values(members), func(a, b *toolSecurity) int {
+		return cmp.Or(cmp.Compare(a.key, b.key), cmp.Compare(a.symbol, b.symbol))
+	})
+	var out []toolPrice
+	for _, m := range byKey {
+		for _, p := range ix.pricesOf(m.key, s.multiplier) {
+			if !slices.ContainsFunc(out, func(q toolPrice) bool { return q.date == p.date }) {
+				out = append(out, p)
+			}
+		}
+	}
+	slices.SortStableFunc(out, func(a, b toolPrice) int { return cmp.Compare(a.date, b.date) })
+	ix.groupPrices[members[0].ref()] = out
+	return out
+}
+
 // positionPrice returns the price per share of position p of a security
 // whose multiplier is m, rounded to 8 places, and false when it gives
 // none: its quantity is its long quantity when above 0, else its short
@@ -1503,12 +1600,14 @@ func positionPrice(p toolPosition, m int64) (*big.Rat, bool) {
 	return new(big.Rat).SetFrac(roundUnits(price, 8), big.NewInt(100_000_000)), true
 }
 
-// priceOn returns the snapshot price of security s on day, nil for none.
+// priceOn returns the snapshot price of security s on day, nil for none:
+// of any of the store's securities that the tools take for one with it,
+// as securities.csv and a Ghostfolio asset price it (pricesOfGroup).
 func (ix *toolIndex) priceOn(s *toolSecurity, day nytime.Date) *big.Rat {
 	if s.badMultiplier {
 		return nil
 	}
-	for _, p := range ix.pricesOf(s.key, s.multiplier) {
+	for _, p := range ix.pricesOfGroup(s) {
 		if p.date == day {
 			return p.price
 		}
@@ -1540,11 +1639,12 @@ type toolListed struct {
 	// used says that a record of the export names it; one that no record
 	// names is written for its prices alone.
 	used bool
-	// prices are its snapshot prices, in the order of their market dates,
-	// when the tool has no feed that serves it (ppManual for PP, a MANUAL
-	// asset for Ghostfolio); none for a bond whose unit is off, whose
-	// prices are left out with its trades, nor for a future or an option
-	// whose multiplier is not whole, no record of which is ever written.
+	// prices are its snapshot prices (pricesOfGroup), in the order of their
+	// market dates, when the tool has no feed that serves it (ppManual for
+	// PP, a MANUAL asset for Ghostfolio); none for a bond whose unit is off,
+	// whose prices are left out with its trades, nor for a future or an
+	// option whose multiplier is not whole, no record of which is ever
+	// written.
 	prices []toolPrice
 }
 
@@ -1572,7 +1672,7 @@ func listSecurities(in *toolInput, events []toolEvent) []toolListed {
 		s := l.security
 		feedless := in.tool == toolPP && s.ppManual() || in.tool == toolGF && s.manual != ""
 		if feedless && !s.bondUnit && !s.badMultiplier && s.assetType != "FUTURE" {
-			l.prices = ix.pricesOf(s.key, s.multiplier)
+			l.prices = ix.pricesOfGroup(s)
 		}
 		if l.used || len(l.prices) > 0 {
 			out = append(out, *l)

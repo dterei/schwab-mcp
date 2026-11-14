@@ -395,7 +395,7 @@ Each left-out row of the manifest's `left_out` has an `advice`, and a
 | `split` | PP's split wizard, for the security, unless the rows before the split hold the new quantities already: a file row's quantity is as of its `quantity_as_of`, the day of the History export that brought it, and an export made after the split restates it | an admin's split of the asset, or a BUY of the new shares at 0 |
 | `corporate_action` | a Delivery (Outbound) of the old security and a Delivery (Inbound) of the new one, at the cost that you carry | a SELL of the old asset and a BUY of the new one at one price, or an admin's merge of the two |
 | `set_category` | book the row with `schwabtx edit REF -category C`; the next export writes it | the same |
-| `by_hand` | book it in PP by hand: a futures contract, an option whose multiplier is not a whole number, or a trade or move without a quantity; a Cash In Lieu keeps its cash with `schwabtx edit REF -category dividend` | the same, in Ghostfolio |
+| `by_hand` | book it in PP by hand: a futures contract, an option whose multiplier is not a whole number or that the store holds with two, or a trade or move without a quantity; a Cash In Lieu keeps its cash with `schwabtx edit REF -category dividend` | the same, in Ghostfolio |
 | `set_security` | give the row its security with `schwabtx edit REF -security K:…`; the next export writes it | the same |
 | `set_cash` | | no balance carries the row yet: a later snapshot will; set the account's cash in Ghostfolio to that snapshot's, or take snapshots (`schwabtx snapshot`) of an account that has none |
 

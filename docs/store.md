@@ -1276,9 +1276,10 @@ accounts' balances, and takes no negative value.
   Their value, which in PP is also the new cost basis, is the shares times
   the price that the delivering side's row gives, divided by 100 for a
   bond; else the security's snapshot price on the delivering side's day,
-  from any account (`value_from_snapshot`); else 0 (`value_unknown`), to set
-  in the tool. Both sides of a journal of shares between your accounts take
-  the one price.
+  from any account and under any of its keys in the store, as
+  `securities.csv` and Ghostfolio's asset price it (`value_from_snapshot`);
+  else 0 (`value_unknown`), to set in the tool. Both sides of a journal of
+  shares between your accounts take the one price.
 - **Cash rows.** PP's Value is the amount, unsigned, and a dividend's Fees
   its fees. Ghostfolio's DIVIDEND is a quantity of 1 at the dividend before
   fees, with its fees as `fee`, and its INTEREST a quantity of 1 at the
@@ -1322,7 +1323,7 @@ each tool.
 | `signs_disagree` | a trade's cash has its quantity's sign | `check` with `schwabtx status REF` |
 | `legs_mismatch` | a trade of several legs whose legs do not add up to its cash | `check` |
 | `future` | a futures contract | `by_hand` |
-| `multiplier` | an option whose multiplier is not a whole number from 1 to 10000 | `by_hand` |
+| `multiplier` | an option whose multiplier is not a whole number from 1 to 10000, or whose keys in the store give two | `by_hand` |
 | `bond_unit` | a bond whose rows or prices do not follow face value and prices per 100 | `check`: the probe run settles the API's unit |
 | `gf_cash` | Ghostfolio: a cash row posted after the account's latest snapshot was taken (one with only a date: on or after the day it was taken), or of an account with no snapshot, which no balance carries yet | `set_cash`: a later snapshot carries it; set the account's cash in Ghostfolio to that snapshot's, or take snapshots (`schwabtx snapshot`) of an account that has none |
 
@@ -1490,6 +1491,10 @@ then started over.
   contracts times its multiplier, Schwab's when it is a whole number from 1
   to 10000, 100 for a file's option, which has none (`assumed_multiplier`),
   else the row is left out (`multiplier`); the price follows from the cash.
+  One contract that the store holds under several keys, a History file's
+  and the API's, takes the multiplier that the API's knows for the rows of
+  all of them, so that a futures option bought in a file and sold through
+  the API counts its contracts alike; keys that know two are left out.
   A short option shows as a negative holding in PP, whose dialog of
   negative shares is then expected, and as a short position, which
   Ghostfolio supports only weakly.
@@ -1510,7 +1515,10 @@ then started over.
   unit for bonds is not checked yet, so a bond whose trades or prices do
   not fit face value and prices per 100 is left out, `bond_unit`, rather
   than mix two units in one holding; its coupons are still written, in
-  Ghostfolio as interest (`coupon_as_interest`).
+  Ghostfolio as interest (`coupon_as_interest`). A bond that the store
+  holds under a History file's key and the API's is one holding, checked
+  by the rows and prices of both, and left out whole: a purchase in a file
+  and a sale through the API, in another unit, are left out together.
 - **Splits** are left out with advice `split`, never written as deliveries:
   PP restates earlier rows with its split wizard, Ghostfolio's splits are an
   admin's, and whether Schwab's later exports restate the quantities before

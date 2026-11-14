@@ -478,7 +478,7 @@ func TestToolMapping(t *testing.T) {
 			{keyFutOpt, "", 50, false, false, false, "OPTION", "", keyFutOpt},
 			{keyFileOp, "", 100, true, false, false, "OPTION", "", "XYZ250321C00045000"},
 			{"", symPut, 100, true, false, false, "OPTION", "", "XYZ250221P00040000"},
-			{keyBadM, "", 1, false, true, false, "OPTION", "", "XYZ250321C00045000"},
+			{keyBadM, "", 1, false, true, false, "OPTION", "", "XYZ1250321C00045000"},
 			{keyFuture, "", 1, false, false, false, "FUTURE", "", keyFuture},
 			{keyBondB, "", 1, false, false, true, "", "ZZT10A109", "ZZT10A109"},
 			{"", "ZZT10A109", 1, false, false, true, "", "ZZT10A109", "ZZT10A109"},
@@ -552,8 +552,8 @@ func TestToolMapping(t *testing.T) {
 		// costs 0.8 to 1.25 times its face at its price, and each snapshot
 		// price is 0.2 to 5 a dollar of face; a leg of a trade of several
 		// counts too, but not a leg of a journal, which costs nothing. A
-		// bond that a row names by its symbol alone counts the legs of that
-		// symbol without a key.
+		// bond that a row names by its symbol alone, its CUSIP, is one with
+		// the key of that CUSIP: the rows and legs of either count for both.
 		trade := func(gross int64) toolRow {
 			return toolRow{
 				ref: "Cf9e8d7c6.1", account: 1, source: "file", day: "2025-03-03", posted: "2025-03-03", kind: "Buy", category: "buy",
@@ -604,8 +604,8 @@ func TestToolMapping(t *testing.T) {
 			{"a keyless trade of another symbol", keylessTrade("ZZT10B107", -125_001), nil, nil, false, true},
 			{"a keyless leg above 1.25", several("T61002901", "TRADE", "buy", -125_001), keylessLeg("ZZT10A109", -125_001), nil, true, true},
 			{"a keyless leg of another symbol", several("T61002901", "TRADE", "buy", -125_001), keylessLeg("ZZT10B107", -125_001), nil, false, true},
-			{"a leg of the key above 1.25", several("T61002901", "TRADE", "buy", -125_001), leg("T61002901", -125_001), nil, false, true},
-			{"a keyless leg of the key's symbol", several("T61002901", "TRADE", "buy", -125_001), keylessLeg("ZZT10A109", -125_001), nil, false, false},
+			{"a leg of the key above 1.25", append(keylessTrade("ZZT10A109", -100_000), several("T61002901", "TRADE", "buy", -125_001)...), leg("T61002901", -125_001), nil, true, true},
+			{"a keyless leg of the key's CUSIP above 1.25", several("T61002901", "TRADE", "buy", -125_001), keylessLeg("ZZT10A109", -125_001), nil, true, false},
 			{"a price of 0.2", nil, nil, []toolPosition{price(200)}, false, false},
 			{"a price below 0.2", nil, nil, []toolPosition{price(199.99)}, true, false},
 			{"a price of 5", nil, nil, []toolPosition{price(5000)}, false, false},
@@ -618,6 +618,48 @@ func TestToolMapping(t *testing.T) {
 			}
 			if s := toolSecurityOf(&in, key, symbol); !s.bond || s.bondUnit != c.fails {
 				t.Errorf("%s: a bond %v whose unit is off: %v", c.name, s.bond, s.bondUnit)
+			}
+		}
+		// A bond bought in a History file's rows, under its key, and sold in
+		// the API's, under the API's key, which knows its CUSIP: when the
+		// API counts it in bonds of $1000, not in dollars of face, its sale
+		// and its price are off the unit, so both rows are left out, with
+		// every price, as of one security, and neither tool keeps a holding
+		// that no row closes; the holdings check, whose snapshot holds none,
+		// finds no difference. In dollars of face, both are written.
+		for _, off := range []bool{true, false} {
+			face := int64(10_000_000_000) // $10,000
+			if off {
+				face = 10_000_000 // 10 bonds
+			}
+			c := toolCaseNamed("bonds")
+			c.in = tcInput(toolInput{
+				securities: append(slices.Clone(c.in.securities), toolSecurityRow{key: keyBondAPI, assetType: "FIXED_INCOME", cusip: "ZZT10A109", symbol: "ZZT10A109"}),
+				names: append(slices.Clone(c.in.names),
+					toolName{key: keyBondAPI, kind: "symbol", value: "ZZT10A109", firstSeen: tcNY("2026-06-01 10:00:00"), lastSeen: tcNY("2026-06-01 10:00:00")}),
+				rows: []toolRow{
+					rcCash("T61009900", 1, "2025-05-01 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 2_000_000),
+					rcFile("Cf7a8b9d0.1", 1, "2025-06-01", "Buy", "buy", keyBondB, "ZZT10A109", centsOf(10_000_000_000), 99.5, -995_000),
+					rcTrade("T61009901", 1, "2026-06-01 10:00:00", "sell", keyBondAPI, "ZZT10A109", -face, 99.6, 996_000, 0),
+				},
+				positions: []toolPosition{{key: keyBondAPI, account: 1, marketDate: "2026-05-29", fetchedAt: tcNY("2026-05-29 18:05:00"), long: centsOf(face), marketValue: tcPrice(9_955)}},
+				snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 2_001_000)},
+			})
+			for _, tool := range []string{toolPP, toolGF} {
+				in, events, outcomes := mapCase(c, tool)
+				for _, o := range outcomes[1:] {
+					if (o.outcome == outcomeLeftOut && o.reason == "bond_unit") != off {
+						t.Errorf("two keys, off %v, %s: %s %s %s", off, tool, o.ref, o.outcome, o.reason)
+					}
+				}
+				if diffs, _ := holdingsCheck(in, events); len(diffs) != 0 {
+					t.Errorf("two keys, off %v, %s: differences %+v", off, tool, diffs)
+				}
+				for _, l := range listSecurities(in, events) {
+					if l.security.bond && len(l.prices) > 0 == off {
+						t.Errorf("two keys, off %v, %s: %s has prices %v", off, tool, l.security.key, l.prices)
+					}
+				}
 			}
 		}
 	})
@@ -1056,6 +1098,18 @@ func TestToolMapping(t *testing.T) {
 		if f := ppFileNamed(t, ppFiles(inPP, eventsPP), ppSecuritiesFile); f.rows != 1 {
 			t.Errorf("PP's securities: %d rows", f.rows)
 		}
+		// A delivery of the file's key, with no price, on the day that the
+		// API's key's position prices the security, is valued at that price,
+		// which the asset and securities.csv take too.
+		delivered := toolCaseNamed("two_keys")
+		delivered.in.rows = append(slices.Clone(delivered.in.rows), rcFile("Cf7a8b9c0.3", 1, "2026-11-10", "Journaled Shares", "transfer_in", keyTwoFile, "JKLM", centsOf(2_000_000), 0, 0))
+		delivered.in = tcInput(delivered.in)
+		for _, tool := range []string{toolPP, toolGF} {
+			_, events, _ := mapCase(delivered, tool)
+			if e := events[len(events)-1]; e.ref != "Cf7a8b9c0.3" || e.value != 36_000 || e.price.Cmp(big.NewRat(180, 1)) != 0 || !slices.Equal(e.caveats, []string{"value_from_snapshot"}) {
+				t.Errorf("%s: the delivery %s of %s: %s at %s, %v", tool, e.ref, e.security.key, formatCents(e.value), e.price.RatString(), e.caveats)
+			}
+		}
 		// The keys join by a ticker that both have had, or by a CUSIP, and
 		// take every identifier from both: the API's key renamed since, or
 		// delisted, which only it learns, the file's knowing neither, its
@@ -1335,6 +1389,63 @@ func TestToolMapping(t *testing.T) {
 			}
 			if same != c.one || !slices.Equal(identities, c.identities) {
 				t.Errorf("%s: one %v, identities %q, want %v, %q", c.name, same, identities, c.one, c.identities)
+			}
+		}
+		// One contract's keys give it one multiplier: a row's contract
+		// without a key takes the API key's 100, not one assumed; two keys
+		// of one contract that give two leave its rows out.
+		twins := tcInput(toolInput{rows: []toolRow{rcTrade("T7f1a2b302", 1, "2025-01-06 10:00:00", "buy", "", symPut, 1_000_000, 2, -200, 0)}})
+		if s := toolSecurityOf(&twins, "", symPut); s.multiplier != 100 || s.assumed || s.badMultiplier {
+			t.Errorf("a row's contract of a key's: multiplier %d, assumed %v, bad %v", s.multiplier, s.assumed, s.badMultiplier)
+		}
+		twins.securities = append(slices.Clone(twins.securities), toolSecurityRow{key: "i:219771035", assetType: "OPTION", symbol: symPut, multiplier: tcPrice(10)})
+		twins.names = append(slices.Clone(twins.names), toolName{key: "i:219771035", kind: "symbol", value: symPut, firstSeen: tcNY("2025-01-06 10:00:00"), lastSeen: tcNY("2025-01-06 10:00:00")})
+		for _, k := range []secRef{{key: keyPut}, {key: "i:219771035"}, {symbol: symPut}} {
+			if s := toolSecurityOf(&twins, k.key, k.symbol); !s.badMultiplier {
+				t.Errorf("%v of a contract with two multipliers: %d, assumed %v", k, s.multiplier, s.assumed)
+			}
+		}
+		// The keys of one contract count it in one unit: a futures option
+		// bought under a History file's key, which a file types as an
+		// option only when its symbol parses as a contract, as a futures
+		// option's does not, and sold under the API's key, which knows its
+		// multiplier, 50: one contract in and one out, of 50 shares each,
+		// with no multiplier assumed, nets 0 in both tools.
+		for _, typed := range []string{"OPTION", ""} {
+			fileKey := "s:FILE:" + symFutOpt + "@2025-01-20"
+			securities, names := tcSecurities()
+			futOpt := toolCase{name: "a futures option of two keys", in: tcInput(toolInput{
+				to:         "2025-03-01",
+				securities: append(securities, toolSecurityRow{key: fileKey, assetType: typed, symbol: symFutOpt}),
+				names:      append(names, toolName{key: fileKey, kind: "symbol", value: symFutOpt, firstSeen: tcNY("2025-01-20 09:00:00"), lastSeen: tcNY("2025-01-20 09:00:00")}),
+				rows: []toolRow{
+					rcFile("C7f1a2b3c.1", 1, "2025-01-17", "Buy to Open", "buy", fileKey, symFutOpt, centsOf(1_000_000), 21, -105_000),
+					rcTrade("T7f1a2b301", 1, "2025-02-10 10:00:00", "sell", keyFutOpt, symFutOpt, -1_000_000, 25, 125_000, 0),
+				},
+			})}
+			for _, tool := range []string{toolPP, toolGF} {
+				_, events, _ := mapCase(futOpt, tool)
+				for _, e := range events {
+					if e.shares != 50_000_000 || len(e.caveats) > 0 {
+						t.Errorf("typed %q, %s: %s %s shares %s %v", typed, tool, e.ref, e.kind, formatMicros(e.shares), e.caveats)
+					}
+				}
+				s := chainStepFrom(t, caseExport(t, futOpt, tool), t.TempDir())
+				if tool == toolPP {
+					m := newPPModel()
+					ppApply(t, m, s)
+					if held := m.shares("Schwab A1 ...135"); len(held) != 1 || slices.Collect(maps.Values(held))[0] != 0 {
+						t.Errorf("typed %q: PP holds %v", typed, held)
+					}
+					continue
+				}
+				m := newGFModel()
+				if _, err := gfImport(m, s.file); err != nil {
+					t.Fatal(err)
+				}
+				if held := m.holdings(); len(held) != 0 || len(events) != 2 {
+					t.Errorf("typed %q: Ghostfolio holds %v of %d activities", typed, held, len(events))
+				}
 			}
 		}
 	})

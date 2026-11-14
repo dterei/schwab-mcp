@@ -224,6 +224,8 @@ const (
 	// and the API's, as it does when nothing joins them (two_keys).
 	keyTwoFile = "x:66000017"
 	keyTwoAPI  = "i:1000013"
+	// The API's key of the bond that keyBondB is a History file's key of.
+	keyBondAPI = "i:2000001"
 )
 
 // The symbols of the cases' options.
@@ -233,7 +235,7 @@ const (
 	symPut27  = "XYZ   270115P00045000"
 	symFutOpt = "/ZZH25_P5050:XCME"
 	symFuture = "/ZZH25:XCME"
-	symBadM   = "XYZ   250321C00045000"
+	symBadM   = "XYZ1  250321C00045000"
 	symFileOp = "XYZ 03/21/2025 45.00 C"
 	symOptCU  = "XYZ   250620C00055000"
 )
@@ -291,7 +293,9 @@ func tcSecurities() ([]toolSecurityRow, []toolName) {
 		option(keyCall, symCall, "CALL", 50, "2026-09-18", 100, "XYZ 09/18/2026 50.00 C"),
 		option(keyPut27, symPut27, "PUT", 45, "2027-01-15", 100, "XYZ 01/15/2027 45.00 P"),
 		option(keyFutOpt, symFutOpt, "PUT", 5050, "2025-03-21", 50, "EXAMPLE INDEX FUTURE PUT 5050 MAR 25"),
-		option(keyBadM, symBadM, "CALL", 45, "2025-03-21", 2.5, "XYZ 03/21/2025 45.00 C ADJ"),
+		// An adjusted call, whose deliverable a corporate action changed:
+		// OCC gives it a root of its own.
+		option(keyBadM, symBadM, "CALL", 45, "2025-03-21", 2.5, "XYZ1 03/21/2025 45.00 C ADJ"),
 		option(keyFileOp, symFileOp, "CALL", 45, "2025-03-21", 0, "CALL XYZ CORP $45 EXP 03/21/25"),
 		// A call whose root was renamed with its underlying, PQR to PQRS.
 		{
