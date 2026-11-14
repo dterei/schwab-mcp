@@ -96,12 +96,14 @@ func TestMaskJSON(t *testing.T) {
 		key, in, want string
 		counted       string // the count of the report that the replacement adds to, or ""
 	}{
-		// An account number, as a string or a number, as Schwab masks one;
-		// Schwab's own masked form stays.
+		// An account number, as a string or a number, as Schwab masks one,
+		// a number that is no integer by its literal; Schwab's own masked
+		// form stays.
 		{"accountNumber", `"12345678"`, `"...678"`, "AccountNumbers"},
 		{"accountNumber", `12345678`, `"...678"`, "AccountNumbers"},
 		{"accountNumber", `12345678.0`, `"...678"`, "AccountNumbers"},
 		{"accountNumber", `1.2345678E7`, `"...678"`, "AccountNumbers"},
+		{"accountNumber", `12345678.5`, `"...8.5"`, "AccountNumbers"},
 		{"accountNumber", `"61803398"`, `"...398"`, "AccountNumbers"},
 		{"accountNumber", `"...678"`, `"...678"`, ""},
 		{"accountNumber", `"12"`, `"..."`, "AccountNumbers"},
@@ -165,6 +167,7 @@ func TestMaskJSON(t *testing.T) {
 		{"tag", `"TA_someone at example dot com 1234"`, `"TA_..."`, "Tags"},
 		{"tag", `"TA_FAKEAPP"`, `"TA_..."`, "Tags"},
 		{"tag", `"TA_..."`, `"TA_..."`, ""},
+		{"tag", `"TAX_X"`, `"[withheld]"`, "Tags"},
 		{"tag", `"jdoe@example.com"`, `"[withheld]"`, "Tags"},
 		{"tag", `"[withheld]"`, `"[withheld]"`, ""},
 		{"tag", `1234`, `"[withheld]"`, "Tags"},

@@ -21,7 +21,7 @@ const hash = "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691"
 // it masks.
 func TestKnown(t *testing.T) {
 	var k Known
-	k.Add("29470135", "1234567", "123456789012", "41224019")
+	k.Add("29470135", "1234567", "123456789012", "41224019", "654321")
 	k.Add("12345", "...135", "2947 0135", "２９４７０１３５", "", "29470135") // ignored, or held already
 	for _, tc := range []struct{ in, want string }{
 		{"", ""},
@@ -29,6 +29,7 @@ func TestKnown(t *testing.T) {
 		{"ACCT29470135 TRF", "ACCT...135 TRF"},
 		{"JOURNAL TO 1234567", "JOURNAL TO ...567"},
 		{"x123456789012y", "x...012y"},
+		{"x654321y", "x...321y"},
 		{"29470135-61803398", "...135-61803398"},
 		{"29470135 and 1234567", "...135 and ...567"},
 		{"1294701350", "1294701350"},
@@ -62,7 +63,7 @@ func TestKnown(t *testing.T) {
 			t.Errorf("Contains(%q) = %v, want %v", tc.in, k.Contains(tc.in), tc.want != tc.in)
 		}
 	}
-	for _, n := range []string{"29470135", "1234567", "123456789012", "41224019"} {
+	for _, n := range []string{"29470135", "1234567", "123456789012", "41224019", "654321"} {
 		if !k.has(n) {
 			t.Errorf("Known does not hold %s, which it was given", n)
 		}
