@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -103,22 +104,25 @@ func TestPositionsResourceRefusals(t *testing.T) {
 			t.Errorf("%s: %v, want -32602 resource not found without data", account, err)
 		}
 	}
-	loggedOut := newEnv(t, withoutStore(), withoutLogin())
-	e.fake.Override(schwabtest.AccountsRoute, schwabtest.Unavailable)
-	for _, uri := range []string{accountsURI, positionsOfURI("135")} {
-		if _, err := e.read(uri); !upstreamError(err, "schwab_unavailable") {
-			t.Errorf("%s with Schwab down: %v, want -32603 with the tool's error", uri, err)
-		}
-		if _, err := loggedOut.read(uri); !upstreamError(err, "not_logged_in") {
-			t.Errorf("%s with no login: %v, want -32603 with the tool's error", uri, err)
+	upstream := func(code, why string) {
+		t.Helper()
+		for _, uri := range []string{accountsURI, positionsOfURI("135")} {
+			if _, err := e.read(uri); !upstreamError(err, code) {
+				t.Errorf("%s %s: %v, want -32603 with the tool's error", uri, why, err)
+			}
 		}
 	}
+	e.fake.Override(schwabtest.AccountsRoute, schwabtest.Unavailable)
+	upstream("schwab_unavailable", "with Schwab down")
 	e.fake.Override(schwabtest.AccountsRoute, nil)
 	if r, err := e.read(positionsOfURI("...135")); err != nil || r.Contents[0].URI != positionsOfURI(schwabtest.HashFor(individual)) {
 		t.Errorf("a read after the refusals: %v", err)
 	}
+	if err := os.Remove(e.tokenFile); err != nil {
+		t.Fatal(err)
+	}
+	upstream("not_logged_in", "with the login gone")
 	e.assertClean()
-	loggedOut.assertClean()
 }
 
 // upstreamError reports whether err is a resource read's -32603 with the

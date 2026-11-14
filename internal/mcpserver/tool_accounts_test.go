@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dterei/schwab-mcp/internal/history"
 	"github.com/dterei/schwab-mcp/internal/lookup"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
@@ -183,18 +185,19 @@ func withUnreadablePosition() envOption {
 }
 
 // accountCases are the account tools' cases of TestToolsEmptyAndFull:
-// empty is one account that sends no figure, beside no store; full is the
-// fixtures' three accounts, joined with the shared store's, one with a
-// cash that is not the value less the holdings, one a margin account with
-// its cash in marginBalance, and one that sends no value; list_accounts'
-// store answers from the store without a login; get_balances' detail is
-// one account's every figure. get_positions' empty is an account that holds
-// nothing; full is the fixtures' positions, a short put among them, beside
-// a position whose value cannot be read and one that lacks its open profit
-// or loss; symbol keeps a symbol's options, matched by their underlying in
-// any case; pages is the fixtures' two at a time, followed to the end; and
-// detail is one account's with detail full, in a world where every account
-// sends its value, so that each position has both its weights.
+// empty is one account that sends no figure, beside no store, which is no
+// failure; full is the fixtures' three accounts, joined with the shared
+// store's, one with a cash that is not the value less the holdings, one a
+// margin account with its cash in marginBalance, and one that sends no
+// value; list_accounts' store answers from the store without a login;
+// get_balances' detail is one account's every figure. get_positions' empty
+// is an account that holds nothing; full is the fixtures' positions, a
+// short put among them, beside a position whose value cannot be read and
+// one that lacks its open profit or loss; symbol keeps a symbol's options,
+// matched by their underlying in any case; pages is the fixtures' two at a
+// time, followed to the end; and detail is one account's with detail full,
+// in a world where every account sends its value, so that each position
+// has both its weights.
 var accountCases = []toolCase{
 	{tool: "list_accounts", name: "empty", args: `{}`, opts: withOneBareAccount(), check: func(t *testing.T, _ *env, r result) {
 		a := accountsOf(t, r)["...783"]
@@ -203,6 +206,9 @@ var accountCases = []toolCase{
 		}
 		if !slices.Contains(r.warnings(), "figures_missing") || !strings.Contains(r.text, "Schwab sent no current value or cash for ...783 (Account 1).") {
 			t.Errorf("no figures_missing: %s", r.text)
+		}
+		if slices.Contains(r.warnings(), "store_unavailable") {
+			t.Errorf("no store is no failure: %s", r.text)
 		}
 	}},
 	{tool: "list_accounts", name: "full", args: `{}`, opts: []envOption{withOddFigures()}, check: func(t *testing.T, e *env, r result) {
@@ -375,39 +381,54 @@ var accountCases = []toolCase{
 // be read for a reason of the login or the app's set-up: a lapsed login, or
 // the page Schwab answers until the app is ready, here for the accounts
 // after the directory read the account numbers. A failure of Schwab's own,
-// or a store that does not open, is the call's error.
+// no accounts, or a store that does not open or knows no account, is the
+// call's error. The accounts endpoint's answers take turns on one server,
+// whose directory the first call read.
 func TestListAccountsFromTheStore(t *testing.T) {
 	t.Parallel()
+	check := func(name string, r result, code string, fromStore bool) {
+		t.Helper()
+		switch {
+		case fromStore && (r.isError || r.value["source"] != "store" || !strings.Contains(r.text, "without values or hashes: ["+code+"] ")):
+			t.Errorf("%s: %s, want the store's accounts", name, r.text)
+		case !fromStore && r.code() != code:
+			t.Errorf("%s: %s, want [%s]", name, r.text, code)
+		}
+	}
+	e := newEnv(t)
 	for _, tc := range []struct {
 		name      string
-		opts      []envOption
+		answer    http.HandlerFunc
 		code      string // the error's, or api_unavailable's
 		fromStore bool
 	}{
-		{"lapsed", []envOption{withLoginAt(testNow.Add(-8 * 24 * time.Hour))}, "login_expired", true},
-		{"app not ready", []envOption{withFake(func(f *schwabtest.Server) { f.Override(schwabtest.AccountsRoute, schwabtest.Whitelabel) })}, "app_not_ready", true},
-		{"no store", []envOption{withoutLogin(), withoutStore()}, "not_logged_in", false},
-		{"Schwab down", []envOption{withFake(func(f *schwabtest.Server) { f.Override(schwabtest.AccountsRoute, schwabtest.Unavailable) })}, "schwab_unavailable", false},
-		{"no accounts", []envOption{withoutFixtures()}, "schwab_refused", false},
+		{"app not ready", schwabtest.Whitelabel, "app_not_ready", true},
+		{"Schwab down", schwabtest.Unavailable, "schwab_unavailable", false},
+		{"no accounts", schwabtest.Answer(200, "[]"), "schwab_refused", false},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			r := newEnv(t, tc.opts...).call("list_accounts", `{}`)
-			switch {
-			case tc.fromStore && (r.isError || r.value["source"] != "store" || !strings.Contains(r.text, "without values or hashes: ["+tc.code+"] ")):
-				t.Errorf("%s, want the store's accounts", r.text)
-			case !tc.fromStore && r.code() != tc.code:
-				t.Errorf("%s, want [%s]", r.text, tc.code)
-			}
-		})
+		e.fake.Override(schwabtest.AccountsRoute, tc.answer)
+		check(tc.name, e.call("list_accounts", `{}`), tc.code, tc.fromStore)
 	}
+	check("lapsed", newEnv(t, withLoginAt(testNow.Add(-8*24*time.Hour))).call("list_accounts", `{}`), "login_expired", true)
+	loggedOut := newEnv(t, withoutLogin(), withoutStore())
+	check("no store", loggedOut.call("list_accounts", `{}`), "not_logged_in", false)
+	// A store made since, by schwabtx, which knows no account yet: the
+	// server finds it at the next call.
+	s, err := history.Open(t.Context(), history.Options{Path: loggedOut.storePath, Now: func() time.Time { return testNow }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	check("a store that knows no account", loggedOut.call("list_accounts", `{}`), "not_logged_in", false)
 }
 
 // An account keeps the kind the user gave it in the store, with the known
 // numbers in it masked, as the store's text is, here one of 7 digits that
-// only the store knows, which mask.Text leaves; and from the store, the
-// date the login stopped sharing it, in New York, and the accounts that
-// only the store knows.
+// only the store knows, which mask.Text leaves; and from the store, once
+// the login is gone, the date the login stopped sharing it, in New York,
+// and the accounts that only the store knows.
 func TestListAccountsShowsTheStoresAccounts(t *testing.T) {
 	t.Parallel()
 	path := storeCopy(t)
@@ -416,17 +437,22 @@ func TestListAccountsShowsTheStoresAccounts(t *testing.T) {
 			"VALUES ('"+sevenDigits+"', 'user', '2026-01-05T19:11:00.000Z', '2026-01-05T19:11:00.000Z')",
 		"UPDATE account SET kind = 'gift from "+sevenDigits+"' WHERE account_id = 1",
 		"UPDATE account SET not_shared_since = '2026-11-01T03:30:00.000Z' WHERE account_id = 3")
+	e := newEnv(t, withStore(path))
+	e.plant(sevenDigits)
 	for _, tc := range []struct {
-		name     string
-		opts     []envOption
-		accounts int
-		since    any
+		name      string
+		loggedOut bool
+		accounts  int
+		since     any
 	}{
-		{"from Schwab", nil, 3, nil},
-		{"from the store", []envOption{withoutLogin()}, 4, "2026-10-31"},
+		{"from Schwab", false, 3, nil},
+		{"from the store", true, 4, "2026-10-31"},
 	} {
-		e := newEnv(t, append(tc.opts, withStore(path))...)
-		e.plant(sevenDigits)
+		if tc.loggedOut {
+			if err := os.Remove(e.tokenFile); err != nil {
+				t.Fatal(err)
+			}
+		}
 		as := accountsOf(t, e.call("list_accounts", `{}`))
 		if len(as) != tc.accounts || as["...135"]["kind"] != "gift from ...321" || as["...783"]["not_shared_since"] != tc.since {
 			t.Errorf("%s: %d accounts, %v and %v", tc.name, len(as), as["...135"], as["...783"])
@@ -435,7 +461,8 @@ func TestListAccountsShowsTheStoresAccounts(t *testing.T) {
 }
 
 // A store that cannot be read leaves list_accounts' refs and kinds null,
-// and says why.
+// and says why. No store at all is no failure, and says nothing (the
+// cases' empty).
 func TestListAccountsWithoutTheStore(t *testing.T) {
 	t.Parallel()
 	path := storeCopy(t)
@@ -444,9 +471,6 @@ func TestListAccountsWithoutTheStore(t *testing.T) {
 	if r.isError || accountsOf(t, r)["...135"]["store_ref"] != nil || !slices.Contains(r.warnings(), "store_unavailable") ||
 		!strings.Contains(r.text, "written by a newer schwabtx") {
 		t.Errorf("a store newer than the server: %s", r.text)
-	}
-	if r := newEnv(t, withoutStore()).call("list_accounts", `{}`); r.isError || len(r.warnings()) != 2 {
-		t.Errorf("no store at all is no failure: %s", r.text)
 	}
 }
 
@@ -473,7 +497,9 @@ func TestAccountsNewSinceTheDirectory(t *testing.T) {
 	}
 }
 
-// list_accounts lists at most 50 accounts.
+// list_accounts lists at most 50 accounts. The first and the last of 51
+// stand for every one in the check of what the server sent, as each goes
+// the same way.
 func TestListAccountsBound(t *testing.T) {
 	t.Parallel()
 	var numbers []string
@@ -484,7 +510,7 @@ func TestListAccountsBound(t *testing.T) {
 			f.AddAccount(schwabtest.Account{Number: n, Details: bareAccount(n)})
 		}
 	}))
-	e.plant(numbers...)
+	e.plant(numbers[0], numbers[maxAccounts])
 	if r := e.call("list_accounts", `{}`); r.code() != "too_big" || !strings.Contains(r.text, "51 accounts") {
 		t.Errorf("51 accounts: %s", r.text)
 	}
@@ -569,14 +595,14 @@ var accountPlantings = []func(t *testing.T, w *leakWorld){func(_ *testing.T, w *
 	w.checks = append(w.checks, positionCursorsHoldNoNumber, accountReadsHoldNoNumber)
 }}
 
-// accountLeakCalls are the account tools' calls of TestNoAccountNumberLeaks:
-// every account, one by its full number, and one that is no account, by a
-// nickname that holds a number; and pages of positions, whose cursors hold
-// a digest of their arguments.
+// accountLeakCalls are the account tools' calls of TestNoAccountNumberLeaks,
+// with each detail: every account in full, one by its full number, and one
+// that is no account, by a nickname that holds a number; and pages of
+// positions, whose cursors hold a digest of their arguments.
 var accountLeakCalls = []leakCall{
 	{tool: "list_accounts", args: `{}`},
 	{tool: "get_balances", args: `{"detail":"full"}`},
-	{tool: "get_balances", args: `{"account":"29470135","detail":"full"}`},
+	{tool: "get_balances", args: `{"account":"29470135"}`},
 	{tool: "get_balances", args: `{"account":"Nobody 61803398"}`},
 	{tool: "get_positions", args: `{"detail":"full"}`},
 	{tool: "get_positions", args: `{"account":"29470135","limit":1}`},
@@ -597,7 +623,7 @@ var accountSizeCases = []sizeCase{{name: "get_balances full", opts: []envOption{
 		f.AddAccount(schwabtest.Account{Number: n, Details: details})
 	}
 })}, run: func(t *testing.T, e *env) {
-	e.plant(manyAccounts...)
+	e.plant(manyAccounts[0], manyAccounts[len(manyAccounts)-1]) // each goes the same way
 	r := e.call("get_balances", `{"detail":"full"}`)
 	if r.isError {
 		t.Fatal(r.text)
@@ -790,7 +816,8 @@ func accountReadsHoldNoNumber(t *testing.T, e *env) {
 // have its sums and the totals; the other accounts' positions are listed.
 // An account that the directory lists and Schwab's answer does not is no
 // longer shared. A cursor of other arguments, or that does not decode, is
-// bad_cursor; another limit is not.
+// bad_cursor; another limit is not; and one past the positions that a
+// later read holds gives an empty last page.
 func TestPositionsOfAnUnreadableAccount(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, withoutStore(), withFake(func(f *schwabtest.Server) {
@@ -834,6 +861,11 @@ func TestPositionsOfAnUnreadableAccount(t *testing.T) {
 	}
 	if r := e.call("get_positions", map[string]any{"limit": 3, "cursor": first.value["next_cursor"]}); r.isError || len(positionsOf(r)) != 3 {
 		t.Errorf("the next page, with another limit: %s", r.text)
+	}
+	past := e.call("get_positions", `{"limit":5}`)
+	e.fake.Override(schwabtest.AccountsRoute, schwabtest.Answer(200, "["+string(as2[individual])+"]"))
+	if r := e.call("get_positions", map[string]any{"cursor": past.value["next_cursor"]}); r.isError || len(positionsOf(r)) != 0 || r.value["next_cursor"] != nil {
+		t.Errorf("a cursor past the 4 positions that remain: %s", r.text)
 	}
 }
 

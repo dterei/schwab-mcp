@@ -47,63 +47,61 @@ func (e *env) getPrompt(args map[string]string) (string, error) {
 // other run of more than 3 digits as ... and its last 3. It makes no
 // request. An argument of another shape, an unknown focus or an argument
 // it does not take is -32602, which says what it takes and quotes nothing;
-// the session lives on. In a 2026-07-28 session and a 2025-06-18 one
-// alike.
+// the session lives on. TestProtocolVersions gets the prompt in each
+// protocol version.
 func TestPortfolioReview(t *testing.T) {
 	t.Parallel()
 	hash := schwabtest.HashFor(individual)
-	for _, protocol := range []string{"", "2025-06-18"} {
-		e := newEnv(t, withoutStore(), withProtocol(protocol))
-		before := len(e.fake.Requests())
-		listed, err := e.cs.ListPrompts(t.Context(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(listed.Prompts) != 1 || listed.Prompts[0].Name != "portfolio_review" || len(listed.Prompts[0].Arguments) != 2 ||
-			slices.ContainsFunc(listed.Prompts[0].Arguments, func(a *mcp.PromptArgument) bool { return a.Required }) {
-			t.Errorf("%s prompts/list: %+v", protocol, listed.Prompts)
-		}
-		if text, err := e.getPrompt(nil); err != nil || text != wholeReview {
-			t.Errorf("%s with no arguments: %v\n%s", protocol, err, text)
-		}
-		text, err := e.getPrompt(map[string]string{"account": "  29470135 ", "focus": "Risk"})
-		if err != nil || !strings.HasPrefix(text, "Review my Schwab portfolio for account ...135, focusing on risk.\n\n"+
-			"1. Call list_accounts, then get_balances and get_positions for that account.\n2. ") {
-			t.Errorf("%s for one account, with a focus: %v\n%s", protocol, err, text)
-		}
-		for account, shown := range map[string]string{
-			hash: hash, strings.ToLower(hash[:12]): strings.ToLower(hash[:12]), "...135": "...135", "135": "135", "A2": "A2",
-			strings.Repeat("7", 63) + "12345": "...771", strings.Repeat("z", 64) + " and more": strings.Repeat("z", 64),
-		} {
-			if text, err := e.getPrompt(map[string]string{"account": account}); err != nil ||
-				!strings.HasPrefix(text, "Review my Schwab portfolio for account "+shown+".\n\n") {
-				t.Errorf("%s account %.20s: %v\n%.80s", protocol, account, err, text)
-			}
-		}
-		const takesAccount = "account takes one account's last 3 or more digits, its A ref or its account_hash, " +
-			"in letters, digits, dots, dashes and underscores; every account when empty."
-		const takesFocus = "focus takes one word: allocation, risk, income, activity or cash."
-		for _, tc := range []struct {
-			args map[string]string
-			want string
-		}{
-			{map[string]string{"account": "Joint 2947-0135"}, takesAccount},
-			{map[string]string{"account": "29470135/x"}, takesAccount},
-			{map[string]string{"focus": "growth"}, takesFocus},
-			{map[string]string{"focus": "risk!"}, takesFocus},
-			{map[string]string{"account": "135", "user": "29470135"}, "portfolio_review takes the arguments account and focus."},
-		} {
-			_, err := e.getPrompt(tc.args)
-			if we, ok := errors.AsType[*jsonrpc.Error](err); !ok || we.Code != jsonrpc.CodeInvalidParams || we.Message != tc.want || len(we.Data) > 0 {
-				t.Errorf("%s %v: %v, want -32602 %q", protocol, slices.Sorted(maps.Keys(tc.args)), err, tc.want)
-			}
-		}
-		if text, err := e.getPrompt(map[string]string{"focus": "income"}); err != nil || !strings.HasPrefix(text, "Review my Schwab portfolio, focusing on income.\n") {
-			t.Errorf("%s after the refusals: %v", protocol, err)
-		}
-		if n := len(e.fake.Requests()) - before; n != 0 {
-			t.Errorf("%s the prompt made %d requests", protocol, n)
-		}
-		e.assertClean()
+	e := newEnv(t, withoutStore())
+	before := len(e.fake.Requests())
+	listed, err := e.cs.ListPrompts(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if len(listed.Prompts) != 1 || listed.Prompts[0].Name != "portfolio_review" || len(listed.Prompts[0].Arguments) != 2 ||
+		slices.ContainsFunc(listed.Prompts[0].Arguments, func(a *mcp.PromptArgument) bool { return a.Required }) {
+		t.Errorf("prompts/list: %+v", listed.Prompts)
+	}
+	if text, err := e.getPrompt(nil); err != nil || text != wholeReview {
+		t.Errorf("with no arguments: %v\n%s", err, text)
+	}
+	text, err := e.getPrompt(map[string]string{"account": "  29470135 ", "focus": "Risk"})
+	if err != nil || !strings.HasPrefix(text, "Review my Schwab portfolio for account ...135, focusing on risk.\n\n"+
+		"1. Call list_accounts, then get_balances and get_positions for that account.\n2. ") {
+		t.Errorf("for one account, with a focus: %v\n%s", err, text)
+	}
+	for account, shown := range map[string]string{
+		hash: hash, strings.ToLower(hash[:12]): strings.ToLower(hash[:12]), "...135": "...135", "135": "135", "A2": "A2",
+		strings.Repeat("7", 63) + "12345": "...771", strings.Repeat("z", 64) + " and more": strings.Repeat("z", 64),
+	} {
+		if text, err := e.getPrompt(map[string]string{"account": account}); err != nil ||
+			!strings.HasPrefix(text, "Review my Schwab portfolio for account "+shown+".\n\n") {
+			t.Errorf("account %.20s: %v\n%.80s", account, err, text)
+		}
+	}
+	const takesAccount = "account takes one account's last 3 or more digits, its A ref or its account_hash, " +
+		"in letters, digits, dots, dashes and underscores; every account when empty."
+	const takesFocus = "focus takes one word: allocation, risk, income, activity or cash."
+	for _, tc := range []struct {
+		args map[string]string
+		want string
+	}{
+		{map[string]string{"account": "Joint 2947-0135"}, takesAccount},
+		{map[string]string{"account": "29470135/x"}, takesAccount},
+		{map[string]string{"focus": "growth"}, takesFocus},
+		{map[string]string{"focus": "risk!"}, takesFocus},
+		{map[string]string{"account": "135", "user": "29470135"}, "portfolio_review takes the arguments account and focus."},
+	} {
+		_, err := e.getPrompt(tc.args)
+		if we, ok := errors.AsType[*jsonrpc.Error](err); !ok || we.Code != jsonrpc.CodeInvalidParams || we.Message != tc.want || len(we.Data) > 0 {
+			t.Errorf("%v: %v, want -32602 %q", slices.Sorted(maps.Keys(tc.args)), err, tc.want)
+		}
+	}
+	if text, err := e.getPrompt(map[string]string{"focus": "income"}); err != nil || !strings.HasPrefix(text, "Review my Schwab portfolio, focusing on income.\n") {
+		t.Errorf("after the refusals: %v", err)
+	}
+	if n := len(e.fake.Requests()) - before; n != 0 {
+		t.Errorf("the prompt made %d requests", n)
+	}
+	e.assertClean()
 }
