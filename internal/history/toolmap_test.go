@@ -2,6 +2,7 @@ package history
 
 import (
 	"cmp"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -1578,6 +1579,88 @@ func TestToolMapping(t *testing.T) {
 					t.Errorf("%s %s: differences %+v", c.name, tool, diffs)
 				}
 				if e := caseExport(t, c, tool); e.SymbolsChanged != 0 {
+					t.Errorf("%s %s: %d securities changed symbol", c.name, tool, e.SymbolsChanged)
+				}
+			}
+		}
+		// A security that the rows of one source name by its ticker and,
+		// from its cash merger or its delisting on, by its CUSIP: a History
+		// file, one API read of its years, or one transactions -json
+		// import, which the store dates every name of by its export, the
+		// read's answer or the import. The CUSIP's rows come last, so it is
+		// delisted, as the securities view's symbol says: MANUAL in
+		// Ghostfolio, with no ticker in PP, whose feed would take another
+		// company's prices once the ticker is reused, and its symbol changed.
+		// The CUSIP's rows decide by their last day, not their first: a
+		// corporate action's old side under the CUSIP, between rows of the
+		// ticker, leaves the security trading. Of rows of both on one day,
+		// the ticker stands. A key of the positions that the CUSIP joins,
+		// which saw the ticker at a snapshot before the file's export, adds
+		// no row, and the file key's rows decide for both.
+		gone := func(key, assetType, ticker, cusip string, seen time.Time, rows ...toolRow) toolInput {
+			securities, names := tcSecurities()
+			return tcInput(toolInput{
+				securities: append(securities, toolSecurityRow{key: key, assetType: assetType, symbol: cusip}),
+				names: append(names,
+					toolName{key: key, kind: "symbol", value: ticker, firstSeen: seen, lastSeen: seen},
+					toolName{key: key, kind: "symbol", value: cusip, firstSeen: seen, lastSeen: seen},
+					toolName{key: key, kind: "description", value: ticker + " CORP", firstSeen: seen, lastSeen: seen},
+				),
+				rows: rows,
+			})
+		}
+		merger := func(ref, key, cusip string) []toolRow {
+			cash := rcFile(ref+".2", 1, "2025-12-01", "Cash Merger", "sell", key, cusip, sql.NullInt64{}, 0, 50_000)
+			shares := rcFile(ref+".3", 1, "2025-12-01", "Cash Merger Adj", "other", key, cusip, centsOf(-10_000_000), 0, 0)
+			cash.flags, shares.flags = []string{"two_row_event"}, []string{"two_row_event"}
+			return []toolRow{cash, shares}
+		}
+		for _, c := range []struct {
+			name, ticker string
+			in           toolInput
+			delisted     bool
+		}{
+			{"a cash merger in a History file", "MRGR", gone("x:66000301", "", "MRGR", "69389C109", tcNY("2026-01-15 09:00:00"), append([]toolRow{
+				rcFile("C7f3a4b5c.1", 1, "2025-03-03", "Buy", "buy", "x:66000301", "MRGR", centsOf(10_000_000), 40, -40_000),
+			}, merger("C7f3a4b5c", "x:66000301", "69389C109")...)...), true},
+			{"a delisting in one API read", "TKRQ", gone("i:900000001", "EQUITY", "TKRQ", "69389D107", tcNY("2022-12-31 00:00:01"),
+				rcTrade("T7f3a000101", 1, "2021-03-01 10:00:00", "buy", "i:900000001", "TKRQ", 10_000_000, 10, -10_000, 0),
+				rcTrade("T7f3a000102", 1, "2022-06-15 10:00:00", "sell", "i:900000001", "69389D107", -10_000_000, 0.5, 500, 0)), true},
+			{"a delisting in one -json import", "TKRP", gone("i:900000002", "EQUITY", "TKRP", "69389E105", tcNY("2026-11-12 10:04:05"),
+				rcTrade("T7f3a000201", 1, "2021-03-02 10:00:00", "buy", "i:900000002", "TKRP", 10_000_000, 10, -10_000, 0),
+				rcTrade("T7f3a000202", 1, "2022-06-16 10:00:00", "sell", "i:900000002", "69389E105", -10_000_000, 0.5, 500, 0)), true},
+			{"a corporate action under the CUSIP between rows of the ticker", "TKRS", gone("x:66000305", "", "TKRS", "69389G100", tcNY("2026-01-15 09:00:00"),
+				rcFile("C7f3a4b5d.1", 1, "2025-01-06", "Buy", "buy", "x:66000305", "TKRS", centsOf(10_000_000), 40, -40_000),
+				rcFile("C7f3a4b5d.2", 1, "2025-06-02", "Exchange", "other", "x:66000305", "69389G100", centsOf(0), 0, 0),
+				rcFile("C7f3a4b5d.3", 1, "2025-09-02", "Sell", "sell", "x:66000305", "TKRS", centsOf(-10_000_000), 45, 45_000)), false},
+			{"a cash merger of a security held at a snapshot before it", "MRGR", func() toolInput {
+				in := gone("x:66000301", "", "MRGR", "69389C109", tcNY("2026-01-15 09:00:00"), append([]toolRow{
+					rcFile("C7f3a4b5c.1", 1, "2025-03-03", "Buy", "buy", "x:66000301", "MRGR", centsOf(10_000_000), 40, -40_000),
+				}, merger("C7f3a4b5c", "x:66000301", "69389C109")...)...)
+				in.securities = append(in.securities, toolSecurityRow{key: "c:69389C109", assetType: "EQUITY", symbol: "MRGR", cusip: "69389C109"})
+				in.names = append(in.names, toolName{key: "c:69389C109", kind: "symbol", value: "MRGR", firstSeen: tcNY("2025-06-30 18:05:00"), lastSeen: tcNY("2025-06-30 18:05:00")})
+				return in
+			}(), true},
+			{"rows of both on one day", "TKRN", gone("i:900000003", "EQUITY", "TKRN", "69389F102", tcNY("2026-11-12 10:04:05"),
+				rcTrade("T7f3a000301", 1, "2022-06-16 10:00:00", "buy", "i:900000003", "TKRN", 10_000_000, 10, -10_000, 0),
+				rcTrade("T7f3a000302", 1, "2022-06-16 15:00:00", "sell", "i:900000003", "69389F102", -10_000_000, 11, 11_000, 0)), false},
+		} {
+			for _, tool := range []string{toolPP, toolGF} {
+				_, events, _ := mapCase(toolCase{name: c.name, in: c.in}, tool)
+				if len(events) == 0 {
+					t.Errorf("%s %s: no records", c.name, tool)
+				}
+				for _, e := range events {
+					s := e.security
+					why, ticker, identity := "delisted", "", s.cusip
+					if !c.delisted {
+						why, ticker, identity = "", c.ticker, c.ticker
+					}
+					if s.delisted != c.delisted || s.manual != why || s.ppTicker() != ticker || s.identity() != identity || s.symbolsChanged() != c.delisted {
+						t.Errorf("%s %s: %s is of %s, delisted %v, MANUAL %q, PP ticker %q, changed %v", c.name, tool, e.ref, s.identity(), s.delisted, s.manual, s.ppTicker(), s.symbolsChanged())
+					}
+				}
+				if e := caseExport(t, toolCase{name: c.name, in: c.in}, tool); e.SymbolsChanged != map[bool]int{true: 1}[c.delisted] {
 					t.Errorf("%s %s: %d securities changed symbol", c.name, tool, e.SymbolsChanged)
 				}
 			}

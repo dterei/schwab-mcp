@@ -10,10 +10,10 @@ import (
 )
 
 // This file reads what a tool export maps (2 of the design): its queries,
-// Q0 to Q11, run in one read transaction into a toolInput.
+// Q0 to Q12, run in one read transaction into a toolInput.
 
 // A toolQuery is one of the reads of a tool export (2 of the design): its
-// name there, Q0 to Q11; its SQL and its arguments; and scan, which reads
+// name there, Q0 to Q12; its SQL and its arguments; and scan, which reads
 // the current row of rows, a row of the query, into in.
 type toolQuery struct {
 	name  string
@@ -24,19 +24,21 @@ type toolQuery struct {
 
 // toolQueries returns the reads of a tool export that selects the account
 // of id account, 0 for every account, and the rows up to the day to, ""
-// for no bound (2 of the design): Q0 to Q11, in that order. The account
+// for no bound (2 of the design): Q0 to Q12, in that order. The account
 // bounds the ledger rows, their legs, the snapshots, the rows that wait for
 // you, the coverage, the uncounted entries and the rows after to (Q2, Q3
 // and Q7 to Q11); to bounds the ledger rows, their legs, the positions and
 // the rows that wait for you (Q2, Q3, Q6 and Q8), and Q11 reads the rows
 // that the store counts after it, none for no bound. The accounts, the
-// securities and their names are the store's, and the positions every
-// account's, since a transfer names the other account and a price is the
-// market's; the snapshots and the uncounted entries go past to, since
-// Ghostfolio takes an account's balances only in the import that makes it
-// and a row that a tool holds may have stopped counting on any day, or be
-// dated after to now (Q11). Every query reads views, but Q0, which reads
-// when the store was made: no account number, raw JSON or file's content.
+// securities, their names and the days of the rows under each of their
+// symbols (Q12) are the store's, and the positions every account's, since a
+// transfer names the other account, a price is the market's, and every
+// export takes a security for the same as every other, whatever it selects;
+// the snapshots and the uncounted entries go past to, since Ghostfolio takes
+// an account's balances only in the import that makes it and a row that a
+// tool holds may have stopped counting on any day, or be dated after to now
+// (Q11). Every query reads views, but Q0, which reads when the store was
+// made: no account number, raw JSON or file's content.
 func toolQueries(account int64, to nytime.Date) []toolQuery {
 	// bounds returns the WHERE clause of conds and of the selection's
 	// bounds: on the account column acct and by the condition day, which
@@ -141,6 +143,21 @@ func toolQueries(account int64, to nytime.Date) []toolQuery {
 			// to since an earlier export took them.
 			query: `SELECT ref, account_id, day FROM entries` + later + ` ORDER BY account_id, ref`,
 			args:  laterArgs, scan: scanToolLater,
+		},
+		{
+			name: "Q12",
+			// The days of every entry, counted or not, and of every API leg of
+			// a security, under each symbol of each security, "" for a row of
+			// none: the store dates a name by the read or the file that brought
+			// it, which may hold years of rows, and the rows' days say which of
+			// two symbols of one read came last.
+			query: `SELECT coalesce(security_key, ''), symbol, min(day), max(day) FROM (
+				SELECT security_key, symbol, day FROM entries
+				UNION ALL
+				SELECT security_key, symbol, day FROM legs WHERE source = 'api' AND asset_type IS NOT 'CURRENCY')
+				WHERE symbol IS NOT NULL AND symbol <> '' AND day IS NOT NULL
+				GROUP BY 1, 2 ORDER BY 1, 2`,
+			scan: scanToolSymbolDays,
 		},
 	}
 }
@@ -364,5 +381,18 @@ func scanToolLater(rows *sql.Rows, in *toolInput) error {
 	}
 	l.day = nytime.Date(day)
 	in.later = append(in.later, l)
+	return nil
+}
+
+// scanToolSymbolDays reads a row of Q12: the first and the last day of the
+// store's rows and legs under a symbol of a security, of every account.
+func scanToolSymbolDays(rows *sql.Rows, in *toolInput) error {
+	var d toolSymbolDays
+	var first, last string
+	if err := rows.Scan(&d.key, &d.symbol, &first, &last); err != nil {
+		return err
+	}
+	d.first, d.last = nytime.Date(first), nytime.Date(last)
+	in.days = append(in.days, d)
 	return nil
 }

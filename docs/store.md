@@ -1375,10 +1375,17 @@ and the export after you decide one writes it.
   (Schwab sends a delisted security's CUSIP for its symbol, and files write
   bonds and a corporate action's old side under one). A security is
   **delisted** when its latest symbol is a CUSIP but it had a ticker before.
-  The latest symbol is the one seen last; of two seen at one instant, the
-  ticker, since a History file dates every symbol it holds by its export,
-  so that a spin-off's first row, under its CUSIP, and its later ones,
-  under its ticker, tie, while the security trades under the ticker.
+  The latest symbol is the one seen last. The store dates every symbol of
+  one API read by the read, of one `transactions -json` import by the
+  import, and of one History file by its export, so two symbols of one such
+  source, which may hold years of rows, tie; of those, the one whose rows
+  come last, by their days, is the latest: a cash merger's or a delisting's
+  last row, under the CUSIP, makes the security delisted, as the
+  `securities` view's symbol says, while a spin-off's purchases, under its
+  ticker after its first row under its CUSIP, keep it trading. Of two whose
+  rows end on one day, or that no row names, the ticker. The export reads
+  the days of every row of the store for this, counted or not, whatever
+  `-account` and `-to` select, so that every export takes a security alike.
   Class shares take Yahoo's form, which both tools' feeds use (`BRK.B`,
   `BRK/B` and `BRK B` are `BRK-B`).
 - **CUSIP**, written as PP's WKN, which is how PP's own importers of US
@@ -1408,9 +1415,10 @@ and the export after you decide one writes it.
   Yahoo's form, when those that had it know one CUSIP at most, and write
   each key's rows with what they have had together: the CUSIP, the
   description seen first, and the symbols, each as of when any key saw it
-  last, so that the ticker is the one that any key saw last, and the
-  security is delisted when the symbol that any key saw last is a CUSIP,
-  never because one key alone reads so. Each tool then holds it as one: one
+  last (of one instant, by the days of any key's rows under each), so that
+  the ticker is the one that any key saw last, and the security is
+  delisted when the symbol that any key saw last is a CUSIP, never because
+  one key alone reads so. Each tool then holds it as one: one
   row of PP's `securities.csv`, found by one ticker or WKN, one Ghostfolio
   asset, one holding to check; `-manual` naming a ticker that any of its
   keys had makes the whole of it MANUAL, and an export that writes the rows

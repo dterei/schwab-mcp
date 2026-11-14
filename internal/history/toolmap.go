@@ -267,7 +267,7 @@ func (k eventKind) gfType() string { return eventKinds[k].gfType }
 func (k eventKind) shareSign() int64 { return eventKinds[k].shares }
 
 // A toolInput is what a tool export reads of the store (2 of the design),
-// Q0 to Q11, as plain values, with the export's options: everything that
+// Q0 to Q12, as plain values, with the export's options: everything that
 // toolEvents and the functions beside it read. Days are New York dates as
 // the store writes them, "" for none; instants are the zero time for none;
 // money is in whole cents and quantities in whole millionths, as the store
@@ -318,6 +318,19 @@ type toolInput struct {
 	// (Q11), none for no to: they say why a row that a tool holds went.
 	uncounted []toolUncounted
 	later     []toolLaterRow
+	// days are when the store's rows and legs, of every account and day,
+	// counted or not, had each symbol of each security (Q12).
+	days []toolSymbolDays
+}
+
+// A toolSymbolDays is when the store's rows and legs had a symbol of a
+// security (Q12): the first and the last day of those that name the
+// security of key by it, key "" for the rows of a symbol without one. A
+// name's instant is the read's or the file's that brought it (Q5), which
+// may hold years of rows; their days say when the security went by it.
+type toolSymbolDays struct {
+	key, symbol string
+	first, last nytime.Date
 }
 
 // selected reports whether the export selects the account of id.
@@ -954,6 +967,9 @@ type toolIndex struct {
 	// groupPrices its prices (pricesOfGroup), by the ref of its first.
 	groups      map[secRef]*toolSecurity
 	groupPrices map[secRef][]toolPrice
+	// days are when the store's rows had each symbol of each key (Q12), by
+	// key, "" for the rows of a symbol without one, and symbol.
+	days map[[2]string]toolSymbolDays
 }
 
 // newToolIndex indexes in.
@@ -962,6 +978,10 @@ func newToolIndex(in *toolInput) *toolIndex {
 		in: in, accounts: map[int64]toolAccount{}, secRows: map[string]*toolSecurityRow{}, names: map[string][]toolName{},
 		legs: map[rowKey][]toolLeg{}, manual: map[string]bool{}, secs: map[secRef]*toolSecurity{}, prices: map[string][]toolPrice{},
 		bases: map[secRef]*toolSecurity{}, groups: map[secRef]*toolSecurity{}, groupPrices: map[secRef][]toolPrice{},
+		days: map[[2]string]toolSymbolDays{},
+	}
+	for _, d := range in.days {
+		ix.days[[2]string{d.key, d.symbol}] = d
 	}
 	for _, a := range in.accounts {
 		ix.accounts[a.id] = a
@@ -994,20 +1014,34 @@ func newToolIndex(in *toolInput) *toolIndex {
 // file or you spell it.
 func symbolForm(symbol string) string { return yahooForm(strings.ToUpper(strings.TrimSpace(symbol))) }
 
-// symbolOrder orders names of kind symbol as the export takes a security's
-// symbols, the latest first (3.5 of the design; Q5's order): by when each
-// was seen last; of one instant, a ticker before a CUSIP, since a History
-// file dates every name that it holds by its export, so that the CUSIP of a
-// spin-off's first row and the ticker of its later rows tie, and the
-// security trades under the ticker; then by value.
-func symbolOrder(a, b toolName) int {
-	cusip := func(n toolName) int {
+// A symbolSeen is a symbol of a security as symbolOrder takes it: when the
+// store saw it last (Q5), the zero time for one that it holds no name of,
+// and the last day of the rows and legs that named the security by it
+// (Q12), "" for none.
+type symbolSeen struct {
+	value    string
+	lastSeen time.Time
+	lastRow  nytime.Date
+}
+
+// symbolOrder orders a security's symbols as the export takes them, the
+// latest first (3.5 of the design; Q5's order): by when each was seen last;
+// of one instant, by the last day of the rows under each, since the store
+// dates every name of one API read, one transactions -json import or one
+// History file by that read, import or file's export, which may hold years
+// of rows: a cash merger's or a delisting's last row, under the CUSIP,
+// makes the security delisted, and a spin-off's purchases, under its
+// ticker after its first row under its CUSIP, keep it trading; of one day
+// too, or with no row, a ticker before a CUSIP, the symbol that the
+// security trades under; then by value.
+func symbolOrder(a, b symbolSeen) int {
+	cusip := func(n symbolSeen) int {
 		if schwab.IsCUSIP(n.value) {
 			return 1
 		}
 		return 0
 	}
-	return cmp.Or(b.lastSeen.Compare(a.lastSeen), cmp.Compare(cusip(a), cusip(b)), cmp.Compare(a.value, b.value))
+	return cmp.Or(b.lastSeen.Compare(a.lastSeen), cmp.Compare(b.lastRow, a.lastRow), cmp.Compare(cusip(a), cusip(b)), cmp.Compare(a.value, b.value))
 }
 
 // A rowKey names a ledger row: its account's id and its ref.
@@ -1106,12 +1140,12 @@ func (ix *toolIndex) base(key, symbol string) *toolSecurity {
 			row = *r
 		}
 		names := ix.names[key]
-		var symbols []toolName
+		var symbols []symbolSeen
 		var first *toolName
 		for i, n := range names {
 			switch n.kind {
 			case "symbol":
-				symbols = append(symbols, n)
+				symbols = append(symbols, symbolSeen{value: n.value, lastSeen: n.lastSeen, lastRow: ix.days[[2]string{key, n.value}].last})
 			case "description":
 				if first == nil || n.firstSeen.Before(first.firstSeen) || n.firstSeen.Equal(first.firstSeen) && n.value < first.value {
 					first = &names[i]
@@ -1185,11 +1219,12 @@ func optionContract(symbols []string) (schwab.OCC, string) {
 // tools take for one (membersOf), are written as, under the first one's key
 // or symbol: what they have had together, so that each of them is written
 // alike: their symbols and tickers, in the order of one security's, each by
-// when any of them saw it last, so that the latest ticker is the one that
-// any of them saw last; their CUSIP and asset type; delisted when the latest
-// of those symbols is a CUSIP, as of one security, never because one of them
-// alone reads so; a bond by those; the description that the store saw first
-// of any of them; for an option, one contract and one multiplier, which a
+// when any of them saw it last and by the days of their rows under it
+// (symbolsOf), so that the latest ticker is the one that any of them saw
+// last; their CUSIP and asset type; delisted when the latest of those
+// symbols is a CUSIP, as of one security, never because one of them alone
+// reads so; a bond by those; the description that the store saw first of
+// any of them; for an option, one contract and one multiplier, which a
 // futures option that a History file names has none of (multiplier); and
 // whether its ticker is one that a security of another group has had too.
 func (ix *toolIndex) join(members []*toolSecurity) *toolSecurity {
@@ -1205,34 +1240,7 @@ func (ix *toolIndex) join(members []*toolSecurity) *toolSecurity {
 				named = m
 			}
 		}
-		// Their symbols in the order of one security's (symbolOrder), each
-		// by when any of them saw it last; a symbol that none has a name of
-		// stands, unseen, after those seen.
-		last := map[string]time.Time{}
-		for _, m := range members {
-			seen := false
-			if m.key != "" {
-				for _, n := range ix.names[m.key] {
-					if n.kind == "symbol" {
-						seen = true
-						if t, ok := last[n.value]; !ok || n.lastSeen.After(t) {
-							last[n.value] = n.lastSeen
-						}
-					}
-				}
-			}
-			for _, sym := range m.symbols {
-				if _, ok := last[sym]; !ok && !seen {
-					last[sym] = time.Time{}
-				}
-			}
-		}
-		symbols := make([]toolName, 0, len(last))
-		for v, t := range last {
-			symbols = append(symbols, toolName{value: v, lastSeen: t})
-		}
-		slices.SortFunc(symbols, symbolOrder)
-		for _, n := range symbols {
+		for _, n := range ix.symbolsOf(members) {
 			s.symbols = append(s.symbols, n.value)
 			if !schwab.IsCUSIP(n.value) {
 				s.tickers = append(s.tickers, n.value)
@@ -1257,6 +1265,53 @@ func (ix *toolIndex) join(members []*toolSecurity) *toolSecurity {
 		s.reused = ix.reused[symbolForm(t)]
 	}
 	return s
+}
+
+// symbolsOf returns the symbols that members, the store's securities that
+// the tools take for one, have had, in the order of one security's
+// (symbolOrder): each by when any of them saw it last, and by the last day
+// of the rows and legs of any of them under it; a symbol that none has a
+// name of stands, unseen, after those seen.
+func (ix *toolIndex) symbolsOf(members []*toolSecurity) []symbolSeen {
+	last := map[string]time.Time{}
+	for _, m := range members {
+		seen := false
+		if m.key != "" {
+			for _, n := range ix.names[m.key] {
+				if n.kind == "symbol" {
+					seen = true
+					if t, ok := last[n.value]; !ok || n.lastSeen.After(t) {
+						last[n.value] = n.lastSeen
+					}
+				}
+			}
+		}
+		for _, sym := range m.symbols {
+			if _, ok := last[sym]; !ok && !seen {
+				last[sym] = time.Time{}
+			}
+		}
+	}
+	symbols := make([]symbolSeen, 0, len(last))
+	for v, t := range last {
+		n := symbolSeen{value: v, lastSeen: t}
+		for _, m := range members {
+			n.lastRow = max(n.lastRow, ix.rowDays(m, v).last)
+		}
+		symbols = append(symbols, n)
+	}
+	slices.SortFunc(symbols, symbolOrder)
+	return symbols
+}
+
+// rowDays returns when the store's rows and legs named the security m by
+// symbol (Q12), the zero value for never: a row's security without a key,
+// by the rows of its symbol without one.
+func (ix *toolIndex) rowDays(m *toolSecurity, symbol string) toolSymbolDays {
+	if m.key == "" && symbol != m.symbol {
+		return toolSymbolDays{}
+	}
+	return ix.days[[2]string{m.key, symbol}]
 }
 
 // multiplier returns the multiplier of an option that the store holds as

@@ -367,6 +367,9 @@ func toolLines(in *toolInput) map[string][]string {
 	for _, l := range in.later {
 		add("later", new(toolLine).word(l.ref).word(account(l.account)).word(string(l.day)))
 	}
+	for _, d := range in.days {
+		add("days", new(toolLine).word(d.key).word(d.symbol).word(string(d.first)).word(string(d.last)))
+	}
 	return out
 }
 
@@ -394,7 +397,7 @@ func (ts *toolStore) lines(in *toolInput) map[string][]string {
 // account's snapshots of every day; the rows of the account up to to that
 // wait for you; the coverage and the uncounted entries of the account; its
 // rows dated after to, by their account and ref; and all the accounts,
-// securities and names.
+// securities, names and days of the rows under each symbol.
 func toolSelected(in *toolInput, account int64, to nytime.Date) *toolInput {
 	out := *in
 	out.account, out.to = account, to
@@ -461,8 +464,11 @@ func toolInsert(t *testing.T, lines []string, before string, added ...string) []
 // columns; the legs of the spread; the securities and their symbols and
 // descriptions; the positions of both evenings; the snapshots, one of them
 // with a negative cash balance and two with none; the rows that wait for
-// you, held out and uncertain; the coverage; and the entries that do not
-// count, the linked one with the API row it is.
+// you, held out and uncertain; the coverage; the entries that do not
+// count, the linked one with the API row it is; and the days of the rows
+// and legs under each symbol of each security, counted or not (the
+// uncertain AAPL dividend of 09-22 among them), of every account and day,
+// but for a row without one (the META dividend).
 var toolStoreLines = map[string][]string{
 	"accounts": {
 		`A1 ...135 nickname=Individual`,
@@ -618,6 +624,24 @@ var toolStoreLines = map[string][]string{
 		`M.2 A1 held_out`,
 		`M.3 A1 linked matched_with=T73508261951`,
 	},
+	"days": {
+		`i:1854092 XYZ 2026-07-15 2026-07-15`,
+		`i:1940083512 META 2026-03-13 2026-03-13`,
+		`i:1973757747 AAPL 2025-06-02 2026-09-23`,
+		`i:205187341 /ESH25_P5050:XCME 2025-01-14 2025-01-14`,
+		`i:219771034 "XYZ   250221P00040000" 2025-01-21 2025-01-21`,
+		`i:219834765 "XYZ   260918C00050000" 2026-08-04 2026-08-04`,
+		`i:219950001 "XYZ   261016P00045000" 2026-09-15 2026-09-15`,
+		`i:219950002 "XYZ   261016P00040000" 2026-09-15 2026-09-15`,
+		`i:4417302 BND 2024-04-04 2024-04-04`,
+		`i:4417355 VBR 2024-03-15 2024-03-15`,
+		`s:FILE:9128ZZQ15@2026-07-20 9128ZZQ15 2026-04-01 2026-06-01`,
+		`s:FILE:ABCD@2026-07-20 ABCD 2026-03-09 2026-06-15`,
+		`s:FILE:EFGH@2026-07-20 EFGH 2026-02-10 2026-07-01`,
+		`s:FILE:MNOP@2026-07-20 MNOP 2026-02-24 2026-02-24`,
+		`s:FILE:QRST@2026-07-20 QRST 2026-02-17 2026-02-18`,
+		`"s:FILE:XYZ 05/15/2026 50.00 C@2026-07-20" "XYZ 05/15/2026 50.00 C" 2026-04-06 2026-05-18`,
+	},
 }
 
 // checkToolRead requires that a tool export read the tool exports' store
@@ -658,9 +682,10 @@ func checkToolRead(t *testing.T, ts *toolStore) map[string][]string {
 // files, that a read of every account up to 2026-11-13 hold what want, the
 // read of checkToolRead, holds and the later files' rows, names and
 // coverage: the row posted on 11-16 "as of" 11-09 is read by its day; their
-// rows come after every other; and each later export's symbols are names
-// of the security that the account's first export named. It returns what
-// a read of every account then holds.
+// rows come after every other; each later export's symbols are names of
+// the security that the account's first export named; and their days end
+// the days of those symbols. It returns what a read of every account then
+// holds.
 func checkToolReadLater(t *testing.T, ts *toolStore, want map[string][]string) map[string][]string {
 	t.Helper()
 	want = maps.Clone(want)
@@ -674,6 +699,15 @@ func checkToolReadLater(t *testing.T, ts *toolStore, want map[string][]string) m
 		`s:FILE:MNOP@2026-07-20 symbol MNOP first=2026-11-23T14:00:00Z last=2026-11-23T14:00:00Z`,
 		`s:FILE:MNOP@2026-07-20 symbol MNOP first=2026-11-20T14:00:00Z last=2026-11-20T14:00:00Z`)
 	want["coverage"] = toolInsert(t, want["coverage"], `A3 ...398 file_unknown 2026-02-10 2026-07-01`, `A3 ...398 file 2026-11-13 2026-11-16`)
+	want["days"] = slices.Clone(want["days"])
+	for i, l := range want["days"] {
+		switch {
+		case strings.HasPrefix(l, "s:FILE:ABCD@"):
+			want["days"][i] = strings.Replace(l, "2026-06-15", "2026-11-09", 1)
+		case strings.HasPrefix(l, "s:FILE:MNOP@"):
+			want["days"][i] = strings.Replace(l, "2026-02-24 2026-02-24", "2026-02-24 2026-11-13", 1)
+		}
+	}
 	compareToolLines(t, "every account up to 2026-11-13, after the later files", ts.lines(ts.read(t, 0, "2026-11-13")), want)
 	return want
 }
@@ -717,4 +751,91 @@ func checkToolReadDecided(t *testing.T, ts *toolStore, want map[string][]string)
 	want["rows"] = rows
 	want["uncounted"] = append(slices.Clone(want["uncounted"]), `T73600000101 A2 user`, `L.2 A3 user`)
 	compareToolLines(t, "every account after your decisions", ts.lines(ts.read(t, 0, "")), want)
+}
+
+// TestToolReadNamesOfOneSource requires that a security that one source
+// names by its ticker and, from its delisting or its cash merger on, by
+// its CUSIP be delisted in both tools, as the securities view's symbol
+// says: the store dates both names of an API read by its answer, of a
+// transactions -json import by the import, and of a History file by its
+// export, and the days of the rows under each, which Q12 reads, say which
+// came last, counted or not: the API's sale, which you uncount, still
+// does.
+func TestToolReadNamesOfOneSource(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	ny := nytime.NewYork()
+	trade := func(id, instrument int64, symbol string, at time.Time, quantity, net float64) string {
+		return fmt.Sprintf(`{"activityId": %d, "time": %q, "accountNumber": %q, "type": "TRADE", "status": "VALID",
+			"subAccount": "CASH", "tradeDate": %q, "netAmount": %v, "transferItems": [{"instrument": {"assetType": "EQUITY",
+			"status": "ACTIVE", "symbol": %q, "instrumentId": %d, "closingPrice": 10.0}, "amount": %v, "cost": %v,
+			"price": 10.0, "positionEffect": "OPENING"}]}`,
+			id, schwabTime(at), individual, schwabTime(midnight(nytime.DateOf(at))), net, symbol, instrument, quantity, net)
+	}
+	read := time.Date(2022, time.December, 31, 5, 0, 0, 0, time.UTC)
+	record(t, s, listRead(individual, time.Date(2021, time.January, 1, 5, 0, 0, 0, time.UTC), read, read,
+		decodeRow(t, trade(73700000101, 900000001, "TKRQ", time.Date(2021, time.March, 1, 10, 0, 0, 0, ny), 10, -100)),
+		decodeRow(t, trade(73700000102, 900000001, "69389D107", time.Date(2022, time.June, 15, 10, 0, 0, 0, ny), -10, 5))))
+	importFiles(t, s, ImportOptions{}, "transactions.json", cliJSON(t,
+		trade(73700000201, 900000002, "TKRP", time.Date(2021, time.March, 2, 10, 0, 0, 0, ny), 10, -100),
+		trade(73700000202, 900000002, "69389E105", time.Date(2022, time.June, 16, 10, 0, 0, 0, ny), -10, 5)))
+	item := map[int]string{0: "66000301", 1: "66000301", 2: "66000301"}
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260115-090000", "json"), historyJSON("01/01/2025", "01/14/2026", item,
+		csvRow{"12/01/2025", "Cash Merger", "69389C109", "MRGR CORP CASH MERGER", "", "", "", "$500.00"},
+		csvRow{"12/01/2025", "Cash Merger Adj", "69389C109", "MRGR CORP", "-10", "", "", ""},
+		csvRow{"03/03/2025", "Buy", "MRGR", "MRGR CORP", "10", "$40.00", "", "-$400.00"}))
+	uncounted := fmt.Sprintf("a:%d:73700000102", storeInt(t, s, "SELECT account_id FROM account WHERE number = ?", individual))
+	if _, err := s.Decide(t.Context(), Decision{Kind: "count", Subject: uncounted, Value: "no"}); err != nil {
+		t.Fatal(err)
+	}
+	var in *toolInput
+	if err := s.withRead(t.Context(), func(r *rtx) error {
+		var err error
+		in, err = readToolInput(r, 0, "2026-11-12")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ key, ticker, cusip string }{
+		{"i:900000001", "TKRQ", "69389D107"}, {"i:900000002", "TKRP", "69389E105"}, {"x:66000301", "MRGR", "69389C109"},
+	} {
+		var seen []time.Time
+		for _, n := range in.names {
+			if n.key == c.key && n.kind == "symbol" {
+				seen = append(seen, n.firstSeen, n.lastSeen)
+			}
+		}
+		if len(seen) < 4 || slices.ContainsFunc(seen, func(at time.Time) bool { return !at.Equal(seen[0]) }) {
+			t.Errorf("%s: its symbols are seen at %v, not at one instant", c.key, seen)
+		}
+		var ticker, cusip toolSymbolDays
+		for _, d := range in.days {
+			switch {
+			case d.key == c.key && d.symbol == c.ticker:
+				ticker = d
+			case d.key == c.key && d.symbol == c.cusip:
+				cusip = d
+			}
+		}
+		if ticker.last == "" || cusip.last <= ticker.last {
+			t.Errorf("%s: the rows under %s end on %q, under %s on %q", c.key, c.ticker, ticker.last, c.cusip, cusip.last)
+		}
+		for _, tool := range []string{toolPP, toolGF} {
+			e := *in
+			e.tool = tool
+			events, _ := toolEvents(&e)
+			n := 0
+			for _, ev := range events {
+				if sec := ev.security; sec != nil && sec.key == c.key {
+					n++
+					if !sec.delisted || sec.identity() != c.cusip || sec.manual != "delisted" || sec.ppTicker() != "" {
+						t.Errorf("%s %s: %s is of %s, delisted %v, MANUAL %q, PP ticker %q", c.key, tool, ev.ref, sec.identity(), sec.delisted, sec.manual, sec.ppTicker())
+					}
+				}
+			}
+			if n == 0 {
+				t.Errorf("%s %s: no records", c.key, tool)
+			}
+		}
+	}
 }

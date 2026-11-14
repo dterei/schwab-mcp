@@ -354,7 +354,8 @@ func tcSecurities() ([]toolSecurityRow, []toolName) {
 // "as of" date), and its quantity as of a file exported on 2026-11-11;
 // fees are 0 unless the row is flagged inexact, and gross is amount plus
 // fees; a pair's partner, when the case holds it, is read from it,
-// counted.
+// counted; and the days of the rows under each symbol (Q12) are those of
+// its rows and legs, which a store holds whatever an export selects.
 func tcInput(in toolInput) toolInput {
 	in.accounts = cmpOr(in.accounts, tcAccounts())
 	if in.securities == nil {
@@ -400,7 +401,40 @@ func tcInput(in toolInput) toolInput {
 			}
 		}
 	}
+	in.days = tcDays(in.rows, in.legs)
 	return in
+}
+
+// tcDays returns what Q12 reads of a store whose rows and legs are rows and
+// legs: the first and the last day of the rows and legs under each symbol
+// of each key, "" for the rows of a symbol without one, in the order of
+// their key and symbol.
+func tcDays(rows []toolRow, legs []toolLeg) []toolSymbolDays {
+	days := map[rowKey]nytime.Date{}
+	of := map[[2]string]*toolSymbolDays{}
+	add := func(key, symbol string, day nytime.Date) {
+		if symbol == "" || day == "" {
+			return
+		}
+		d := of[[2]string{key, symbol}]
+		if d == nil {
+			d = &toolSymbolDays{key: key, symbol: symbol, first: day, last: day}
+			of[[2]string{key, symbol}] = d
+		}
+		d.first, d.last = min(d.first, day), max(d.last, day)
+	}
+	for _, r := range rows {
+		days[rowKey{r.account, r.ref}] = r.day
+		add(r.securityKey, r.symbol, r.day)
+	}
+	for _, l := range legs {
+		add(l.securityKey, l.symbol, days[rowKey{l.account, l.ref}])
+	}
+	var out []toolSymbolDays
+	for _, k := range slices.SortedFunc(maps.Keys(of), func(a, b [2]string) int { return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1])) }) {
+		out = append(out, *of[k])
+	}
+	return out
 }
 
 // cmpOr returns a, or b when a is empty.
@@ -1511,8 +1545,9 @@ type twoKeys struct {
 var tcFiledEarly = tcNY("2026-01-15 09:00:00")
 
 // toolCase returns the case two_keys with v's symbols, CUSIPs, descriptions,
-// -manual and third key: the API's key had its first symbol on the day of
-// its sale and each later one a month after the one before; the file's key
+// -manual and third key: the API's key had its first symbol at the read of
+// its sale, that evening, which the store dates the names of its rows by,
+// and each later one at a read a month after the one before; the file's key
 // had its last on the day of the file, and each before a month before the
 // next; the third key had the API key's first symbol on 2026-06-01, after
 // the sale, and has no row; the file's buy names the file key's first
@@ -1532,9 +1567,9 @@ func (v twoKeys) toolCase() toolCase {
 		}
 	}
 	c.in.names = slices.DeleteFunc(slices.Clone(c.in.names), func(n toolName) bool { return n.key == keyTwoAPI || n.key == keyTwoFile })
-	sold, filed := tcNY("2026-03-16 10:00:00"), cmp.Or(v.filed, tcNY("2026-11-11 09:00:00"))
+	read, filed := tcNY("2026-03-16 18:30:00"), cmp.Or(v.filed, tcNY("2026-11-11 09:00:00"))
 	for i, s := range v.api {
-		seen := sold.AddDate(0, i, 0)
+		seen := read.AddDate(0, i, 0)
 		c.in.names = append(c.in.names, toolName{key: keyTwoAPI, kind: "symbol", value: s, firstSeen: seen, lastSeen: seen})
 	}
 	for i, s := range v.file {
@@ -1542,7 +1577,7 @@ func (v twoKeys) toolCase() toolCase {
 		c.in.names = append(c.in.names, toolName{key: keyTwoFile, kind: "symbol", value: s, firstSeen: seen, lastSeen: seen})
 	}
 	c.in.names = append(c.in.names,
-		toolName{key: keyTwoAPI, kind: "description", value: cmp.Or(v.apiName, "JKLM SMALL-CAP VALUE ETF"), firstSeen: sold, lastSeen: sold},
+		toolName{key: keyTwoAPI, kind: "description", value: cmp.Or(v.apiName, "JKLM SMALL-CAP VALUE ETF"), firstSeen: read, lastSeen: read},
 		toolName{key: keyTwoFile, kind: "description", value: cmp.Or(v.fileName, "JKLM SMALL CAP VALUE ETF"), firstSeen: filed, lastSeen: filed},
 	)
 	if v.other != "" {
@@ -1577,8 +1612,8 @@ func toolCaseTwoKeys() toolCase {
 	}{
 		{keyTwoFile, "symbol", "JKLM", tcNY("2026-11-11 09:00:00")},
 		{keyTwoFile, "description", "JKLM SMALL CAP VALUE ETF", tcNY("2026-11-11 09:00:00")},
-		{keyTwoAPI, "symbol", "JKLM", tcNY("2026-03-16 10:00:00")},
-		{keyTwoAPI, "description", "JKLM SMALL-CAP VALUE ETF", tcNY("2026-03-16 10:00:00")},
+		{keyTwoAPI, "symbol", "JKLM", tcNY("2026-03-16 18:30:00")},
+		{keyTwoAPI, "description", "JKLM SMALL-CAP VALUE ETF", tcNY("2026-03-16 18:30:00")},
 	} {
 		names = append(names, toolName{key: n.key, kind: n.kind, value: n.value, firstSeen: n.seen, lastSeen: n.seen})
 	}
