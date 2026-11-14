@@ -1290,35 +1290,47 @@ func TestReaderNeedsUpdate(t *testing.T) {
 }
 
 // EntryByRef finds each entry of a ref, in any case, by account, with its
-// legs, as the legs view gives them, an option's details included, and its
-// flags with their severity and detail; an API row has its status, a file
-// row none. A ref that names no entry finds none.
+// legs, an option's details and a sale's fees included, and its flags,
+// with their severity and detail, by code; an API row has its status, a
+// file row none. A ref that names no entry finds none. The test reads a
+// copy of readerStore with a History export of ...398's July 2026 added,
+// whose dividend is linked to the API's and whose buy, of a security that
+// the export names by its id, no API row is; and what EntryByRef gives of
+// every entry, its row, its legs and its flags, is what Export writes of
+// it from the entries, legs and flags views.
 func TestEntryByRef(t *testing.T) {
 	t.Parallel()
-	r := openReader(t, readerCopy(t))
-	_, ids := readerAccounts(t, r, false)
+	path := readerCopy(t)
+	s := openStoreAt(t, path)
+	importFiles(t, s, ImportOptions{Account: options, Completeness: "complete"}, exportName("20260801-090000", "json"),
+		historyJSON("07/15/2026", "07/20/2026", map[int]string{1: "1854092"},
+			csvRow{"07/15/2026", "Qualified Dividend", "XYZ", "XYZ CORP", "", "", "", "$25.00"},
+			csvRow{"07/20/2026", "Buy", "XYZ", "XYZ CORP", "1", "$20.00", "", "-$20.00"}))
+	r := openReader(t, path)
+	accounts, ids := readerAccounts(t, r, false)
 	ctx := t.Context()
-	both, err := r.EntryByRef(ctx, " t5550001 ")
-	if err != nil {
-		t.Fatal(err)
+	entry := func(ref string) []EntryDetail {
+		t.Helper()
+		found, err := r.EntryByRef(ctx, ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return found
 	}
+	both := entry(" t5550001 ")
 	if len(both) != 2 || both[0].Entry.AccountID != ids[individual] || both[1].Entry.AccountID != ids[options] ||
 		both[0].Entry.PairRef != "T5550001" || both[0].Entry.PairAccountID != ids[options] || both[0].Entry.Status != "VALID" ||
 		len(both[0].Legs) != 1 || both[0].Legs[0].AssetType != "CURRENCY" || *both[0].Legs[0].CashCents != -10000 {
 		t.Errorf("the journal's two sides are %+v", both)
 	}
-	held, err := r.EntryByRef(ctx, "Ca0223cbd.1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	held := entry("Ca0223cbd.1")
 	if len(held) != 1 || held[0].Entry.Status != "" || held[0].Entry.Source != "file" || held[0].Entry.Counted ||
+		held[0].Entry.PostedDate != "2025-01-16" || held[0].Entry.QuantityAsOf != "2025-01-21" ||
+		held[0].Entry.Kind != "Qualified Dividend" || held[0].Entry.Description != "XYZ CORP" ||
 		!reflect.DeepEqual(held[0].Flags, []FlagRow{{"held_out", "attention", ""}}) || len(held[0].Legs) != 1 || *held[0].Legs[0].CashCents != 400 {
 		t.Errorf("the held-out file row is %+v", held)
 	}
-	option, err := r.EntryByRef(ctx, "T73508261944")
-	if err != nil {
-		t.Fatal(err)
-	}
+	option := entry("T73508261944")
 	if len(option) != 1 || len(option[0].Legs) != 5 {
 		t.Fatalf("the put's entry is %+v", option)
 	}
@@ -1327,9 +1339,188 @@ func TestEntryByRef(t *testing.T) {
 		put.ExpirationDay != "2025-02-21" || *put.QuantityMicros != 2_000_000 || put.UnderlyingSymbol != "XYZ" {
 		t.Errorf("the put's leg is %+v", put)
 	}
-	if none, err := r.EntryByRef(ctx, "T73508261999"); err != nil || len(none) != 0 {
-		t.Errorf("a ref of no entry finds %+v, %v", none, err)
+	sale := entry("T73508261941")
+	if len(sale) != 1 || !sale[0].Entry.Time.Equal(time.Date(2026, 8, 4, 15, 22, 41, 0, time.UTC)) ||
+		sale[0].Entry.SecurityKey != "i:219834765" || len(sale[0].Legs) != 5 {
+		t.Fatalf("the call's sale is %+v", sale)
 	}
+	for i, fee := range []string{"COMMISSION", "SEC_FEE", "OPT_REG_FEE", "TAF_FEE", ""} {
+		effect := ""
+		if fee == "" {
+			effect = "CLOSING"
+		}
+		if l := sale[0].Legs[i]; l.FeeType != fee || l.PositionEffect != effect {
+			t.Errorf("the sale's leg %d is %+v, want fee %q and effect %q", i, l, fee, effect)
+		}
+	}
+	for ref, want := range map[string][]FlagRow{
+		"T7770001": {{"duplicate_in_answer", "info", ""}, {"revised", "info", "netAmount, transferItems.amount"}, {"unresolved_security", "info", "XYZ"}},
+		"T7770002": {{"account_mismatch", "attention", "the row names ...135"}},
+	} {
+		if got := entry(ref); len(got) != 1 || !reflect.DeepEqual(got[0].Flags, want) {
+			t.Errorf("%s is %+v, want the flags %+v", ref, got, want)
+		}
+	}
+	if none := entry("T73508261999"); len(none) != 0 {
+		t.Errorf("a ref of no entry finds %+v", none)
+	}
+
+	// The July export's dividend and the API's are linked, each to the
+	// other, and its buy's leg holds the export's id of its security.
+	dividend := entry("T73508261948")
+	if len(dividend) != 1 || len(dividend[0].Entry.MatchedWith) != 1 {
+		t.Fatalf("the API's dividend of July is %+v, want it linked to one file transaction", dividend)
+	}
+	if twin := entry(dividend[0].Entry.MatchedWith[0]); len(twin) != 1 || twin[0].Entry.Source != "file" ||
+		twin[0].Entry.CountedWhy != "linked" || !slices.Equal(twin[0].Entry.MatchedWith, []string{"T73508261948"}) {
+		t.Errorf("the file's dividend of July is %+v, want it linked to T73508261948", twin)
+	}
+	p, err := r.Ledger(ctx, LedgerQuery{Accounts: accounts, From: "2026-07-20", To: "2026-07-20", All: true, Limit: 2})
+	if err != nil || len(p.Rows) != 1 {
+		t.Fatalf("the rows of 2026-07-20 are %+v, %v; want the buy", p, err)
+	}
+	if buy := entry(p.Rows[0].Ref); len(buy) != 1 || len(buy[0].Legs) != 1 || buy[0].Legs[0].ItemIssueID != "1854092" {
+		t.Errorf("the file's buy of July is %+v, want its leg of the security's id 1854092", buy)
+	}
+
+	// Every entry as Export writes it.
+	e, err := s.Export(ctx, ExportOptions{What: []string{"entries", "legs", "flags"}, All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables := map[string][]map[string]string{}
+	for _, tb := range e.Tables {
+		tables[tb.Name] = exportedRows(tb)
+	}
+	byEntry := func(table, ref string) map[string][]map[string]string {
+		m := map[string][]map[string]string{}
+		for _, row := range tables[table] {
+			k := row[ref] + "@A" + row["account_id"]
+			m[k] = append(m[k], row)
+		}
+		return m
+	}
+	legs, flags := byEntry("legs", "ref"), byEntry("flags", "subject_ref")
+	compare := func(what string, got, want []map[string]string) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Errorf("%s: %d rows, and Export writes %d", what, len(got), len(want))
+			return
+		}
+		for i := range got {
+			for _, c := range slices.Sorted(maps.Keys(got[i])) {
+				switch w, ok := want[i][c]; {
+				case !ok:
+					t.Errorf("%s: Export writes no column %s", what, c)
+				case got[i][c] != w:
+					t.Errorf("%s, row %d: %s is %q, and Export writes %q", what, i, c, got[i][c], w)
+				}
+			}
+		}
+	}
+	compared := 0
+	for _, want := range tables["entries"] {
+		k := want["ref"] + "@A" + want["account_id"]
+		found := entry(want["ref"])
+		i := slices.IndexFunc(found, func(d EntryDetail) bool { return rowRef(d.Entry.Ref, d.Entry.AccountID) == k })
+		if i < 0 {
+			t.Errorf("EntryByRef finds no %s", k)
+			continue
+		}
+		d := found[i]
+		var gotLegs, gotFlags []map[string]string
+		for _, l := range d.Legs {
+			gotLegs = append(gotLegs, legCells(l))
+		}
+		for _, f := range d.Flags {
+			gotFlags = append(gotFlags, map[string]string{"code": f.Code, "severity": f.Severity, "detail": f.Detail})
+		}
+		compare(k, []map[string]string{entryCells(d.Entry)}, []map[string]string{want})
+		compare("the legs of "+k, gotLegs, legs[k])
+		compare("the flags of "+k, gotFlags, flags[k])
+		compared++
+	}
+	if compared < 30 {
+		t.Errorf("%d entries compared, want every entry", compared)
+	}
+}
+
+// exportedRows returns the rows of an exported table, each its cells' text
+// by column, "" for NULL.
+func exportedRows(tb ExportedTable) []map[string]string {
+	var out []map[string]string
+	for _, row := range tb.rows {
+		m := map[string]string{}
+		for i, c := range row {
+			m[tb.Columns[i]] = c.text
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// entryCells returns the entry x as Export writes the entries view's row
+// of it.
+func entryCells(x LedgerRow) map[string]string {
+	at := ""
+	if !x.Time.IsZero() {
+		at = exportInstant(x.Time)
+	}
+	pair := ""
+	if x.PairAccountID != 0 {
+		pair = strconv.FormatInt(x.PairAccountID, 10)
+	}
+	counted := "0"
+	if x.Counted {
+		counted = "1"
+	}
+	return map[string]string{
+		"ref": x.Ref, "account_id": strconv.FormatInt(x.AccountID, 10), "account": x.Account, "source": x.Source,
+		"day": string(x.Day), "posted_date": string(x.PostedDate), "time": at, "kind": x.Kind, "description": x.Description,
+		"amount": centsCell(x.AmountCents), "fees": centsCell(x.FeesCents), "gross": centsCell(x.GrossCents),
+		"quantity": microsCell(x.QuantityMicros), "quantity_as_of": string(x.QuantityAsOf), "price": floatCell(x.Price),
+		"symbol": x.Symbol, "security_key": x.SecurityKey, "category": x.Category, "category_rule": x.Rule,
+		"pair_kind": x.PairKind, "pair_ref": x.PairRef, "pair_account_id": pair, "counted": counted, "counted_why": x.CountedWhy,
+		"flags": strings.Join(x.Flags, ","), "matched_with": strings.Join(x.MatchedWith, ","),
+	}
+}
+
+// legCells returns the leg l as Export writes the legs view's row of it.
+func legCells(l LegRow) map[string]string {
+	instrument := ""
+	if l.InstrumentID != nil {
+		instrument = strconv.FormatInt(*l.InstrumentID, 10)
+	}
+	return map[string]string{
+		"leg": strconv.Itoa(l.Leg), "asset_type": l.AssetType, "symbol": l.Symbol, "security_key": l.SecurityKey,
+		"instrument_id": instrument, "item_issue_id": l.ItemIssueID, "quantity": microsCell(l.QuantityMicros),
+		"cash": centsCell(l.CashCents), "cost": centsCell(l.CostCents), "price": floatCell(l.Price), "fee_type": l.FeeType,
+		"position_effect": l.PositionEffect, "put_call": l.PutCall, "strike": floatCell(l.Strike),
+		"expiration_day": string(l.ExpirationDay), "multiplier": floatCell(l.Multiplier), "underlying_symbol": l.UnderlyingSymbol,
+	}
+}
+
+// centsCell, microsCell and floatCell write a value as Export writes a
+// cell of it, "" for nil.
+func centsCell(v *int64) string {
+	if v == nil {
+		return ""
+	}
+	return formatCents(*v)
+}
+
+func microsCell(v *int64) string {
+	if v == nil {
+		return ""
+	}
+	return formatMicros(*v)
+}
+
+func floatCell(v *float64) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*v, 'f', -1, 64)
 }
 
 // The rules' flags: those that apiEntryFields raises, which DeriveAPIEntries
