@@ -10,6 +10,14 @@
 // error, is composed from pieces already masked and from identifiers that
 // cannot be account numbers, and is never masked as a whole, which would
 // also mask the identifiers: an activity ID, a date and time, or an amount.
+//
+// Text still masks by pattern alone. A caller that holds the account
+// numbers it has seen adds a second net, Known, which masks those numbers,
+// of any length, wherever they stand but within an account hash. And JSON
+// masks Schwab's JSON by key: each value as the Class of its key path says,
+// so that identifiers and times stay whole, and a value under a key that no
+// table knows is withheld unless it is a time, a code or a number that
+// cannot be an account number.
 package mask
 
 import (
