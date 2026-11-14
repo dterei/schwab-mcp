@@ -312,6 +312,8 @@ type env struct {
 	// planted are the numbers that must never appear in what the server
 	// sends or logs: the fixtures' and any that a test plants.
 	planted []string
+	// clean is how far assertClean has read.
+	clean cleanMark
 }
 
 // An envConfig is what newEnv's options set.
@@ -522,6 +524,10 @@ func (e *env) connect(protocol string) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if r, ok := resolvedOutputs.Load(string(b)); ok {
+			e.outputs[tool.Name] = r.(*jsonschema.Resolved)
+			continue
+		}
 		var s jsonschema.Schema
 		if err := json.Unmarshal(b, &s); err != nil {
 			t.Fatalf("%s's output schema: %v", tool.Name, err)
@@ -530,9 +536,15 @@ func (e *env) connect(protocol string) {
 		if err != nil {
 			t.Fatalf("resolving %s's output schema: %v", tool.Name, err)
 		}
+		resolvedOutputs.Store(string(b), r)
 		e.outputs[tool.Name] = r
 	}
 }
+
+// resolvedOutputs are the output schemas that tools/list served, resolved,
+// by their JSON: each test makes a server, and resolving its tools' schemas
+// again for each would cost more than most tests' calls.
+var resolvedOutputs sync.Map
 
 // A result is a tool's answer, as the client got it.
 type result struct {
@@ -689,28 +701,69 @@ func (e *env) sent() []string {
 // reads one (groups joined by up to three spaces or a dash), at digit
 // boundaries outside a run of 32 or more hex digits, which is an account
 // hash; or the app key, the app secret, the login code or a token that the
-// fake issued.
+// fake issued: each that unclean finds.
 func (e *env) assertClean() {
-	t := e.t
-	t.Helper()
+	e.t.Helper()
+	for _, found := range e.unclean() {
+		e.t.Error(found)
+	}
+}
+
+// unclean returns what assertClean fails for in the messages sent and the
+// lines logged since it last read, so that a test of many calls, each of
+// which checks, reads each line once; and in all of them again once a
+// number is planted or a token issued, so that every line is held to
+// every number and secret known.
+func (e *env) unclean() []string {
 	secrets := append([]string{schwabtest.AppKey}, e.fake.Secrets()...)
 	numbers := make([]*regexp.Regexp, len(e.planted))
 	for i, n := range e.planted {
 		numbers[i] = plantedPattern(n)
 	}
-	for _, line := range e.sent() {
+	from := e.clean
+	if from.planted != len(e.planted) || from.secrets != len(secrets) {
+		from = cleanMark{}
+	}
+	wire, wireEnd := linesAfter(e.wire.String(), from.wire)
+	logs, logsEnd := linesAfter(e.logs.String(), from.logs)
+	e.clean = cleanMark{wire: wireEnd, logs: logsEnd, planted: len(e.planted), secrets: len(secrets)}
+	var lines, found []string
+	for _, line := range wire {
+		if msg, ok := strings.CutPrefix(line, "read: "); ok {
+			lines = append(lines, msg)
+		}
+	}
+	for _, line := range append(lines, logs...) {
 		for _, s := range secrets {
 			if s != "" && strings.Contains(line, s) {
-				t.Errorf("the server sent or logged a secret of the fake's: %.300s", line)
+				found = append(found, fmt.Sprintf("the server sent or logged a secret of the fake's: %.300s", line))
 			}
 		}
 		outside := hashRun.ReplaceAllString(line, "#")
 		for i, re := range numbers {
 			if re.MatchString(outside) {
-				t.Errorf("the server sent or logged the planted number %s: %.300s", e.planted[i], line)
+				found = append(found, fmt.Sprintf("the server sent or logged the planted number %s: %.300s", e.planted[i], line))
 			}
 		}
 	}
+	return found
+}
+
+// A cleanMark is how far assertClean has read the wire and the log, in
+// bytes, each to the end of a line, and how many numbers and secrets it
+// held them to.
+type cleanMark struct {
+	wire, logs, planted, secrets int
+}
+
+// linesAfter returns the whole lines of s that start at from or after it,
+// and where the last of them ends.
+func linesAfter(s string, from int) ([]string, int) {
+	end := strings.LastIndexByte(s, '\n') + 1
+	if end <= from {
+		return nil, from
+	}
+	return strings.Split(s[from:end-1], "\n"), end
 }
 
 // hashRun is a run of 32 or more hex digits, an account hash.
@@ -790,4 +843,45 @@ func testTool[In, Out any](s *Server, name string, args map[string]argRule, h ha
 // callParams returns the parameters of a call of tool with no arguments.
 func callParams(tool string) *mcp.CallToolParams {
 	return &mcp.CallToolParams{Name: tool, Arguments: json.RawMessage(`{}`)}
+}
+
+// The leak scan reads each line once, and every line again once a number
+// is planted: a number logged before it was planted is found when it is, a
+// line found is not reported again, and a line finished after a scan, which
+// that scan left, is found by the next. A message the server sent is read
+// as the log is, and the client's own requests are not.
+func TestUncleanReadsEachLineOnce(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, withoutStore())
+	if found := e.unclean(); len(found) != 0 {
+		t.Fatalf("a new server: %v", found)
+	}
+	e.plant("76543218")
+	fmt.Fprintln(e.wire, `write: {"jsonrpc":"2.0","method":"tools/call","params":{"arguments":{"account":"76543218"}}}`)
+	if found := e.unclean(); len(found) != 0 {
+		t.Errorf("a request of the client's: %v", found)
+	}
+	fmt.Fprintln(e.wire, `read: {"jsonrpc":"2.0","result":{"content":[{"type":"text","text":"76543218"}]}}`)
+	if found := e.unclean(); len(found) != 1 {
+		t.Errorf("a message the server sent: %v", found)
+	}
+	fmt.Fprintln(e.logs, `level=INFO msg="a line" number=87654321`)
+	if found := e.unclean(); len(found) != 0 {
+		t.Errorf("a number that is not planted: %v", found)
+	}
+	e.plant("87654321")
+	if found := e.unclean(); len(found) != 2 {
+		t.Errorf("a number planted after it was logged, and the message sent before: %v", found)
+	}
+	if found := e.unclean(); len(found) != 0 {
+		t.Errorf("a line read again: %v", found)
+	}
+	fmt.Fprint(e.logs, `level=INFO msg="half a line" number=8765`)
+	if found := e.unclean(); len(found) != 0 {
+		t.Errorf("half a line: %v", found)
+	}
+	fmt.Fprintln(e.logs, `4321`)
+	if found := e.unclean(); len(found) != 1 {
+		t.Errorf("a line finished after a scan: %v", found)
+	}
 }

@@ -96,41 +96,12 @@ type toolInfo struct {
 // cuts when it is a fitter. A bad tool panics, at startup: TestNew covers
 // every tool.
 func addTool[In, Out any](s *Server, def toolDef, h handler[In, Out]) {
-	in, err := inputSchema[In](def)
+	sch, err := schemasOf[In, Out](def)
 	if err != nil {
-		panic(fmt.Sprintf("the input schema of %s: %v", def.name, err))
+		panic(err.Error())
 	}
-	out, err := outputSchema[Out]()
-	if err != nil {
-		panic(fmt.Sprintf("the output schema of %s: %v", def.name, err))
-	}
-	outType := reflect.TypeFor[Out]()
-	if !reflect.PointerTo(outType).Implements(reflect.TypeFor[enveloped]()) {
-		panic(def.name + "'s output does not embed envelope")
-	}
-	if reflect.PointerTo(outType).Implements(reflect.TypeFor[fitter]()) &&
-		!reflect.PointerTo(outType).Implements(reflect.TypeFor[cutter]()) {
-		panic(def.name + "'s output is a fitter that does not embed cuts")
-	}
-	for _, sch := range []struct {
-		s     *jsonschema.Schema
-		input bool
-	}{{in, true}, {out, false}} {
-		b, err := encode(sch.s)
-		if err == nil {
-			err = lintSchema(b, sch.input)
-		}
-		if err != nil {
-			panic(fmt.Sprintf("a schema of %s: %v", def.name, err))
-		}
-	}
-	t := &tool[In, Out]{s: s, def: def, h: h, in: in}
-	if t.inRes, err = in.Resolve(nil); err != nil {
-		panic(fmt.Sprintf("resolving the input schema of %s: %v", def.name, err))
-	}
-	if t.out, err = out.Resolve(nil); err != nil {
-		panic(fmt.Sprintf("resolving the output schema of %s: %v", def.name, err))
-	}
+	in, out, outType := sch.in, sch.out, reflect.TypeFor[Out]()
+	t := &tool[In, Out]{s: s, def: def, h: h, in: in, inRes: sch.inRes, out: sch.outRes}
 	ann := def.annotations
 	if ann == (mcp.ToolAnnotations{}) {
 		ann = mcp.ToolAnnotations{
