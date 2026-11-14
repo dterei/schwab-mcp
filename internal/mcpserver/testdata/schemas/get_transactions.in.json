@@ -1,0 +1,98 @@
+{
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "description": "One account: its account_hash (from list_accounts), the last 3 or more digits of its number (135 or ...135), its store ref (A1) or its nickname; every account when left out.",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "from": {
+      "type": "string",
+      "description": "The first New York date, YYYY-MM-DD; 90 days before to when left out.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "to": {
+      "type": "string",
+      "description": "The last New York date, YYYY-MM-DD, included; today when left out, or when later than today.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "categories": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string",
+        "enum": [
+          "deposit",
+          "withdrawal",
+          "transfer_in",
+          "transfer_out",
+          "journal",
+          "buy",
+          "sell",
+          "dividend",
+          "interest",
+          "fee",
+          "tax",
+          "other"
+        ]
+      },
+      "description": "Only these categories of the local history's ledger; every category when left out.",
+      "maxItems": 12
+    },
+    "types": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string",
+        "pattern": "^[$A-Za-z_]{1,40}$"
+      },
+      "description": "Only these of Schwab's transaction types, such as TRADE or DIVIDEND_OR_INTEREST (schwab://reference/transaction-types lists them); every type when left out. The local history's rows of History files, which have no type, are then left out.",
+      "maxItems": 12
+    },
+    "symbol": {
+      "type": "string",
+      "description": "Only the rows of this symbol, in any case: a security leg's, or a dividend's after the ~ of its description.",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "source": {
+      "type": "string",
+      "description": "Where to read each account from: auto (the default: the local history when it holds every asked day, else Schwab), store or schwab.",
+      "enum": [
+        "auto",
+        "store",
+        "schwab"
+      ]
+    },
+    "include_uncounted": {
+      "type": "boolean",
+      "description": "Also list the local history's rows that it does not count (held out, uncertain, linked to an API row), with counted false; totals stay of the counted rows."
+    },
+    "detail": {
+      "type": "string",
+      "description": "compact (the default) or full, which adds each row's legs, settlement date, order ID and the local history's pairing.",
+      "enum": [
+        "compact",
+        "full"
+      ]
+    },
+    "limit": {
+      "type": "integer",
+      "description": "The most rows of a page, 1 to 200; 50 when left out. A page also stops at about 20,000 bytes.",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "cursor": {
+      "type": "string",
+      "description": "next_cursor from the previous page, with the same other arguments.",
+      "minLength": 1,
+      "maxLength": 512
+    }
+  },
+  "additionalProperties": false
+}
