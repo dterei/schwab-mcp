@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,9 +20,10 @@ import (
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
 
-// get_transactions (design 10.5). Each account is read from the local
-// history when its whole history there holds every asked day, else from
-// Schwab, and one account's days never come from both: the store's matcher alone can tell a History row from the API row
+// get_transactions (design 10.5) and get_transaction (10.6). Each account
+// is read from the local history when its whole history there holds every
+// asked day, else from Schwab, and one account's days never come from
+// both: the store's matcher alone can tell a History row from the API row
 // of one trade a day apart, so a split at a seam could count a trade
 // twice. The store chooses, pages and totals in one read transaction
 // (history.Reader.Ledger); Schwab's rows get the store's category, symbol,
@@ -29,13 +31,14 @@ import (
 // totals mean the same for both sources. One page merges the two sources
 // newest first by day, time, ref and account, a total order.
 
-// registerTransactions registers get_transactions and the reference page of
-// transaction types.
+// registerTransactions registers get_transactions and get_transaction, and
+// the reference page of transaction types.
 func (s *Server) registerTransactions() {
 	windows := newWindowCache()
 	addTool(s, getTransactionsDef, func(ctx context.Context, c *call, in getTransactionsIn) (getTransactionsOut, error) {
 		return getTransactions(ctx, c, windows, in)
 	})
+	addTool(s, getTransactionDef, getTransaction)
 	s.addReferencePage(transactionTypesPage())
 }
 
@@ -66,6 +69,25 @@ var getTransactionsDef = toolDef{
 			desc: "The most rows of a page, 1 to 200; 50 when left out. A page also stops at about 20,000 bytes.",
 			min:  new(1.0), max: new(200.0),
 		},
+	},
+}
+
+// getTransactionDef is get_transaction's definition.
+var getTransactionDef = toolDef{
+	name:  "get_transaction",
+	title: "One Schwab transaction",
+	description: "One transaction in full: every leg (security, fee or cash), settlement date, order ID, what the " +
+		"local history says of it (counted or not and why, its pair, its matches, its flags), and with include_raw " +
+		"Schwab's JSON with account numbers masked. id is a ref from get_transactions (T... or C...) or Schwab's " +
+		"activity ID. account is needed only when neither the local history nor the id tells the account.",
+	slot: true,
+	args: map[string]argRule{
+		"id": {desc: "A ref from get_transactions (T73508261946, T~... or C0869ae0a.2), or Schwab's activity ID " +
+			"(73508261946).", minLen: new(1), maxLen: new(64)},
+		"account": {desc: "The account, as get_transactions takes it; needed only when neither the local history nor " +
+			"id tells it."},
+		"include_raw": {desc: "Also return Schwab's JSON of the transaction, with account numbers masked and any value " +
+			"of a key the server does not know withheld."},
 	},
 }
 
@@ -115,6 +137,11 @@ func (o *getTransactionsOut) lists() []cuttable {
 	return ls
 }
 
+// cutHint says how to see a row's legs that were cut.
+func (o *getTransactionsOut) cutHint() string {
+	return "get_transaction with a row's ref shows its legs, as many as fit."
+}
+
 // A txnRow is one transaction of an answer: an API row, read from Schwab
 // or from the local history, or a row of History files, from the local
 // history.
@@ -139,7 +166,7 @@ type txnRow struct {
 	Counted     *bool        `json:"counted"`     // the local history's rows; null for Schwab's
 	CountedWhy  *Ident       `json:"counted_why"` // the local history's rows
 	Flags       []Ident      `json:"flags"`
-	Detail      *txnDetail   `json:"detail,omitempty"` // detail full
+	Detail      *txnDetail   `json:"detail,omitempty"` // detail full, and always in get_transaction
 }
 
 // txnDetail is what detail full adds to a row.
@@ -1255,4 +1282,268 @@ func (c *call) storeRow(a dirAccount, x history.LedgerRow, legs []history.LegRow
 	}
 	r.Detail = d
 	return r
+}
+
+// getTransactionIn is get_transaction's arguments.
+type getTransactionIn struct {
+	ID         string `json:"id"`
+	Account    string `json:"account,omitempty"`
+	IncludeRaw bool   `json:"include_raw,omitempty"`
+}
+
+// getTransactionOut is get_transaction's answer.
+type getTransactionOut struct {
+	envelope
+	cuts                        // legs cut to fit the cap, after raw (design 8.3)
+	Transaction txnRow          `json:"transaction"` // its detail always set
+	Store       *storeView      `json:"store"`       // null without a store, or when it does not hold the ref
+	Raw         json.RawMessage `json:"raw"`         // null unless include_raw and read from Schwab
+}
+
+// dropRaw drops Schwab's JSON, the first thing to go when the answer
+// passes the cap.
+func (o *getTransactionOut) dropRaw() bool {
+	had := o.Raw != nil
+	o.Raw = nil
+	return had
+}
+
+// lists returns the transaction's legs.
+func (o *getTransactionOut) lists() []cuttable {
+	d := o.Transaction.Detail
+	if d == nil {
+		return nil
+	}
+	return []cuttable{{
+		path: "transaction.detail.legs", value: d.Legs,
+		count: func() int { return len(d.Legs) }, keep: func(n int) { d.Legs = d.Legs[:n] },
+	}}
+}
+
+// A storeView is what the local history says of a transaction.
+type storeView struct {
+	Counted     bool      `json:"counted"`
+	CountedWhy  *Ident    `json:"counted_why"`
+	Category    Ident     `json:"category"`
+	Rule        Ident     `json:"category_rule"` // "user" when the user set it
+	PairKind    *Ident    `json:"pair_kind"`
+	PairRef     *Ident    `json:"pair_ref"`
+	MatchedWith []Ident   `json:"matched_with"`
+	Flags       []flagRow `json:"flags"`
+}
+
+// A flagRow is a flag of the local history on a transaction: its code, its
+// severity, attention or info, and its detail, which the store composed of
+// masked text and identifiers.
+type flagRow struct {
+	Code     Ident     `json:"code"`
+	Severity Ident     `json:"severity"`
+	Detail   *FreeText `json:"detail"`
+}
+
+// The shapes of get_transaction's id: Schwab's activity ID, with or
+// without its T; a ref of an API row without one, T~ and its time and
+// digest; and a ref of History files' rows, C, hex digits, a dot and the
+// row.
+var (
+	activityRef = regexp.MustCompile(`^[Tt]?([0-9]{1,19})$`)
+	tildeRef    = regexp.MustCompile(`^[Tt]~[0-9A-Za-z.]{1,62}$`)
+	fileRowRef  = regexp.MustCompile(`^[Cc][0-9A-Fa-f]{1,52}\.[0-9]{1,9}$`)
+)
+
+// A txnID is get_transaction's id: the ref that the store gives it, and
+// Schwab's activity ID, 0 for a ref that only the store knows.
+type txnID struct {
+	given, ref string
+	activity   int64
+}
+
+// txnIDOf reads id, get_transaction's argument.
+func (c *call) txnIDOf(id string) (txnID, error) {
+	id = strings.TrimSpace(id)
+	bad := c.failf(codeBadArgument, "id takes a ref from get_transactions (T and digits, T~..., or C...), or Schwab's activity ID.")
+	switch {
+	case activityRef.MatchString(id):
+		n, err := strconv.ParseInt(activityRef.FindStringSubmatch(id)[1], 10, 64)
+		if err != nil || n == 0 {
+			return txnID{}, bad
+		}
+		return txnID{given: id, ref: "T" + strconv.FormatInt(n, 10), activity: n}, nil
+	case tildeRef.MatchString(id), fileRowRef.MatchString(id):
+		return txnID{given: id, ref: id}, nil
+	}
+	return txnID{}, bad
+}
+
+// shown returns the id as an error may echo it (design 6.3): whole when it
+// has the shape of what it names, a ref or an activity ID of 10 or more
+// digits; anything else as lookup.Selector.Shown shows a number, so that a
+// full account number given as an id shows only its last three digits.
+func (id txnID) shown(c *call) FreeText {
+	digits := strings.TrimLeft(id.given, "Tt")
+	if id.activity == 0 || len(digits) >= 10 {
+		return c.mask.compose("%s", Ident(id.given))
+	}
+	return c.mask.free(lookup.Selector{Given: id.given}.Shown())
+}
+
+// getTransaction answers get_transaction: Schwab's row of an activity ID,
+// with what the local history says of it, or the local history's own row
+// of a ref that only it knows, or when Schwab cannot be read.
+func getTransaction(ctx context.Context, c *call, in getTransactionIn) (getTransactionOut, error) {
+	var out getTransactionOut
+	id, err := c.txnIDOf(in.ID)
+	if err != nil {
+		return out, err
+	}
+	v, err := c.directory(ctx)
+	if err != nil {
+		return out, err
+	}
+	var found []history.EntryDetail
+	storeErr := c.store.read(ctx, func(r *history.Reader) error {
+		var err error
+		found, err = r.EntryByRef(ctx, id.ref)
+		return err
+	})
+	if storeErr != nil && ctx.Err() != nil {
+		return out, storeErr
+	}
+	if id.activity == 0 && len(found) == 0 {
+		if storeErr != nil {
+			return out, c.storeError(storeErr)
+		}
+		return out, c.failf(codeNotFound, "The local history has no transaction %s.", id.shown(c))
+	}
+	if storeErr != nil && !errors.Is(storeErr, history.ErrNoStore) && !errors.Is(storeErr, errNoStorePath) {
+		c.warn("store_unavailable", "The local history could not be read, so its view of the transaction is left out: %s",
+			c.errText(c.s.toolError(c.tool, storeErr)))
+	}
+
+	a, err := pickTxnAccount(c, v, in.Account, found)
+	if err != nil {
+		return out, err
+	}
+	var entry *history.EntryDetail
+	for i := range found {
+		if a.storeID != 0 && found[i].Entry.AccountID == a.storeID {
+			entry = &found[i]
+		}
+	}
+	if entry != nil {
+		out.Store = c.storeViewOf(*entry)
+	}
+	if id.activity == 0 {
+		if entry == nil {
+			return out, c.failf(codeNotFound, "The local history has no transaction %s in account %s.", id.shown(c), c.mask.masked(a.number))
+		}
+		out.Source, out.Transaction = sourceStore, c.storeRow(a, entry.Entry, entry.Legs, true)
+		return out, nil
+	}
+
+	// An account without a hash is one that Schwab no longer shares, or
+	// that the store alone knows because Schwab could not be read.
+	var t schwab.Transaction
+	if a.hash == "" && v.schwabErr != nil {
+		err = v.schwabErr
+	} else {
+		t, err = askAccount(ctx, c, a, func(cl *schwab.Client, hash schwab.AccountHash) (schwab.Transaction, error) {
+			return cl.Transaction(ctx, hash, id.activity)
+		})
+	}
+	if err != nil && ctx.Err() != nil {
+		return out, err
+	}
+	if err != nil {
+		e := c.s.toolError(c.tool, err)
+		if se, ok := errors.AsType[*schwab.Error](err); ok && se.Status == http.StatusNotFound {
+			e = &toolErr{code: codeNotFound, msg: c.mask.compose("Schwab has no transaction %s in account %s.", id.shown(c), c.mask.masked(a.number))}
+		}
+		if entry == nil {
+			return out, e
+		}
+		c.warn("api_unavailable", "Schwab did not send the transaction, so this is the local history's row of it: %s", c.errText(e))
+		out.Source, out.Transaction = sourceStore, c.storeRow(a, entry.Entry, entry.Legs, true)
+		return out, nil
+	}
+	entries, err := history.DeriveAPIEntries([]schwab.Transaction{t}, a.number)
+	if err != nil {
+		return out, err
+	}
+	out.Source, out.Transaction = sourceSchwab, c.schwabRow(a, t, entries[0], true)
+	if out.Store != nil {
+		out.Source = sourceSchwabStore
+	}
+	if len(t.Problems) > 0 {
+		c.warnProblems("The transaction", [][]schwab.Problem{t.Problems}, "a figure that Schwab sent otherwise is null")
+	}
+	if in.IncludeRaw {
+		raw, report, err := c.mask.json(t.Raw, schwab.TransactionKeyClass)
+		if err != nil {
+			return out, err
+		}
+		c.s.log.Debug("masked a transaction's raw JSON", "tool", c.tool, "account_numbers", report.AccountNumbers,
+			"withheld", report.Withheld, "unknown_integers", report.UnknownIntegers)
+		out.Raw = raw
+	}
+	return out, nil
+}
+
+// pickTxnAccount returns the account of get_transaction's transaction: the
+// one arg names; else the one whose ref the local history found; else the
+// only account that Schwab shares. Two accounts that hold the ref, or
+// several shared accounts and no ref found, need arg.
+func pickTxnAccount(c *call, v *dirView, arg string, found []history.EntryDetail) (dirAccount, error) {
+	if strings.TrimSpace(arg) != "" {
+		if v.schwabErr != nil && len(v.accounts) == 0 {
+			return dirAccount{}, v.schwabErr
+		}
+		picked, err := v.pick(c, arg, true)
+		if err != nil {
+			return dirAccount{}, err
+		}
+		return picked[0], nil
+	}
+	var holders []dirAccount
+	for _, d := range found {
+		for _, a := range v.accounts {
+			if a.storeID != 0 && a.storeID == d.Entry.AccountID {
+				holders = append(holders, a)
+			}
+		}
+	}
+	switch {
+	case len(holders) == 1:
+		return holders[0], nil
+	case len(holders) > 1:
+		names := make([]FreeText, len(holders))
+		for i, a := range holders {
+			names[i] = c.mask.compose("%s", c.mask.masked(a.number))
+		}
+		return dirAccount{}, c.failf(codeBadArgument, "account is needed: the local history holds this id in %s; pass account.",
+			c.andList(names))
+	case v.schwabErr != nil:
+		return dirAccount{}, v.schwabErr
+	}
+	shared := v.shared()
+	if len(shared) == 1 {
+		return shared[0], nil
+	}
+	return dirAccount{}, c.failf(codeBadArgument, "account is needed: the local history does not hold this id, "+
+		"and the login shares %d accounts; pass account.", len(shared))
+}
+
+// storeViewOf returns what the local history says of d, an entry with its
+// legs and flags.
+func (c *call) storeViewOf(d history.EntryDetail) *storeView {
+	x := d.Entry
+	sv := &storeView{
+		Counted: x.Counted, CountedWhy: identPtr(x.CountedWhy), Category: Ident(x.Category), Rule: Ident(x.Rule),
+		PairKind: identPtr(x.PairKind), PairRef: identPtr(x.PairRef), MatchedWith: identList(x.MatchedWith),
+		Flags: []flagRow{},
+	}
+	for _, f := range d.Flags {
+		sv.Flags = append(sv.Flags, flagRow{Code: Ident(f.Code), Severity: Ident(f.Severity), Detail: c.storedText(f.Detail)})
+	}
+	return sv
 }

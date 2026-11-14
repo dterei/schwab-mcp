@@ -277,6 +277,54 @@ func txnCheckPages(t *testing.T, e *env, r result) {
 	}
 }
 
+// get_transaction's cases (design 15.2): an unknown id; a Schwab row with
+// legs and the store's view; a C ref, which only the store knows; Schwab's
+// JSON; and, without a login, the store's row of a T ref.
+var getTransactionCases = []toolCase{
+	{
+		tool: "get_transaction", name: "empty", args: `{"id":"99999999999","account":"135"}`,
+		check: func(t *testing.T, _ *env, r result) {
+			if r.code() != "not_found" || !strings.Contains(r.text, "99999999999") || !strings.Contains(r.text, "...135") {
+				t.Errorf("an unknown id: %s", r.text)
+			}
+		},
+	},
+	{
+		tool: "get_transaction", name: "full", args: `{"id":"T73508261946"}`,
+		check: func(t *testing.T, _ *env, r result) {
+			if r.value["source"] != "schwab+store" || r.value["store"] == nil || r.value["raw"] != nil {
+				t.Errorf("a Schwab row with the store's view: %s", r.text)
+			}
+		},
+	},
+	{
+		tool: "get_transaction", name: "c_ref", args: `{"id":"C2cdf9679.2"}`,
+		check: func(t *testing.T, _ *env, r result) {
+			if r.value["source"] != "store" || r.value["transaction"].(map[string]any)["row_kind"] != "file" {
+				t.Errorf("a C ref: %s", r.text)
+			}
+		},
+	},
+	{
+		tool: "get_transaction", name: "include_raw", args: `{"id":"73508261946","include_raw":true}`,
+		check: func(t *testing.T, _ *env, r result) {
+			raw, _ := r.value["raw"].(map[string]any)
+			if raw["accountNumber"] != "...135" || raw["activityId"] != 73508261946.0 {
+				t.Errorf("raw: %v", raw)
+			}
+		},
+	},
+	{
+		tool: "get_transaction", name: "no_login", opts: []envOption{withoutLogin()}, args: `{"id":"73508261946"}`,
+		check: func(t *testing.T, _ *env, r result) {
+			if r.value["source"] != "store" || !slices.Equal(r.warnings(), []string{"api_unavailable"}) ||
+				!strings.Contains(r.text, "[not_logged_in]") {
+				t.Errorf("the store's row without a login: %s", r.text)
+			}
+		},
+	},
+}
+
 // A row's time in the ledger's order is the store's instant form: Schwab's
 // rows and the store's merge in one order only if the server writes their
 // times as the store does.
@@ -333,7 +381,7 @@ func TestStoreInstantIsTheStores(t *testing.T) {
 // addToolCases, addLeaks and addSizeCases, whose result, which no caller
 // reads, unparam reports once a second file ignores it.
 func init() {
-	toolCases = append(toolCases, getTransactionsCases...)
+	toolCases = append(append(toolCases, getTransactionsCases...), getTransactionCases...)
 	leakPlantings = append(leakPlantings, plantTransactions)
 	leakCalls = append(leakCalls, transactionLeakCalls...)
 	sizeCases = append(sizeCases, transactionSizeCases...)
@@ -389,12 +437,12 @@ var leakTransactionsCalls = []string{
 
 // The world of TestNoAccountNumberLeaks that the transaction tools add:
 // Schwab's rows of ...135 above; Schwab's error bodies, which quote an
-// account number, on the first request for transactions; and a History
-// export of ...135 in the world's store whose descriptions hold numbers,
-// which the store masks but for the 7-digit one, which only the known
-// numbers catch. Nothing sent may name the planted user, and no cursor's
-// digest may be one of its arguments with a planted number for the
-// account's hash.
+// account number, on the first request for transactions and on those for
+// one transaction; and a History export of ...135 in the world's store
+// whose descriptions hold numbers, which the store masks but for the
+// 7-digit one, which only the known numbers catch. Nothing sent may name
+// the planted user, and no cursor's digest may be one of its arguments
+// with a planted number for the account's hash.
 func plantTransactions(t *testing.T, w *leakWorld) {
 	w.plant(otherAccount, unknownInt, userID)
 	w.opts = append(w.opts, withFake(func(f *schwabtest.Server) {
@@ -402,6 +450,7 @@ func plantTransactions(t *testing.T, w *leakWorld) {
 		f.AddRows(schwabtest.HashFor(individual), leakRows[:3]...)
 		f.AddRow(schwabtest.HashFor(individual), schwabtest.Row{JSON: leakRows[3], Time: ny(2026, time.October, 8, 10, 0)})
 		f.Queue(schwabtest.TransactionsRoute, schwabtest.Answer(400, `{"message":"Invalid account number 29470135"}`))
+		f.Queue(schwabtest.TransactionRoute, schwabtest.NotAuthorized, schwabtest.Whitelabel, schwabtest.Whitelabel)
 	}))
 	if w.store == "" {
 		t.Fatal("the core's planting made no store for the world")
@@ -411,7 +460,8 @@ func plantTransactions(t *testing.T, w *leakWorld) {
 		`"06/12/2025","Journal","","Kids 7654321 transfer","","","","-$50.00"`,
 		`"06/20/2025","Wire Received","","WIRE FROM `+otherAccount+`","","","","$500.00"`)
 	w.masked = append(w.masked, "JOURNAL TO ...398", "ACCT...398 TRF", "TRF TO ...432", "Kids ...321 gift", "Kids ...321 transfer",
-		"WIRE FROM ...432", "Invalid account number ...135")
+		"WIRE FROM ...432", `"accountNumber":"...135"`, `"user":{"firstName":"[withheld]"`, `"newNumber":"...321"`,
+		"Invalid account number ...135", "Client not authorized")
 	w.forbidden = append(w.forbidden, "jdoe", "Jane", "Doe")
 	w.checks = append(w.checks, checkCursorDigests)
 }
@@ -442,6 +492,10 @@ var transactionLeakCalls = []leakCall{
 	{tool: "get_transactions", args: leakTransactionsCalls[1]},
 	{tool: "get_transactions", args: leakTransactionsCalls[2]},
 	{tool: "get_transactions", args: leakTransactionsCalls[3]},
+	{tool: "get_transaction", args: `{"id":"73508261946"}`},
+	{tool: "get_transaction", args: `{"id":"73508261950"}`},
+	{tool: "get_transaction", args: `{"id":"73508263001","account":"29470135","include_raw":true}`},
+	{tool: "get_transaction", args: `{"id":"29470135","account":"135"}`},
 }
 
 // checkCursorDigests fails when a cursor that the server sent holds the
@@ -493,9 +547,10 @@ func checkCursorDigests(t *testing.T, e *env) {
 // table of 60 accounts, which passes the cap on its own, is too_big, which
 // asks for one account; and a row of 150 legs, with detail full, shows its
 // first legs and says so in cut and list_cut, its figures and the totals
-// whole. The 60 accounts are read from the store, which knows three of
-// them, so that no request reads their transactions; one that it does not
-// know is read from nowhere.
+// whole, as get_transaction does after it drops Schwab's JSON. The 60
+// accounts are read from the store, which knows three of them, so that no
+// request reads their transactions; one that it does not know is read from
+// nowhere.
 var transactionSizeCases = []sizeCase{
 	{name: "get_transactions over 60 accounts", opts: []envOption{withFake(func(f *schwabtest.Server) {
 		prefs := []string{}
@@ -523,7 +578,7 @@ var transactionSizeCases = []sizeCase{
 		}
 	}},
 	{
-		name: "get_transactions with a row of 150 legs", opts: []envOption{withTxnRows(individual, manyLegs)},
+		name: "get_transactions and get_transaction with a row of 150 legs", opts: []envOption{withTxnRows(individual, manyLegs)},
 		run: func(t *testing.T, e *env) {
 			r := e.call("get_transactions", `{"account":"135","from":"2026-10-01","to":"2026-10-31","detail":"full"}`)
 			if r.isError || !slices.Contains(r.warnings(), "list_cut") {
@@ -551,6 +606,10 @@ var transactionSizeCases = []sizeCase{
 			}
 			if got.Transactions[0].Amount != -401.49 || len(got.Totals) != 1 || got.Totals[0].Count != 1 {
 				t.Errorf("the row's figures or the totals were cut: %v %+v", got.Transactions[0].Amount, got.Totals)
+			}
+			one := e.call("get_transaction", `{"id":"73508264001","account":"135","include_raw":true}`)
+			if w := one.warnings(); one.isError || len(w) < 2 || w[0] != "raw_omitted" || w[1] != "list_cut" || one.value["raw"] != nil {
+				t.Errorf("get_transaction of 150 legs: %.300s", one.text)
 			}
 		},
 	},
@@ -898,6 +957,68 @@ func TestTransactionCursor(t *testing.T) {
 	}
 }
 
+// get_transaction reads its id's shape: Schwab's activity ID with or
+// without its T, a T~ ref or a C ref; anything else is bad_argument. An
+// error echoes the id whole only in the shape of what it names, a ref or
+// an activity ID of 10 digits or more, else as a selector's digits, so
+// that an account number given as an id shows its last three digits only.
+// The account is the one given, else the one whose ref the local history
+// holds, else the only one shared; two that hold the ref need it.
+func TestGetTransactionIDs(t *testing.T) {
+	t.Parallel()
+	c := &call{tool: "get_transaction", now: testNow, mask: testMasker("")}
+	for _, tc := range []struct{ id, ref, shown string }{
+		{"73508261946", "T73508261946", "73508261946"},
+		{"t73508261946", "T73508261946", "t73508261946"},
+		{"29470135", "T29470135", "...135"},
+		{"T29470135", "T29470135", "T...135"},
+		{"7350826194", "T7350826194", "7350826194"},
+		{"735082619", "T735082619", "...619"},
+		{"T~20260302T143027.1f2e3d4c5b6a", "T~20260302T143027.1f2e3d4c5b6a", "T~20260302T143027.1f2e3d4c5b6a"},
+		{"C2cdf9679.2", "C2cdf9679.2", "C2cdf9679.2"},
+	} {
+		id, err := c.txnIDOf(tc.id)
+		if err != nil || id.ref != tc.ref || string(id.shown(c)) != tc.shown {
+			t.Errorf("%s: %+v shown %q, %v; want %s shown %q", tc.id, id, id.shown(c), err, tc.ref, tc.shown)
+		}
+	}
+	for _, bad := range []string{"0", "T", "C2cdf9679", "Cxyz.1", "73508261946x", "account 29470135", "12345678901234567890"} {
+		if _, err := c.txnIDOf(bad); err == nil {
+			t.Errorf("the id %q was taken", bad)
+		}
+	}
+	e := newEnv(t)
+	for _, tc := range []struct{ args, code, says string }{
+		{`{"id":"29470135","account":"135"}`, "not_found", "Schwab has no transaction ...135 in account ...135."},
+		{`{"id":"73508261946","account":"398"}`, "not_found", "Schwab has no transaction 73508261946 in account ...398."},
+		{`{"id":"C2cdf9679.2","account":"135"}`, "not_found", "The local history has no transaction C2cdf9679.2 in account ...135."},
+		{`{"id":"T~20260302T143027.1f2e3d4c5b6a"}`, "not_found", "The local history has no transaction T~20260302T143027.1f2e3d4c5b6a."},
+		{`{"id":"99999999999"}`, "bad_argument", "account is needed: the local history does not hold this id, and the login shares 3 accounts"},
+		{`{"id":"one"}`, "bad_argument", "id takes a ref"},
+	} {
+		if r := e.call("get_transaction", tc.args); r.code() != tc.code || !strings.Contains(r.text, tc.says) {
+			t.Errorf("%s: %s, want [%s] saying %q", tc.args, r.text, tc.code, tc.says)
+		}
+	}
+	v := &dirView{accounts: []dirAccount{
+		{number: individual, hash: "H1", shared: true, storeID: 1},
+		{number: options, hash: "H2", shared: true, storeID: 2},
+	}}
+	found := []history.EntryDetail{{Entry: history.LedgerRow{AccountID: 1}}, {Entry: history.LedgerRow{AccountID: 2}}}
+	if _, err := pickTxnAccount(c, v, "", found); err == nil || !strings.Contains(err.Error(), "holds this id in ...135 and ...398; pass account") {
+		t.Errorf("a ref of two accounts: %v", err)
+	}
+	if a, err := pickTxnAccount(c, v, "", found[1:]); err != nil || a.number != options {
+		t.Errorf("a ref of one account: %v, %v", a.number, err)
+	}
+	if a, err := pickTxnAccount(c, v, "398", found); err != nil || a.number != options {
+		t.Errorf("the account given: %v, %v", a.number, err)
+	}
+	if a, err := pickTxnAccount(c, &dirView{accounts: v.accounts[:1]}, "", nil); err != nil || a.number != individual {
+		t.Errorf("the only account: %v, %v", a.number, err)
+	}
+}
+
 // A window that Schwab refuses as too old, after it served a newer one,
 // ends that account's walk, which the answer says (empty_not_proof) and
 // coverage marks as reaching back only so far; refused as the first, it is
@@ -980,8 +1101,9 @@ func TestOlderWindows(t *testing.T) {
 // that only the store knows is then read from nowhere, with the store's
 // error in its coverage. Under source store it is the call's error, before
 // any account's, a missing store and a config that names no store that may
-// be used included. A store that a newer schwabtx derived is read, with a
-// warning.
+// be used included. get_transaction reads a T ref from Schwab without the
+// store's view, saying why when there is a store, and fails for a C ref. A
+// store that a newer schwabtx derived is read, with a warning.
 func TestTransactionsStoreStates(t *testing.T) {
 	t.Parallel()
 	newer := storeCopy(t)
@@ -995,11 +1117,21 @@ func TestTransactionsStoreStates(t *testing.T) {
 	if r := e.call("get_transactions", `{"source":"store"}`); r.code() != "store_newer" {
 		t.Errorf("source store with a newer store: %.300s", r.text)
 	}
+	if r := e.call("get_transaction", `{"id":"C2cdf9679.2"}`); r.code() != "store_newer" {
+		t.Errorf("a C ref with a newer store: %.300s", r.text)
+	}
+	if r := e.call("get_transaction", `{"id":"73508261946","account":"135"}`); r.isError ||
+		!slices.Equal(r.warnings(), []string{"store_unavailable"}) || r.value["store"] != nil {
+		t.Errorf("a T ref with a newer store: %.300s", r.text)
+	}
 	missing := newEnv(t, withoutStore())
 	for _, args := range []string{`{"source":"store"}`, `{"source":"store","account":"999"}`} {
 		if r := missing.call("get_transactions", args); r.code() != "no_store" {
 			t.Errorf("%s without a store: %.300s", args, r.text)
 		}
+	}
+	if r := missing.call("get_transaction", `{"id":"C2cdf9679.2"}`); r.code() != "no_store" {
+		t.Errorf("a C ref without a store: %.300s", r.text)
 	}
 	none := newEnv(t, withConfig(func(c *config.Config) { c.StoreFile = config.Setting{} }))
 	if r := none.call("get_transactions", `{"source":"store"}`); r.code() != "no_store" {
@@ -1008,6 +1140,12 @@ func TestTransactionsStoreStates(t *testing.T) {
 	if r := none.call("get_transactions", `{"account":"135","from":"2025-01-01","to":"2025-01-31"}`); r.isError ||
 		!strings.Contains(r.text, "[no_store]") {
 		t.Errorf("auto with no store that may be used: %.300s", r.text)
+	}
+	for name, e := range map[string]*env{"no store": missing, "no store that may be used": none} {
+		if r := e.call("get_transaction", `{"id":"73508261946","account":"135"}`); r.isError || len(r.warnings()) != 0 ||
+			r.value["store"] != nil || r.value["source"] != "schwab" {
+			t.Errorf("a T ref with %s: %.300s", name, r.text)
+		}
 	}
 
 	rules := storeCopy(t)
@@ -1062,10 +1200,11 @@ func TestTransactionsStoreReadOutlastsTheCall(t *testing.T) {
 	}
 }
 
-// Text get_transactions composes keeps its identifiers (design 7.8, 15.4):
-// dates in a warning, a correlation ID in Schwab's detail beside a number
-// of Schwab's own words, which is masked, refs, times and hashes; while the
-// masked numbers name the accounts.
+// Text the transaction tools compose keeps its identifiers (design 7.8,
+// 15.4): dates in a warning, an activity ID of 11 digits in an error, a
+// correlation ID in Schwab's detail beside a number of Schwab's own words,
+// which is masked, refs and a store's flag detail that holds a date, and
+// hashes; while the masked numbers name the accounts.
 func TestTransactionTextKeepsIdentifiers(t *testing.T) {
 	t.Parallel()
 	correl := "5b1d2c3e-1234-5678-9abc-def012345678"
@@ -1078,12 +1217,15 @@ func TestTransactionTextKeepsIdentifiers(t *testing.T) {
 		{"get_transactions", `{"source":"schwab","from":"2025-01-01","to":"2025-12-31"}`},
 		{"get_transactions", `{"source":"schwab","account":"135","from":"2024-07-01","to":"2025-06-30"}`},
 		{"get_transactions", `{"from":"2025-01-01","to":"2025-12-31","include_uncounted":true,"detail":"full"}`},
+		{"get_transaction", `{"id":"73508261999","account":"135"}`},
+		{"get_transaction", `{"id":"T73508262001"}`},
 	} {
 		texts = append(texts, e.call(c.tool, c.args).text)
 	}
 	all := strings.Join(texts, "\n")
 	for _, id := range []string{
-		correl, "from 2024-07-01 to 2024-12-29", "C2cdf9679.3", "T73508262002", schwabtest.HashFor(individual), "2025-03-27T10:40:03-04:00", "no account ...135 on ...914",
+		correl, "from 2024-07-01 to 2024-12-29", "73508261999", "C2cdf9679.3", "T73508262002", "AAPL last seen 2026-01-05",
+		schwabtest.HashFor(individual), "2025-03-27T10:40:03-04:00", "no account ...135 on ...914",
 	} {
 		if !strings.Contains(all, id) {
 			t.Errorf("the answers lost %s", id)
@@ -1149,7 +1291,9 @@ func TestSchwabRowsAsTheStoreReadsThem(t *testing.T) {
 // One activity ID can sit in two of the person's accounts, the two sides of
 // a move between them (design 10.5): with ...783's side of ...398's trade
 // of 2025-11-20 in the store, detail full shows ...398's row with its own
-// legs, a fee and XYZ, not ...783's cash leg.
+// legs, a fee and XYZ, not ...783's cash leg; and get_transaction needs the
+// account, then shows that account's row, the store's, as Schwab sends no
+// such row of ...783.
 func TestOneRefInTwoAccounts(t *testing.T) {
 	t.Parallel()
 	path := storeCopy(t)
@@ -1186,6 +1330,16 @@ func TestOneRefInTwoAccounts(t *testing.T) {
 	}
 	if !slices.Equal(symbols, []string{"CURRENCY_USD", "XYZ"}) {
 		t.Errorf("...398's trade shows the legs %v", symbols)
+	}
+	if r := e.call("get_transaction", `{"id":"T73508262002"}`); r.code() != "bad_argument" ||
+		!strings.Contains(r.text, "holds this id in ...398 and ...783; pass account") {
+		t.Errorf("a ref of two accounts: %.300s", r.text)
+	}
+	// Schwab holds no such row of ...783: the store's, which says so.
+	r = e.call("get_transaction", `{"id":"T73508262002","account":"783"}`)
+	if st, _ := r.value["store"].(map[string]any); r.isError || st == nil || st["category"] == "buy" ||
+		!slices.Equal(r.warnings(), []string{"api_unavailable"}) || !strings.Contains(r.text, "[not_found]") {
+		t.Errorf("...783's side: %.600s", r.text)
 	}
 }
 
@@ -1335,11 +1489,15 @@ func TestTransactionsWithoutLogin(t *testing.T) {
 	if r := e.call("get_transactions", `{"source":"schwab"}`); r.code() != "not_logged_in" {
 		t.Errorf("source schwab without a login: %.300s", r.text)
 	}
+	if r := e.call("get_transaction", `{"id":"99999999999"}`); r.code() != "not_logged_in" {
+		t.Errorf("an id that the store does not hold, without a login: %.300s", r.text)
+	}
 	// Without a store either, no account is known.
 	none := newEnv(t, withoutLogin(), withoutStore())
 	for _, c := range []struct{ tool, args string }{
 		{"get_transactions", `{}`},
 		{"get_transactions", `{"account":"135"}`},
+		{"get_transaction", `{"id":"73508261946","account":"135"}`},
 	} {
 		if r := none.call(c.tool, c.args); r.code() != "not_logged_in" {
 			t.Errorf("%s %s without a login or a store: %.300s", c.tool, c.args, r.text)

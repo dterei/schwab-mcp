@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "A ref from get_transactions (T73508261946, T~... or C0869ae0a.2), or Schwab's activity ID (73508261946).",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "account": {
+      "type": "string",
+      "description": "The account, as get_transactions takes it; needed only when neither the local history nor id tells it.",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "include_raw": {
+      "type": "boolean",
+      "description": "Also return Schwab's JSON of the transaction, with account numbers masked and any value of a key the server does not know withheld."
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}

@@ -36,7 +36,7 @@ func transactionTypesPage() referencePage {
 		name:  "transaction-types",
 		title: "Schwab transaction types",
 		description: "Schwab's transaction types, what each transaction row holds, and the local history's categories, " +
-			"for reading get_transactions.",
+			"for reading get_transactions and get_transaction.",
 		text: transactionTypesText,
 	}
 }

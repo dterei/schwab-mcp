@@ -1,0 +1,64 @@
+{
+  "source": "schwab+store",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [],
+  "cut": [],
+  "transaction": {
+    "ref": "T73508261946",
+    "read_from": "schwab",
+    "row_kind": "api",
+    "account": "...135",
+    "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+    "date": "2024-04-04",
+    "time": "2024-04-04T11:56:07-04:00",
+    "type": "TRADE",
+    "action": null,
+    "status": "VALID",
+    "category": "buy",
+    "symbol": "BND",
+    "quantity": 0.0378,
+    "price": 71.42857,
+    "amount": -2.70,
+    "fees": 0.00,
+    "description": "Dividend Reinvest",
+    "counted": null,
+    "counted_why": null,
+    "flags": [],
+    "detail": {
+      "settlement_date": "2024-04-08",
+      "order_id": null,
+      "sub_account": "CASH",
+      "pair_kind": null,
+      "pair_ref": null,
+      "matched_with": [],
+      "problems": [],
+      "legs": [
+        {
+          "asset_type": "COLLECTIVE_INVESTMENT",
+          "symbol": "BND",
+          "description": "VANGUARD TOTAL BOND MARKET ETF",
+          "quantity": 0.0378,
+          "price": 71.42857,
+          "cost": -2.70,
+          "cash": null,
+          "fee_type": null,
+          "position_effect": "OPENING",
+          "put_call": null,
+          "strike": null,
+          "expiration": null
+        }
+      ]
+    }
+  },
+  "store": {
+    "counted": true,
+    "counted_why": "api",
+    "category": "buy",
+    "category_rule": "trade.reinvest",
+    "pair_kind": null,
+    "pair_ref": null,
+    "matched_with": [],
+    "flags": []
+  },
+  "raw": null
+}
