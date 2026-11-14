@@ -1,10 +1,12 @@
 package mcpserver
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"runtime"
@@ -323,6 +325,92 @@ func TestShutdownCancelsHandlers(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the call did not end when the root context did")
+	}
+}
+
+// Run serves a session until its input ends or its context does, and
+// returns nil for either, ending a running call at once; a malformed line
+// fails the session, and Run returns its error. Each says why it ended in
+// one line of the log at most: the failure's, at error, and nothing for
+// the others. Each problem of the config is logged at warn when Run
+// starts.
+func TestRun(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		end   func(in io.WriteCloser, cancel context.CancelFunc)
+		fails bool
+	}{
+		{"input ends", func(in io.WriteCloser, _ context.CancelFunc) { in.Close() }, false},
+		{"context ends", func(_ io.WriteCloser, cancel context.CancelFunc) { cancel() }, false},
+		{"malformed line", func(in io.WriteCloser, _ context.CancelFunc) { _, _ = io.WriteString(in, "this is not JSON\n") }, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b := newBlocker()
+			e := newEnv(t, withTools(b.register), withOptions(func(o *Options) { o.CallTimeout = 10 * time.Second }),
+				withConfig(func(c *config.Config) {
+					c.Problems = append(c.Problems, config.Problem{Code: ProblemStrayArgument, Setting: "arguments"})
+				}))
+			inR, inW := io.Pipe()
+			outR, outW := io.Pipe()
+			lines := make(chan string, 10)
+			go func() {
+				sc := bufio.NewScanner(outR)
+				for sc.Scan() {
+					lines <- sc.Text()
+				}
+				close(lines)
+			}()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			ran := make(chan error, 1)
+			go func() { ran <- e.srv.Run(ctx, &mcp.IOTransport{Reader: inR, Writer: outW}) }()
+			for _, line := range []string{
+				`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}`,
+				`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`,
+				`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"block","arguments":{}}}`,
+			} {
+				if _, err := io.WriteString(inW, line+"\n"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			<-b.started
+			start := time.Now()
+			tc.end(inW, cancel)
+			select {
+			case err := <-ran:
+				if (err != nil) != tc.fails {
+					t.Errorf("Run returned %v", err)
+				}
+				if took := time.Since(start); took > 2*time.Second {
+					t.Errorf("Run returned %v after the session ended", took)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("Run did not return")
+			}
+			if b.running.Load() != 0 {
+				t.Error("the running call did not end")
+			}
+			var errorLines, warned int
+			for _, line := range e.logs.lines() {
+				if strings.Contains(line, "level=ERROR") {
+					errorLines++
+				}
+				if strings.Contains(line, "level=WARN") && strings.Contains(line, "the server was started with an argument it does not take") {
+					warned++
+				}
+			}
+			if want := map[bool]int{true: 1, false: 0}[tc.fails]; errorLines != want {
+				t.Errorf("%d lines at error, want %d:\n%s", errorLines, want, e.logs)
+			}
+			if warned != 1 {
+				t.Errorf("the config's problem was logged %d times, want once:\n%s", warned, e.logs)
+			}
+			outW.Close()
+			for range lines {
+			}
+		})
 	}
 }
 

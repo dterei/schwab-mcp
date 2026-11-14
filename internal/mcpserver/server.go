@@ -228,8 +228,9 @@ var schwabHost = strings.TrimPrefix(schwab.DefaultBaseURL, "https://")
 // Run serves t until the client closes it or ctx ends; ctx is the root
 // context, which every handler's context derives from (design 5.8), so
 // that a signal ends the running handlers at once. It returns nil when the
-// input ends or ctx ends, and the SDK's error when the session fails, as on
-// a malformed line.
+// input ends or ctx ends, and the session's error when it fails, as on a
+// malformed line, which it logs: the one line that says why the server
+// stopped.
 func (s *Server) Run(ctx context.Context, t mcp.Transport) error {
 	stop := context.AfterFunc(ctx, s.cancelRoot)
 	defer stop()
@@ -237,11 +238,31 @@ func (s *Server) Run(ctx context.Context, t mcp.Transport) error {
 	if host := s.apiHost(); host != "" && host != schwabHost {
 		s.log.Warn("the API's address is not Schwab's", "host", host)
 	}
-	err := s.mcp.Run(ctx, t)
-	if ctx.Err() != nil {
+	for _, p := range s.o.Config.Problems {
+		s.log.Warn("a setting cannot be used", "problem", s.problemText(p))
+	}
+	// The SDK's own Run logs an error line for a session that ends with
+	// ctx, and another for one that fails; the server says it once.
+	ss, err := s.mcp.Connect(ctx, t, nil)
+	if err != nil {
+		s.log.Error("the session could not start", "error", err)
+		return err
+	}
+	ended := safeGo(ctx, "the session", func(context.Context) error { return ss.Wait() })
+	select {
+	case <-ctx.Done():
+		ss.Close()
+		if err := <-ended; err != nil {
+			s.log.Debug("the session ended with the server", "error", err)
+		}
+		return nil
+	case err := <-ended:
+		if err != nil && ctx.Err() == nil {
+			s.log.Error("the session with the client failed", "error", err)
+			return err
+		}
 		return nil
 	}
-	return err
 }
 
 // MCP returns the SDK's server, for tests' in-memory transports; the root

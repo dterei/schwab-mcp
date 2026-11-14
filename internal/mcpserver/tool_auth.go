@@ -2,7 +2,10 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -188,4 +191,94 @@ func (s *Server) problemText(p config.Problem) FreeText {
 		return s.mask.compose("%s: %s", Ident(p.Setting), Ident(words))
 	}
 	return s.mask.compose("%s: %s (%s)", Ident(p.Setting), Ident(words), s.mask.path(p.Path))
+}
+
+// Check writes what auth_status answers, for a person at a terminal, as
+// schwab-mcp --check prints it: each file the server uses and where its
+// setting came from, the API's host when it is not Schwab's, the login, the
+// store, the config's problems, and what the model is told to ask the user
+// to do. It runs auth_status as a client's call does, so it sends nothing
+// to Schwab and writes no secret.
+func (s *Server) Check(ctx context.Context, w io.Writer) error {
+	b, e := s.runners["auth_status"](ctx, json.RawMessage(`{}`))
+	if e != nil {
+		return e
+	}
+	var st authStatusOut
+	if err := json.Unmarshal(b, &st); err != nil {
+		return err
+	}
+	line := func(name, format string, args ...any) {
+		fmt.Fprintf(w, "  %-13s%s\n", name, fmt.Sprintf(format, args...))
+	}
+	from := func(f *Ident) string {
+		if f == nil {
+			return ""
+		}
+		return " (" + string(*f) + ")"
+	}
+	if st.ConfigFile != nil {
+		fmt.Fprintf(w, "Reading %s:\n", *st.ConfigFile)
+	} else {
+		fmt.Fprintln(w, "Reading no config file:")
+	}
+	switch {
+	case st.AppConfigured:
+		line("app key", "set%s", from(st.AppFrom))
+	default:
+		line("app key", "not set")
+	}
+	switch host := string(st.APIHost); {
+	case host == "":
+		line("API", "none")
+	case host != schwabHost:
+		line("API", "%s, which is not Schwab's", host)
+	default:
+		line("API", "%s", host)
+	}
+	line("token file", "%s%s", st.TokenFile, from(&st.TokenFileFrom))
+	if st.RateFile != nil {
+		line("rate file", "%s%s", *st.RateFile, from(st.RateFileFrom))
+	}
+	store := fmt.Sprintf("%s%s", st.Store.File, from(&st.Store.From))
+	switch {
+	case st.Store.Usable && st.Store.Waiting != nil:
+		store += fmt.Sprintf(", usable; %d waiting for you in schwabtx status", *st.Store.Waiting)
+	case st.Store.Problem != nil:
+		store += ", " + string(*st.Store.Problem)
+	}
+	line("store", "%s", store)
+	switch {
+	case !st.LoggedIn:
+		line("login", "none")
+	case st.LoginAt != nil && st.ExpiresAt != nil && st.HoursLeft != nil:
+		login := fmt.Sprintf("made %s, lapses %s, in %d hours", personTime(*st.LoginAt), personTime(*st.ExpiresAt), *st.HoursLeft)
+		if st.Refused {
+			login += "; Schwab refused it"
+		}
+		line("login", "%s", login)
+	default:
+		line("login", "saved")
+	}
+	for _, p := range st.ConfigProblems {
+		line("problem", "%s", p)
+	}
+	for _, wn := range st.Warnings {
+		line("warning", "%s", wn.Message)
+	}
+	if st.Action != nil {
+		fmt.Fprintf(w, "The model is told: %s\n", *st.Action)
+	} else {
+		fmt.Fprintln(w, "Nothing to do: the server can read Schwab.")
+	}
+	return nil
+}
+
+// personTime writes i, an instant in New York, as a person reads it.
+func personTime(i Instant) string {
+	t, err := time.Parse(time.RFC3339, string(i))
+	if err != nil {
+		return string(i)
+	}
+	return t.Format("2006-01-02 15:04") + " ET"
 }

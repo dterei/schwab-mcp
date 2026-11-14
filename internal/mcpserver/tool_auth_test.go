@@ -332,3 +332,69 @@ func TestStoreHandleRetires(t *testing.T) {
 		t.Errorf("the next read did not open the store again: %v", err)
 	}
 }
+
+// Check prints auth_status's answer for a person: the config file, where
+// the app's settings came from, the API's host as not Schwab's, each file
+// and where it came from, the store, the login in New York time, the
+// config's problems and what the model is told; and no secret.
+func TestCheck(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		opts []envOption
+		want []string
+	}{
+		{"full", nil, []string{
+			"Reading ~/.config/schwabtx/config.json:\n",
+			"\n  app key      set (config file)\n",
+			"\n  API          127.0.0.1:PORT, which is not Schwab's\n",
+			"\n  token file   ~/.config/schwabtx/token.json (config file)\n",
+			"\n  rate file    ~/.cache/schwabtx/rate (config file)\n",
+			"\n  store        history.db (config file), usable; 2 waiting for you in schwabtx status\n",
+			"\n  login        made 2026-11-13 16:40 ET, lapses 2026-11-20 16:40 ET, in 168 hours\n",
+			"\nNothing to do: the server can read Schwab.\n",
+		}},
+		{"not logged in", []envOption{withoutLogin(), withoutStore(), withConfig(func(c *config.Config) {
+			c.Problems = append(c.Problems, config.Problem{Code: ProblemStrayArgument, Setting: "arguments"})
+		})}, []string{
+			"\n  store        ~/.config/schwabtx/history.db (config file), no_store\n",
+			"\n  login        none\n",
+			"\n  problem      arguments: the server was started with an argument it does not take; quote a path that holds a space\n",
+			"\nThe model is told: The server was started with an argument it does not take;",
+		}},
+		{"no config", []envOption{withoutLogin(), withConfig(func(c *config.Config) {
+			c.File = ""
+			c.AppKey, c.AppSecret = config.Setting{}, config.Setting{}
+			c.BaseURL = config.Setting{Value: schwab.DefaultBaseURL, From: config.FromDefault}
+		})}, []string{
+			"Reading no config file:\n",
+			"\n  app key      not set\n",
+			"\n  API          api.schwabapi.com\n",
+			"\nThe model is told: The server has no Schwab app key and secret.",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := newEnv(t, tc.opts...)
+			var b strings.Builder
+			before := e.fake.AllRequests()
+			if err := e.srv.Check(t.Context(), &b); err != nil {
+				t.Fatal(err)
+			}
+			got := strings.ReplaceAll(b.String(), e.fake.Addr(), "127.0.0.1:PORT")
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("--check printed\n%s\nwhich lacks %q", got, want)
+				}
+			}
+			for _, secret := range append([]string{schwabtest.AppKey}, e.fake.Secrets()...) {
+				if strings.Contains(got, secret) {
+					t.Errorf("--check printed a secret:\n%s", got)
+				}
+			}
+			if n := e.fake.AllRequests() - before; n != 0 {
+				t.Errorf("--check sent %d requests to Schwab", n)
+			}
+		})
+	}
+}

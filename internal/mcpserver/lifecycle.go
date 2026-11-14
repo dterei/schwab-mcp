@@ -97,7 +97,8 @@ const closeWait = 200 * time.Millisecond
 
 // Close ends the root context, so that every running handler ends, waits
 // at most 200 ms for them, and closes the store's reader, waiting at most
-// 200 ms for that. A call that comes afterwards finds its context ended.
+// 200 ms for that, and logging what went wrong. A call that comes
+// afterwards finds its context ended.
 func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
 		s.cancelRoot()
@@ -117,6 +118,9 @@ func (s *Server) Close() error {
 		closed := safeGo(context.Background(), "closing the store", func(context.Context) error { return s.store.close() })
 		select {
 		case s.closeErr = <-closed:
+			if s.closeErr != nil {
+				s.log.Warn("the store's reader did not close cleanly", "component", "store", "error", s.closeErr)
+			}
 		case <-time.After(closeWait):
 			s.log.Warn("the store's reader took more than 200 ms to close; the server stops without waiting")
 		}
