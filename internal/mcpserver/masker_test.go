@@ -74,7 +74,8 @@ func TestMaskerMasked(t *testing.T) {
 
 // path shows a path under the home folder as ~/ and its components, each
 // masked as a file name, with the known numbers replaced, in its given form
-// and with its links resolved; any other path only as its base name.
+// and with its links resolved; any other path only as its base name; and
+// the name of the app key's rate-limit file whole.
 func TestMaskerPath(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -94,6 +95,24 @@ func TestMaskerPath(t *testing.T) {
 		{filepath.Join(dir, "elsewhere", "x29470135", "history.db"), "history.db"},
 		{filepath.Join(dir, "elsewhere", "store-87654321.db"), "store-...321.db"},
 		{filepath.Join(home+"x", "token.json"), "token.json"},
+	} {
+		if got := m.path(tc.in); string(got) != tc.want {
+			t.Errorf("path(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	// The rate-limit file that schwabtx setup names for an app key whose
+	// digest holds 8 decimal digits in a row is shown whole, in the home
+	// folder or not; a name of its shape that is not the key's digest is
+	// masked as any other.
+	const appKey = "appkey00025XXXXXXXXXXXXXXXXXXXXXXX"
+	if name := filepath.Base(schwab.DefaultRateFile(appKey, "")); name != "rate-8d2a81279577ea15" {
+		t.Fatalf("the app key's rate-limit file is %s", name)
+	}
+	m = newMasker(home, appKey, "")
+	for _, tc := range []struct{ in, want string }{
+		{filepath.Join(home, ".cache", "schwabtx", "rate-8d2a81279577ea15"), "~/.cache/schwabtx/rate-8d2a81279577ea15"},
+		{filepath.Join(dir, "elsewhere", "rate-8d2a81279577ea15"), "rate-8d2a81279577ea15"},
+		{filepath.Join(home, ".cache", "schwabtx", "rate-8d2a81279577ea16"), "~/.cache/schwabtx/rate-8d2a...577ea16"},
 	} {
 		if got := m.path(tc.in); string(got) != tc.want {
 			t.Errorf("path(%q) = %q, want %q", tc.in, got, tc.want)

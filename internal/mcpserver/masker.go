@@ -33,6 +33,11 @@ type masker struct {
 	// homes are the home directory as given, with links resolved, and on
 	// Windows in its short form, each cleaned, the longest first.
 	homes []string
+	// rateName is the name that schwab.DefaultRateFile gives the app key's
+	// rate-limit file, and schwabtx setup saves: rate- and 16 hex digits of
+	// the key's SHA-256, the server's own digest, which no account number
+	// can be; "" without a key.
+	rateName string
 	// off turns the backstop off, for a test.
 	off bool
 }
@@ -50,6 +55,9 @@ func newMasker(home, appKey, appSecret string) *masker {
 		}
 	}
 	slices.SortStableFunc(m.secrets, func(x, y [2]string) int { return len(y[0]) - len(x[0]) })
+	if appKey != "" {
+		m.rateName = filepath.Base(schwab.DefaultRateFile(appKey, ""))
+	}
 	if home != "" {
 		home = filepath.Clean(home)
 		forms := []string{home}
@@ -107,7 +115,10 @@ func (m *masker) masked(number string) MaskedNumber {
 // path returns p as a client may see it: ~/ and the rest under the home
 // directory, else only its base name, each component masked as
 // mask.FileName masks a name, with the known numbers and the secrets
-// replaced. Components are joined with "/" on every system.
+// replaced; but the name of the app key's rate-limit file is kept whole,
+// since mask.FileName would cut its digest where 8 of its hex digits in a
+// row are decimal ones, as in about 1 digest in 11. Components are joined
+// with "/" on every system.
 func (m *masker) path(p string) Path {
 	if p == "" {
 		return ""
@@ -132,6 +143,9 @@ func (m *masker) path(p string) Path {
 
 // component masks one component of a path.
 func (m *masker) component(c string) string {
+	if m.rateName != "" && c == m.rateName {
+		return m.known.Text(c)
+	}
 	return m.known.Text(mask.FileName(m.hide(c)))
 }
 

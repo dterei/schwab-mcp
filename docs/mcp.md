@@ -305,9 +305,11 @@ digits, Schwab's account hashes, your nicknames and the kinds you gave
 accounts, figures, symbols, Schwab's descriptions of transactions, dates,
 and paths, with your home folder written `~`, each run of 8 or more digits
 and each account number the server has seen in a path's names masked, and
-a path outside your home folder shown by its file name alone. Descriptions
-and nicknames are data, which the server's instructions tell the model not
-to take as instructions.
+a path outside your home folder shown by its file name alone; the name
+that `schwabtx setup` gives the rate-limit file, `rate-` and 16 hex digits
+of a hash of the app key, is shown whole. Descriptions and nicknames are
+data, which the server's instructions tell the model not to take as
+instructions.
 
 What never does: a full account number, the `user` details that Schwab's
 spec puts on a transaction (a person's name and login), a value of
