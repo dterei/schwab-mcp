@@ -155,19 +155,11 @@ and the types' names, whatever PP's language and locale.
    - PP marks a row "Transaction does already exist" when it holds one of the
      same type, day, amount, shares and security, and leaves it unticked.
      **Tick exactly the rows that stderr and the manifest's `tick` list for
-     that file**, and leave every other such row unticked: those are, in a
-     later export, rows that PP holds already under another ref, which
-     stderr counts and the manifest lists under `same_as` (a file row now
-     linked to its API row). A transfer between your accounts is one row,
-     of its paying account's file, from which PP books both legs. A row
-     listed is new although PP takes it for one it holds: a withdrawal of
-     the day and amount of a transfer's, or a trade equal to one that PP
-     holds. What you booked by hand counts too:
-     no list knows of it, so a row that a later export brings, equal to an
-     entry that you booked for it, would be marked and left out. Before
-     you import an export, delete what you booked for each difference that
-     it lists as gone, and make what you booked for each other equal to it
-     (step 4).
+     that file.** PP marks no other row of an export but one equal to an
+     entry that you booked by hand: tick it too, as it is new. What you
+     booked by hand is to equal the differences that the export lists
+     (step 4); dating such entries the day before the account's first row
+     in the store keeps them apart from the rows.
 4. **What the records lack.** The holdings check compares, for each
    account and security, the shares that Schwab's latest snapshot holds
    with those that the records leave; PP's cash check does the same for
@@ -226,8 +218,8 @@ and the types' names, whatever PP's language and locale.
    gone, then make what you added for each other equal to its value, less
    what the rows left out that you book by hand move. PP marks a new row
    equal to one that it holds as existing (step 3), so an entry left as it
-   was would keep out the rows it stood for. An account that one export
-   could not check, the next that checks it lists in full again: the
+   was would have PP mark the rows that it stood for. An account that one
+   export could not check, the next that checks it lists in full again: the
    export between carries its differences on, marked `carried`.
 5. **What the manifest asks of you**: the rows left out, each with its
    reason and what to do, and the rows written with a caveat
@@ -246,13 +238,11 @@ and the types' names, whatever PP's language and locale.
    transfer is one row of its paying account's file, its note naming its
    paying side and then its receiving side (`schwabtx A2 ...398
    T73600000101 to A1 ...135 T73600000102`): delete it once, by the note
-   quoted, and PP deletes both of its legs.
-   A row listed as changed in the same form is one that PP holds under the
-   note of a row that has come back since, such as a file row counted again
-   beside the API row that took its place: delete it, and the export writes
-   both, each under its own note. Then import in the order printed, and tick
-   exactly the rows it lists to tick. Say that you book the interest
-   adjustment of the walk-through as a fee:
+   quoted, and PP deletes both of its legs. When two equal records share
+   the note quoted, as after a row came back beside the one that took its
+   place, delete either: they are alike in all that PP keeps. Then import
+   in the order printed, and tick exactly the rows it lists to tick. Say
+   that you book the interest adjustment of the walk-through as a fee:
 
    ```
    $ schwabtx edit T73508261949 -category fee
@@ -277,16 +267,20 @@ and the types' names, whatever PP's language and locale.
    which holds the row as a Fees Refund, as PP books a fee that pays you.
    The export writes what changed whatever its day: a row that came late or
    that you decided since, a journal paired once its other side arrived, a
-   revision, a ref that changed. A row that you uncount after it was
-   exported comes back under gone, to delete, and so does one that the
-   store no longer holds or that a revision dates after `-to`, which an
-   export up to its new day writes again: both are "not in this export",
-   as the export reads no row after `-to` to tell them apart; a file row
-   that waits for you comes in a later export once you decide it; the
-   left-out rows that an earlier export listed are marked `before`, so
-   that you are not asked twice, and so are its differences from the
-   snapshots that stayed as they were, while those that changed are listed
-   with their value, and those that went as gone (step 4).
+   revision, a ref that changed; but a row under a new ref that is alike in
+   all that PP keeps to the one that it replaces, as a file row linked to
+   its API row, PP holds already, under the old ref's note: the export
+   gives it and lists it under `same_as`, with nothing to do. A row that
+   you uncount after it was exported comes back under gone, to delete, and
+   so does one that the store no longer holds or that a revision dates
+   after `-to`, which an export up to its new day writes again: both are
+   "not in this export", as the export reads no row after `-to` to tell
+   them apart; a file row that waits for you comes in a later export once
+   you decide it; the left-out rows that an earlier export listed are
+   marked `before`, so that you are not asked twice, and so are its
+   differences from the snapshots that stayed as they were, while those
+   that changed are listed with their value, and those that went as gone
+   (step 4).
    Never name an export that you have not imported: the next one would
    take for granted what it gave PP.
 

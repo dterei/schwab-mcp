@@ -1083,7 +1083,7 @@ in Portfolio Performance, make a USD deposit account and a securities account fo
   A1 ...135 (Individual): Schwab A1 ...135
   A2 ...398 (Options & Margin): Schwab A2 ...398
 import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv, account-transactions-A2-398.csv, portfolio-transactions-A2-398.csv
-tick these rows, which Portfolio Performance will show as existing although they are new; leave every other such row unticked:
+tick these rows, which Portfolio Performance will show as existing although they are new (it marks no other row of this export but one equal to an entry you booked by hand, which you tick too: what you booked is to equal the differences listed, docs/tools.md step 4):
   account-transactions-A2-398.csv: Schwab A2 ...398: 2026-03-02 Withdrawal 1000.00 (T73508261958)
 next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 `,
@@ -1113,7 +1113,7 @@ next time: schwabtx export -format pp -since pp-2026-11-14 -dir <a new folder>
 		{
 			name: "pp going on", dir: "pp-2026-12-01", since: "pp-2026-11-13",
 			e: history.ToolExport{
-				Tool: "pp", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 3, Late: 2, SameAs: 1, RedoAccount: "A1", SymbolsChanged: 1,
+				Tool: "pp", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 3, Late: 2, RedoAccount: "A1", SymbolsChanged: 1,
 				// Each kind of account not checked, two of each, and both whys
 				// of the cash check's.
 				CashNotChecked: []history.ToolCashUnchecked{{Account: "A1 ...135", Why: "no_cash"}, {Account: "A2 ...398", Why: "margin"}},
@@ -1137,10 +1137,13 @@ next time: schwabtx export -format pp -since pp-2026-11-14 -dir <a new folder>
 				},
 				Gone: []history.ToolChange{
 					{Ref: "T73508261944", Account: "A2 ...398", Was: "portfolio 2025-01-21 Buy 400.67", Why: "uncounted: user"},
-					{Ref: "T73508261948", Account: "A2 ...398", Was: "account 2025-02-03 Deposit 25.00", NoteRef: "Ca3b4c5d6.4", Why: "linked to T73508261949"},
+					// A row that took a new ref since PP got it, which PP
+					// holds under the old ref's Note, and a transfer, by its
+					// head: each line quotes the note.
+					{Ref: "T73508261948", Account: "A2 ...398", Was: "account 2025-02-03 Deposit 25.00", Note: "A2 ...398 Ca3b4c5d6.4", Why: "linked to T73508261949"},
 					{
 						Ref: "T73508261952", Account: "A2 ...398", Was: "account 2025-02-10 Transfer (Outbound) 500.00",
-						Transfer: "A2 ...398 T73508261952 to A1 ...135 T73508261953", Why: "uncounted: user",
+						Note: "A2 ...398 T73508261952 to A1 ...135 T73508261953", Why: "uncounted: user",
 					},
 					{Ref: "C9e8d7c6b.2", Account: "A3 ...777", Was: "portfolio 2025-03-04 Sell 10.00; account 2025-03-04 Fees 15.00", Why: "not in this export: no longer in the store, or dated after -to"},
 				},
@@ -1148,8 +1151,7 @@ next time: schwabtx export -format pp -since pp-2026-11-14 -dir <a new folder>
 			},
 			want: `wrote 3 rows for Portfolio Performance to pp-2026-12-01, since pp-2026-11-13, up to 2026-11-30: 1 account file, 1 portfolio file, 2 securities, 20 prices
   this assumes Portfolio Performance holds pp-2026-11-13 and every export before it, each imported once, with what it listed deleted and ticked
-  2 of them are dated on or before 2026-11-12, the end of pp-2026-11-13: they came late or were decided since
-  1 of them is a row that Portfolio Performance holds under another ref (pp-2026-12-01/manifest.json lists it under same_as): it shows it as existing; leave it unticked
+  2 of them are dated on or before 2026-11-12, the end of pp-2026-11-13: they came late, were decided or took a new ref since
 1 security has changed symbol or may no longer trade (pp-2026-12-01/manifest.json lists it under symbols_changed, with why): before you import, set it as docs/tools.md step 8 says if Portfolio Performance holds it; if it is new there, it asks nothing
 before importing, delete in Portfolio Performance what changed or went (pp-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 Dividend 3.86 (note schwabtx A1 ...135 T73508261950): changed; the new form is in this export
@@ -1166,7 +1168,7 @@ before importing, delete in Portfolio Performance what changed or went (pp-2026-
 2 accounts have rows and no snapshot to check against (pp-2026-12-01/manifest.json lists them under holdings.not_checked): A4 ...783 and A5 ...678: take one of each with schwabtx snapshot (an account that Schwab has closed has none); the next export that checks each lists its differences
 2 accounts have snapshots and nothing in Portfolio Performance (pp-2026-12-01/manifest.json lists them under holdings.not_checked): A6 ...246 and A7 ...579 have no row that this export or its chain writes or names; import their History files (docs/store.md) to have them there
 import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv
-tick these rows, which Portfolio Performance will show as existing although they are new; leave every other such row unticked:
+tick these rows, which Portfolio Performance will show as existing although they are new (it marks no other row of this export but one equal to an entry you booked by hand, which you tick too: what you booked is to equal the differences listed, docs/tools.md step 4):
   portfolio-transactions-A1-135.csv: Schwab A1 ...135: 2026-11-20 Buy 1001.25 (T73508261960)
 a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -format pp -account A1 -dir <a new folder>
 next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
@@ -1206,7 +1208,7 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 			},
 			want: `wrote 1 row for Portfolio Performance to pp-2026-12-15, since pp-2026-12-01, up to 2026-12-14: 1 portfolio file, 1 security, 1 price
   this assumes Portfolio Performance holds pp-2026-12-01 and every export before it, each imported once, with what it listed deleted and ticked
-  1 of them is dated on or before 2026-11-30, the end of pp-2026-12-01: it came late or was decided since
+  1 of them is dated on or before 2026-11-30, the end of pp-2026-12-01: it came late, was decided or took a new ref since
 left out 3 rows (pp-2026-12-15/manifest.json lists each, with what to do): split 1, no_quantity 2
 wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_not_written 1
 2 securities have changed symbol or may no longer trade (pp-2026-12-15/manifest.json lists each under symbols_changed, with why): before you import, set each that Portfolio Performance holds as docs/tools.md step 8 says; one that is new to it asks nothing
@@ -1231,20 +1233,19 @@ next time: schwabtx export -format pp -since pp-2026-12-15 -dir <a new folder>
 `,
 		},
 		{
-			// Rows under new refs, which PP marks as existing, and a row of the
-			// same form under its own Note in place of another's.
-			name: "pp going on, new refs", dir: "pp-2026-12-20", since: "pp-2026-12-15",
+			// A row given under a new ref (same_as), which changed since: its
+			// line quotes the Note that PP holds it under, its old ref's.
+			name: "pp going on, a row under a new ref changed", dir: "pp-2026-12-20", since: "pp-2026-12-15",
 			e: history.ToolExport{
-				Tool: "pp", To: "2026-12-19", Since: "2026-12-15T12:00:00Z", SinceTo: "2026-12-14", Written: 3, SameAs: 2,
-				Files:    []history.ToolFile{{Name: "securities.csv", Kind: "securities", Rows: 1}, {Name: "portfolio-transactions-A1-135.csv", Kind: "portfolio", Account: "A1 ...135", Rows: 3}},
+				Tool: "pp", To: "2026-12-19", Since: "2026-12-15T12:00:00Z", SinceTo: "2026-12-14", Written: 1, Given: 2,
+				Files:    []history.ToolFile{{Name: "securities.csv", Kind: "securities", Rows: 1}, {Name: "portfolio-transactions-A1-135.csv", Kind: "portfolio", Account: "A1 ...135", Rows: 1}},
 				Accounts: []history.ToolAccount{a1},
 				Changed: []history.ToolChange{
-					{Ref: "T73508261962", Account: "A1 ...135", Was: "portfolio 2026-01-07 Buy 60.00", NoteRef: "C9e8d7c6b.5", Now: "portfolio 2026-01-07 Buy 60.00"},
+					{Ref: "T73508261962", Account: "A1 ...135", Was: "portfolio 2026-01-07 Buy 60.00", Note: "A1 ...135 C9e8d7c6b.5", Now: "portfolio 2026-01-07 Buy 60.10"},
 				},
 			},
-			want: `wrote 3 rows for Portfolio Performance to pp-2026-12-20, since pp-2026-12-15, up to 2026-12-19: 1 portfolio file
+			want: `wrote 1 row for Portfolio Performance to pp-2026-12-20, since pp-2026-12-15, up to 2026-12-19: 1 portfolio file
   this assumes Portfolio Performance holds pp-2026-12-15 and every export before it, each imported once, with what it listed deleted and ticked
-  2 of them are rows that Portfolio Performance holds under another ref (pp-2026-12-20/manifest.json lists them under same_as): it shows them as existing; leave them unticked
 before importing, delete in Portfolio Performance what changed or went (pp-2026-12-20/manifest.json lists each):
   Schwab A1 ...135: 2026-01-07 Buy 60.00 (note schwabtx A1 ...135 C9e8d7c6b.5): changed; the new form is in this export
 import in this order: securities.csv, portfolio-transactions-A1-135.csv
@@ -1350,7 +1351,7 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-14 -dir <a new f
 			},
 			want: `wrote 1 activity for Ghostfolio to gf-2026-12-01, since gf-2026-11-13, up to 2026-11-30: 2 accounts with 22 balances, 1 manual asset, 1 symbol for Yahoo
   this assumes Ghostfolio holds gf-2026-11-13 and every export before it, each imported once, with what it listed deleted
-  1 of their rows is dated on or before 2026-11-12, the end of gf-2026-11-13: it came late or was decided since
+  1 of their rows is dated on or before 2026-11-12, the end of gf-2026-11-13: it came late, was decided or took a new ref since
 2 deposits, withdrawals and journals are not in the accounts' balances yet, posted after the latest snapshot was taken (A2 ...398: of 2026-11-28, taken 2026-11-28 18:05 in New York; A3 ...777: none), which a later one will carry
 left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_cash 2
 1 key of the store with no CUSIP had a ticker that other securities have had too (gf-2026-12-01/manifest.json lists it): the export cannot tell which it is; say which in the store (docs/tools.md):

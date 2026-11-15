@@ -48,7 +48,7 @@
   ],
   "units": {
     "dates": "New York calendar dates, YYYY-MM-DD",
-    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
     "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
     "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
     "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
@@ -66,29 +66,17 @@
       "Ce6f7a8b9.1": {
         "day": "2025-03-03",
         "as": "portfolio 2025-03-03 Buy 40.00",
-        "fp": "a47c07c01b97074d",
-        "keys": [
-          "0db2ed820ca1caa4",
-          "10075f3dcd603ad2"
-        ]
+        "fp": "a47c07c01b97074d"
       },
       "T61002601": {
         "day": "2025-02-03",
         "as": "portfolio 2025-02-03 Buy 50.00",
-        "fp": "f39c0ad9f9641e14",
-        "keys": [
-          "a5b38bccd8ad1cae",
-          "5c6e0bcae5163b2b"
-        ]
+        "fp": "f39c0ad9f9641e14"
       },
       "T61002602": {
         "day": "2025-02-04",
         "as": "portfolio 2025-02-04 Buy 300.00",
-        "fp": "2283deb8b89cfdf5",
-        "keys": [
-          "60301eb1e4015bc7",
-          "87b1a5cf594ec02c"
-        ]
+        "fp": "2283deb8b89cfdf5"
       }
     }
   },

@@ -73,7 +73,7 @@
   ],
   "units": {
     "dates": "New York calendar dates, YYYY-MM-DD",
-    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
     "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
     "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
     "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
@@ -95,109 +95,64 @@
       "Ca3b4c5d6.2": {
         "day": "2025-02-21",
         "as": "portfolio 2025-02-21 Delivery (Outbound) 0.00",
-        "fp": "98d1e1aee813702b",
-        "keys": [
-          "ba858a6bbc1de37c"
-        ]
+        "fp": "98d1e1aee813702b"
       },
       "Ca3b4c5d6.3": {
         "day": "2026-09-18",
         "as": "portfolio 2026-09-18 Delivery (Inbound) 0.00",
-        "fp": "85b9b12d0d1f2390",
-        "keys": [
-          "f2f015ad2753f505"
-        ]
+        "fp": "85b9b12d0d1f2390"
       },
       "T61002401": {
         "day": "2026-02-02",
         "as": "portfolio 2026-02-02 Sell 500.00",
-        "fp": "7dbe5fb3a75c2aa1",
-        "keys": [
-          "f528bbb5873365a5",
-          "524137e11560107f"
-        ]
+        "fp": "7dbe5fb3a75c2aa1"
       },
       "T61002402": {
         "day": "2026-03-02",
         "as": "portfolio 2026-03-02 Buy 300.00",
-        "fp": "086c24432276378f",
-        "keys": [
-          "99eb9f7473f9cfc0",
-          "5bb602522fff59ac"
-        ]
+        "fp": "086c24432276378f"
       },
       "T61002403": {
         "day": "2026-07-01",
         "as": "portfolio 2026-07-01 Sell 320.00",
-        "fp": "20bf1004a4ccb55b",
-        "keys": [
-          "77c59dc58deee9c8",
-          "e81daca4c4ceddf7"
-        ]
+        "fp": "20bf1004a4ccb55b"
       },
       "T61002404": {
         "day": "2026-08-03",
         "as": "portfolio 2026-08-03 Buy 120.00",
-        "fp": "2106167e53ced19a",
-        "keys": [
-          "9396b77e4394ba5c",
-          "e4a6c1fbbdd647f3"
-        ]
+        "fp": "2106167e53ced19a"
       },
       "T61002405": {
         "day": "2026-11-11",
         "as": "portfolio 2026-11-11 Buy 41.00",
-        "fp": "5d59537cc4284f09",
-        "keys": [
-          "5cd96b318118ee78",
-          "eb9c0d0ce6ada0ff"
-        ]
+        "fp": "5d59537cc4284f09"
       },
       "T61002407": {
         "day": "2025-01-06",
         "as": "portfolio 2025-01-06 Buy 200.00",
-        "fp": "ed47eb0fe4c6df90",
-        "keys": [
-          "0ad00d53f76212c6",
-          "9b358c10d8d6c746"
-        ]
+        "fp": "ed47eb0fe4c6df90"
       },
       "T61002408": {
         "day": "2026-04-01",
         "as": "portfolio 2026-04-01 Sell 300.00",
-        "fp": "6af520cf73ea77a4",
-        "keys": [
-          "40497044aa6a1e91",
-          "1e2fb055c28a72e1"
-        ]
+        "fp": "6af520cf73ea77a4"
       },
       "T61002409": {
         "day": "2026-11-10",
         "as": "portfolio 2026-11-10 Buy 40.00",
-        "fp": "48d6437ad0ab134c",
-        "keys": [
-          "9896bf9987c8a5e4",
-          "45dabeab9890136c"
-        ]
+        "fp": "48d6437ad0ab134c"
       }
     },
     "A3 ...783": {
       "T61002406": {
         "day": "2026-05-05",
         "as": "account 2026-05-05 Deposit 10.00",
-        "fp": "ae523408bd9ba072",
-        "keys": [
-          "2b52ee077e0ced49"
-        ]
+        "fp": "ae523408bd9ba072"
       },
       "T61002410": {
         "day": "2026-05-06",
         "as": "portfolio 2026-05-06 Buy 30.00",
-        "fp": "3fc393c48bdf5c58",
-        "keys": [
-          "7bb63b84d9319413",
-          "08251f3d407e391f"
-        ]
+        "fp": "3fc393c48bdf5c58"
       }
     }
   },

@@ -56,7 +56,7 @@
   ],
   "units": {
     "dates": "New York calendar dates, YYYY-MM-DD",
-    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
     "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
     "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
     "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
@@ -77,55 +77,33 @@
       "Cb1c2d3e4.1": {
         "day": "2025-07-01",
         "as": "account 2025-07-01 Dividend 25.00",
-        "fp": "cf75888ccdf82cc2",
-        "keys": [
-          "ad4f5eff706cfe8b"
-        ]
+        "fp": "cf75888ccdf82cc2"
       },
       "Cb1c2d3e4.2": {
         "day": "2025-07-02",
         "as": "portfolio 2025-07-02 Buy 50.00",
-        "fp": "6f6e3e058e58a0eb",
-        "keys": [
-          "136d9e77214b2fa9",
-          "6abde56f41599e51"
-        ]
+        "fp": "6f6e3e058e58a0eb"
       },
       "Cb1c2d3e4.4": {
         "day": "2025-07-07",
         "as": "portfolio 2025-07-07 Sell 53.00",
         "fp": "6e044419d1dba0d1",
-        "with": "Cb1c2d3e4.3",
-        "keys": [
-          "56ec65ac7288ff25",
-          "a132e7313eb5d335"
-        ]
+        "with": "Cb1c2d3e4.3"
       },
       "T61002201": {
         "day": "2025-06-02",
         "as": "portfolio 2025-06-02 Buy 50.00",
-        "fp": "d9a7cf1455d42fda",
-        "keys": [
-          "e45ad1c2c431c442",
-          "c78e014008155d57"
-        ]
+        "fp": "d9a7cf1455d42fda"
       },
       "T61002202": {
         "day": "2025-07-03",
         "as": "portfolio 2025-07-03 Buy 51.00",
-        "fp": "258b2c873d2a5724",
-        "keys": [
-          "b07ab334fc867d08",
-          "2c6fd755e198e3f2"
-        ]
+        "fp": "258b2c873d2a5724"
       },
       "T61002203": {
         "day": "2025-07-04",
         "as": "account 2025-07-04 Withdrawal 10.00",
-        "fp": "69ba912845422c1d",
-        "keys": [
-          "7161f757303c0062"
-        ]
+        "fp": "69ba912845422c1d"
       }
     }
   },

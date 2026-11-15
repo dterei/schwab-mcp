@@ -48,7 +48,7 @@
   ],
   "units": {
     "dates": "New York calendar dates, YYYY-MM-DD",
-    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
     "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
     "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
     "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
@@ -69,77 +69,47 @@
       "Cd0e1f2a3.1": {
         "day": "2025-02-03",
         "as": "portfolio 2025-02-03 Buy 210.65",
-        "fp": "44adfa44affb9ac0",
-        "keys": [
-          "8b2faaad1d066927",
-          "a09d938c942247cb"
-        ]
+        "fp": "44adfa44affb9ac0"
       },
       "Cd0e1f2a3.2": {
         "day": "2025-02-21",
         "as": "portfolio 2025-02-21 Delivery (Inbound) 0.00",
-        "fp": "e756bf6f4239866f",
-        "keys": [
-          "569f3bcfe005b185"
-        ]
+        "fp": "e756bf6f4239866f"
       },
       "Cd0e1f2a3.3": {
         "day": "2025-03-21",
         "as": "portfolio 2025-03-21 Delivery (Outbound) 0.00",
-        "fp": "7d9b669e8e1dacc9",
-        "keys": [
-          "78e803a5e9769f88"
-        ]
+        "fp": "7d9b669e8e1dacc9"
       },
       "Cd0e1f2a3.4": {
         "day": "2025-04-17",
         "as": "portfolio 2025-04-17 Delivery (Inbound) 0.00",
-        "fp": "14086398efbc03a6",
-        "keys": [
-          "4e939f870eb0ce81"
-        ]
+        "fp": "14086398efbc03a6"
       },
       "Cd0e1f2a3.5": {
         "day": "2025-04-18",
         "as": "portfolio 2025-04-18 Delivery (Outbound) 0.00",
-        "fp": "3e352668c88ef7c7",
-        "keys": [
-          "680cbb611f4bf24d"
-        ]
+        "fp": "3e352668c88ef7c7"
       },
       "Cd0e1f2a3.6": {
         "day": "2025-04-19",
         "as": "portfolio 2025-04-19 Delivery (Outbound) 0.00",
-        "fp": "f3f8c0f1cba34bb8",
-        "keys": [
-          "012f0530072d36e4"
-        ]
+        "fp": "f3f8c0f1cba34bb8"
       },
       "T61001701": {
         "day": "2025-02-04",
         "as": "portfolio 2025-02-04 Sell 318.70",
-        "fp": "22a7bfc631827522",
-        "keys": [
-          "6a1133b4f0f3dc84",
-          "a57342508fa24dc3"
-        ]
+        "fp": "22a7bfc631827522"
       },
       "T61001702": {
         "day": "2025-05-16",
         "as": "portfolio 2025-05-16 Delivery (Outbound) 0.00",
-        "fp": "8d0c55c14eac146a",
-        "keys": [
-          "93ae52b22088cd7b"
-        ]
+        "fp": "8d0c55c14eac146a"
       },
       "T61001705": {
         "day": "2025-01-14",
         "as": "portfolio 2025-01-14 Buy 1052.82",
-        "fp": "2657d7c404939f65",
-        "keys": [
-          "192ea17fcd75d27f",
-          "ad6049cc4a3e0329"
-        ]
+        "fp": "2657d7c404939f65"
       }
     }
   },

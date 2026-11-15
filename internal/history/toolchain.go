@@ -121,23 +121,23 @@ type chainCash struct {
 	Date  nytime.Date `json:"date"`
 }
 
-// A chainGiven is what the tool holds of a row (3.8 of the design): its day;
-// what the tool shows of its records (chainAs); fp, the hash of the fields
-// that the tool keeps of them (fingerprint); the shares row of a two-row cash
-// event that its sale carries; and for PP, the keys of the records' sides
-// that PP's duplicate rule compares (ppKeys), the ref that the Note PP holds
-// names when it is not the row's own, and for a transfer, whose one entry is
-// its paying side's, the PP transaction that it is of: the head of the Note
-// that PP holds of it, its paying side's label and ref, "to", and its
-// receiving side's, as "A2 ...398 T61001201 to A1 ...135 T61001202".
+// A chainGiven is what the tool holds of a row (3.8 of the design, R-7 of
+// the consolidation): its day; what the tool shows of its records (chainAs);
+// fp, the hash of the fields that the tool keeps of them (fingerprint); the
+// shares row of a two-row cash event that its sale carries; and for PP,
+// Note, how the Note that PP holds of it begins when that is not its own
+// label and ref: of a row that took a new ref since PP got it (same_as), the
+// old one's, as "A1 ...135 C7a0b1c2d.1"; of a transfer, whose one entry is
+// its paying side's, the head that it was written with, its paying side's
+// label and ref, "to", and its receiving side's, as "A2 ...398 T61001201 to
+// A1 ...135 T61001202". Note is set when the row is written, and copied as
+// it was while the row is given.
 type chainGiven struct {
-	Day      nytime.Date `json:"day"`
-	As       string      `json:"as"`
-	FP       string      `json:"fp"`
-	With     string      `json:"with,omitempty"`
-	Keys     []string    `json:"keys,omitempty"`
-	NoteRef  string      `json:"note_ref,omitempty"`
-	Transfer string      `json:"transfer,omitempty"`
+	Day  nytime.Date `json:"day"`
+	As   string      `json:"as"`
+	FP   string      `json:"fp"`
+	With string      `json:"with,omitempty"`
+	Note string      `json:"note,omitempty"`
 }
 
 // A chainSecurity is a security that the chain wrote, with the identifiers
@@ -398,46 +398,41 @@ type chainCashGone struct {
 
 // A chainChanged is a row that the tool holds in another form than this
 // export writes it (3.8 of the design): delete what it was in the tool
-// before importing. Was is what the tool shows of it (chainAs), NoteRef the
-// ref that its PP Note names, when it is not the row's own, and Transfer,
-// for a PP transfer's paying side, the head of the Note that PP holds of the
-// transfer (chainGiven.Transfer), which names its paying side first. A row
-// that the tool holds under the Note of another row, which this export
-// writes, is changed too, its form alike: the tool then holds each row under
-// its own Note.
+// before importing. Was is what the tool shows of it (chainAs), and Note,
+// for PP, how the Note that PP holds of it begins, when that is not its own
+// label and ref (chainGiven.Note).
 type chainChanged struct {
-	Ref      string `json:"ref"`
-	Account  string `json:"account"`
-	Was      string `json:"was"`
-	NoteRef  string `json:"note_ref,omitempty"`
-	Transfer string `json:"transfer,omitempty"`
-	Now      string `json:"now"`
+	Ref     string `json:"ref"`
+	Account string `json:"account"`
+	Was     string `json:"was"`
+	Note    string `json:"note,omitempty"`
+	Now     string `json:"now"`
 	// day is the row's day as the earlier export gave it, by which the list
 	// is in order.
 	day nytime.Date
 }
 
 // A chainGone is a row that the tool holds and that this export neither
-// writes nor gives (3.8 of the design): delete it in the tool. NoteRef and
-// Transfer are as a chainChanged's. Why says what became of it: uncounted
-// with the store's counted_why, linked to the row that the store counts in
-// its place, left out with its reason, combined with another row (its label
-// and ref: a sale under its cash row's, or for PP the transfer that a paying
-// side writes), or, for Ghostfolio, now cash, which its balances carry; else
-// not in this export (notInExport).
+// writes nor gives (3.8 of the design): delete it in the tool. Note is as a
+// chainChanged's. Why says what became of it: uncounted with the store's
+// counted_why, linked to the row that the store counts in its place, left
+// out with its reason, combined with another row (its label and ref: a sale
+// under its cash row's, or for PP the transfer that a paying side writes),
+// or, for Ghostfolio, now cash, which its balances carry; else not in this
+// export (notInExport).
 type chainGone struct {
-	Ref      string `json:"ref"`
-	Account  string `json:"account"`
-	Was      string `json:"was"`
-	NoteRef  string `json:"note_ref,omitempty"`
-	Transfer string `json:"transfer,omitempty"`
-	Why      string `json:"why"`
+	Ref     string `json:"ref"`
+	Account string `json:"account"`
+	Was     string `json:"was"`
+	Note    string `json:"note,omitempty"`
+	Why     string `json:"why"`
 }
 
-// A chainSameAs is, for PP, a row gone under its ref that this export writes
-// under another, alike in everything PP keeps (a file row now linked to its
-// API row): PP marks the new record as existing and keeps the old one, so
-// neither is to delete or to tick.
+// A chainSameAs is, for PP, a row gone under its ref and a row of its
+// account under another, alike in everything PP keeps (a file row now
+// linked to its API row), which this export gives (R-2 of the
+// consolidation): PP holds the gone row's records for the new one, so
+// nothing of the two is to delete, import or tick.
 type chainSameAs struct {
 	Account string `json:"account"`
 	Gone    string `json:"gone"`
@@ -456,7 +451,7 @@ type toolChain struct {
 	chainManifest
 }
 
-// chainHex is an fp or a key: 16 lower-case hex digits.
+// chainHex is an fp: 16 lower-case hex digits.
 var chainHex = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
 // parseChain reads manifest, the manifest.json of a tool export, for a -since
@@ -479,12 +474,7 @@ func parseChain(manifest []byte) (*toolChain, error) {
 	}
 	for _, label := range slices.Sorted(maps.Keys(c.Given)) {
 		for _, ref := range slices.Sorted(maps.Keys(c.Given[label])) {
-			g := c.Given[label][ref]
-			bad := !isDate(g.Day) || !chainHex.MatchString(g.FP) || c.Format == toolPP && len(g.Keys) == 0
-			for _, k := range g.Keys {
-				bad = bad || !chainHex.MatchString(k)
-			}
-			if bad {
+			if g := c.Given[label][ref]; !isDate(g.Day) || !chainHex.MatchString(g.FP) {
 				return nil, fmt.Errorf("the manifest's entry of %s %s is not one that an export writes", label, ref)
 			}
 		}
@@ -713,13 +703,14 @@ type chainResult struct {
 	// mapping's order.
 	written []toolEvent
 	// changed, gone and sameAs are the rows that changed or went, and for PP
-	// those under a new ref, in the order of their accounts, days and refs.
+	// the rows gone that a row given under a new ref is the same as, in the
+	// order of their accounts, days and refs.
 	changed []chainChanged
 	gone    []chainGone
 	sameAs  []chainSameAs
 	// late counts the rows written that the earlier export did not give and
-	// that are dated on or before its last day, but those the same as a row
-	// gone: they came late, were decided or paired since.
+	// that are dated on or before its last day (R-4 of the consolidation):
+	// they came late, were decided, paired or took a new ref since.
 	late int
 	// given is the next given: what the tool holds once this export is
 	// imported.
@@ -749,16 +740,13 @@ type chainResult struct {
 	// trade (symbols_changed), one for each of PP's securities.
 	securities     []chainSecurity
 	symbolsChanged []symbolsChange
-	// kept holds the earlier export's entries of the rows given, and oldOf,
-	// for PP, the row that each row written under a new ref is the same as.
-	kept  map[rowKey]chainGiven
-	oldOf map[rowKey]chainOld
-	// deleted are, for PP, the names of the transactions that you delete
-	// before importing (chainOld.tx): those of the rows changed or gone.
-	deleted map[string]bool
-	// start is, for PP, what PP holds before this export's files: the keys
-	// of each transaction, by its name.
-	start map[string][]string
+	// kept holds the entries of the rows given: the earlier export's, or for
+	// a row the same as a gone one, the gone one's.
+	kept map[rowKey]chainGiven
+	// start is, for PP, what PP holds before this export's files (R-6 of the
+	// consolidation): the keys (ppKeys) of each record of the rows given,
+	// each once for each record.
+	start []string
 }
 
 // A chainOld is an entry of the earlier export's given: the row it is of,
@@ -768,37 +756,23 @@ type chainOld struct {
 	given      chainGiven
 }
 
-// tx returns the name of the PP transaction that the entry is of, in the
-// replay of PP's duplicate rule, which is the head of the Note that PP holds
-// of it, so that no two transactions that PP holds share one: a transfer's,
-// "<paying side> to <receiving side>"; else the row's, its label and the ref
-// that the Note names, which no other row of the account has (compareChain
-// lists an entry whose Note names a row that this export writes as
-// changed). The records of one row, legs or a sale with its Fees row, share
-// the row's name: they are deleted together.
-func (o chainOld) tx() string {
-	return cmp.Or(o.given.Transfer, o.label+" "+cmp.Or(o.given.NoteRef, o.ref))
-}
-
 // compareChain compares the export of in, whose mapping gave events and
 // outcomes (toolEvents), with the export since, whose manifest it goes on
-// from, nil for a full export (3.8 of the design). A row that since gave
-// with the fp it has now is given, not written; one it gave with another is
-// written and changed; one it gave that this export neither writes nor
-// gives is gone, with why; a row that it did not give is written, whatever
-// its day. For PP a gone row whose fp equals that of a row written now in its
-// account under another ref is the same as it, and neither is to delete or to
-// tick, unless PP will not hold the gone row's transaction: you delete it
-// with another row's, or its Note names a row that PP will hold under its
-// own. A row given whose Note names such a row is changed, so that each
-// transaction that PP holds has a Note of its own row. The rows left out and
-// the differences from the snapshots are marked before when since listed
-// them alike, and since's differences of an account that this export cannot
-// check are carried on.
+// from, nil for a full export (3.8 of the design, R-1 to R-4 of the
+// consolidation). A row that since gave with the fp it has now is given, not
+// written; one it gave with another is written and changed; one it gave that
+// this export neither writes nor gives is gone, with why; a row that it did
+// not give is written, whatever its day. For PP a gone row whose fp equals
+// that of a row written now in its account under another ref is the same as
+// it: PP holds the gone row's records for the new one, which is given, so
+// that nothing of the two is to delete, import or tick. The rows left out
+// and the differences from the snapshots are marked before when since
+// listed them alike, and since's differences of an account that this export
+// cannot check are carried on.
 func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, since *toolChain) *chainResult {
 	c := &chainResult{
 		in: in, ix: newToolIndex(in), since: since, outcomes: slices.Clone(outcomes),
-		given: map[string]map[string]chainGiven{}, kept: map[rowKey]chainGiven{}, oldOf: map[rowKey]chainOld{}, start: map[string][]string{},
+		given: map[string]map[string]chainGiven{}, kept: map[rowKey]chainGiven{},
 	}
 	records := map[int][]*toolEvent{}
 	for i := range events {
@@ -849,8 +823,7 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 				c.kept[k] = prev.given
 			default:
 				c.changed = append(c.changed, chainChanged{
-					Ref: r.ref, Account: prev.label, Was: prev.given.As, NoteRef: prev.given.NoteRef, Transfer: prev.given.Transfer,
-					Now: chainAs(in.tool, records[i]), day: prev.given.Day,
+					Ref: r.ref, Account: prev.label, Was: prev.given.As, Note: prev.given.Note, Now: chainAs(in.tool, records[i]), day: prev.given.Day,
 				})
 			}
 		case had:
@@ -879,120 +852,33 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 		return cmp.Or(cmp.Compare(c.labelOrder(a.label), c.labelOrder(b.label)), cmp.Compare(a.given.Day, b.given.Day), cmp.Compare(a.ref, b.ref))
 	})
 
-	// For PP, a gone row is the same as a row written under a new ref when
-	// both are of one account and PP keeps them alike: each pair once, in
-	// order. PP then holds the gone row's transaction for the new row, unless
-	// you delete it with another row's.
-	pairs := map[int]int{} // a gone row's index in gone to its new row's in news
-	if in.tool == toolPP {
-		matched := map[int]bool{}
-		for g, o := range gone {
-			a, ok := labels[o.label]
-			j := slices.IndexFunc(news, func(f fresh) bool {
-				return ok && !matched[f.i] && in.rows[f.i].account == a.id && f.fp == o.given.FP
-			})
-			if j >= 0 {
-				pairs[g] = j
-				matched[news[j].i] = true
-			}
-		}
-	}
-	rows := map[rowKey]int{}
-	for i := range in.rows {
-		rows[rowKey{in.rows[i].account, in.rows[i].ref}] = i
-	}
-	noted := map[rowKey]rowKey{} // the ref that an entry's Note names, of its account, to the entry
-	for k, o := range old {
-		if o.given.NoteRef != "" {
-			noted[rowKey{k.account, o.given.NoteRef}] = k
-		}
-	}
-	for {
-		// The rows that PP will hold under their own Note: those written now
-		// that no gone row is the same as, and those changed.
-		paired := map[int]bool{}
-		for _, j := range pairs {
-			paired[j] = true
-		}
-		own := map[rowKey]bool{}
-		for j, f := range news {
-			if !paired[j] {
-				own[rowKey{in.rows[f.i].account, in.rows[f.i].ref}] = true
-			}
-		}
-		for _, ch := range c.changed {
-			if a, ok := labels[ch.Account]; ok {
-				own[rowKey{a.id, ch.Ref}] = true
-			}
-		}
-		// An entry whose Note names such a row, which PP would hold besides
-		// the row's own: given, it is changed, so that you delete the one
-		// that PP holds and this export writes its row again under its own
-		// Note; gone, it is not the same as a row written now, and you delete
-		// it. No two transactions that PP holds then have Notes of one row.
-		again := false
-		for _, k := range noted {
-			prev := old[k]
-			i, ok := rows[k]
-			if !ok || c.outcomes[i].outcome != outcomeGiven || !own[rowKey{k.account, prev.given.NoteRef}] {
-				continue
-			}
-			c.outcomes[i].outcome = outcomeWritten
-			delete(c.kept, k)
-			c.changed = append(c.changed, chainChanged{
-				Ref: prev.ref, Account: prev.label, Was: prev.given.As, NoteRef: prev.given.NoteRef, Transfer: prev.given.Transfer,
-				Now: chainAs(in.tool, records[i]), day: prev.given.Day,
-			})
-			again = true
-		}
-		for g := range pairs {
-			if a, ok := labels[gone[g].label]; ok && own[rowKey{a.id, gone[g].given.NoteRef}] {
-				delete(pairs, g)
-				again = true
-			}
-		}
-		// What you delete: the transactions of the rows changed, and of the
-		// rows gone that no row is the same as.
-		c.deleted = map[string]bool{}
-		for _, ch := range c.changed {
-			if a, ok := labels[ch.Account]; ok {
-				c.deleted[old[rowKey{a.id, ch.Ref}].tx()] = true
-			}
-		}
-		for g, o := range gone {
-			if _, ok := pairs[g]; !ok {
-				c.deleted[o.tx()] = true
-			}
-		}
-		// A gone row whose transaction you delete with another row's is not
-		// the same as the new row: PP will not hold it.
-		for g := range pairs {
-			if c.deleted[gone[g].tx()] {
-				delete(pairs, g)
-				again = true
-			}
-		}
-		if !again {
-			break
-		}
-	}
-	paired := map[int]bool{}
-	for g, o := range gone {
-		j, ok := pairs[g]
-		if !ok {
-			c.gone = append(c.gone, chainGone{
-				Ref: o.ref, Account: o.label, Was: o.given.As, NoteRef: o.given.NoteRef, Transfer: o.given.Transfer,
-				Why: why[[2]string{o.label, o.ref}],
-			})
+	// A gone row is the same as a row written under a new ref when the two
+	// have one fp, each pair once, in order (R-2 of the consolidation): for
+	// PP they are then of one account, whose names the fp holds, and alike in
+	// all that PP keeps, so PP holds the gone row's records for the new row,
+	// which is given. Its entry is the gone row's, whose note says how the
+	// Note that PP holds of it begins: the gone row's own label and ref, or
+	// what that row's entry had in their place. A Ghostfolio fp holds the
+	// row's ref, in the comment, so no row there is the same as another.
+	for _, o := range gone {
+		j := slices.IndexFunc(news, func(f fresh) bool { return f.fp == o.given.FP && c.outcomes[f.i].outcome == outcomeWritten })
+		if j < 0 {
+			c.gone = append(c.gone, chainGone{Ref: o.ref, Account: o.label, Was: o.given.As, Note: o.given.Note, Why: why[[2]string{o.label, o.ref}]})
 			continue
 		}
 		r := &in.rows[news[j].i]
-		paired[j] = true
-		c.oldOf[rowKey{r.account, r.ref}] = o
+		c.outcomes[news[j].i].outcome = outcomeGiven
+		g := o.given
+		if g.Note = cmp.Or(g.Note, o.label+" "+o.ref); g.Note == o.label+" "+r.ref {
+			// PP holds the records under the new row's own Note, as when a
+			// row comes back in place of the one that took its place.
+			g.Note = ""
+		}
+		c.kept[rowKey{r.account, r.ref}] = g
 		c.sameAs = append(c.sameAs, chainSameAs{Account: o.label, Gone: o.ref, New: r.ref})
 	}
-	for j, f := range news {
-		if since != nil && !paired[j] && in.rows[f.i].day <= since.Chain.To {
+	for _, f := range news {
+		if since != nil && c.outcomes[f.i].outcome == outcomeWritten && in.rows[f.i].day <= since.Chain.To {
 			c.late++
 		}
 	}
@@ -1001,11 +887,16 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 	})
 
 	for i := range events {
-		if c.outcomes[events[i].row].outcome == outcomeWritten {
+		switch c.outcomes[events[i].row].outcome {
+		case outcomeWritten:
 			c.written = append(c.written, events[i])
+		case outcomeGiven:
+			if in.tool == toolPP {
+				keys, _ := ppKeys(&events[i])
+				c.start = append(c.start, keys...)
+			}
 		}
 	}
-	c.replayStart(old, unknown)
 	c.nextGiven(records)
 	c.compareLeftOut()
 	shares, cash := c.leftOutMoves()
@@ -1051,34 +942,24 @@ func (c *chainResult) whyGone(k rowKey) string {
 	return notInExport
 }
 
-// nextGiven makes the next given: the earlier export's entry of each row
-// given, as it was, and a new entry of each row written, which for PP keeps,
-// of a row the same as a gone one, the ref that the Note PP holds names, and
-// of a transfer, the head of the Note that PP holds of it (txOf). A
-// transfer has one entry, under its paying side, whatever receiving side it
-// pairs with now: its fp holds no receiving side's ref.
+// nextGiven makes the next given (R-7 of the consolidation): the entry of
+// each row given as it was kept (kept), and a new entry of each row written,
+// whose note is, for a PP transfer, the head of the Note that it is written
+// with (ppTransferHead). A transfer has one entry, under its paying side,
+// whatever receiving side it pairs with since: its fp holds no receiving
+// side's ref.
 func (c *chainResult) nextGiven(records map[int][]*toolEvent) {
 	for i, o := range c.outcomes {
 		r := &c.in.rows[i]
-		k := rowKey{r.account, r.ref}
 		label := c.ix.account(r.account).label()
 		var g chainGiven
 		switch o.outcome {
 		case outcomeGiven:
-			g = c.kept[k]
+			g = c.kept[rowKey{r.account, r.ref}]
 		case outcomeWritten:
 			g = chainGiven{Day: r.day, As: chainAs(c.in.tool, records[i]), FP: fingerprint(c.in.tool, records[i]), With: o.with}
-			if c.in.tool == toolPP {
-				for _, e := range records[i] {
-					keys, _ := ppKeys(e)
-					g.Keys = append(g.Keys, keys...)
-				}
-				if prev, ok := c.oldOf[k]; ok && cmp.Or(prev.given.NoteRef, prev.ref) != r.ref {
-					g.NoteRef = cmp.Or(prev.given.NoteRef, prev.ref)
-				}
-				if e := records[i][0]; e.kind == evTransferOut {
-					g.Transfer = c.txOf(e)
-				}
+			if c.in.tool == toolPP && records[i][0].kind == evTransferOut {
+				g.Note = ppTransferHead(records[i][0])
 			}
 		default:
 			continue
@@ -1088,46 +969,6 @@ func (c *chainResult) nextGiven(records map[int][]*toolEvent) {
 		}
 		c.given[label][r.ref] = g
 	}
-}
-
-// replayStart sets, for PP, what PP holds before this export's files: every
-// transaction that the earlier export's given holds, each once, less those
-// that you delete before importing (deleted), which are each row's changed or
-// gone (3.8 of the design). A row gone that a row written now is the same as
-// stays: PP keeps it.
-func (c *chainResult) replayStart(old map[rowKey]chainOld, unknown []chainOld) {
-	if c.in.tool != toolPP {
-		return
-	}
-	all := slices.Concat(slices.Collect(maps.Values(old)), unknown)
-	slices.SortFunc(all, func(a, b chainOld) int { return cmp.Or(cmp.Compare(a.label, b.label), cmp.Compare(a.ref, b.ref)) })
-	for _, o := range all {
-		if tx := o.tx(); !c.deleted[tx] && c.start[tx] == nil {
-			c.start[tx] = o.given.Keys
-		}
-	}
-}
-
-// txOf returns, for PP, the name of the transaction that record e, of a row
-// written now or given, makes or is of (chainOld.tx): its row's. A row that
-// the earlier export gave keeps the name it gave it, and a row the same as a
-// gone one takes the gone one's, since PP holds that transaction; but a
-// transaction that you delete is made again, by the record of this export
-// that PP imports, and named by that record's Note: a transfer's by its
-// head.
-func (c *chainResult) txOf(e *toolEvent) string {
-	k := rowKey{e.account.id, e.ref}
-	if g, ok := c.kept[k]; ok {
-		if tx := (chainOld{c.ix.account(k.account).label(), k.ref, g}).tx(); !c.deleted[tx] {
-			return tx
-		}
-	} else if o, ok := c.oldOf[k]; ok {
-		return o.tx()
-	}
-	if e.kind == evTransferOut {
-		return ppTransferHead(e)
-	}
-	return c.ix.account(k.account).label() + " " + k.ref
 }
 
 // compareLeftOut lists the rows left out, each marked before when the
@@ -1526,13 +1367,12 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 
 // A ppMark is a record of a PP export that PP's review page marks as
 // existing (ppTicks), which PP imports only when you tick it: the file and
-// its row (from 1, below the header), the record, and whether to tick it,
-// since the record is new to PP all the same.
+// its row (from 1, below the header), and the record. Each is to tick, as
+// the record is new to PP all the same.
 type ppMark struct {
 	file   string
 	line   int
 	record *toolEvent
-	tick   bool
 }
 
 // A chainTick is a record of the manifest's tick (8.1 of the design): a row
@@ -1544,59 +1384,46 @@ type chainTick struct {
 	As      string `json:"as"`
 }
 
-// ppTickList returns the marks to tick, as the manifest's tick lists them.
+// ppTickList returns the marks, each to tick, as the manifest's tick lists
+// them.
 func ppTickList(marks []ppMark) []chainTick {
 	out := []chainTick{}
 	for _, m := range marks {
-		if m.tick {
-			out = append(out, chainTick{File: m.file, Ref: m.record.ref, Account: m.record.account.label(), As: chainAs(toolPP, []*toolEvent{m.record})})
-		}
+		out = append(out, chainTick{File: m.file, Ref: m.record.ref, Account: m.record.account.label(), As: chainAs(toolPP, []*toolEvent{m.record})})
 	}
 	return out
 }
 
 // ppTicks replays PP's duplicate rule over the records of files, a PP
 // export's files in the order to import them (ppFiles), from what PP holds
-// before them (3.8 and 5.9 of the design), and returns each record that PP's
-// review page will mark as existing. PP checks a file's records against what
-// its accounts hold before the file, never against each other, by the keys
-// that it checks a new record by (ppKeys), and then imports each that it does
-// not mark and each that is ticked, every side of it. A record that a
-// transaction marks is to tick, unless the transaction is its own: the
-// record that PP holds of a row the same as it.
+// before them (3.8 and 5.9 of the design, R-6 of the consolidation): the
+// records of the rows that the export gives (start), whose keys are those
+// of the records that the chain wrote of them, since a given row's fp is
+// the one written and holds every field that the keys hash. PP checks a
+// file's records against what its accounts hold before the file, never
+// against each other, by the keys that it checks a new record by (ppKeys),
+// and then imports each that it does not mark and each that is ticked,
+// every side of it. It returns each record that PP's review page will mark
+// as existing, each to tick: no record of the export is one that PP holds,
+// as the export gives, not writes, a row that PP holds under another ref
+// (same_as), and writes a transfer once.
 func ppTicks(files []ppFile, c *chainResult) []ppMark {
-	held := map[string][]string{}
-	for _, tx := range slices.Sorted(maps.Keys(c.start)) {
-		for _, k := range c.start[tx] {
-			held[k] = append(held[k], tx)
-		}
+	held := map[string]bool{}
+	for _, k := range c.start {
+		held[k] = true
 	}
 	var marks []ppMark
 	for _, f := range files {
-		type added struct {
-			tx   string
-			keys []string
-		}
-		var adds []added
+		var adds []string
 		for j, e := range f.records {
 			keys, checked := ppKeys(e)
-			tx := c.txOf(e)
-			var holders []string
-			for _, k := range keys[:checked] {
-				holders = append(holders, held[k]...)
+			if slices.ContainsFunc(keys[:checked], func(k string) bool { return held[k] }) {
+				marks = append(marks, ppMark{file: f.name, line: j + 1, record: e})
 			}
-			own := slices.Contains(holders, tx)
-			if len(holders) > 0 {
-				marks = append(marks, ppMark{file: f.name, line: j + 1, record: e, tick: !own})
-			}
-			if len(holders) == 0 || !own {
-				adds = append(adds, added{tx, keys})
-			}
+			adds = append(adds, keys...)
 		}
-		for _, a := range adds {
-			for _, k := range a.keys {
-				held[k] = append(held[k], a.tx)
-			}
+		for _, k := range adds {
+			held[k] = true
 		}
 	}
 	return marks

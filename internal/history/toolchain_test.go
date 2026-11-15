@@ -181,9 +181,10 @@ func ppTypes(t *testing.T) map[string]string {
 	return types
 }
 
-// ppHeld returns the sides of the transactions that m holds, as ppKeys
-// names them, each once for each transaction that holds it, sorted: what
-// the replay of PP's duplicate rule must start from.
+// ppHeld returns the sides of the transactions that m holds of the
+// export's rows, as ppKeys names them, each once for each transaction that
+// holds it, sorted: what the replay of PP's duplicate rule must start from.
+// What you booked by hand (ppByHand) the export does not know of.
 func ppHeld(t *testing.T, m *ppModel) []string {
 	t.Helper()
 	labels := map[string]string{}
@@ -194,6 +195,9 @@ func ppHeld(t *testing.T, m *ppModel) []string {
 	for kind, owners := range map[string][]*ppOwner{ppAccount: m.accounts, ppPortfolio: m.portfolios} {
 		for _, o := range owners {
 			for _, tx := range o.txs {
+				if ppByHand(tx) {
+					continue
+				}
 				shares, security := "", ""
 				if kind == ppPortfolio {
 					shares = formatMicros(tx.shares / 100)
@@ -211,56 +215,49 @@ func ppHeld(t *testing.T, m *ppModel) []string {
 
 // ppStart returns the sides that the replay of s starts from, sorted.
 func ppStart(s *chainStep) []string {
-	var out []string
-	for _, keys := range s.res.start {
-		out = append(out, keys...)
-	}
-	slices.Sort(out)
-	return out
+	return slices.Sorted(slices.Values(s.res.start))
 }
 
 // ppDeleteRow deletes in m, as you do in PP, the transactions of the row of
 // the account labelled label that stderr names by how their Note begins
-// (docs/tools.md): "schwabtx", the label and ref, or, for a side of a
-// transfer, its transfer's head, transfer; each with the other half of its
-// pair. It requires them to be what the list says the tool shows of the row
-// (was, chainAs): of each record's file, day, type and value. A transfer
-// whose other half was deleted already is gone with it.
-func ppDeleteRow(t *testing.T, m *ppModel, label, ref, transfer, was string) {
+// (docs/tools.md): "schwabtx" and note, the row's label and ref or what the
+// list quotes in their place; each with the other half of its pair. For each
+// record that the list says the tool shows of the row (was, chainAs), of a
+// file, day, type and value, it deletes one such transaction, and requires
+// one: of two equal ones that share the Note, as after a row came back
+// beside the one that took its place, either (L11 of the consolidation).
+func ppDeleteRow(t *testing.T, m *ppModel, label, note, was string) {
 	t.Helper()
 	name := "Schwab " + label
-	begins := cmp.Or(transfer, label+" "+ref)
-	gone := map[*ppTx]bool{}
-	for _, o := range []*ppOwner{ppOwnerNamed(m.accounts, name), ppOwnerNamed(m.portfolios, name)} {
-		for _, tx := range o.txs {
-			// The head of a leg's Note or a two-row cash event's goes on
-			// after its row's ref.
-			head, _, _ := strings.Cut(strings.TrimPrefix(tx.note, "schwabtx "), ": ")
-			if head == begins || strings.HasPrefix(head, begins+" ") {
-				gone[tx] = true
-				if tx.other != nil {
-					gone[tx.other] = true
-				}
-			}
-		}
-	}
 	types := ppTypes(t)
+	gone := map[*ppTx]bool{}
 	for rec := range strings.SplitSeq(was, "; ") {
 		f := strings.Fields(rec)
 		if len(f) < 4 {
-			t.Fatalf("%s %s: %q is not what a PP export shows of a row", label, ref, was)
+			t.Fatalf("%s: %q is not what a PP export shows of a row", note, was)
 		}
 		owners := m.accounts
 		if f[0] == ppPortfolio {
 			owners = m.portfolios
 		}
 		typ, value := types[strings.Join(f[2:len(f)-1], " ")], f[len(f)-1]
-		found := false
-		for tx := range gone {
-			found = found || slices.Contains(owners, tx.owner) && tx.owner.name == name && tx.day == f[1] && tx.typ == typ && formatCents(tx.amount) == value
+		var txs []*ppTx
+		if o := ppOwnerNamed(owners, name); o != nil {
+			txs = o.txs
 		}
-		if !found && !strings.HasPrefix(typ, "TRANSFER_") {
-			t.Errorf("%s holds no %s of %s %s to delete, noted %s", name, rec, label, ref, ref)
+		i := slices.IndexFunc(txs, func(tx *ppTx) bool {
+			// The head of a leg's Note or a two-row cash event's goes on
+			// after its row's ref.
+			head, _, _ := strings.Cut(strings.TrimPrefix(tx.note, "schwabtx "), ": ")
+			return !gone[tx] && (head == note || strings.HasPrefix(head, note+" ")) && tx.day == f[1] && tx.typ == typ && formatCents(tx.amount) == value
+		})
+		if i < 0 {
+			t.Errorf("%s holds no %s noted %s to delete", name, rec, note)
+			continue
+		}
+		gone[txs[i]] = true
+		if other := txs[i].other; other != nil {
+			gone[other] = true
 		}
 	}
 	for _, o := range append(slices.Clone(m.accounts), m.portfolios...) {
@@ -271,11 +268,16 @@ func ppDeleteRow(t *testing.T, m *ppModel, label, ref, transfer, was string) {
 // ppApply imports s into m as the how-to has you: it makes in PP the
 // accounts that s lists as new (stderr's names line), but those that m
 // holds already, as after a redo; deletes in PP what s lists as changed or
-// gone; then imports its files in their order, each with the review page set
-// to its account, ticking the rows that s lists to tick. It requires PP to
-// hold, before the files, what s's replay starts from; to refuse nothing;
-// and to mark exactly the rows that the replay says it marks.
-func ppApply(t *testing.T, m *ppModel, s *chainStep) {
+// gone, by the note that it quotes; then imports its files in their order,
+// each with the review page set to its account, ticking the rows that s
+// lists to tick, and those that PP marks for an entry that you booked by
+// hand (docs/tools.md step 3). It requires PP to hold before the files, of
+// the export's rows, what s's replay starts from; to refuse nothing; and to
+// mark every row on the tick list, and no other but one that it marks for
+// an entry booked by hand alone (R-6 of the consolidation): a row that PP
+// marks and the tick list leaves out would be lost. It returns the rows
+// that PP marks for an entry booked by hand alone, as "file:line".
+func ppApply(t *testing.T, m *ppModel, s *chainStep) (byHand []string) {
 	t.Helper()
 	for _, a := range s.e.Accounts {
 		if a.New && ppOwnerNamed(m.accounts, a.Name) == nil {
@@ -283,36 +285,44 @@ func ppApply(t *testing.T, m *ppModel, s *chainStep) {
 		}
 	}
 	for _, ch := range s.res.changed {
-		ppDeleteRow(t, m, ch.Account, cmp.Or(ch.NoteRef, ch.Ref), ch.Transfer, ch.Was)
+		ppDeleteRow(t, m, ch.Account, cmp.Or(ch.Note, ch.Account+" "+ch.Ref), ch.Was)
 	}
 	for _, g := range s.res.gone {
-		ppDeleteRow(t, m, g.Account, cmp.Or(g.NoteRef, g.Ref), g.Transfer, g.Was)
+		ppDeleteRow(t, m, g.Account, cmp.Or(g.Note, g.Account+" "+g.Ref), g.Was)
 	}
 	if held, start := ppHeld(t, m), ppStart(s); !slices.Equal(held, start) {
-		t.Errorf("PP holds %d sides before the files, the replay starts from %d:\n%q\n%q", len(held), len(start), held, start)
+		t.Errorf("PP holds %d sides of the export's rows before the files, the replay starts from %d:\n%q\n%q", len(held), len(start), held, start)
 	}
-	ticks, want := map[string]map[int]bool{}, map[string][]int{}
+	ticks := map[string]map[int]bool{}
 	for _, mk := range s.marks {
-		want[mk.file] = append(want[mk.file], mk.line)
-		if mk.tick {
-			if ticks[mk.file] == nil {
-				ticks[mk.file] = map[int]bool{}
-			}
-			ticks[mk.file][mk.line] = true
+		if ticks[mk.file] == nil {
+			ticks[mk.file] = map[int]bool{}
 		}
+		ticks[mk.file][mk.line] = true
 	}
 	for _, f := range s.pp {
 		if f.kind == ppConfiguration {
 			continue
 		}
-		marked, refused := m.importFile(s.dir, f.name, f.account.name(), ticks[f.name])
+		marked, hand, refused := m.importTicking(s.dir, f.name, f.account.name(), ticks[f.name])
 		for _, r := range refused {
 			t.Error(r)
 		}
-		if !slices.Equal(marked, want[f.name]) {
-			t.Errorf("PP marks the rows %v of %s, the replay %v", marked, f.name, want[f.name])
+		for _, line := range marked {
+			if !ticks[f.name][line] && !slices.Contains(hand, line) {
+				t.Errorf("PP marks row %d of %s, which the tick list leaves out: it is lost", line, f.name)
+			}
+		}
+		for line := range ticks[f.name] {
+			if !slices.Contains(marked, line) {
+				t.Errorf("the tick list holds row %d of %s, which PP does not mark", line, f.name)
+			}
+		}
+		for _, line := range hand {
+			byHand = append(byHand, fmt.Sprintf("%s:%d", f.name, line))
 		}
 	}
+	return byHand
 }
 
 // gfDeleteRow deletes in m, as you do in Ghostfolio, the activities whose
@@ -748,16 +758,11 @@ func TestToolChain(t *testing.T) {
 			{"no last day", edit(func(m map[string]any) { m["chain"].(map[string]any)["to"] = "2026-11" }), `ends on "2026-11"`},
 			{"a short fp", edit(func(m map[string]any) { entry(m)["fp"] = "0123456789abcde" }), "entry of A1 ...135 T61001301"},
 			{"an fp in capitals", edit(func(m map[string]any) { entry(m)["fp"] = "0123456789ABCDEF" }), "entry of A1 ...135 T61001301"},
-			{"no keys", edit(func(m map[string]any) { delete(entry(m), "keys") }), "entry of A1 ...135 T61001301"},
-			{"a bad key", edit(func(m map[string]any) { entry(m)["keys"] = []any{"x"} }), "entry of A1 ...135 T61001301"},
 			{"no day", edit(func(m map[string]any) { entry(m)["day"] = "" }), "entry of A1 ...135 T61001301"},
 		} {
 			if _, err := parseChain(c.manifest); err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Errorf("%s: %v, want %q", c.what, err, c.want)
 			}
-		}
-		if _, err := parseChain(edit(func(m map[string]any) { delete(entry(m), "keys"); m["format"] = toolGF })); err != nil {
-			t.Errorf("a Ghostfolio entry has no keys: %v", err)
 		}
 	})
 
@@ -1371,16 +1376,11 @@ func rcSequence4() (first, later toolInput) {
 	return first, later
 }
 
-// rcMarks returns the marks of s as file:line, and those to tick with a
-// "tick" after them.
+// rcMarks returns the marks of s, each to tick, as file:line and ref.
 func rcMarks(s *chainStep) []string {
 	var out []string
 	for _, m := range s.marks {
-		w := fmt.Sprintf("%s:%d %s", m.file, m.line, m.record.ref)
-		if m.tick {
-			w += " tick"
-		}
-		out = append(out, w)
+		out = append(out, fmt.Sprintf("%s:%d %s", m.file, m.line, m.record.ref))
 	}
 	return out
 }
@@ -1417,9 +1417,11 @@ func TestToolReimport(t *testing.T) {
 			{
 				// T71000202, the journal's receiving side, is combined with
 				// the transfer that its paying side, changed, writes.
+				// T71000105, the same as the file row gone, is given: PP
+				// holds the file row's records for it.
 				toolPP,
-				[]string{"T71000201", "T71000102", "T71000105", "T71000106", "T71000103", "T71000104", "C7a0b1c2d.5", "C7a0b1c2d.6", "T71000108", "T71000107"},
-				[]string{"T71000101", "C7a0b1c2d.3"},
+				[]string{"T71000201", "T71000102", "T71000106", "T71000103", "T71000104", "C7a0b1c2d.5", "C7a0b1c2d.6", "T71000108", "T71000107"},
+				[]string{"T71000101", "T71000105", "C7a0b1c2d.3"},
 				[]string{
 					"T71000102: portfolio 2026-01-06 Buy 500.65 -> portfolio 2026-01-06 Buy 500.95",
 					"T71000103: account 2026-01-08 Withdrawal 300.00 -> account 2026-01-08 Transfer (Outbound) 300.00",
@@ -1430,7 +1432,6 @@ func TestToolReimport(t *testing.T) {
 					"C7a0b1c2d.2 linked to T71000106: portfolio 2026-01-07 Sell 219.97",
 					"C7a0b1c2d.4 uncounted: user: account 2026-01-12 Dividend 24.50",
 				},
-				// T71000105, the same as the file row gone, did not come late.
 				[]string{"A1 ...135 C7a0b1c2d.1 T71000105"},
 				4,
 			},
@@ -1481,18 +1482,20 @@ func TestToolReimport(t *testing.T) {
 				m := newPPModel()
 				ppApply(t, m, e1)
 				ppApply(t, m, e2)
-				// The new row's entry keeps the ref of the Note that PP
-				// holds, the transfer has one entry, its paying side's, and
+				// The row given under a new ref takes the file row's entry,
+				// noted by the file row's label and ref, with which the Note
+				// that PP holds of it begins; the transfer has one entry, its
+				// paying side's, noted by its head; PP marks nothing; and
 				// the next export, which writes nothing, starts from what PP
 				// holds.
-				if g := e2.res.given["A1 ...135"]["T71000105"]; g.NoteRef != "C7a0b1c2d.1" {
-					t.Errorf("T71000105's entry %+v", g)
+				if g, file := e2.res.given["A1 ...135"]["T71000105"], e1.res.given["A1 ...135"]["C7a0b1c2d.1"]; g.Note != "A1 ...135 C7a0b1c2d.1" || g.FP != file.FP || g.As != file.As {
+					t.Errorf("T71000105's entry %+v, the file row's %+v", g, file)
 				}
-				a := e2.res.given["A1 ...135"]["T71000103"].Transfer
+				a := e2.res.given["A1 ...135"]["T71000103"].Note
 				if _, combined := e2.res.given["A2 ...398"]["T71000202"]; a != "A1 ...135 T71000103 to A2 ...398 T71000202" || combined {
 					t.Errorf("the transfer's entry is of %q; its receiving side has one %v", a, combined)
 				}
-				if got := rcMarks(e2); !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:2 T71000105"}) {
+				if got := rcMarks(e2); len(got) > 0 {
 					t.Errorf("PP marks %q", got)
 				}
 				ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
@@ -1504,7 +1507,8 @@ func TestToolReimport(t *testing.T) {
 				ppReconcile(t, m, e3.in, e3.events, e3.outcomes)
 
 				// The buy that PP holds under the file row's Note is revised:
-				// it is deleted by that Note, and its new form is its own.
+				// it is deleted by that Note, and its new form is its own,
+				// noted by nothing.
 				fourth := later
 				fourth.rows = slices.Clone(later.rows)
 				for i := range fourth.rows {
@@ -1513,7 +1517,7 @@ func TestToolReimport(t *testing.T) {
 					}
 				}
 				e4 := chainStepOf(t, fourth, c.tool, e3, rcAt4)
-				if len(e4.res.changed) != 1 || e4.res.changed[0].NoteRef != "C7a0b1c2d.1" || e4.res.given["A1 ...135"]["T71000105"].NoteRef != "" {
+				if len(e4.res.changed) != 1 || e4.res.changed[0].Note != "A1 ...135 C7a0b1c2d.1" || e4.res.given["A1 ...135"]["T71000105"].Note != "" {
 					t.Errorf("the revised buy: changed %+v, its entry %+v", e4.res.changed, e4.res.given["A1 ...135"]["T71000105"])
 				}
 				ppApply(t, m, e4)
@@ -1574,7 +1578,7 @@ func TestToolReimport(t *testing.T) {
 		later := tcInput(toolInput{to: "2026-03-06", rows: []toolRow{deposit, one, two}})
 		e1 := chainStepOf(t, first, toolPP, nil, rcAt1)
 		e2 := chainStepOf(t, later, toolPP, e1, rcAt2)
-		if got := rcMarks(e2); !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:1 T73000102 tick"}) {
+		if got := rcMarks(e2); !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:1 T73000102"}) {
 			t.Errorf("PP marks %q", got)
 		}
 		if got := ppTickList(e2.marks); len(got) != 1 || got[0] != (chainTick{
@@ -1613,7 +1617,7 @@ func TestToolReimport(t *testing.T) {
 			t.Errorf("the full export: PP marks %q", got)
 		}
 		e2 := chainStepOf(t, later, toolPP, e1, rcAt2)
-		if got := rcMarks(e2); !slices.Equal(got, []string{"account-transactions-A2-398.csv:1 T74000204 tick"}) {
+		if got := rcMarks(e2); !slices.Equal(got, []string{"account-transactions-A2-398.csv:1 T74000204"}) {
 			t.Errorf("the late pair: PP marks %q", got)
 		}
 		m := newPPModel()
@@ -1668,7 +1672,7 @@ func TestToolReimport(t *testing.T) {
 		if got := rcMarks(e2); len(got) > 0 || len(e2.refs(outcomeWritten)) > 0 || !slices.Equal(e2.refs(outcomeCombined), []string{"T74100101"}) {
 			t.Errorf("the next: written %q, combined %q, PP marks %q", e2.refs(outcomeWritten), e2.refs(outcomeCombined), got)
 		}
-		a := e2.res.given["A2 ...398"]["T74100201"].Transfer
+		a := e2.res.given["A2 ...398"]["T74100201"].Note
 		if _, combined := e2.res.given["A1 ...135"]["T74100101"]; a != "A2 ...398 T74100201 to A1 ...135 T74100101" || combined {
 			t.Errorf("the transfer's entry is of %q; its receiving side has one %v", a, combined)
 		}
@@ -1682,9 +1686,10 @@ func TestToolReimport(t *testing.T) {
 	t.Run("a transfer split by -to, its paying side under a new ref", func(t *testing.T) {
 		t.Parallel()
 		// The paying side, a file row, is written as the transfer; then it is
-		// linked to its API row, the same in all that PP keeps; and then the
-		// receiving side comes, combined with the transfer that PP holds,
-		// under the file row's Note: nothing is written.
+		// linked to its API row, the same in all that PP keeps, which is
+		// given under the file row's entry, noted by the head that PP holds
+		// the transfer under; and then the receiving side comes, combined
+		// with the transfer that PP holds: nothing is written or marked.
 		receives := rcJournal("T74200101", 1, "2026-03-03 08:00:00", "JOURNAL FRM ...398", 100_000, "T74200201", 2)
 		partner := toolPartner{
 			day: "2026-03-03", time: receives.time, amount: receives.amount, counted: true, category: "journal",
@@ -1706,7 +1711,7 @@ func TestToolReimport(t *testing.T) {
 			written       []string
 			marks, sameAs []string
 		}{
-			{e2, []string{"T74200201"}, []string{"account-transactions-A2-398.csv:1 T74200201"}, []string{"C74200001.1 T74200201"}},
+			{e2, nil, nil, []string{"C74200001.1 T74200201"}},
 			{e3, nil, nil, nil},
 		} {
 			var same []string
@@ -1718,7 +1723,7 @@ func TestToolReimport(t *testing.T) {
 			}
 		}
 		a := e3.res.given["A2 ...398"]["T74200201"]
-		if _, combined := e3.res.given["A1 ...135"]["T74200101"]; a.NoteRef != "C74200001.1" || a.Transfer != "A2 ...398 C74200001.1 to A1 ...135 T74200101" || combined {
+		if _, combined := e3.res.given["A1 ...135"]["T74200101"]; a.Note != "A2 ...398 C74200001.1 to A1 ...135 T74200101" || combined {
 			t.Errorf("the transfer's entry %+v; its receiving side has one %v", a, combined)
 		}
 		m := newPPModel()
@@ -1829,12 +1834,13 @@ func TestToolReimport(t *testing.T) {
 	t.Run("a row back beside the one that took its place", func(t *testing.T) {
 		t.Parallel()
 		// A file buy, given; linked to its API row, which takes its place
-		// (same_as) and PP's transaction with it; then counted again beside
-		// it. PP holds one transaction, under the file row's Note, which the
-		// API row's entry names: the API row is changed, its form alike, so
-		// that you delete that one and import both rows, each under its own
-		// Note. Then the file row is uncounted, and deleted by its Note
-		// alone.
+		// (same_as), given under the file row's entry; then counted again
+		// beside it. The file row is new, written under its own Note, and
+		// PP marks it, equal to the record that it holds: ticked, as the
+		// list says, it comes in, and PP holds two equal records under the
+		// file row's Note, the API row's and the file row's (L11 of the
+		// consolidation). Then the file row is uncounted, gone, and you
+		// delete either record of that Note.
 		deposit := rcCash("T79000100", 1, "2026-01-05 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000)
 		file := rcFile("C79a0b1c2.1", 1, "2026-01-07", "Buy", "buy", keyEFGH, "EFGH", centsOf(2_000_000), 30, -6000)
 		api := rcTrade("T79000105", 1, "2026-01-07 10:00:00", "buy", keyEFGH, "EFGH", 2_000_000, 30, -6000, 0)
@@ -1856,12 +1862,11 @@ func TestToolReimport(t *testing.T) {
 			}
 			back, gone := steps[2], steps[3]
 			changed, _ := rcChanged(back)
-			if w := back.refs(outcomeWritten); tool == toolPP && (!slices.Equal(w, []string{file.ref, api.ref}) ||
-				!slices.Equal(changed, []string{api.ref + ": portfolio 2026-01-07 Buy 60.00 -> portfolio 2026-01-07 Buy 60.00"}) ||
-				back.res.changed[0].NoteRef != file.ref || len(back.marks) > 0 || back.res.given["A1 ...135"][api.ref].NoteRef != "") {
-				t.Errorf("pp: back, it writes %q, lists %q (%+v), PP marks %q", w, changed, back.res.changed, rcMarks(back))
+			if w, a := back.refs(outcomeWritten), back.res.given["A1 ...135"][api.ref]; tool == toolPP && (!slices.Equal(w, []string{file.ref}) || len(changed) > 0 ||
+				!slices.Equal(rcMarks(back), []string{"portfolio-transactions-A1-135.csv:1 " + file.ref}) || a.Note != "A1 ...135 "+file.ref) {
+				t.Errorf("pp: back, it writes %q, lists %q, PP marks %q, the API row's entry %+v", w, changed, rcMarks(back), a)
 			}
-			if _, g := rcChanged(gone); len(g) != 1 || gone.res.gone[0].Ref != file.ref || gone.res.gone[0].NoteRef != "" {
+			if _, g := rcChanged(gone); len(g) != 1 || gone.res.gone[0].Ref != file.ref || gone.res.gone[0].Note != "" {
 				t.Errorf("%s: uncounted, it lists %q", tool, g)
 			}
 			if tool == toolPP {
@@ -1884,11 +1889,12 @@ func TestToolReimport(t *testing.T) {
 
 	t.Run("a row back in place of the one that took its place", func(t *testing.T) {
 		t.Parallel()
-		// A file buy, given; linked to its API row, which takes its place;
-		// then the API row goes as the file row counts again. The file row
-		// is the same as the API row gone, whose entry names the file row's
-		// Note: PP holds it under the file row's own Note, which its entry
-		// names as its own.
+		// A file buy, given; linked to its API row, which takes its place
+		// (same_as), given under the file row's entry; then the API row goes
+		// as the file row counts again. The file row is the same as the API
+		// row gone, and given: PP holds its records under the file row's own
+		// Note, so that its entry, the API row's, notes nothing (R-7 of the
+		// consolidation), and nothing is written or marked.
 		deposit := rcCash("T79100100", 1, "2026-01-05 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000)
 		file := rcFile("C79b1c2d3.1", 1, "2026-01-07", "Buy", "buy", keyEFGH, "EFGH", centsOf(2_000_000), 30, -6000)
 		api := rcTrade("T79100105", 1, "2026-01-07 10:00:00", "buy", keyEFGH, "EFGH", 2_000_000, 30, -6000, 0)
@@ -1900,7 +1906,7 @@ func TestToolReimport(t *testing.T) {
 		e3 := chainStepOf(t, tcInput(toolInput{
 			to: "2026-03-27", rows: []toolRow{deposit, file}, uncounted: []toolUncounted{{ref: api.ref, account: 1, why: "user"}},
 		}), toolPP, e2, rcAt3)
-		if g := e3.res.given["A1 ...135"][file.ref]; len(e3.res.sameAs) != 1 || g.NoteRef != "" || len(e3.marks) != 1 || e3.marks[0].tick {
+		if g := e3.res.given["A1 ...135"][file.ref]; len(e3.res.sameAs) != 1 || g.Note != "" || len(e3.res.written) > 0 || len(e3.marks) > 0 {
 			t.Errorf("back: the same %+v, its entry %+v, PP marks %q", e3.res.sameAs, g, rcMarks(e3))
 		}
 		m := newPPModel()
@@ -1913,13 +1919,15 @@ func TestToolReimport(t *testing.T) {
 	t.Run("a row back as the same as another row gone", func(t *testing.T) {
 		t.Parallel()
 		// Two file buys alike, given; one linked to its API row, which takes
-		// its place; then the other goes as the first comes back: the first
-		// is the same as the other, whose transaction PP keeps for it, so
-		// that no Note names it twice and nothing is to delete. Then the API
-		// row goes as another API row alike comes, while the first file row
-		// is revised: the API row gone is not the same as the new one, since
-		// its Note names the revised row, which PP holds under its own; and
-		// once that row is uncounted, its Note names one transaction alone.
+		// its place (same_as); then the other goes as the first comes back:
+		// the first is the same as the other, given under its entry, so that
+		// nothing is to delete. Then the API row goes as another API row
+		// alike comes, the same as it, given under its entry, noted by the
+		// first file row's label and ref, while the first file row is
+		// revised: changed, deleted by the second file row's Note, and
+		// written under its own, beside the record that PP holds for the new
+		// API row, of another value. Once the file row is uncounted, its line
+		// quotes that Note and its value, which tell the two records apart.
 		deposit := rcCash("T79200100", 1, "2026-01-05 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000)
 		file := rcFile("C79c1d2e3.1", 1, "2026-01-07", "Buy", "buy", keyEFGH, "EFGH", centsOf(1_000_000), 30, -3000)
 		alike := file
@@ -1944,9 +1952,9 @@ func TestToolReimport(t *testing.T) {
 		e4 := chainStepOf(t, tcInput(toolInput{
 			to: "2026-04-24", rows: []toolRow{deposit, revised, another}, uncounted: []toolUncounted{{ref: api.ref, account: 1, why: "user"}},
 		}), toolPP, e3, rcAt4)
-		if changed, gone := rcChanged(e4); len(e4.res.sameAs) > 0 || len(changed) != 1 || len(gone) != 1 || e4.res.gone[0].Ref != api.ref ||
-			e4.res.given["A1 ...135"][another.ref].NoteRef != "" {
-			t.Errorf("revised: the same %+v, changed %q, gone %q", e4.res.sameAs, changed, gone)
+		if changed, gone := rcChanged(e4); len(e4.res.sameAs) != 1 || e4.res.sameAs[0] != (chainSameAs{Account: "A1 ...135", Gone: api.ref, New: another.ref}) ||
+			len(changed) != 1 || e4.res.changed[0].Note != "A1 ...135 "+alike.ref || len(gone) > 0 || e4.res.given["A1 ...135"][another.ref].Note != "A1 ...135 "+file.ref {
+			t.Errorf("revised: the same %+v, changed %+v, gone %q, the new API row's entry %+v", e4.res.sameAs, e4.res.changed, gone, e4.res.given["A1 ...135"][another.ref])
 		}
 		e5 := chainStepOf(t, tcInput(toolInput{
 			to: "2026-05-29", rows: []toolRow{deposit, another}, uncounted: []toolUncounted{{ref: file.ref, account: 1, why: "user"}},
@@ -1978,8 +1986,8 @@ func TestToolReimport(t *testing.T) {
 		e2 := chainStepOf(t, tcInput(toolInput{to: "2026-05-15", rows: []toolRow{paysAgain, unpaired, other}}), toolPP, e1, rcAt2)
 		a := e2.res.given["A2 ...398"][pays.ref]
 		if !slices.Equal(e2.refs(outcomeGiven), []string{pays.ref}) || !slices.Equal(e2.refs(outcomeWritten), []string{unpaired.ref}) ||
-			!slices.Equal(e2.refs(outcomeCombined), []string{other.ref}) || a.Transfer != "A2 ...398 T79900201 to A1 ...135 T79900101" ||
-			!slices.Equal(rcMarks(e2), []string{"account-transactions-A1-135.csv:1 T79900101 tick"}) {
+			!slices.Equal(e2.refs(outcomeCombined), []string{other.ref}) || a.Note != "A2 ...398 T79900201 to A1 ...135 T79900101" ||
+			!slices.Equal(rcMarks(e2), []string{"account-transactions-A1-135.csv:1 T79900101"}) {
 			t.Errorf("given %q, written %q, combined %q, the transfer's entry %+v, PP marks %q",
 				e2.refs(outcomeGiven), e2.refs(outcomeWritten), e2.refs(outcomeCombined), a, rcMarks(e2))
 		}
@@ -1993,11 +2001,12 @@ func TestToolReimport(t *testing.T) {
 	t.Run("a transfer's paying side back beside the one that took its place", func(t *testing.T) {
 		t.Parallel()
 		// A file journal pays a transfer; its API row takes its place
-		// (same_as); then the file row counts again beside it, unpaired, a
-		// Withdrawal of the transfer's day and amount. The API row's entry
-		// names the file row's Note: it is changed, the transfer deleted
-		// once and written again under its own Note, with which the
-		// receiving side, which has no entry, is combined.
+		// (same_as), given under the file row's entry, noted by the head
+		// that PP holds the transfer under; then the file row counts again
+		// beside it, unpaired, a Withdrawal of the transfer's day and amount:
+		// written under its own Note, which the transfer's head begins with,
+		// marked by the transfer's paying leg, and ticked. The receiving
+		// side, which has no entry, is combined with the transfer given.
 		dep := rcCash("T79300200", 2, "2026-03-01 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 500_000)
 		filePays := rcFile("C79b0c1d2.1", 2, "2026-03-02", "Journal", "journal", "", "", sql.NullInt64{}, 0, -100_000)
 		filePays.pairKind, filePays.pairRef, filePays.pairAccount = "journal", "T79300101", 1
@@ -2014,12 +2023,12 @@ func TestToolReimport(t *testing.T) {
 		}), toolPP, e1, rcAt2)
 		e3 := chainStepOf(t, tcInput(toolInput{to: "2026-03-20", rows: []toolRow{dep, back, apiPays, receivesAPI}}), toolPP, e2, rcAt3)
 		changed, gone := rcChanged(e3)
-		if w := e3.refs(outcomeWritten); !slices.Equal(w, []string{back.ref, apiPays.ref}) || len(changed) != 1 || len(gone) != 0 || len(e3.marks) > 0 ||
-			e3.res.changed[0].Ref != apiPays.ref || e3.res.changed[0].Transfer != "A2 ...398 C79b0c1d2.1 to A1 ...135 T79300101" {
-			t.Errorf("back: it writes %q, lists %+v and %q, PP marks %q", w, e3.res.changed, gone, rcMarks(e3))
+		if w := e3.refs(outcomeWritten); !slices.Equal(w, []string{back.ref}) || len(changed)+len(gone) > 0 ||
+			!slices.Equal(rcMarks(e3), []string{"account-transactions-A2-398.csv:1 " + back.ref}) {
+			t.Errorf("back: it writes %q, lists %q and %q, PP marks %q", w, changed, gone, rcMarks(e3))
 		}
 		a := e3.res.given["A2 ...398"][apiPays.ref]
-		if _, combined := e3.res.given["A1 ...135"][receives.ref]; a.NoteRef != "" || a.Transfer != "A2 ...398 T79300201 to A1 ...135 T79300101" || combined {
+		if _, combined := e3.res.given["A1 ...135"][receives.ref]; a.Note != "A2 ...398 C79b0c1d2.1 to A1 ...135 T79300101" || combined {
 			t.Errorf("the transfer's entry %+v; its receiving side has one %v", a, combined)
 		}
 		m := newPPModel()
@@ -2060,10 +2069,10 @@ func TestToolReimport(t *testing.T) {
 			uncounted: []toolUncounted{{ref: receives.ref, account: 1, why: "user"}},
 		}), toolPP, e2, rcAt3)
 		if g := e2.res.given["A2 ...398"][api.ref]; !slices.Equal(e2.refs(outcomeGiven), []string{dep.ref}) || !slices.Equal(e2.refs(outcomeCombined), []string{receives.ref}) ||
-			g.Transfer != "A2 ...398 T79400201 to A1 ...135 T79400101" || len(e2.res.changed) != 1 || e2.res.changed[0].Ref != file.ref {
+			g.Note != "A2 ...398 T79400201 to A1 ...135 T79400101" || len(e2.res.changed) != 1 || e2.res.changed[0].Ref != file.ref {
 			t.Errorf("given %q, combined %q, changed %+v, the transfer's entry %+v", e2.refs(outcomeGiven), e2.refs(outcomeCombined), e2.res.changed, g)
 		}
-		if got := rcMarks(e3); !slices.Equal(got, []string{"account-transactions-A2-398.csv:1 T79400201 tick"}) {
+		if got := rcMarks(e3); !slices.Equal(got, []string{"account-transactions-A2-398.csv:1 T79400201"}) {
 			t.Errorf("uncounted: PP marks %q", got)
 		}
 		m := newPPModel()
@@ -2131,9 +2140,10 @@ func TestToolReimport(t *testing.T) {
 
 	t.Run("a row the same as one that was the same as another", func(t *testing.T) {
 		t.Parallel()
-		// A row given, then replaced twice by rows alike: PP holds its
-		// transaction under the first row's Note all along, which the last
-		// row's entry names, and which deletes it once that row is revised.
+		// A row given, then replaced twice by rows alike, each given under
+		// the entry of the row before: PP holds its record under the first
+		// row's Note all along, which the last row's entry notes, and which
+		// the line quotes to delete it once that row is revised.
 		deposit := rcCash("T79600100", 1, "2026-02-02 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000)
 		first := rcFile("C79e0f1a2.1", 1, "2026-02-04", "Buy", "buy", keyEFGH, "EFGH", centsOf(1_000_000), 30, -3000)
 		second := first
@@ -2154,10 +2164,10 @@ func TestToolReimport(t *testing.T) {
 			prev = chainStepOf(t, in, toolPP, prev, []string{rcAt1, rcAt2, rcAt3, rcAt4}[i])
 			steps = append(steps, prev)
 		}
-		if g := steps[2].res.given["A1 ...135"][third.ref]; g.NoteRef != first.ref {
-			t.Errorf("the third row's entry %+v", g)
+		if g := steps[2].res.given["A1 ...135"][third.ref]; g.Note != "A1 ...135 "+first.ref || len(steps[2].res.written) > 0 {
+			t.Errorf("the third row's entry %+v, written %v", g, steps[2].res.written)
 		}
-		if c := steps[3].res.changed; len(c) != 1 || c[0].NoteRef != first.ref {
+		if c := steps[3].res.changed; len(c) != 1 || c[0].Note != "A1 ...135 "+first.ref || steps[3].res.given["A1 ...135"][third.ref].Note != "" {
 			t.Errorf("revised: changed %+v", c)
 		}
 		m := newPPModel()
@@ -2184,6 +2194,26 @@ func TestToolReimport(t *testing.T) {
 		ppApply(t, m, e1)
 		ppApply(t, m, e2)
 		ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
+	})
+
+	t.Run("a deposit of a transfer's receiving leg, in a later file", func(t *testing.T) {
+		t.Parallel()
+		// One full export of a transfer from A1 to A2 and a deposit of A2
+		// of its day and amount: A1's file, imported first, books the
+		// transfer's receiving leg in A2, which then marks A2's deposit, as
+		// PP checks each file against what its accounts hold before it,
+		// those of the files imported before it too. The deposit is ticked.
+		funds := rcCash("T7c030100", 1, "2026-03-01 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 500_000)
+		pays := rcJournal("T7c030101", 1, "2026-03-02 09:30:00", "JOURNAL TO ...398", -100_000, "T7c030201", 2)
+		receives := rcJournal("T7c030201", 2, "2026-03-02 09:30:05", "JOURNAL FRM ...135", 100_000, pays.ref, 1)
+		deposit := rcCash("T7c030202", 2, "2026-03-02 16:00:00", "ELECTRONIC_FUND", "ACH Credit", "deposit", 100_000)
+		e1 := chainStepOf(t, tcInput(toolInput{to: "2026-03-06", rows: []toolRow{funds, pays, receives, deposit}}), toolPP, nil, rcAt1)
+		if got := rcMarks(e1); !slices.Equal(got, []string{"account-transactions-A2-398.csv:1 " + deposit.ref}) {
+			t.Errorf("PP marks %q", got)
+		}
+		m := newPPModel()
+		ppApply(t, m, e1)
+		ppReconcile(t, m, e1.in, e1.events, e1.outcomes)
 	})
 
 	// Two transfers from A2 to A1 of one day and amount, which the store
@@ -2240,7 +2270,7 @@ func TestToolReimport(t *testing.T) {
 				[]toolRow{q1, unpaired(receives[0]), unpaired(pays[1]), q2},
 				nil,
 				[]string{receives[0].ref, pays[1].ref},
-				[]string{"account-transactions-A1-135.csv:1 T7d000031 tick", "account-transactions-A2-398.csv:1 T7d000022 tick"},
+				[]string{"account-transactions-A1-135.csv:1 T7d000031", "account-transactions-A2-398.csv:1 T7d000022"},
 			},
 			{"uncounted", []toolRow{q1, q2}, []toolUncounted{{ref: receives[0].ref, account: 1, why: "user"}, {ref: pays[1].ref, account: 2, why: "user"}}, nil, nil},
 		} {
@@ -2248,7 +2278,7 @@ func TestToolReimport(t *testing.T) {
 			e2 := chainStepOf(t, tcInput(toolInput{to: "2026-03-27", rows: slices.Concat(deposits, c.rows), uncounted: c.uncounted}), toolPP, e1, rcAt2)
 			a := e2.res.given["A2 ...398"][pays[0].ref]
 			if w, m := e2.refs(outcomeWritten), rcMarks(e2); !slices.Contains(e2.refs(outcomeGiven), pays[0].ref) || !slices.Equal(w, c.written) || !slices.Equal(m, c.marks) ||
-				!slices.Equal(e2.refs(outcomeCombined), []string{receives[1].ref}) || a.Transfer != "A2 ...398 T7d000021 to A1 ...135 T7d000031" {
+				!slices.Equal(e2.refs(outcomeCombined), []string{receives[1].ref}) || a.Note != "A2 ...398 T7d000021 to A1 ...135 T7d000031" {
 				t.Errorf("%s: written %q, PP marks %q, the transfer's entry %+v", c.name, w, m, a)
 			}
 			m := newPPModel()
@@ -2302,7 +2332,7 @@ func TestToolReimport(t *testing.T) {
 			e2 := chainStepOf(t, tcInput(toolInput{to: "2026-03-27", rows: slices.Concat(deposits, c.then)}), toolPP, e1, rcAt2)
 			var heads []string
 			for _, p := range pays {
-				heads = append(heads, e2.res.given["A2 ...398"][p.ref].Transfer)
+				heads = append(heads, e2.res.given["A2 ...398"][p.ref].Note)
 			}
 			changed, gone := rcChanged(e2)
 			if _, ok := e2.res.given["A1 ...135"][receives[0].ref]; !slices.Equal(heads, c.heads) || !slices.Equal(changed, c.changed) || !slices.Equal(gone, c.gone) || ok {
@@ -2350,12 +2380,12 @@ func TestToolReimport(t *testing.T) {
 		e2 := chainStepOf(t, tcInput(toolInput{to: "2026-03-27", rows: slices.Concat(deposits, []toolRow{q1, a1, unpaired(pays[1])}), uncounted: linked}), toolPP, e1, rcAt2)
 		e3 := chainStepOf(t, tcInput(toolInput{to: "2026-04-27", rows: slices.Concat(deposits, []toolRow{unpaired(pays[0]), q2, a2}), uncounted: linked}), toolPP, e2, rcAt3)
 		e4 := chainStepOf(t, tcInput(toolInput{to: "2026-05-27", rows: slices.Concat(deposits, []toolRow{unpaired(pays[0]), q2, a2, unpaired(file)})}), toolPP, e3, rcAt4)
-		if g1, g3 := e2.res.given["A2 ...398"][pays[0].ref], e3.res.given["A2 ...398"][pays[1].ref]; g1.Transfer != "A2 ...398 T7g000021 to A1 ...135 C7g000000.1" ||
-			g3.Transfer != "A2 ...398 T7g000022 to A1 ...135 T7g000031" || !slices.Equal(e3.refs(outcomeCombined), []string{receives[0].ref}) {
+		if g1, g3 := e2.res.given["A2 ...398"][pays[0].ref], e3.res.given["A2 ...398"][pays[1].ref]; g1.Note != "A2 ...398 T7g000021 to A1 ...135 C7g000000.1" ||
+			g3.Note != "A2 ...398 T7g000022 to A1 ...135 T7g000031" || !slices.Equal(e3.refs(outcomeCombined), []string{receives[0].ref}) {
 			t.Errorf("the transfers' entries %+v and %+v, combined %q", g1, g3, e3.refs(outcomeCombined))
 		}
 		if changed, gone := rcChanged(e4); len(changed)+len(gone) > 0 || !slices.Equal(e4.refs(outcomeWritten), []string{file.ref}) ||
-			!slices.Equal(rcMarks(e4), []string{"account-transactions-A1-135.csv:1 C7g000000.1 tick"}) {
+			!slices.Equal(rcMarks(e4), []string{"account-transactions-A1-135.csv:1 C7g000000.1"}) {
 			t.Errorf("the file row back: written %q, changed %q, gone %q, PP marks %q", e4.refs(outcomeWritten), changed, gone, rcMarks(e4))
 		}
 		m := newPPModel()
@@ -2368,12 +2398,12 @@ func TestToolReimport(t *testing.T) {
 	t.Run("a row the same as one that a row back frees", func(t *testing.T) {
 		t.Parallel()
 		// Four buys alike. Two are written; then both are uncounted and the
-		// other two take their places (same_as). Then the first two count
-		// again beside the fourth, and the third is uncounted: the first two
-		// are written under their own Notes, so the third, gone, is not the
-		// same as the fourth, which PP holds under a Note of the first two's;
-		// then the fourth, whose Note names a row back, is changed, which
-		// only a second look finds.
+		// other two take their places (same_as), given under their entries.
+		// Then the first two count again beside the fourth, and the third is
+		// uncounted: the third, gone, is the same as the first of the two,
+		// given under its entry, and the second is written under its own
+		// Note, marked by the records that PP holds, and ticked. Nothing is
+		// to delete.
 		deposit := rcCash("T7a000100", 1, "2026-01-02 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000)
 		buy := func(ref, clock string) toolRow {
 			return rcTrade(ref, 1, "2026-01-07 "+clock, "buy", keyEFGH, "EFGH", 1_000_000, 30, -3000, 0)
@@ -2387,9 +2417,9 @@ func TestToolReimport(t *testing.T) {
 			to: "2026-03-27", rows: []toolRow{deposit, n, mm, e}, uncounted: []toolUncounted{{ref: g.ref, account: 1, why: "user"}},
 		}), toolPP, e2, rcAt3)
 		changed, gone := rcChanged(e3)
-		if len(e2.res.sameAs) != 2 || !slices.Equal(changed, []string{"T7a000004: portfolio 2026-01-07 Buy 30.00 -> portfolio 2026-01-07 Buy 30.00"}) ||
-			!slices.Equal(gone, []string{"T7a000003 uncounted: user: portfolio 2026-01-07 Buy 30.00"}) {
-			t.Errorf("the same %+v, then changed %q, gone %q", e2.res.sameAs, changed, gone)
+		if len(e2.res.sameAs) != 2 || len(changed)+len(gone) > 0 || !slices.Equal(e3.res.sameAs, []chainSameAs{{Account: "A1 ...135", Gone: g.ref, New: n.ref}}) ||
+			!slices.Equal(e3.refs(outcomeWritten), []string{mm.ref}) || !slices.Equal(rcMarks(e3), []string{"portfolio-transactions-A1-135.csv:1 " + mm.ref}) {
+			t.Errorf("the same %+v, then %+v, written %q, changed %q, gone %q, PP marks %q", e2.res.sameAs, e3.res.sameAs, e3.refs(outcomeWritten), changed, gone, rcMarks(e3))
 		}
 		m := newPPModel()
 		for _, s := range []*chainStep{e1, e2, e3} {
@@ -2405,7 +2435,7 @@ func TestToolReimport(t *testing.T) {
 		// either by that WKN, as one security, and so does the replay. Two
 		// file buys alike; then the API's row of one of them, under the
 		// other key, takes its place: it is the same as the file row gone,
-		// which PP holds, and PP marks it as its own.
+		// whose records PP holds, and given, so that PP marks nothing.
 		base := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106"}.toolCase().in
 		deposit := rcCash("T7f0nn100", 1, "2026-01-02 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000)
 		fileBuy := func(ref string) toolRow {
@@ -2430,8 +2460,8 @@ func TestToolReimport(t *testing.T) {
 				}
 				continue
 			}
-			if got := rcMarks(e2); len(e2.res.sameAs) != 1 || e2.res.sameAs[0].Gone != b2.ref || !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:1 T7f0nn101"}) {
-				t.Errorf("the same %+v, PP marks %q", e2.res.sameAs, got)
+			if got := rcMarks(e2); len(e2.res.sameAs) != 1 || e2.res.sameAs[0].Gone != b2.ref || !slices.Contains(e2.refs(outcomeGiven), api.ref) || len(got) > 0 {
+				t.Errorf("the same %+v, given %q, PP marks %q", e2.res.sameAs, e2.refs(outcomeGiven), got)
 			}
 			m := newPPModel()
 			for _, s := range []*chainStep{e1, e2} {
@@ -2472,7 +2502,7 @@ func TestToolReimport(t *testing.T) {
 					}
 					continue
 				}
-				if got := rcMarks(e2); !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:1 T61002899 tick"}) {
+				if got := rcMarks(e2); !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:1 T61002899"}) {
 					t.Errorf("the late row, %s: PP marks %q", c.name, got)
 				}
 				m := newPPModel()
@@ -3419,8 +3449,10 @@ func TestToolReimport(t *testing.T) {
 		// tick list knows nothing of what you booked by hand: deleted
 		// before importing, as stderr says, the hand entry leaves nothing
 		// to mark, and PP holds the store's cash and shares; deleted after,
-		// PP would have marked the row that it stood for, which then stays
-		// out.
+		// PP marks the row that it stood for, for the entry, which you tick
+		// too, as the tick list's header and step 3 say (R-6 of the
+		// consolidation): the row comes in, and once the entry goes, PP
+		// holds the store's cash and shares all the same.
 		const name = "Schwab A1 ...135"
 		position := func() (before, after toolInput, hand ppFolder) {
 			deposit := rcFile("C7c52001.1", 1, "2025-11-03", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 30_000)
@@ -3488,16 +3520,11 @@ func TestToolReimport(t *testing.T) {
 					ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
 					continue
 				}
-				var marked []int
-				for _, f := range e2.pp {
-					if f.kind != ppConfiguration {
-						mk, _ := m.importFile(e2.dir, f.name, f.account.name(), nil)
-						marked = append(marked, mk...)
-					}
+				if hand := ppApply(t, m, e2); len(hand) == 0 || len(e2.e.Tick) > 0 {
+					t.Errorf("%s: beside the entry booked by hand, PP marks %v of the rows that it stood for, and the export ticks %v", c.name, hand, e2.e.Tick)
 				}
-				if len(marked) == 0 || len(e2.e.Tick) > 0 {
-					t.Errorf("%s: beside the entry booked by hand, PP marks %v of the rows that it stood for, and the export ticks %v", c.name, marked, e2.e.Tick)
-				}
+				byHand()
+				ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
 			}
 		}
 	})
@@ -3564,7 +3591,7 @@ func TestToolReimport(t *testing.T) {
 				}
 			}
 			for _, ch := range e2.res.changed {
-				ppDeleteRow(t, m, ch.Account, cmp.Or(ch.NoteRef, ch.Ref), ch.Transfer, ch.Was)
+				ppDeleteRow(t, m, ch.Account, cmp.Or(ch.Note, ch.Account+" "+ch.Ref), ch.Was)
 			}
 			// The lines in their order, each of the security that PP finds by
 			// what the line names, and of what was booked by hand on it.

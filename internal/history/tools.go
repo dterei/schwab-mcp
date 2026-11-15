@@ -82,7 +82,9 @@ type ToolExport struct {
 	Coverage []ExportCoverage
 	// Written counts the ledger rows that the export writes; Given those
 	// that the export it goes on from gave the tool already, unchanged,
-	// which it does not write again; Combined the shares rows of two-row
+	// which it does not write again, and for PP those under a new ref that
+	// are alike in everything PP keeps to a row gone, whose records PP
+	// holds (the manifest's same_as); Combined the shares rows of two-row
 	// cash events that a sale written carries, and for PP the receiving
 	// sides of transfers that a Transfer (Outbound) written carries; and
 	// InBalances, for Ghostfolio, the cash rows that the accounts' balances
@@ -94,13 +96,10 @@ type ToolExport struct {
 	// export writes, and Gone those that it holds and that the export
 	// neither writes nor gives: delete each in the tool before importing.
 	Changed, Gone []ToolChange
-	// SameAs counts, for PP, the rows gone under one ref that the export
-	// writes under another, alike in everything PP keeps: PP keeps the one
-	// it holds, and marks the new one as existing, so neither is to delete
-	// or to tick. Late counts none of them.
-	SameAs int
 	// Tick are, for PP, the rows that PP will mark as existing although
-	// they are new, which you tick on its review page.
+	// they are new, which you tick on its review page: every row of the
+	// export that PP marks, but one equal to an entry that you booked by
+	// hand, which the export does not know of.
 	Tick []ToolTick
 	// LeftOut counts the rows left out, by reason, and Caveats the rows
 	// written with a caveat, by caveat, each in the order of the docs
@@ -288,12 +287,13 @@ type ToolChange struct {
 	// Was is what the tool shows of it, as the earlier export wrote it:
 	// for PP, each record's file, day, Type and Value, as "portfolio
 	// 2025-01-21 Buy 400.67"; for Ghostfolio, each activity's day, type and
-	// value, with its fee. NoteRef is the ref that its PP Note names, when
-	// it is not Ref; Transfer, for a PP transfer's paying side, the head of
-	// the Note that PP holds of the transfer, which names its paying side
-	// first, as "A2 ...398 T61001201 to A1 ...135 T61001202", "" for any
-	// other row.
-	Was, NoteRef, Transfer string
+	// value, with its fee. Note is, for PP, how the Note that PP holds of it
+	// begins, when that is not its label and ref: of a row that took a new
+	// ref since PP got it, the old one's, as "A1 ...135 C7a0b1c2d.1"; of a
+	// transfer, the head that it was written with, which names its paying
+	// side first, as "A2 ...398 T61001201 to A1 ...135 T61001202"; "" for
+	// any other row.
+	Was, Note string
 	// Now is, for a row changed, what the export writes of it, in Was's
 	// form; Why is, for a row gone, what became of it: uncounted with the
 	// store's reason, linked to the row that counts in its place, left out
@@ -304,8 +304,11 @@ type ToolChange struct {
 }
 
 // A ToolTick is a row of a PP export that PP will mark as existing although
-// it is new, which you tick on PP's review page: the second such row of two
-// equal ones, or a row equal to a transfer's leg in its account.
+// it is new, which you tick on PP's review page (R-6 of the consolidation):
+// a row equal, in its type's class, day, amount, shares and security, to one
+// that PP holds of the chain or of a file imported before it, as the second
+// of two equal trades, or a withdrawal or a deposit of a transfer's day and
+// amount.
 type ToolTick struct {
 	// File is the file whose row it is, Ref the row's ref, Account its
 	// account's label, and As what PP shows of the record, as Was is.
@@ -479,7 +482,7 @@ func exportTool(in *toolInput, o ToolOptions, since *toolChain, at time.Time, v 
 	}
 	e := &ToolExport{
 		At: at, Tool: in.tool, To: in.to, Coverage: in.coverage, Waiting: len(in.waiting), Late: res.late,
-		SameAs: len(res.sameAs), SymbolsChanged: len(res.symbolsChanged), Unsure: toolUnsures(keysUnsure(in, res.written)), Unused: unused,
+		SymbolsChanged: len(res.symbolsChanged), Unsure: toolUnsures(keysUnsure(in, res.written)), Unused: unused,
 		in: in, events: events, outcomes: outcomes, res: res, store: store,
 	}
 	if in.account != 0 {
@@ -518,9 +521,7 @@ func (e *ToolExport) renderPP() {
 	e.marks = ppTicks(e.pp, e.res)
 	ticks := map[string]int{}
 	for _, m := range e.marks {
-		if m.tick {
-			ticks[m.file]++
-		}
+		ticks[m.file]++
 	}
 	for _, f := range e.pp {
 		if f.kind == ppConfiguration {
@@ -644,10 +645,10 @@ func (e *ToolExport) count() {
 		}
 	}
 	for _, c := range e.res.changed {
-		e.Changed = append(e.Changed, ToolChange{Ref: c.Ref, Account: c.Account, Was: c.Was, NoteRef: c.NoteRef, Transfer: c.Transfer, Now: c.Now})
+		e.Changed = append(e.Changed, ToolChange{Ref: c.Ref, Account: c.Account, Was: c.Was, Note: c.Note, Now: c.Now})
 	}
 	for _, g := range e.res.gone {
-		e.Gone = append(e.Gone, ToolChange{Ref: g.Ref, Account: g.Account, Was: g.Was, NoteRef: g.NoteRef, Transfer: g.Transfer, Why: g.Why})
+		e.Gone = append(e.Gone, ToolChange{Ref: g.Ref, Account: g.Account, Was: g.Was, Note: g.Note, Why: g.Why})
 	}
 	for _, t := range ppTickList(e.marks) {
 		e.Tick = append(e.Tick, ToolTick(t))
@@ -1121,7 +1122,7 @@ var toolUnits = map[string]map[string]string{
 		"dates":    "New York calendar dates, YYYY-MM-DD",
 		"times":    "Time: HH:mm on New York's clocks, empty for a row with no time on its day",
 		"manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
-		"fp":       "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+		"fp":       "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
 	},
 	toolGF: {
 		"money":    "fee, a DIVIDEND's and an INTEREST's unitPrice, and balances: dollars with two places, from the store's whole cents; balances signed",

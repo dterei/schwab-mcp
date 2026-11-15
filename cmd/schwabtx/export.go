@@ -505,12 +505,8 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 		}
 		fmt.Fprintf(w, "  this assumes %s holds %s and every export before it, each imported once, with what it listed %s\n", tool, since, done)
 		if n := e.Late; n > 0 {
-			fmt.Fprintf(w, "  %d %s %s dated on or before %s, the end of %s: %s late or %s decided since\n",
+			fmt.Fprintf(w, "  %d %s %s dated on or before %s, the end of %s: %s late, %s decided or took a new ref since\n",
 				n, of, pluralWord(n, "is", "are"), e.SinceTo, since, pluralWord(n, "it came", "they came"), pluralWord(n, "was", "were"))
-		}
-		if n := e.SameAs; n > 0 {
-			fmt.Fprintf(w, "  %d %s %s that %s holds under another ref (%s lists %s under same_as): it shows %s as existing; leave %s unticked\n",
-				n, of, pluralWord(n, "is a row", "are rows"), tool, manifest, pluralWord(n, "it", "them"), pluralWord(n, "it", "them"), pluralWord(n, "it", "them"))
 		}
 	}
 	coverageLines(w, e.Coverage)
@@ -557,7 +553,7 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 		}
 		fmt.Fprintf(w, "import in this order: %s\n", strings.Join(files, ", "))
 		if len(e.Tick) > 0 {
-			fmt.Fprintf(w, "tick these rows, which %s will show as existing although they are new; leave every other such row unticked:\n", tool)
+			fmt.Fprintf(w, "tick these rows, which %s will show as existing although they are new (it marks no other row of this export but one equal to an entry you booked by hand, which you tick too: what you booked is to equal the differences listed, docs/tools.md step 4):\n", tool)
 			for _, t := range e.Tick {
 				fmt.Fprintf(w, "  %s: %s: %s (%s)\n", t.File, toolAccountName(e, t.Account), ppShown(t.As), t.Ref)
 			}
@@ -861,15 +857,13 @@ func toolDeletions(w io.Writer, e *history.ToolExport, manifest string) {
 	gf := e.Tool == "ghostfolio"
 	fmt.Fprintf(w, "before importing, delete in %s what changed or went (%s lists each):\n", toolFormats[e.Tool].name, manifest)
 	// held says what the tool shows of row c and how its PP Note or
-	// Ghostfolio comment begins: a transfer's Note names its paying side
-	// first.
+	// Ghostfolio comment begins: its label and ref, or for PP what its
+	// manifest's note says in their place, as a transfer's head, which names
+	// its paying side first.
 	held := func(c history.ToolChange) string {
-		note, was, where := c.Account+" "+cmp.Or(c.NoteRef, c.Ref), c.Was, "comment"
+		note, was, where := cmp.Or(c.Note, c.Account+" "+c.Ref), c.Was, "comment"
 		if !gf {
 			was, where = ppShown(was), "note"
-			if c.Transfer != "" {
-				note = c.Transfer
-			}
 		}
 		return fmt.Sprintf("%s: %s (%s schwabtx %s)", toolAccountName(e, c.Account), was, where, note)
 	}

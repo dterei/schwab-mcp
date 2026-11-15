@@ -56,7 +56,7 @@
   ],
   "units": {
     "dates": "New York calendar dates, YYYY-MM-DD",
-    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
     "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
     "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
     "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
@@ -76,37 +76,23 @@
       "Ca1b2c3d4.1": {
         "day": "2025-03-03",
         "as": "portfolio 2025-03-03 Buy 4982.50",
-        "fp": "9ad793f140648b64",
-        "keys": [
-          "c8d9e742b5468e91",
-          "89453d5d0209ca0d"
-        ]
+        "fp": "9ad793f140648b64"
       },
       "Ca1b2c3d4.2": {
         "day": "2025-08-15",
         "as": "account 2025-08-15 Dividend 106.25",
-        "fp": "f14d49680e3bad61",
-        "keys": [
-          "c2de375245d7eacf"
-        ]
+        "fp": "f14d49680e3bad61"
       },
       "Ca1b2c3d4.3": {
         "day": "2026-08-17",
         "as": "portfolio 2026-08-17 Sell 5000.00",
         "fp": "5e6063939e9222dc",
-        "with": "Ca1b2c3d4.4",
-        "keys": [
-          "fd8e6ec49555d546",
-          "321ce34e044903e0"
-        ]
+        "with": "Ca1b2c3d4.4"
       },
       "Ca1b2c3d4.6": {
         "day": "2025-12-01",
         "as": "account 2025-12-01 Dividend 250.00",
-        "fp": "b7a8bd099f38b20d",
-        "keys": [
-          "a411bed20abf1b8d"
-        ]
+        "fp": "b7a8bd099f38b20d"
       }
     }
   },

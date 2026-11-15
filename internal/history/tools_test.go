@@ -85,7 +85,6 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 		Given   map[string]map[string]chainGiven `json:"given"`
 		Changed []chainChanged                   `json:"changed"`
 		Gone    []chainGone                      `json:"gone"`
-		SameAs  *[]chainSameAs                   `json:"same_as"`
 		Tick    *[]chainTick                     `json:"tick"`
 		LeftOut []struct {
 			Account, Reason string
@@ -182,18 +181,15 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	check("rows in the balances", e.InBalances, inBalances)
 	var changed, gone []ToolChange
 	for _, c := range m.Changed {
-		changed = append(changed, ToolChange{Ref: c.Ref, Account: c.Account, Was: c.Was, NoteRef: c.NoteRef, Transfer: c.Transfer, Now: c.Now})
+		changed = append(changed, ToolChange{Ref: c.Ref, Account: c.Account, Was: c.Was, Note: c.Note, Now: c.Now})
 	}
 	for _, g := range m.Gone {
-		gone = append(gone, ToolChange{Ref: g.Ref, Account: g.Account, Was: g.Was, NoteRef: g.NoteRef, Transfer: g.Transfer, Why: g.Why})
+		gone = append(gone, ToolChange{Ref: g.Ref, Account: g.Account, Was: g.Was, Note: g.Note, Why: g.Why})
 	}
 	check("rows changed", e.Changed, changed)
 	check("rows gone", e.Gone, gone)
-	var sameAs, ticks int
+	var ticks int
 	var tick []ToolTick
-	if m.SameAs != nil {
-		sameAs = len(*m.SameAs)
-	}
 	if m.Tick != nil {
 		for _, k := range *m.Tick {
 			tick = append(tick, ToolTick(k))
@@ -202,7 +198,6 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	for _, f := range files {
 		ticks += f.Tick
 	}
-	check("rows the same as gone ones", e.SameAs, sameAs)
 	check("rows to tick", e.Tick, tick)
 	check("files' rows to tick", ticks, len(tick))
 

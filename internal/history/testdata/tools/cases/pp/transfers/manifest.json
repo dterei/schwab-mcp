@@ -65,7 +65,7 @@
   ],
   "units": {
     "dates": "New York calendar dates, YYYY-MM-DD",
-    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
     "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
     "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
     "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
@@ -85,50 +85,32 @@
       "T61001203": {
         "day": "2026-04-01",
         "as": "account 2026-04-01 Withdrawal 300.00",
-        "fp": "8f617baa0d179cee",
-        "keys": [
-          "2ca7b9461740c131"
-        ]
+        "fp": "8f617baa0d179cee"
       },
       "T61001205": {
         "day": "2026-05-04",
         "as": "account 2026-05-04 Withdrawal 200.00",
-        "fp": "037697765e47b941",
-        "keys": [
-          "c1c35efceb16407e"
-        ]
+        "fp": "037697765e47b941"
       },
       "T61001207": {
         "day": "2026-06-01",
         "as": "account 2026-06-01 Withdrawal 150.00",
-        "fp": "7f04f52d7f80fe0e",
-        "keys": [
-          "b9c25aee15c1b1e3"
-        ]
+        "fp": "7f04f52d7f80fe0e"
       },
       "T61001210": {
         "day": "2026-07-01",
         "as": "account 2026-07-01 Deposit 80.00",
-        "fp": "4c099cf008e2caf4",
-        "keys": [
-          "7a765f0ddfef2c6d"
-        ]
+        "fp": "4c099cf008e2caf4"
       },
       "T61001211": {
         "day": "2026-08-03",
         "as": "account 2026-08-03 Withdrawal 100.00",
-        "fp": "b6121dd0b8b14e08",
-        "keys": [
-          "057241c524003d9d"
-        ]
+        "fp": "b6121dd0b8b14e08"
       },
       "T61001212": {
         "day": "2026-08-03",
         "as": "account 2026-08-03 Deposit 100.00",
-        "fp": "5294cf9e0ecd2d7b",
-        "keys": [
-          "b810707661b49cd4"
-        ]
+        "fp": "5294cf9e0ecd2d7b"
       }
     },
     "A2 ...398": {
@@ -136,35 +118,22 @@
         "day": "2026-03-02",
         "as": "account 2026-03-02 Transfer (Outbound) 1000.00",
         "fp": "c4cb20e64c7fa965",
-        "keys": [
-          "f85335d1e172df21",
-          "18822233592905d9"
-        ],
-        "transfer": "A2 ...398 T61001201 to A1 ...135 T61001202"
+        "note": "A2 ...398 T61001201 to A1 ...135 T61001202"
       },
       "T61001204": {
         "day": "2026-04-01",
         "as": "account 2026-04-01 Deposit 299.00",
-        "fp": "953ef32ccc5977ad",
-        "keys": [
-          "9cd1911bd0098d3a"
-        ]
+        "fp": "953ef32ccc5977ad"
       },
       "T61001208": {
         "day": "2026-06-01",
         "as": "account 2026-06-01 Deposit 150.00",
-        "fp": "3d2a3da5023a30a2",
-        "keys": [
-          "e7da6dd54113ce5d"
-        ]
+        "fp": "3d2a3da5023a30a2"
       },
       "T61001209": {
         "day": "2026-07-01",
         "as": "account 2026-07-01 Withdrawal 80.00",
-        "fp": "8b7ede82bdeb7994",
-        "keys": [
-          "f788f1fc1d3ea08b"
-        ]
+        "fp": "8b7ede82bdeb7994"
       }
     }
   },

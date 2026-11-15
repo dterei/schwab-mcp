@@ -61,7 +61,7 @@ func ppCase(t *testing.T, c toolCase, golden string) {
 	m := newPPModel()
 	ppApply(t, m, s)
 	for _, mk := range s.marks {
-		t.Errorf("PP marks row %d of %s, of %s, as existing, to tick %v", mk.line, mk.file, mk.record.ref, mk.tick)
+		t.Errorf("PP marks row %d of %s, of %s, as existing", mk.line, mk.file, mk.record.ref)
 	}
 	ppReconcile(t, m, e.in, e.events, e.outcomes)
 }

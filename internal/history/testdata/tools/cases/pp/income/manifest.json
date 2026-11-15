@@ -56,7 +56,7 @@
   ],
   "units": {
     "dates": "New York calendar dates, YYYY-MM-DD",
-    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
     "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
     "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
     "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
@@ -81,132 +81,82 @@
       "Cc0d1e2f3.1": {
         "day": "2024-05-15",
         "as": "account 2024-05-15 Dividend 9.50",
-        "fp": "6bee7931be151df8",
-        "keys": [
-          "9d3271c0b694c1eb"
-        ]
+        "fp": "6bee7931be151df8"
       },
       "Cc0d1e2f3.10": {
         "day": "2024-11-01",
         "as": "account 2024-11-01 Dividend 4.00",
-        "fp": "dda51d0da3b4d658",
-        "keys": [
-          "2ab01d3f36c53840"
-        ]
+        "fp": "dda51d0da3b4d658"
       },
       "Cc0d1e2f3.12": {
         "day": "2024-11-20",
         "as": "account 2024-11-20 Interest Charge 5.00",
-        "fp": "fba36ca79a17f853",
-        "keys": [
-          "b0bb0aac71753331"
-        ]
+        "fp": "fba36ca79a17f853"
       },
       "Cc0d1e2f3.13": {
         "day": "2024-12-02",
         "as": "account 2024-12-02 Dividend 3.00",
-        "fp": "c1649d14e416edd3",
-        "keys": [
-          "03fdc59160431cf0"
-        ]
+        "fp": "c1649d14e416edd3"
       },
       "Cc0d1e2f3.2": {
         "day": "2024-05-20",
         "as": "account 2024-05-20 Fees 1.25",
-        "fp": "f596ff093e56a65d",
-        "keys": [
-          "3a399cbfac9e83e0"
-        ]
+        "fp": "f596ff093e56a65d"
       },
       "Cc0d1e2f3.3": {
         "day": "2024-06-15",
         "as": "account 2024-06-15 Dividend 5.00",
-        "fp": "1bdc498a70d17579",
-        "keys": [
-          "b9e176ec15bf6f63"
-        ]
+        "fp": "1bdc498a70d17579"
       },
       "Cc0d1e2f3.4": {
         "day": "2024-07-01",
         "as": "portfolio 2024-07-01 Buy 990.00",
-        "fp": "3c5f68418c7bd78b",
-        "keys": [
-          "e0d8c45ce4139e51",
-          "3ab6a6100beb9b59"
-        ]
+        "fp": "3c5f68418c7bd78b"
       },
       "Cc0d1e2f3.5": {
         "day": "2024-08-15",
         "as": "account 2024-08-15 Dividend 21.25",
-        "fp": "c6c1e2750192e37c",
-        "keys": [
-          "062cff24325c95d2"
-        ]
+        "fp": "c6c1e2750192e37c"
       },
       "Cc0d1e2f3.6": {
         "day": "2024-09-01",
         "as": "account 2024-09-01 Interest Charge 3.17",
-        "fp": "5cb4c616c3651d4f",
-        "keys": [
-          "0a97cf83c4e2a1d5"
-        ]
+        "fp": "5cb4c616c3651d4f"
       },
       "Cc0d1e2f3.7": {
         "day": "2024-09-05",
         "as": "account 2024-09-05 Fees 25.00",
-        "fp": "5c1f637628da8f0d",
-        "keys": [
-          "3fac5d64d0de820c"
-        ]
+        "fp": "5c1f637628da8f0d"
       },
       "Cc0d1e2f3.8": {
         "day": "2024-09-06",
         "as": "account 2024-09-06 Fees Refund 25.00",
-        "fp": "59f5a4639bcd9251",
-        "keys": [
-          "ce0fbf35ce278485"
-        ]
+        "fp": "59f5a4639bcd9251"
       },
       "Cc0d1e2f3.9": {
         "day": "2024-10-01",
         "as": "account 2024-10-01 Tax Refund 0.80",
-        "fp": "1d9b1e3f0e863cf1",
-        "keys": [
-          "bdc02e61bd8a8082"
-        ]
+        "fp": "1d9b1e3f0e863cf1"
       },
       "T61001601": {
         "day": "2024-01-10",
         "as": "portfolio 2024-01-10 Buy 300.00",
-        "fp": "f0a466d5349ab006",
-        "keys": [
-          "1aec087f9fdac926",
-          "14bfedb2f16342e2"
-        ]
+        "fp": "f0a466d5349ab006"
       },
       "T61001602": {
         "day": "2024-04-04",
         "as": "account 2024-04-04 Dividend 3.86",
-        "fp": "880581fe0567aceb",
-        "keys": [
-          "d272b9446d6be7b1"
-        ]
+        "fp": "880581fe0567aceb"
       },
       "T61001603": {
         "day": "2024-04-30",
         "as": "account 2024-04-30 Interest 0.42",
-        "fp": "0e891a9cbd629003",
-        "keys": [
-          "f5809984c66828a1"
-        ]
+        "fp": "0e891a9cbd629003"
       },
       "T61001604": {
         "day": "2024-04-04",
         "as": "account 2024-04-04 Taxes 1.16",
-        "fp": "42e39b607049f5f6",
-        "keys": [
-          "f75de16d1217ee2e"
-        ]
+        "fp": "42e39b607049f5f6"
       }
     }
   },

@@ -48,7 +48,7 @@
   ],
   "units": {
     "dates": "New York calendar dates, YYYY-MM-DD",
-    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
     "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
     "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
     "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
@@ -67,46 +67,22 @@
       "T61001401": {
         "day": "2025-01-10",
         "as": "portfolio 2025-01-10 Buy 151.32; portfolio 2025-01-10 Sell 80.00",
-        "fp": "b7f5c23666051604",
-        "keys": [
-          "b088bf6df0864985",
-          "9fb3bdfff1f9db26",
-          "ae7733ccac4b4fd6",
-          "ce80590ec8393281"
-        ]
+        "fp": "b7f5c23666051604"
       },
       "T61001404": {
         "day": "2025-01-13",
         "as": "portfolio 2025-01-13 Buy 201.37; portfolio 2025-01-13 Sell 120.00",
-        "fp": "82b0acbcc8cd27d5",
-        "keys": [
-          "7b2fc25f77deac69",
-          "55287060878754bb",
-          "645b1f6b66e4dca3",
-          "1010dd90714ebe0a"
-        ]
+        "fp": "82b0acbcc8cd27d5"
       },
       "T61001405": {
         "day": "2025-01-14",
         "as": "portfolio 2025-01-14 Buy 101.30; portfolio 2025-01-14 Sell 100.00",
-        "fp": "d0ffc501e780b7f6",
-        "keys": [
-          "3a3da859a146c743",
-          "1d091b6ac8516027",
-          "0c3053e240da7c80",
-          "7ab6991c7d824ee0"
-        ]
+        "fp": "d0ffc501e780b7f6"
       },
       "T61001407": {
         "day": "2025-01-16",
         "as": "portfolio 2025-01-16 Buy 50.00; portfolio 2025-01-16 Sell 78.68",
-        "fp": "81ab9309404e5285",
-        "keys": [
-          "847cd05d15fd1cd3",
-          "83cd22058f555f8b",
-          "d051f7a483ae8c21",
-          "dd48402407eaebb4"
-        ]
+        "fp": "81ab9309404e5285"
       }
     }
   },

@@ -66,7 +66,7 @@
   ],
   "units": {
     "dates": "New York calendar dates, YYYY-MM-DD",
-    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
     "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
     "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
     "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
@@ -84,330 +84,198 @@
       "T73508261943": {
         "day": "2025-06-02",
         "as": "portfolio 2025-06-02 Buy 605.46",
-        "fp": "c3f5c07b618e2613",
-        "keys": [
-          "3efc47baef66f53e",
-          "953600a84593b418"
-        ]
+        "fp": "c3f5c07b618e2613"
       },
       "T73508261946": {
         "day": "2024-04-04",
         "as": "portfolio 2024-04-04 Buy 2.70",
-        "fp": "030f3ad1ebb64bb6",
-        "keys": [
-          "909fe6579bb1a15c",
-          "56aa930ef771afdd"
-        ]
+        "fp": "030f3ad1ebb64bb6"
       },
       "T73508261947": {
         "day": "2024-03-15",
         "as": "portfolio 2024-03-15 Sell 83.27",
-        "fp": "9554649a6c050e74",
-        "keys": [
-          "304ce85416b3d3da",
-          "3fe8256a4118cc76"
-        ]
+        "fp": "9554649a6c050e74"
       },
       "T73508261949": {
         "day": "2024-04-30",
         "as": "account 2024-04-30 Interest 0.42",
-        "fp": "0e891a9cbd629003",
-        "keys": [
-          "f5809984c66828a1"
-        ]
+        "fp": "0e891a9cbd629003"
       },
       "T73508261950": {
         "day": "2024-04-04",
         "as": "account 2024-04-04 Dividend 3.86",
-        "fp": "9334f8b184344cfb",
-        "keys": [
-          "656f7cc96f7ad243"
-        ]
+        "fp": "9334f8b184344cfb"
       },
       "T73508261951": {
         "day": "2023-12-15",
         "as": "account 2023-12-15 Deposit 10000.00",
-        "fp": "cd54d6178f4e3104",
-        "keys": [
-          "20ad00339cb3b54c"
-        ]
+        "fp": "cd54d6178f4e3104"
       },
       "T73508261952": {
         "day": "2023-07-19",
         "as": "account 2023-07-19 Deposit 2500.00",
-        "fp": "989f670601508ae3",
-        "keys": [
-          "fd1707a48b0ffc6f"
-        ]
+        "fp": "989f670601508ae3"
       },
       "T73508261953": {
         "day": "2023-06-12",
         "as": "account 2023-06-12 Deposit 150.00",
-        "fp": "0ee80d5918a55b3c",
-        "keys": [
-          "f669a75819f669d9"
-        ]
+        "fp": "0ee80d5918a55b3c"
       },
       "T73508261954": {
         "day": "2024-04-04",
         "as": "account 2024-04-04 Taxes 1.16",
-        "fp": "90a1b3ebd685761d",
-        "keys": [
-          "0285adb25e62fdfd"
-        ]
+        "fp": "90a1b3ebd685761d"
       },
       "T73600000103": {
         "day": "2026-09-10",
         "as": "portfolio 2026-09-10 Delivery (Outbound) 460.20",
-        "fp": "90406769fc3084b1",
-        "keys": [
-          "c67436cb11e46a6f"
-        ]
+        "fp": "90406769fc3084b1"
       },
       "T73600000107": {
         "day": "2026-09-21",
         "as": "account 2026-09-21 Dividend 0.26",
-        "fp": "ec05c939514a688e",
-        "keys": [
-          "d5ef7f95fe652800"
-        ]
+        "fp": "ec05c939514a688e"
       },
       "T73600000108": {
         "day": "2026-09-23",
         "as": "account 2026-09-23 Dividend 0.26",
-        "fp": "1c6162cb4f99db55",
-        "keys": [
-          "9de67b25a57521ff"
-        ]
+        "fp": "1c6162cb4f99db55"
       }
     },
     "A2 ...398": {
       "T73508261941": {
         "day": "2026-08-04",
         "as": "portfolio 2026-08-04 Sell 311.31",
-        "fp": "a77429ea2f0fd2ea",
-        "keys": [
-          "c4c579ab5cdaff13",
-          "10d6a65c92bd29d2"
-        ]
+        "fp": "a77429ea2f0fd2ea"
       },
       "T73508261942": {
         "day": "2026-03-13",
         "as": "portfolio 2026-03-13 Sell 603.36",
-        "fp": "91a6098a9dbceefa",
-        "keys": [
-          "7ffa08b784b1a24f",
-          "aa66a9fd01637334"
-        ]
+        "fp": "91a6098a9dbceefa"
       },
       "T73508261944": {
         "day": "2025-01-21",
         "as": "portfolio 2025-01-21 Buy 400.67",
-        "fp": "fa029d246d62196e",
-        "keys": [
-          "b2b2ee706afa9aed",
-          "1dc1cfeeae2884fc"
-        ]
+        "fp": "fa029d246d62196e"
       },
       "T73508261945": {
         "day": "2025-01-14",
         "as": "portfolio 2025-01-14 Buy 1052.82",
-        "fp": "1afa47e57bf63f61",
-        "keys": [
-          "ea045dda9c0d0387",
-          "dc57da68e8c4f0ed"
-        ]
+        "fp": "1afa47e57bf63f61"
       },
       "T73508261948": {
         "day": "2026-07-15",
         "as": "account 2026-07-15 Dividend 25.00",
-        "fp": "35a0d0a4bc5bddb9",
-        "keys": [
-          "f18dda77611486e4"
-        ]
+        "fp": "35a0d0a4bc5bddb9"
       },
       "T73600000101": {
         "day": "2026-09-08",
         "as": "account 2026-09-08 Transfer (Outbound) 500.00",
         "fp": "62bc0bfa7ceb6834",
-        "keys": [
-          "34283c6ddfeb606b",
-          "aea8c47065343a42"
-        ],
-        "transfer": "A2 ...398 T73600000101 to A1 ...135 T73600000102"
+        "note": "A2 ...398 T73600000101 to A1 ...135 T73600000102"
       },
       "T73600000104": {
         "day": "2026-09-10",
         "as": "portfolio 2026-09-10 Delivery (Inbound) 460.20",
-        "fp": "25b5bb53a6a452ca",
-        "keys": [
-          "d02a51762af3ed37"
-        ]
+        "fp": "25b5bb53a6a452ca"
       },
       "T73600000105": {
         "day": "2026-09-15",
         "as": "portfolio 2026-09-15 Buy 211.34; portfolio 2026-09-15 Sell 80.00",
-        "fp": "943c7eb52d3495b5",
-        "keys": [
-          "9ff584a5197a75d1",
-          "b55c99f056844cbd",
-          "d017c5b46b2ec0c5",
-          "1ceb03631e305a4f"
-        ]
+        "fp": "943c7eb52d3495b5"
       }
     },
     "A3 ...398": {
       "C6e4c5a90.1": {
         "day": "2026-11-09",
         "as": "account 2026-11-09 Dividend 4.20",
-        "fp": "a4a0fb9b83319ae0",
-        "keys": [
-          "00dfc2fc59302aee"
-        ]
+        "fp": "a4a0fb9b83319ae0"
       },
       "C6e4c5a90.2": {
         "day": "2026-11-13",
         "as": "account 2026-11-13 Dividend 3.60",
-        "fp": "6a916e3fc21e6e72",
-        "keys": [
-          "c52dc3531844cdf3"
-        ]
+        "fp": "6a916e3fc21e6e72"
       },
       "Cad2f64b0.1": {
         "day": "2026-07-01",
         "as": "portfolio 2026-07-01 Sell 1200.00",
         "fp": "626610430ebe1080",
-        "with": "Cad2f64b0.2",
-        "keys": [
-          "6028a4c3ff9751fe",
-          "1ff241c6c5309c9d"
-        ]
+        "with": "Cad2f64b0.2"
       },
       "Cad2f64b0.10": {
         "day": "2026-03-20",
         "as": "account 2026-03-20 Interest Charge 4.17",
-        "fp": "84e7b0aae1fb0d8d",
-        "keys": [
-          "d65aa6ce368d241c"
-        ]
+        "fp": "84e7b0aae1fb0d8d"
       },
       "Cad2f64b0.11": {
         "day": "2026-03-16",
         "as": "portfolio 2026-03-16 Delivery (Outbound) 0.00",
-        "fp": "7ea9fd89e6d14dc5",
-        "keys": [
-          "99b0da24161db6ce"
-        ]
+        "fp": "7ea9fd89e6d14dc5"
       },
       "Cad2f64b0.12": {
         "day": "2026-03-09",
         "as": "portfolio 2026-03-09 Delivery (Inbound) 0.00",
-        "fp": "15d0771a62f0879f",
-        "keys": [
-          "93b92d923ecc695c"
-        ]
+        "fp": "15d0771a62f0879f"
       },
       "Cad2f64b0.13": {
         "day": "2026-03-02",
         "as": "account 2026-03-02 Deposit 250.00",
-        "fp": "52b9c9aebc6d8871",
-        "keys": [
-          "57a59e8125168eab"
-        ]
+        "fp": "52b9c9aebc6d8871"
       },
       "Cad2f64b0.14": {
         "day": "2026-02-24",
         "as": "portfolio 2026-02-24 Buy 498.00",
-        "fp": "29111e7d9da04f70",
-        "keys": [
-          "51fbf118ef6e0c3a",
-          "6eab18dfe2411bb8"
-        ]
+        "fp": "29111e7d9da04f70"
       },
       "Cad2f64b0.15": {
         "day": "2026-02-18",
         "as": "portfolio 2026-02-18 Sell 100.00",
-        "fp": "364d18d407b197cf",
-        "keys": [
-          "c06d08875c066dbf",
-          "3d2800df66d4825e"
-        ]
+        "fp": "364d18d407b197cf"
       },
       "Cad2f64b0.16": {
         "day": "2026-02-17",
         "as": "portfolio 2026-02-17 Buy 100.00",
-        "fp": "7f41558fa3802747",
-        "keys": [
-          "ba48d4767fe39829",
-          "ec3b954bb234b1c5"
-        ]
+        "fp": "7f41558fa3802747"
       },
       "Cad2f64b0.17": {
         "day": "2026-02-10",
         "as": "portfolio 2026-02-10 Buy 1140.00",
-        "fp": "6d8c1b27a8aab887",
-        "keys": [
-          "7f3b821f19a8adb7",
-          "b9ff4503e23b71ef"
-        ]
+        "fp": "6d8c1b27a8aab887"
       },
       "Cad2f64b0.4": {
         "day": "2026-06-01",
         "as": "portfolio 2026-06-01 Delivery (Inbound) 4990.00",
-        "fp": "6e6a27ac91dfa0a7",
-        "keys": [
-          "8f1fc6d56f9b2433"
-        ]
+        "fp": "6e6a27ac91dfa0a7"
       },
       "Cad2f64b0.5": {
         "day": "2026-05-18",
         "as": "portfolio 2026-05-18 Delivery (Outbound) 0.00",
-        "fp": "fd8cd8cd6a5c795a",
-        "keys": [
-          "921dc9dc8607696a"
-        ]
+        "fp": "fd8cd8cd6a5c795a"
       },
       "Cad2f64b0.6": {
         "day": "2026-05-15",
         "as": "account 2026-05-15 Dividend 212.50",
-        "fp": "e7ec4a5f8b63edb1",
-        "keys": [
-          "6dd62d5f053c5304"
-        ]
+        "fp": "e7ec4a5f8b63edb1"
       },
       "Cad2f64b0.7": {
         "day": "2026-04-20",
         "as": "account 2026-04-20 Tax Refund 1.25",
-        "fp": "b0e294af98beade1",
-        "keys": [
-          "a4b602c711215b4b"
-        ]
+        "fp": "b0e294af98beade1"
       },
       "Cad2f64b0.8": {
         "day": "2026-04-06",
         "as": "portfolio 2026-04-06 Buy 251.32",
-        "fp": "eae7bf4186168e15",
-        "keys": [
-          "b0834e7bc5f0e26e",
-          "d56e5a7a394acd9a"
-        ]
+        "fp": "eae7bf4186168e15"
       },
       "Cad2f64b0.9": {
         "day": "2026-04-01",
         "as": "portfolio 2026-04-01 Buy 9962.15",
-        "fp": "203e73f5f985bf36",
-        "keys": [
-          "7294abc5f4570baf",
-          "6372601200cdfa9a"
-        ]
+        "fp": "203e73f5f985bf36"
       },
       "Ceaa643bd.1": {
         "day": "2026-11-13",
         "as": "account 2026-11-13 Dividend 3.06",
-        "fp": "e75889974b2b4420",
-        "keys": [
-          "59fdfda6eac3c0b8"
-        ]
+        "fp": "e75889974b2b4420"
       }
     }
   },

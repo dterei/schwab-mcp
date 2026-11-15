@@ -991,33 +991,56 @@ type ppItem struct {
 // imports only when ticked, and what PP refuses, of the file as a whole or
 // of a row, which it does not import.
 func (m *ppModel) importFile(dir, name, page string, ticks map[int]bool) (marked []int, refused []string) {
+	marked, _, refused = m.importRows(dir, name, page, ticks, false)
+	return marked, refused
+}
+
+// importTicking imports the file name of the PP export in dir into m as
+// importFile does, and ticks too each row that the review page marks for
+// what you booked by hand alone (ppByHand), as the how-to has you (step 3):
+// it returns those rows apart, byHand, among the rows marked.
+func (m *ppModel) importTicking(dir, name, page string, ticks map[int]bool) (marked, byHand []int, refused []string) {
+	return m.importRows(dir, name, page, ticks, true)
+}
+
+// ppByHand reports whether PP holds tx by what you booked by hand: its Note
+// is not one that the export writes (ppNote), which begins "schwabtx ".
+func ppByHand(tx *ppTx) bool {
+	return !strings.HasPrefix(tx.note, "schwabtx ")
+}
+
+// importRows imports the file name of the PP export in dir into m as
+// importFile does, and, with tickHand, as importTicking does. It returns
+// the rows marked, those of them marked for what you booked by hand alone,
+// and what PP refuses.
+func (m *ppModel) importRows(dir, name, page string, ticks map[int]bool, tickHand bool) (marked, byHand []int, refused []string) {
 	bad := func(format string, args ...any) { refused = append(refused, name+": "+fmt.Sprintf(format, args...)) }
 	cfgName := ppConfigOf(name)
 	if cfgName == "" {
 		bad("no configuration reads it")
-		return nil, refused
+		return nil, nil, refused
 	}
 	cfgData, err := os.ReadFile(filepath.Join(dir, cfgName))
 	if err != nil {
 		bad("%v", err)
-		return nil, refused
+		return nil, nil, refused
 	}
 	c, err := ppApplyConfig(cfgData)
 	if err != nil {
 		bad("%s: %v", cfgName, err)
-		return nil, refused
+		return nil, nil, refused
 	}
 	data, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
 		bad("%v", err)
-		return nil, refused
+		return nil, nil, refused
 	}
 	r := csv.NewReader(bytes.NewReader(data))
 	r.FieldsPerRecord = -1
 	records, err := r.ReadAll()
 	if err != nil {
 		bad("cannot be parsed: %v", err)
-		return nil, refused
+		return nil, nil, refused
 	}
 	if int64(len(records)) > c.skipLines {
 		records = records[c.skipLines:]
@@ -1049,7 +1072,7 @@ func (m *ppModel) importFile(dir, name, page string, ticks map[int]bool) (marked
 		if err != nil {
 			if fatal := ppFatal(""); errors.As(err, &fatal) {
 				bad("row %d stops the import: %s", line, string(fatal))
-				return nil, refused
+				return nil, nil, refused
 			}
 			bad("row %d: %v", line, err)
 			continue
@@ -1075,9 +1098,13 @@ func (m *ppModel) importFile(dir, name, page string, ticks map[int]bool) (marked
 			bad("row %d: %v", it.line, err)
 			continue
 		}
-		if m.existing(it) {
+		if holders := m.holders(it); len(holders) > 0 {
 			marked = append(marked, it.line)
-			if !ticks[it.line] {
+			hand := !slices.ContainsFunc(holders, func(tx *ppTx) bool { return !ppByHand(tx) })
+			if hand {
+				byHand = append(byHand, it.line)
+			}
+			if !ticks[it.line] && (!tickHand || !hand) {
 				continue
 			}
 		}
@@ -1092,7 +1119,7 @@ func (m *ppModel) importFile(dir, name, page string, ticks map[int]bool) (marked
 			tx.owner.txs = append(tx.owner.txs, tx)
 		}
 	}
-	return marked, refused
+	return marked, byHand, refused
 }
 
 // A ppFatal is a failure that stops PP's import of a whole file, not of a
@@ -1431,14 +1458,15 @@ func (m *ppModel) review(it ppItem) error {
 	return nil
 }
 
-// existing reports whether PP's review page marks item as existing
-// (DetectDuplicatesAction.java:30-185): a transaction of an equivalent type
-// that the account or securities account holds already, of the same day,
-// currency, amount, shares (a dividend without shares matching any) and
-// security. A buy or sale is checked by its account side, then its
-// portfolio side; a transfer by its paying leg in the paying account.
-func (m *ppModel) existing(it ppItem) bool {
-	check := func(tx *ppTx) bool {
+// holders returns the transactions for which PP's review page marks item
+// as existing (DetectDuplicatesAction.java:30-185), none when it does not
+// mark it: each of an equivalent type that the account or securities
+// account holds already, of the same day, currency, amount, shares (a
+// dividend without shares matching any) and security. A buy or sale is
+// checked by its account side and its portfolio side; a transfer by its
+// paying leg in the paying account.
+func (m *ppModel) holders(it ppItem) []*ppTx {
+	check := func(tx *ppTx) []*ppTx {
 		portfolio := slices.Contains(m.portfolios, tx.owner)
 		// class returns what a type is equivalent to: a deposit to an
 		// inbound transfer and a withdrawal to an outbound one in an
@@ -1460,6 +1488,7 @@ func (m *ppModel) existing(it ppItem) bool {
 			return a.typ == "INTEREST" && (a.taxes > 0 && b.taxes == 0 && a.amount+a.taxes == b.amount ||
 				b.taxes > 0 && a.taxes == 0 && b.amount+b.taxes == a.amount)
 		}
+		var out []*ppTx
 		for _, old := range tx.owner.txs {
 			switch {
 			case class(old.typ) != class(tx.typ):
@@ -1467,16 +1496,16 @@ func (m *ppModel) existing(it ppItem) bool {
 			case old.amount != tx.amount && !interest(tx, old):
 			case old.shares != tx.shares && (tx.typ != "DIVIDENDS" || tx.shares != 0 && old.shares != 0):
 			default:
-				return true
+				out = append(out, old)
 			}
 		}
-		return false
+		return out
 	}
 	switch {
 	case it.txs[0].typ == "TRANSFER_OUT":
 		return check(it.txs[0])
 	case len(it.txs) == 2:
-		return check(it.txs[0]) || check(it.txs[1])
+		return append(check(it.txs[0]), check(it.txs[1])...)
 	}
 	return check(it.txs[0])
 }

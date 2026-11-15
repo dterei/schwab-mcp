@@ -48,7 +48,7 @@
   ],
   "units": {
     "dates": "New York calendar dates, YYYY-MM-DD",
-    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F; keys likewise of each side that PP's duplicate check compares",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
     "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
     "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
     "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
@@ -67,83 +67,47 @@
       "Ce5f6a7b8.1": {
         "day": "2025-03-02",
         "as": "portfolio 2025-03-02 Buy 40.00",
-        "fp": "3f4cc15bee2482b9",
-        "keys": [
-          "64b288f31e52efb0",
-          "ed4c4caf4f691023"
-        ]
+        "fp": "3f4cc15bee2482b9"
       },
       "Ce5f6a7b8.2": {
         "day": "2025-03-03",
         "as": "portfolio 2025-03-03 Buy 100.00",
-        "fp": "d200190174634300",
-        "keys": [
-          "08d3fe6cf42a197e",
-          "efce5357589911b6"
-        ]
+        "fp": "d200190174634300"
       },
       "T61002001": {
         "day": "2025-02-03",
         "as": "portfolio 2025-02-03 Buy 600.00",
-        "fp": "30e4628590be45ef",
-        "keys": [
-          "118cdb1e21e3e7fb",
-          "b8ff5387baf4a906"
-        ]
+        "fp": "30e4628590be45ef"
       },
       "T61002002": {
         "day": "2025-02-04",
         "as": "portfolio 2025-02-04 Buy 250.00",
-        "fp": "164740282d7a8a9d",
-        "keys": [
-          "7d835ea20bfb4ebf",
-          "af60b6b167d97a4f"
-        ]
+        "fp": "164740282d7a8a9d"
       },
       "T61002003": {
         "day": "2025-02-05",
         "as": "portfolio 2025-02-05 Buy 50.00",
-        "fp": "5f11935f7f4d8564",
-        "keys": [
-          "900cc4ea38a8f9a9",
-          "ff7cb9cb0aa5e9de"
-        ]
+        "fp": "5f11935f7f4d8564"
       },
       "T61002004": {
         "day": "2026-06-01",
         "as": "portfolio 2026-06-01 Sell 10.00",
-        "fp": "8bdd8c9d18808c90",
-        "keys": [
-          "388bd5d9c7d3e7eb",
-          "1cbeaba3577bfd91"
-        ]
+        "fp": "8bdd8c9d18808c90"
       },
       "T61002005": {
         "day": "2025-02-06",
         "as": "portfolio 2025-02-06 Buy 80.00",
-        "fp": "d1a8f83baecac227",
-        "keys": [
-          "d505ea922a68f62e",
-          "7980114725053af5"
-        ]
+        "fp": "d1a8f83baecac227"
       },
       "T61002006": {
         "day": "2026-02-06",
         "as": "portfolio 2026-02-06 Sell 100.00",
-        "fp": "4ba08ed24ec7ac53",
-        "keys": [
-          "0e73ec8d49aa8a74",
-          "5bd6402f455b399a"
-        ]
+        "fp": "4ba08ed24ec7ac53"
       },
       "T61002007": {
         "day": "2025-02-07",
         "as": "portfolio 2025-02-07 Buy 50.00",
-        "fp": "c6ad9f2ba56617a8",
-        "keys": [
-          "d89105e12c87101f",
-          "acc603d00d852372"
-        ]
+        "fp": "c6ad9f2ba56617a8"
       }
     }
   },
