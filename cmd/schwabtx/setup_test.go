@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"net/url"
@@ -45,13 +46,15 @@ func readSaved(t *testing.T) configfile.File {
 // setup saves the app key and secret from the environment and the paths
 // as schwabtx finds them in this shell, made absolute, in a file readable
 // only by you, and prints them without the secret and with no more of the
-// key than its last three characters, and none of a key of fewer than 12.
-// -print prints the same and saves nothing.
+// key than its last three characters, and none of a key of fewer than 12,
+// and then the lines that start the MCP server with that file. -print
+// prints the same and saves nothing.
 func TestSetup(t *testing.T) {
 	f, tokenFile := setup(t)
 	tokenFile = loginFile(t, tokenFile)
 	store := newStoreFile(t)
 	path := configPath(t)
+	clients := "\n" + clientLines(serverBeside(t, t.TempDir()), path, runtime.GOOS == "windows")
 	rate, err := filepath.Abs(schwab.DefaultRateFile(testKey, tokenFile))
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +71,7 @@ func TestSetup(t *testing.T) {
 		"  api host     " + u.Host + " (from SCHWAB_BASE_URL), not Schwab's\n"
 
 	stdout, stderr, err := runTx(t, "setup", "-print")
-	if want := "Would save " + path + ", readable only by you:\n" + lines + "nothing was saved (-print)\n"; err != nil || stdout != want || stderr != "" {
+	if want := "Would save " + path + ", readable only by you:\n" + lines + "nothing was saved (-print)\n" + clients; err != nil || stdout != want || stderr != "" {
 		t.Errorf("setup -print: %v, printed\n%s\nwant\n%s\nwarned %q", err, stdout, want, stderr)
 	}
 	assertNoFile(t, path)
@@ -97,7 +100,7 @@ func TestSetup(t *testing.T) {
 	t.Setenv("SCHWAB_APP_KEY", testKey)
 
 	saved := "Saved " + path + ", readable only by you:\n" + lines +
-		"schwabtx now reads the key and secret from this file when the environment\nhas none, so .env needs them no longer.\n"
+		"schwabtx now reads the key and secret from this file when the environment\nhas none, so .env needs them no longer.\n" + clients
 	for range 2 { // and again over the file
 		stdout, stderr, err = runTx(t, "setup")
 		if err != nil || stdout != saved || stderr != "" {
@@ -330,8 +333,9 @@ func TestSetupUsage(t *testing.T) {
 }
 
 // The README's section on schwabtx setup lists, in its block of flags,
-// exactly the flags that setup -h prints, and quotes the warnings of login
-// and of the store commands as they print them.
+// exactly the flags that setup -h prints, shows the client lines as setup
+// prints them, and quotes the warnings of login and of the store commands
+// as they print them.
 func TestSetupDocs(t *testing.T) {
 	b, err := os.ReadFile("README.md")
 	if err != nil {
@@ -356,6 +360,12 @@ func TestSetupDocs(t *testing.T) {
 	if !slices.Equal(got, want) || len(want) == 0 {
 		t.Errorf("the README lists the flags %q of setup, which takes %q", got, want)
 	}
+	// Its example of what setup prints shows the client lines as setup prints
+	// them for the example's paths.
+	lines := clientLines("/home/you/go/bin/schwab-mcp", "/home/you/.config/schwabtx/config.json", false)
+	if !slices.ContainsFunc(codeBlocks(section), func(block string) bool { return strings.Contains(block+"\n", "\n"+lines) }) {
+		t.Errorf("no block of the README's section on setup shows the client lines as setup prints them:\n%s", lines)
+	}
 	for _, warning := range []string{
 		"warning: the MCP server reads its login from ",
 		"(config.json); run schwabtx setup in this terminal to point it here",
@@ -366,6 +376,185 @@ func TestSetupDocs(t *testing.T) {
 			t.Errorf("the README's section on setup does not quote %q", warning)
 		}
 	}
+}
+
+// clientLines gives each kind of client the command and --config with the
+// config file: in JSON, which escapes a backslash, a double quote and a
+// control character and no HTML, and in the agent's add command, each path
+// quoted for the shells of Linux and macOS, in single quotes, which a '
+// ends, follows as \' and opens again, or for those of Windows, in double
+// quotes.
+func TestClientLines(t *testing.T) {
+	windows := `For an MCP client, the server's command and arguments, ready to paste
+(docs/mcp.md says where each kind of client takes them).
+A desktop client, in its JSON configuration's "mcpServers", then restart it:
+  "schwab": {
+    "command": "C:\\Users\\Jo Doe\\go\\bin\\schwab-mcp.exe",
+    "args": ["--config", "C:\\Users\\Jo Doe\\AppData\\Roaming\\schwabtx\\config.json"]
+  }
+A command-line agent, with the agent's own command in place of <agent>:
+  <agent> mcp add schwab -- "C:\Users\Jo Doe\go\bin\schwab-mcp.exe" --config "C:\Users\Jo Doe\AppData\Roaming\schwabtx\config.json"
+An editor extension, in "servers" of your user's MCP configuration:
+  "schwab": {
+    "type": "stdio",
+    "command": "C:\\Users\\Jo Doe\\go\\bin\\schwab-mcp.exe",
+    "args": ["--config", "C:\\Users\\Jo Doe\\AppData\\Roaming\\schwabtx\\config.json"]
+  }
+`
+	if got := clientLines(`C:\Users\Jo Doe\go\bin\schwab-mcp.exe`, `C:\Users\Jo Doe\AppData\Roaming\schwabtx\config.json`, true); got != windows {
+		t.Errorf("for Windows:\n%s\nwant\n%s", got, windows)
+	}
+	for _, tc := range []struct {
+		command, config string
+		json            []string // the entries' lines of the command and arguments
+		add             string   // the agent's add command
+	}{
+		{
+			"/Users/you/go/bin/schwab-mcp", "/Users/you/Library/Application Support/schwabtx/config.json",
+			[]string{`    "command": "/Users/you/go/bin/schwab-mcp",`, `    "args": ["--config", "/Users/you/Library/Application Support/schwabtx/config.json"]`},
+			`  <agent> mcp add schwab -- '/Users/you/go/bin/schwab-mcp' --config '/Users/you/Library/Application Support/schwabtx/config.json'`,
+		},
+		{
+			"/home/jo/Jo's bin/schwab-mcp", `/home/jo/R&D <"x"> \ é/config.json`,
+			[]string{`    "command": "/home/jo/Jo's bin/schwab-mcp",`, `    "args": ["--config", "/home/jo/R&D <\"x\"> \\ é/config.json"]`},
+			`  <agent> mcp add schwab -- '/home/jo/Jo'\''s bin/schwab-mcp' --config '/home/jo/R&D <"x"> \ é/config.json'`,
+		},
+		{
+			"/home/jo/a\x01\x7fb/schwab-mcp", "/home/jo/config.json", // characters that JSON writes as escapes, or as they are
+			[]string{`    "command": "/home/jo/a\u0001` + "\x7f" + `b/schwab-mcp",`, `    "args": ["--config", "/home/jo/config.json"]`},
+			"  <agent> mcp add schwab -- '/home/jo/a\x01\x7fb/schwab-mcp' --config '/home/jo/config.json'",
+		},
+	} {
+		got := clientLines(tc.command, tc.config, false)
+		entry := "\n" + strings.Join(tc.json, "\n") + "\n"
+		if strings.Count(got, entry) != 2 || !strings.Contains(got, "\n"+tc.add+"\n") {
+			t.Errorf("for %s and %s:\n%s\nwant twice\n%s\nand\n%s", tc.command, tc.config, got, entry, tc.add)
+		}
+	}
+}
+
+// setup's lines start, for each kind of client, the schwab-mcp beside
+// schwabtx with --config and the config.json that setup saved, though the
+// names of their folders hold a space, as the default config directory on
+// macOS does, and a quote: the desktop client's and the editor extension's
+// entries give each path whole, and this system's shell reads each path of
+// the agent's add command as one word. Without a schwab-mcp beside it,
+// setup names schwab-mcp and says to give its absolute path.
+func TestSetupClientLines(t *testing.T) {
+	setup(t)
+	config := filepath.Join(t.TempDir(), "Jo Doe's files")
+	t.Setenv("HOME", config)            // macOS, which adds Library/Application Support
+	t.Setenv("XDG_CONFIG_HOME", config) // Linux and other Unix systems
+	t.Setenv("AppData", config)         // Windows
+	path := configPath(t)
+	if !strings.Contains(path, " ") || !strings.Contains(path, "'") {
+		t.Fatalf("config.json would be %s, whose folders' names hold no space or no quote", path)
+	}
+	command := serverBeside(t, filepath.Join(t.TempDir(), "Jo's go bin"))
+	for _, args := range [][]string{{"setup", "-print"}, {"setup"}} {
+		stdout, _, err := runTx(t, args...)
+		if err != nil {
+			t.Fatalf("%q: %v", args, err)
+		}
+		for kind, run := range clientsIn(t, stdout) {
+			if want := []string{command, "--config", path}; !slices.Equal(run, want) {
+				t.Errorf("%q: the %s starts %q, want %q", args, kind, run, want)
+			}
+		}
+		if strings.Contains(stdout, "No schwab-mcp") {
+			t.Errorf("%q, with a schwab-mcp beside schwabtx, printed\n%s", args, stdout)
+		}
+	}
+	if c := configfile.ForServer(func(string) string { return "" }, path); c.AppKey.From != configfile.FromFile || len(c.Problems) != 0 {
+		t.Errorf("the server would read %+v", c)
+	}
+
+	// No schwab-mcp beside schwabtx, or a folder of that name.
+	folder := t.TempDir()
+	if err := os.Mkdir(filepath.Join(folder, filepath.Base(command)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{t.TempDir(), folder} {
+		runningIn(t, dir)
+		stdout, _, err := runTx(t, "setup")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for kind, run := range clientsIn(t, stdout) {
+			if want := []string{"schwab-mcp", "--config", path}; !slices.Equal(run, want) {
+				t.Errorf("with no schwab-mcp in %s, the %s starts %q, want %q", dir, kind, run, want)
+			}
+		}
+		if note := "No schwab-mcp is beside this schwabtx, as when it runs under go run: put the\n" +
+			"absolute path of schwab-mcp in place of schwab-mcp above."; !strings.Contains(stdout, note) {
+			t.Errorf("with no schwab-mcp in %s, setup printed\n%s\nwant\n%s", dir, stdout, note)
+		}
+	}
+}
+
+// clientsIn returns, by kind of client, the command and arguments that
+// setup's output out gives it: those of the desktop client's JSON entry,
+// of the command-line agent's add command, as this system's shell reads
+// it, and of the editor extension's entry, which must be of type stdio.
+func clientsIn(t *testing.T, out string) map[string][]string {
+	t.Helper()
+	entry := func(head, kind string) []string {
+		t.Helper()
+		_, rest, ok := strings.Cut(out, "\n"+head+"\n")
+		block, _, closed := strings.Cut(rest, "\n  }\n")
+		if !ok || !closed {
+			t.Fatalf("setup printed no entry after %q:\n%s", head, out)
+		}
+		var servers map[string]struct {
+			Type    string   `json:"type"`
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		}
+		dec := json.NewDecoder(strings.NewReader("{" + block + "\n  }}"))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&servers); err != nil || len(servers) != 1 || servers["schwab"].Type != kind {
+			t.Fatalf("the entry after %q is not one server, schwab, of type %q: %v\n%s", head, kind, err, block)
+		}
+		return append([]string{servers["schwab"].Command}, servers["schwab"].Args...)
+	}
+	const add = "\n  <agent> mcp add schwab -- "
+	_, rest, ok := strings.Cut(out, add)
+	if !ok {
+		t.Fatalf("setup printed no add command:\n%s", out)
+	}
+	line, _, _ := strings.Cut(rest, "\n")
+	return map[string][]string{
+		"desktop client":     entry(`A desktop client, in its JSON configuration's "mcpServers", then restart it:`, ""),
+		"command-line agent": systemShellWords(t, line),
+		"editor extension":   entry(`An editor extension, in "servers" of your user's MCP configuration:`, "stdio"),
+	}
+}
+
+// serverBeside makes a schwab-mcp, schwab-mcp.exe on Windows, in dir, which
+// it makes if need be, and has setup take dir for the folder of the running
+// schwabtx, as go install puts the two. It returns the file's path.
+func serverBeside(t *testing.T, dir string) string {
+	t.Helper()
+	name := "schwab-mcp"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	p := filepath.Join(dir, name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runningIn(t, dir)
+	return p
+}
+
+// runningIn has setup take dir for the folder of the running schwabtx.
+func runningIn(t *testing.T, dir string) {
+	t.Helper()
+	executable = func() (string, error) { return filepath.Join(dir, "schwabtx"), nil }
+	t.Cleanup(func() { executable = os.Executable })
 }
 
 // Once setup has saved the key and secret, schwabtx takes them from
@@ -421,13 +610,14 @@ func TestCredentialsFromConfig(t *testing.T) {
 }
 
 // The paths that setup saves are those that the commands use in the same
-// shell, and those that the MCP server takes from config.json with no
-// variable set at all: the token file that login saves to, the store, with
-// -store as the store commands take it, and the rate file that the client
-// keeps.
+// shell, and those that the MCP server takes, with no variable set at all,
+// from the config.json that setup's client lines start it with: the token
+// file that login saves to, the store, with -store as the store commands
+// take it, and the rate file that the client keeps.
 func TestSetupPathsAgree(t *testing.T) {
 	f, _ := setup(t)
 	f.LoadFixtures()
+	command := serverBeside(t, t.TempDir())
 	t.Setenv("SCHWAB_TOKEN_FILE", "")
 	t.Setenv("SCHWAB_STORE_FILE", "")
 	doLogin(t)
@@ -448,10 +638,19 @@ func TestSetupPathsAgree(t *testing.T) {
 			if tc.store != "" {
 				args = append(args, "-store", tc.store)
 			}
-			if _, _, err := runTx(t, args...); err != nil {
+			stdout, _, err := runTx(t, args...)
+			if err != nil {
 				t.Fatal(err)
 			}
 			saved := readSaved(t)
+			// Each kind of client starts the server with that config.json.
+			var file string
+			for kind, run := range clientsIn(t, stdout) {
+				if len(run) != 3 || run[0] != command || run[1] != "--config" || run[2] != configPath(t) {
+					t.Errorf("the %s starts %q, want %s --config %s", kind, run, command, configPath(t))
+				}
+				file = run[len(run)-1]
+			}
 
 			// The login's token file, which login saved to.
 			assertLoginAt(t, saved.TokenFile)
@@ -476,9 +675,9 @@ func TestSetupPathsAgree(t *testing.T) {
 				t.Errorf("the client kept no rate limit at %s: %v", saved.RateFile, err)
 			}
 
-			// The server reads the same three from config.json with no
-			// variable set.
-			c := configfile.ForServer(func(string) string { return "" }, configPath(t))
+			// The server reads the same three from that config.json with
+			// no variable set.
+			c := configfile.ForServer(func(string) string { return "" }, file)
 			if c.TokenFile.Value != saved.TokenFile || c.StoreFile.Value != saved.StoreFile || c.RateFile.Value != saved.RateFile ||
 				c.TokenFile.From != configfile.FromFile || c.AppSecret != (configfile.Setting{Value: testSecret, From: configfile.FromFile}) ||
 				len(c.Problems) != 0 {

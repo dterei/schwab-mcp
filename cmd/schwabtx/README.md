@@ -105,7 +105,8 @@ API's address from `config.json` alone.
 `config.json` is `schwabtx/config.json` in your user config directory,
 beside the token file's default place, and readable only by you, as the
 token file is. Setup prints what it saved, never the secret, and of the key
-only its last three characters:
+only its last three characters, and then what each kind of MCP client takes
+to start the server with that file:
 
 ```
 Saved /home/you/.config/schwabtx/config.json, readable only by you:
@@ -116,7 +117,35 @@ Saved /home/you/.config/schwabtx/config.json, readable only by you:
   rate file    /home/you/.cache/schwabtx/rate-3f9a0c1d2e4b5a69 (default)
 schwabtx now reads the key and secret from this file when the environment
 has none, so .env needs them no longer.
+
+For an MCP client, the server's command and arguments, ready to paste
+(docs/mcp.md says where each kind of client takes them).
+A desktop client, in its JSON configuration's "mcpServers", then restart it:
+  "schwab": {
+    "command": "/home/you/go/bin/schwab-mcp",
+    "args": ["--config", "/home/you/.config/schwabtx/config.json"]
+  }
+A command-line agent, with the agent's own command in place of <agent>:
+  <agent> mcp add schwab -- '/home/you/go/bin/schwab-mcp' --config '/home/you/.config/schwabtx/config.json'
+An editor extension, in "servers" of your user's MCP configuration:
+  "schwab": {
+    "type": "stdio",
+    "command": "/home/you/go/bin/schwab-mcp",
+    "args": ["--config", "/home/you/.config/schwabtx/config.json"]
+  }
 ```
+
+The command is the `schwab-mcp` beside `schwabtx`, where
+`go install ./cmd/schwab-mcp ./cmd/schwabtx` puts the two, by its absolute
+path, as `config.json` is, since a client may start the server in any
+folder. Without one there, as under `go run`, the lines name `schwab-mcp`,
+and setup says to put its absolute path in its place. The JSON entries hold
+each path whole, a Windows path's backslashes escaped, and the add command
+quotes each path for your system's shell, in single quotes on Linux and
+macOS and in double quotes on Windows, so that a path with a space in it
+stays one argument: the default config directory on macOS,
+`~/Library/Application Support`, has one. [docs/mcp.md](../../docs/mcp.md)
+says where each kind of client takes its lines.
 
 From then on `schwabtx` takes the key and secret from `config.json` when
 `SCHWAB_APP_KEY` or `SCHWAB_APP_SECRET` is not set; a variable that is set

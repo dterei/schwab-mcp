@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	configfile "github.com/dterei/schwab-mcp/internal/config"
@@ -21,9 +23,10 @@ import (
 // this shell, made absolute, the token file with every link followed, as
 // login saves to it, so that the server uses the same files whatever its
 // client's working directory and environment, but for the variables that
-// config.ForServer takes first. With -print it says what it would save,
-// and saves nothing. The secret is never printed, and the key only as its
-// last three characters.
+// config.ForServer takes first. It then prints what each kind of MCP
+// client takes to start the server with that file (clientLines). With
+// -print it says what it would save, and saves nothing. The secret is
+// never printed, and the key only as its last three characters.
 func runSetup(_ context.Context, args []string, stdout, stderr io.Writer) error {
 	fl := flag.NewFlagSet("schwabtx setup", flag.ContinueOnError)
 	fl.SetOutput(stderr)
@@ -39,7 +42,9 @@ config directory: the app key and secret, from SCHWAB_APP_KEY and
 SCHWAB_APP_SECRET or as config.json has them already, and the token file,
 the store and the rate file as schwabtx finds them in this terminal. The MCP
 server reads all of it, and schwabtx reads the key and secret from it when
-the environment has none. Give -store as the store commands take it.
+the environment has none. Give -store as the store commands take it. Setup
+then prints what a desktop client, a command-line agent and an editor
+extension each take to start the MCP server with that file.
 
 `)
 		fl.PrintDefaults()
@@ -171,8 +176,78 @@ the environment has none. Give -store as the store commands take it.
 	} else {
 		b.WriteString("schwabtx now reads the key and secret from this file when the environment\nhas none, so .env needs them no longer.\n")
 	}
+	command, found := serverCommand()
+	b.WriteString("\n" + clientLines(command, path, runtime.GOOS == "windows"))
+	if !found {
+		b.WriteString("No schwab-mcp is beside this schwabtx, as when it runs under go run: put the\n" +
+			"absolute path of schwab-mcp in place of schwab-mcp above. go install\n" +
+			"./cmd/schwab-mcp ./cmd/schwabtx puts the two in one folder.\n")
+	}
 	_, err = io.WriteString(stdout, b.String())
 	return err
+}
+
+// executable returns the path of the running schwabtx; tests set it.
+var executable = os.Executable
+
+// serverCommand returns the absolute path of the schwab-mcp beside this
+// schwabtx, where go install puts it, and true; or "schwab-mcp" and false
+// when there is none there, as when schwabtx runs under go run.
+func serverCommand() (string, bool) {
+	name := "schwab-mcp"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	exe, err := executable()
+	if err != nil {
+		return "schwab-mcp", false
+	}
+	p, err := filepath.Abs(filepath.Join(filepath.Dir(exe), name))
+	if err != nil {
+		return "schwab-mcp", false
+	}
+	if info, err := os.Stat(p); err != nil || !info.Mode().IsRegular() {
+		return "schwab-mcp", false
+	}
+	return p, true
+}
+
+// clientLines returns what an MCP client takes to start the server: the
+// command and the arguments --config and configFile, written for each kind
+// of client. A desktop client takes them as an entry of "mcpServers" in its
+// JSON configuration, a command-line agent through its add command, and an
+// editor extension as an entry of "servers", with "type": "stdio". In
+// JSON, encoding/json writes each path, so that the backslashes of a
+// Windows path are escaped. In the add command, quoteWord quotes each
+// path for the shells of Windows when windows is set, else for those of
+// Linux and macOS, so that a path that holds a space, as the default
+// config directory on macOS does, stays one argument.
+func clientLines(command, configFile string, windows bool) string {
+	cmd, args := jsonString(command), `["--config", `+jsonString(configFile)+`]`
+	return "For an MCP client, the server's command and arguments, ready to paste\n" +
+		"(docs/mcp.md says where each kind of client takes them).\n" +
+		`A desktop client, in its JSON configuration's "mcpServers", then restart it:` + "\n" +
+		`  "schwab": {` + "\n" +
+		`    "command": ` + cmd + ",\n" +
+		`    "args": ` + args + "\n" +
+		"  }\n" +
+		"A command-line agent, with the agent's own command in place of <agent>:\n" +
+		"  <agent> mcp add schwab -- " + quoteWord(command, windows) + " --config " + quoteWord(configFile, windows) + "\n" +
+		`An editor extension, in "servers" of your user's MCP configuration:` + "\n" +
+		`  "schwab": {` + "\n" +
+		`    "type": "stdio",` + "\n" +
+		`    "command": ` + cmd + ",\n" +
+		`    "args": ` + args + "\n" +
+		"  }\n"
+}
+
+// jsonString returns s as a JSON string, with no HTML escaped.
+func jsonString(s string) string {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s) // a string always encodes
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // apiHost returns the host of the base URL, the API's address.
