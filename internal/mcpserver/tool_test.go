@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
@@ -1000,6 +1001,13 @@ func TestLoginErrors(t *testing.T) {
 		})}, "config_unreadable", []string{"at ~/.config/schwabtx/config.json (it could not be read"}},
 		{"stray argument", []envOption{withConfig(func(c *config.Config) {
 			c.Problems = append(c.Problems, config.Problem{Code: ProblemStrayArgument, Setting: "arguments"})
+		})}, "config_unreadable", []string{"must be quoted in a shell line"}},
+		// A path with a space, not quoted: --config names its first part,
+		// which does not exist, and the rest is a stray argument, which
+		// cmd/schwab-mcp adds after the config's problems.
+		{"a path split at its space", []envOption{withConfig(func(c *config.Config) {
+			c.Problems = append(c.Problems, config.Problem{Code: config.CodeMissing, Setting: "config_file", Path: filepath.Join(filepath.Dir(c.File), "Application")},
+				config.Problem{Code: ProblemStrayArgument, Setting: "arguments"})
 		})}, "config_unreadable", []string{"must be quoted in a shell line"}},
 		{"plain http", []envOption{withConfig(func(c *config.Config) {
 			c.BaseURL = config.Setting{Value: "http://example.com", From: config.FromFile}

@@ -586,30 +586,42 @@ func TestCheckAndVersion(t *testing.T) {
 }
 
 // auth_status reports what the server could not use of its config and
-// command line, which stops nothing: a config file that is not one, and a
-// --config path split at a space, whose second half is a stray argument
-// that a person who typed it would have been told of. A flag after the
+// command line, which stops nothing, and what mends it: a config file that
+// is not one, which schwabtx setup replaces, and a --config path split at a
+// space, whose second half is a stray argument that a person who typed it
+// would have been told of, which quoting the path mends. A flag after the
 // stray argument is still read.
 func TestConfigProblemsAreReported(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name string
-		args func(w *world) []string
-		want []string
+		name   string
+		args   func(w *world) []string
+		want   []string
+		action string // what auth_status asks the user to do, in part
 	}{
-		{"unreadable", func(w *world) []string {
-			bad := filepath.Join(w.home, "bad.json")
-			if err := os.WriteFile(bad, []byte("this is not JSON"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			return []string{"--config", bad}
-		}, []string{"config_file: it could not be read, or is not a config file (~/bad.json)"}},
-		{"split at a space", func(w *world) []string {
-			return []string{"--config", filepath.Join(w.home, "Application"), "Support/schwabtx/config.json", "--log-level", "info"}
-		}, []string{
-			"config_file: it does not exist (~/Application)",
-			"arguments: the server was started with an argument it does not take; quote a path that holds a space",
-		}},
+		{
+			"unreadable", func(w *world) []string {
+				bad := filepath.Join(w.home, "bad.json")
+				if err := os.WriteFile(bad, []byte("this is not JSON"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return []string{"--config", bad}
+			},
+			[]string{"config_file: it could not be read, or is not a config file (~/bad.json)"},
+			"The server's config file could not be read, at ~/bad.json",
+		},
+		// The stray argument, not the config file that names no file,
+		// says what mends it.
+		{
+			"split at a space", func(w *world) []string {
+				return []string{"--config", filepath.Join(w.home, "Application"), "Support/schwabtx/config.json", "--log-level", "info"}
+			},
+			[]string{
+				"config_file: it does not exist (~/Application)",
+				"arguments: the server was started with an argument it does not take; quote a path that holds a space",
+			},
+			"a path that holds a space must be quoted in a shell line",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -626,8 +638,8 @@ func TestConfigProblemsAreReported(t *testing.T) {
 			if !slices.Equal(status.ConfigProblems, tc.want) {
 				t.Errorf("config_problems %q, want %q", status.ConfigProblems, tc.want)
 			}
-			if status.Action == "" {
-				t.Error("auth_status asks for nothing")
+			if !strings.Contains(status.Action, tc.action) {
+				t.Errorf("auth_status asks %q, want it to say %q", status.Action, tc.action)
 			}
 			c.stdin.Close()
 			if code, _ := c.wait(); code != 0 {

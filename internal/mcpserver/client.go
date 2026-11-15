@@ -99,17 +99,23 @@ func fromWords(from config.Source, variable string) string {
 }
 
 // configError returns the error that every tool that reads Schwab answers
-// while the config cannot be used, or nil: a config file that could not be
-// read, an argument or flag that the server does not take, a token file
-// that may not be used, or a base URL that schwab.NewAuth refused.
+// while the config cannot be used, or nil: an argument or flag that the
+// server does not take, a config file that could not be read, a token file
+// that may not be used, or a base URL that schwab.NewAuth refused. An
+// argument comes before the config file: a path that holds a space and was
+// not quoted splits into a --config of its first part, which names no
+// file, and a stray argument, and only quoting the path mends that, not
+// schwabtx setup.
 func (s *Server) configError() error {
 	for _, p := range s.o.Config.Problems {
-		switch {
-		case p.Code == ProblemStrayArgument || p.Code == ProblemBadFlag:
+		if p.Code == ProblemStrayArgument || p.Code == ProblemBadFlag {
 			return &toolErr{code: codeConfigUnreadable, msg: s.mask.words("The server was started with an argument it does not take; " +
 				"a path that holds a space must be quoted in a shell line, or be one element of a JSON `args` list, " +
 				"as `schwabtx setup` prints it.")}
-		case p.Setting == "config_file" && p.Code != config.CodeMadePrivate && p.Code != config.CodeNotPrivate:
+		}
+	}
+	for _, p := range s.o.Config.Problems {
+		if p.Setting == "config_file" && p.Code != config.CodeMadePrivate && p.Code != config.CodeNotPrivate {
 			return &toolErr{code: codeConfigUnreadable, msg: s.mask.compose("The server's config file could not be read, at %s (%s). "+
 				"Ask the user to run `schwabtx setup` again in their own terminal.", s.mask.path(p.Path), Ident(problemWords[p.Code]))}
 		}
