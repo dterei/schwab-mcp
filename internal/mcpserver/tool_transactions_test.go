@@ -1918,6 +1918,90 @@ func TestTransactionsWithoutLogin(t *testing.T) {
 	}
 }
 
+// Under auto, an account that Schwab cannot be read for is read from the
+// local history as far as it holds the days, as when the directory could
+// not read Schwab (TestTransactionsWithoutLogin), though the directory's
+// read is warm: when Schwab ends the login after that read, the account's
+// first request fails, and the account is read from the store, the warning
+// api_unavailable saying why; once the server knows that the login has
+// ended, no account is asked, and every account is read from the store,
+// for longer ranges than a walk of Schwab's too. When Schwab answers 503,
+// each account fails in turn, and is read from the store, and the accounts
+// that fail alike share one warning. The pages of such an answer hold the
+// store's rows once, as source store's do.
+func TestTransactionsFallBackToTheStore(t *testing.T) {
+	t.Parallel()
+	args := `{"account":"135","from":"2024-01-01","to":"2025-05-31"}`
+	// fromStore fails unless r holds ...135's rows from the store, its
+	// coverage whole from from to 2024-12-30, the store's last day of it,
+	// with the warnings api_unavailable, which quotes why, and
+	// store_coverage_partial.
+	fromStore := func(name string, r result, from, why string) {
+		t.Helper()
+		c := txnCoverageOf(r, "...135")
+		whole, _ := json.Marshal(c["whole"])
+		if r.isError || r.value["source"] != "store" || c["read_from"] != "store" || c["error"] != nil ||
+			string(whole) != `[{"from":"`+from+`","to":"2024-12-30"}]` {
+			t.Errorf("%s: %.600s", name, r.text)
+		}
+		if !slices.Contains(r.warnings(), "api_unavailable") || !slices.Contains(r.warnings(), "store_coverage_partial") ||
+			!strings.Contains(r.text, why) {
+			t.Errorf("%s: warnings %v, want api_unavailable with %q: %.600s", name, r.warnings(), why, r.text)
+		}
+		for _, row := range txnRowsOf(r) {
+			if row["read_from"] != "store" || row["account"] != "...135" {
+				t.Errorf("%s: a row %v", name, row)
+			}
+		}
+	}
+
+	e := newEnv(t, withLoginAt(testNow.Add(-10*time.Minute)))
+	if r := e.call("list_accounts", `{}`); r.isError {
+		t.Fatal(r.text)
+	}
+	e.fake.EndLogin()
+	e.fake.RevokeAccess()
+	r := e.call("get_transactions", args)
+	fromStore("a login that Schwab ended after the directory read it", r, "2024-01-01",
+		"Schwab could not be read for ...135, so its rows come from the local history, as far as it holds these days: [login_expired]")
+	if len(txnRowsOf(r)) == 0 {
+		t.Errorf("no rows of the store: %.600s", r.text)
+	}
+	before := e.fake.APICalls()
+	fromStore("a login that the server knows has ended", e.call("get_transactions", args), "2024-01-01",
+		"Schwab could not be read, so each account was read from the local history as far as it holds these days: [login_expired]")
+	fromStore("more days than a walk of Schwab's reads", e.call("get_transactions", `{"account":"135","from":"2023-01-01","to":"2025-05-31"}`),
+		"2023-06-12", "[login_expired]")
+	if n := e.fake.APICalls() - before; n != 0 {
+		t.Errorf("with a login known to have ended, the server sent %d requests", n)
+	}
+
+	e = newEnv(t)
+	if r := e.call("list_accounts", `{}`); r.isError {
+		t.Fatal(r.text)
+	}
+	e.fake.Override(schwabtest.TransactionsRoute, schwabtest.Unavailable)
+	fromStore("Schwab answering 503", e.call("get_transactions", args), "2024-01-01",
+		"so its rows come from the local history, as far as it holds these days: [schwab_unavailable]")
+	all := e.call("get_transactions", `{"from":"2024-01-01","to":"2025-05-31"}`)
+	if !strings.Contains(all.text, "Schwab could not be read for ...135, ...398 and ...783, so their rows come from the local history") {
+		t.Errorf("every account, Schwab answering 503: %.800s", all.text)
+	}
+	for _, masked := range []string{"...135", "...398", "...783"} {
+		if c := txnCoverageOf(all, masked); c["read_from"] != "store" || c["error"] != nil {
+			t.Errorf("every account, Schwab answering 503: %s's coverage %v", masked, c)
+		}
+	}
+	var pages []string
+	for _, p := range e.txnPages("get_transactions", `{"account":"135","from":"2024-01-01","to":"2025-05-31","limit":2}`, 10) {
+		pages = append(pages, txnRefsOf(txnRowsOf(p))...)
+	}
+	store := txnRefsOf(txnRowsOf(e.call("get_transactions", `{"account":"135","source":"store","from":"2024-01-01","to":"2025-05-31"}`)))
+	if len(store) < 3 || !slices.Equal(pages, store) {
+		t.Errorf("pages of 2, Schwab answering 503, hold %v; source store %v", pages, store)
+	}
+}
+
 // The days that the local history holds as whole history are its api and
 // file runs merged where they overlap or meet, whatever their order, and
 // clipped to the asked days, down to one day (docs/store.md, Coverage).

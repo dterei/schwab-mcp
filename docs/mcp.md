@@ -170,9 +170,12 @@ those of schwab.com's History exports that you said hold every
 transaction, with the `schwabtx edit F... -completeness complete` that
 `schwabtx import` prints for each; so a call for an account's older years
 can read them from the history, while one for its recent days reads
-Schwab. `source` can ask for `store` or `schwab` instead of `auto`. One
-call reads at most 724 days of an account from Schwab; for older years,
-import schwab.com's History exports with `schwabtx import` and ask with
+Schwab. When Schwab cannot be read for an account, as without a login or
+while Schwab fails, `auto` reads the account from the history as far as
+the history holds the days, and the warning `api_unavailable` says why.
+`source` can ask for `store` or `schwab` instead of `auto`. One call reads
+at most 724 days of an account from Schwab; for older years, import
+schwab.com's History exports with `schwabtx import` and ask with
 `source: "store"`.
 
 ## Arguments and answers

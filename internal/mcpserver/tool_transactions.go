@@ -382,10 +382,16 @@ type txnWalk struct {
 	q     txnQuery
 	after *history.LedgerKey
 	accts []*txnAccount
-	// ledger is the store's part, nil when the store was not read; newer
-	// says that a newer schwabtx derived the store.
-	ledger *history.LedgerPage
-	newer  bool
+	// unreadable is, under auto, why Schwab cannot be read for any account:
+	// the directory could not read its account numbers, or the login's
+	// checks fail before any request; nil when it can be asked.
+	unreadable *toolErr
+	// ledger is the store's part, nil when the store was not read; fellBack
+	// is the store's part of the accounts that Schwab could not be read for,
+	// read after it (fallBack), or nil; newer says that a newer schwabtx
+	// derived the store.
+	ledger, fellBack *history.LedgerPage
+	newer            bool
 	// windows are the windows of the asked days, newest first, when an
 	// account is read from Schwab; stopped is the first one that the
 	// budget left unread for some account, -1 for none.
@@ -398,6 +404,9 @@ type txnAccount struct {
 	a    dirAccount
 	from string   // fromStore, fromSchwab or fromNone
 	err  *toolErr // why it could not be read, or nil
+	// schwabErr is why Schwab could not be read for an account that was
+	// then read from the store as far as it covers (fallBack), or nil.
+	schwabErr *toolErr
 	// reads are the windows read from Schwab, newest first; unread says
 	// that the budget left the next unread, and refused that Schwab refused
 	// it as too old. empty is the index of an older window that Schwab sent
@@ -449,14 +458,16 @@ func getTransactions(ctx context.Context, c *call, wc *windowCache, in getTransa
 	for _, a := range accts {
 		w.accts = append(w.accts, &txnAccount{a: a, empty: -1})
 	}
-	if q.source == "auto" && v.schwabErr != nil {
-		c.warn("api_unavailable", "Schwab could not be read, so each account was read from the local history as far as "+
-			"it holds these days: %s", c.errText(c.s.toolError(c.tool, v.schwabErr)))
+	if err := w.schwabReadable(ctx, v); err != nil {
+		return out, err
 	}
 	if err := w.readStore(ctx, v); err != nil {
 		return out, err
 	}
 	if err := w.readSchwab(ctx, wc); err != nil {
+		return out, err
+	}
+	if err := w.fallBack(ctx); err != nil {
 		return out, err
 	}
 	if key != "" {
@@ -466,6 +477,35 @@ func getTransactions(ctx context.Context, c *call, wc *windowCache, in getTransa
 		key = w.accts[0].a.key()
 	}
 	return w.answer(ctx, q.args(key))
+}
+
+// schwabReadable finds, under auto, whether Schwab can be read for the
+// selected accounts that it shares, before the store is read: not when the
+// directory could not read Schwab's account numbers, nor when the login's
+// checks fail, which cost Schwab nothing (call.client), as for a login
+// that has lapsed or that Schwab refused in this process, though the
+// directory's read of Schwab is younger than 5 minutes. Then every account
+// is read from the store as far as it covers, as design 2.3 has it for an
+// account that Schwab cannot be asked about, and the warning
+// api_unavailable says why. It fails only when ctx ends.
+func (w *txnWalk) schwabReadable(ctx context.Context, v *dirView) error {
+	c := w.c
+	if w.q.source != "auto" {
+		return nil
+	}
+	err := v.schwabErr
+	if err == nil && slices.ContainsFunc(w.accts, func(ta *txnAccount) bool { return ta.a.shared }) {
+		_, err = c.client(ctx)
+		if err != nil && ctx.Err() != nil {
+			return err
+		}
+	}
+	if err != nil {
+		w.unreadable = c.s.toolError(c.tool, err)
+		c.warn("api_unavailable", "Schwab could not be read, so each account was read from the local history as far as "+
+			"it holds these days: %s", c.errText(w.unreadable))
+	}
+	return nil
 }
 
 // pick returns the selected accounts: under schwab those that Schwab
@@ -507,11 +547,12 @@ func (c *call) storeError(err error) error {
 // readStore reads the store's part (design 10.5, 12.4): one Ledger, given
 // every selected account that the store knows, each read only when its
 // whole history holds every asked day under auto, and whatever covers under
-// store and for an account that Schwab no longer shares. In one read
-// transaction it chooses which accounts it reads, and pages and totals
-// them. Every other account goes to Schwab, when Schwab shares it. Under
-// auto, a store that cannot be read sends every account to Schwab, with
-// the warning store_unavailable.
+// store, for an account that Schwab no longer shares, and for every account
+// when Schwab cannot be read. In one read transaction it chooses which
+// accounts it reads, and pages and totals them. Every other account goes
+// to Schwab, when Schwab shares it and can be read; one that it cannot be
+// read for fails with why. Under auto, a store that cannot be read sends
+// every account to Schwab, with the warning store_unavailable.
 func (w *txnWalk) readStore(ctx context.Context, v *dirView) error {
 	c, q := w.c, w.q
 	if q.source == "schwab" {
@@ -523,7 +564,7 @@ func (w *txnWalk) readStore(ctx context.Context, v *dirView) error {
 	var listed []history.LedgerAccount
 	for _, ta := range w.accts {
 		if ta.a.storeID != 0 {
-			listed = append(listed, history.LedgerAccount{ID: ta.a.storeID, Key: ta.a.key(), IfWhole: q.source == "auto" && ta.a.shared})
+			listed = append(listed, history.LedgerAccount{ID: ta.a.storeID, Key: ta.a.key(), IfWhole: w.toSchwab(ta)})
 		}
 	}
 	err := v.storeErr
@@ -561,16 +602,86 @@ func (w *txnWalk) readStore(ctx context.Context, v *dirView) error {
 		switch {
 		case w.ledger != nil && slices.Contains(w.ledger.Read, ta.a.storeID):
 			ta.from = fromStore
-		case q.source == "auto" && ta.a.shared:
+		case w.toSchwab(ta):
 			ta.from = fromSchwab
 		default:
 			ta.from = fromNone
-			if q.source == "auto" {
+			switch {
+			case q.source != "auto":
+			case ta.a.shared && w.unreadable != nil:
+				ta.err = w.unreadable
+			default:
 				ta.err = storeErr
 			}
 		}
 	}
 	return nil
+}
+
+// toSchwab reports whether ta goes to Schwab under auto, unless the store
+// holds every asked day of it whole: when Schwab shares it and can be read.
+func (w *txnWalk) toSchwab(ta *txnAccount) bool {
+	return w.q.source == "auto" && ta.a.shared && w.unreadable == nil
+}
+
+// fallBack reads from the store, as far as it covers, each account that
+// Schwab could not be read for under auto, as when the login lapsed or
+// Schwab failed since the directory read it, and that the store knows:
+// design 2.3's "otherwise the store as far as it covers", which the
+// directory's own failure to read Schwab gives every account at the start
+// (schwabReadable). One more Ledger reads them, in a read transaction of its
+// own, so that each account's days still come from one source, and from
+// one state of the store; Schwab's rows of their windows that were read
+// before the failure are dropped. An account that failed for a bug of the
+// server's (internal) stays failed, and so does every one when the store
+// could not be read, or when this read fails: with Schwab's error.
+func (w *txnWalk) fallBack(ctx context.Context) error {
+	c, q := w.c, w.q
+	if q.source != "auto" || w.ledger == nil {
+		return nil
+	}
+	var listed []history.LedgerAccount
+	for _, ta := range w.accts {
+		if ta.from == fromNone && ta.err != nil && ta.err.code != codeInternal && ta.a.storeID != 0 {
+			listed = append(listed, history.LedgerAccount{ID: ta.a.storeID, Key: ta.a.key()})
+		}
+	}
+	if len(listed) == 0 {
+		return nil
+	}
+	err := c.store.read(ctx, func(r *history.Reader) error {
+		p, err := r.Ledger(ctx, history.LedgerQuery{
+			Accounts: listed, From: q.from, To: q.to, Categories: q.categories, Types: q.types,
+			Symbol: q.symbol, All: q.all, After: w.after, Limit: q.limit,
+		})
+		w.fellBack, w.newer = p, w.newer || r.NewerRules()
+		return err
+	})
+	if err != nil {
+		w.fellBack = nil
+		if ctx.Err() != nil {
+			return err
+		}
+		c.s.log.Warn("the store could not be read", "tool", c.tool, "error", err)
+		return nil
+	}
+	for _, ta := range w.accts {
+		if ta.from == fromNone && slices.Contains(w.fellBack.Read, ta.a.storeID) {
+			ta.from, ta.schwabErr, ta.err = fromStore, ta.err, nil
+			ta.reads, ta.unread, ta.refused, ta.empty = nil, false, false, -1
+		}
+	}
+	return nil
+}
+
+// pageOf returns the store's page that holds ta's rows and coverage: the
+// page of the accounts that fell back to the store, for one that did, else
+// the first; nil when the store was not read.
+func (w *txnWalk) pageOf(ta *txnAccount) *history.LedgerPage {
+	if ta.schwabErr != nil {
+		return w.fellBack
+	}
+	return w.ledger
 }
 
 // readSchwab reads the accounts that go to Schwab, in windows: the newest
@@ -776,14 +887,15 @@ func (w *txnWalk) answer(ctx context.Context, args txnArgs) (getTransactionsOut,
 		}
 	}
 	slices.SortFunc(schwabItems, func(x, y txnItem) int { return keyCompare(y.key, x.key) })
-	var storeItems []txnItem
-	if w.ledger != nil {
-		for i := range w.ledger.Rows {
-			x := &w.ledger.Rows[i]
+	merged := schwabItems
+	for _, p := range w.pages() {
+		var storeItems []txnItem
+		for i := range p.Rows {
+			x := &p.Rows[i]
 			storeItems = append(storeItems, txnItem{key: x.Key, ta: w.byStoreID(x.AccountID), store: x})
 		}
+		merged = mergeItems(storeItems, merged)
 	}
-	merged := mergeItems(storeItems, schwabItems)
 	if h := w.horizon(); h != "" {
 		merged = slices.DeleteFunc(merged, func(it txnItem) bool { return it.key.Day <= h })
 	}
@@ -813,7 +925,7 @@ func (w *txnWalk) answer(ctx context.Context, args txnArgs) (getTransactionsOut,
 		out.Transactions = append(out.Transactions, row)
 	}
 	n := len(out.Transactions)
-	more := n < len(merged) || w.ledger != nil && w.ledger.Next != nil || w.stopped >= 0
+	more := n < len(merged) || slices.ContainsFunc(w.pages(), func(p *history.LedgerPage) bool { return p.Next != nil }) || w.stopped >= 0
 	if more {
 		var k *[4]string
 		switch {
@@ -828,6 +940,19 @@ func (w *txnWalk) answer(ctx context.Context, args txnArgs) (getTransactionsOut,
 		}
 	}
 	return out, nil
+}
+
+// pages returns the store's pages that the walk read: the first, and the
+// one of the accounts that fell back to the store, each read of accounts
+// that the other did not read.
+func (w *txnWalk) pages() []*history.LedgerPage {
+	var ps []*history.LedgerPage
+	for _, p := range []*history.LedgerPage{w.ledger, w.fellBack} {
+		if p != nil {
+			ps = append(ps, p)
+		}
+	}
+	return ps
 }
 
 // byStoreID returns the selected account whose store id is id.
@@ -917,8 +1042,8 @@ func (w *txnWalk) totals() []categoryTotal {
 			s.fees += *fees
 		}
 	}
-	if w.ledger != nil {
-		for _, t := range w.ledger.Totals {
+	for _, p := range w.pages() {
+		for _, t := range p.Totals {
 			add(t.Category, t.Count, t.AmountCents, t.FeesCents)
 		}
 	}
@@ -956,8 +1081,9 @@ func (w *txnWalk) coverage(ta *txnAccount) coverageRow {
 		r.Error = new(Ident(ta.err.code))
 	}
 	var runs []history.CoverageRun
-	if w.ledger != nil && ta.a.storeID != 0 {
-		for _, run := range w.ledger.Coverage {
+	l := w.pageOf(ta)
+	if l != nil && ta.a.storeID != 0 {
+		for _, run := range l.Coverage {
 			if run.AccountID == ta.a.storeID {
 				runs = append(runs, run)
 			}
@@ -974,18 +1100,18 @@ func (w *txnWalk) coverage(ta *txnAccount) coverageRow {
 			}
 		}
 		r.Whole = w.wholeOf(whole)
-		for _, wt := range w.ledger.Waiting {
+		for _, wt := range l.Waiting {
 			if wt.AccountID == ta.a.storeID {
 				r.Waiting = &waitingRow{HeldOut: wt.HeldOut, Uncertain: wt.Uncertain, Attention: wt.Attention, Filtered: wt.Filtered}
 			}
 		}
-		for _, rd := range w.ledger.Reads {
+		for _, rd := range l.Reads {
 			if rd.AccountID == ta.a.storeID {
 				r.LastRead = instantPtr(rd.AnsweredAt)
 			}
 		}
 		n := 0
-		for _, m := range w.ledger.Matched {
+		for _, m := range l.Matched {
 			if m.AccountID == ta.a.storeID {
 				n = m.Rows
 			}
@@ -1051,12 +1177,34 @@ func (w *txnWalk) wholeOf(runs []history.CoverageRun) []span {
 }
 
 // warnings adds the warnings of the walk, whose coverage rows are
-// coverage: per account, what waits in the store, days that it does not
-// hold as whole history, under store an account that it does not know, a
-// failure, and the end of a walk of Schwab's; then what applies to every
-// row.
+// coverage: why Schwab could not be read for the accounts that fell back to
+// the store, which share a warning when they share why; per account, what
+// waits in the store, days that it does not hold as whole history, under
+// store an account that it does not know, a failure, and the end of a walk
+// of Schwab's; then what applies to every row.
 func (w *txnWalk) warnings(coverage []coverageRow) {
 	c, q := w.c, w.q
+	var whys []FreeText
+	fell := map[FreeText][]FreeText{}
+	for _, ta := range w.accts {
+		if ta.schwabErr == nil {
+			continue
+		}
+		why := c.errText(ta.schwabErr)
+		if _, ok := fell[why]; !ok {
+			whys = append(whys, why)
+		}
+		fell[why] = append(fell[why], c.mask.compose("%s", c.mask.masked(ta.a.number)))
+	}
+	for _, why := range whys {
+		if names := fell[why]; len(names) == 1 {
+			c.warn("api_unavailable", "Schwab could not be read for %s, so its rows come from the local history, as far as it "+
+				"holds these days: %s", names[0], why)
+		} else {
+			c.warn("api_unavailable", "Schwab could not be read for %s, so their rows come from the local history, as far as "+
+				"it holds these days: %s", c.andList(names), why)
+		}
+	}
 	var problems [][]schwab.Problem
 	var beforeDecisions []FreeText
 	storeRead := false
