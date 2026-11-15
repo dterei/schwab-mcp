@@ -1277,16 +1277,18 @@ func (c *chainResult) ppHolds() map[string]bool {
 // A symbolsChange is a security of PP's symbols_changed (R-10 of the
 // consolidation), one of PP's securities: the store's securities of it that
 // are named, in their order; why (renamed, no_ticker, changed) and because
-// (delisted, for no_ticker); new, with -since, when no export of the chain
-// wrote any of the store's securities of it, so that PP does not hold it;
-// and every symbol that the named ones have had, as each source named it
-// (namesOf).
+// (delisted, reused or undecided, for no_ticker); for reused, reusedBy, the
+// key of the security that keeps the ticker (toolSecurity.reusedBy); new,
+// with -since, when no export of the chain wrote any of the store's
+// securities of it, so that PP does not hold it; and every symbol that the
+// named ones have had, as each source named it (namesOf).
 type symbolsChange struct {
-	members []*toolSecurity
-	why     []string
-	because string
-	new     bool
-	names   []sourcedSymbol
+	members  []*toolSecurity
+	why      []string
+	because  string
+	reusedBy string
+	new      bool
+	names    []sourcedSymbol
 }
 
 // compareSecurities makes the chain's securities, the earlier export's with
@@ -1370,7 +1372,7 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 			why, named = append(slices.Clone(why), whyChanged), true
 		}
 		if named {
-			changes[s.ref()] = symbolsChange{why: why, because: because}
+			changes[s.ref()] = symbolsChange{why: why, because: because, reusedBy: s.reusedBy}
 		}
 	}
 	if c.in.tool == toolPP {
@@ -1378,7 +1380,8 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 			var ch symbolsChange
 			for _, s := range l.members {
 				if m, ok := changes[s.ref()]; ok {
-					ch.members, ch.why, ch.because = append(ch.members, s), append(ch.why, m.why...), cmp.Or(ch.because, m.because)
+					ch.members, ch.why = append(ch.members, s), append(ch.why, m.why...)
+					ch.because, ch.reusedBy = cmp.Or(ch.because, m.because), cmp.Or(ch.reusedBy, m.reusedBy)
 				}
 			}
 			if len(ch.members) == 0 {

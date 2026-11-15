@@ -348,9 +348,23 @@ and the types' names, whatever PP's language and locale.
      CUSIP as WKN if it has none (PP made it before the store knew the
      CUSIP): PP finds it by them, and else makes a second security of the
      new ticker.
-   - `no_ticker`: written without the ticker that it has had, `because` it
-     is `delisted`: its latest symbol is its CUSIP. Clear its ticker and
-     its feed, as its old ticker may be another company's now.
+   - `no_ticker`: written without the ticker that it has had, with its
+     CUSIP as WKN, `because`:
+     - `delisted`: its latest symbol is its CUSIP. Clear its ticker and its
+       feed, as its old ticker may be another company's now.
+     - `reused`: another security of the store keeps the ticker (its key is
+       `reused_by`). Of the securities whose current symbol is one ticker,
+       one that an account holds at its latest snapshot keeps it, else one
+       that Schwab's API names by it, and of several such, the one that the
+       API named by it last; one that only History files name by it keeps
+       it from none. Clear this one's ticker, so that PP does not put that
+       one's rows on it.
+     - `undecided`: none keeps it: of those held, or, none held, of those
+       that the API names by it, the API named two by it last at one
+       instant; or none is held or named by the API. Each is priced from
+       your snapshots. If you set the ticker by hand on one for a feed,
+       clear it again before you import a later export that lists another
+       security `changed`, written as that ticker.
    - `changed` (with `-since`): what PP finds it by changed, its ticker and
      WKN, or its name when it has neither, as when an older History file
      brings an earlier description of a security that PP finds by its name
@@ -364,7 +378,7 @@ and the types' names, whatever PP's language and locale.
    face value in dollars, and its prices are per dollar of face, about 1: a
    price feed that quotes bonds in percent of face would value it 100 times
    too high, so keep its prices from your snapshots. Options, bonds, and
-   securities without a ticker or delisted get their prices from your
+   securities written without a ticker get their prices from your
    snapshots, in `securities.csv`.
 
 ## Ghostfolio
@@ -377,10 +391,11 @@ its name only from that version on; and the YAHOO data source enabled on
 the instance. Its accounts carry the balances of your snapshots, which are
 Ghostfolio's cash: deposits, withdrawals and journals are no activities
 there. A security with a plain ticker is a YAHOO asset, which Yahoo prices;
-options, bonds, securities without a ticker or delisted, tickers that are
-not plain ones of Yahoo's, and those you name with `-manual` are MANUAL
-assets, priced from your snapshots, each named from what identifies it,
-with its description in its comment.
+options, bonds, securities without a ticker, delisted or whose ticker
+another security keeps, tickers that are not plain ones of Yahoo's, and
+those you name with `-manual` are MANUAL assets, priced from your
+snapshots, each named from what identifies it, with its description in its
+comment.
 
 ### The first import
 
@@ -480,11 +495,12 @@ with its description in its comment.
    (VBR)`), which its rows share under every key that the export takes for
    it; an option's symbol (`XYZ 2025-02-21 40 put (XYZ250221P00040000)`);
    the CUSIP of a bond, of a delisted security, whose ticker another
-   company may have taken, and of one whose ticker a security of another
-   CUSIP has had too; else its key in the store (`Security
-   (i:205187341)`), as for a futures option or a key written on its own
-   ([above](#in-both-tools)). Its description is in its comment, and every
-   description of a key written on its own.
+   company may have taken, and of one that does not keep its ticker,
+   which another security of the store keeps, or none does (PP's step 8
+   says when, under `reused` and `undecided`); else its key in the store
+   (`Security (i:205187341)`), as for a futures option or a key written on
+   its own ([above](#in-both-tools)). Its description is in its comment,
+   and every description of a key written on its own.
 5. **Fees and taxes** are FEE activities of the assets `Schwab fees` and
    `Schwab taxes`, which carry a price of 1 so that Ghostfolio takes them off
    net performance; their refunds are interest of the same asset, which
@@ -614,7 +630,7 @@ Each left-out row of the manifest's `left_out` has an `advice`, and a
 | Advice | Portfolio Performance | Ghostfolio |
 | --- | --- | --- |
 | `check` | look at the row with `schwabtx status REF`: the store holds no day or no exact amount for it, its cash has its quantity's sign, or its legs do not add up to its cash; settle it with `schwabtx edit`, or book it in PP by hand. A bond whose rows do not follow face value and prices per 100 waits for the live probes, which settle the unit that Schwab's API uses | the same, in Ghostfolio |
-| `split` | PP's split wizard, for the security, unless the rows before the split hold the new quantities already: a file row's quantity is as of its `quantity_as_of`, the day of the History export that brought it, and an export made after the split restates it | an admin's split of the asset, or a BUY of the new shares at 0 |
+| `split` | PP's split wizard, for the security, unless the rows before the split hold the new quantities already: a file row's quantity is as of its `quantity_as_of`, the day of the History export that brought it, and an export made after the split restates it. If the split's two rows are of two securities in the manifest, as under a new CUSIP, book them as `corporate_action` | an admin's split of the asset, or a BUY of the new shares at 0; of two securities in the manifest, as `corporate_action` |
 | `corporate_action` | a Delivery (Outbound) of the old security and a Delivery (Inbound) of the new one, at the cost that you carry | a SELL of the old asset and a BUY of the new one at one price, or an admin's merge of the two |
 | `set_category` | book the row with `schwabtx edit REF -category C`; the next export writes it | the same |
 | `by_hand` | book it in PP by hand: a futures contract, an option whose multiplier is not a whole number or that the store holds with two, or a trade or move without a quantity; a Cash In Lieu keeps its cash with `schwabtx edit REF -category dividend` | the same, in Ghostfolio |

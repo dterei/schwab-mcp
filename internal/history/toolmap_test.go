@@ -606,17 +606,21 @@ func TestToolMapping(t *testing.T) {
 		}
 		// Of two tickers, PP is told of a rename only when it gets the
 		// latest: not of one that keeps a dot in Yahoo's form, which PP finds
-		// by its WKN or name, nor of one delisted, which is no_ticker.
+		// by its WKN or name, nor of one delisted, or whose ticker another
+		// keeps or none does, which is no_ticker.
 		for _, c := range []struct {
 			s    toolSecurity
 			want string
 		}{
-			{toolSecurity{assetType: "EQUITY", tickers: []string{"NEWN", "OLDN"}}, "renamed"},
-			{toolSecurity{assetType: "EQUITY", tickers: []string{"QRS.PRL", "QRS.PRK"}}, ""},
+			{toolSecurity{assetType: "EQUITY", tickers: []string{"NEWN", "OLDN"}, writes: true}, "renamed"},
+			{toolSecurity{assetType: "EQUITY", tickers: []string{"QRS.PRL", "QRS.PRK"}, writes: true}, ""},
 			{toolSecurity{assetType: "EQUITY", tickers: []string{"NEWN", "OLDN"}, delisted: true}, "no_ticker delisted"},
+			{toolSecurity{assetType: "EQUITY", tickers: []string{"NEWN", "OLDN"}, reusedBy: "i:1"}, "no_ticker reused"},
+			{toolSecurity{assetType: "EQUITY", tickers: []string{"NEWN", "OLDN"}}, "no_ticker undecided"},
+			{toolSecurity{assetType: "EQUITY", tickers: []string{"NEWN", "OLDN"}, unsure: true}, ""},
 		} {
 			if got := whysOf(&c.s); got != c.want {
-				t.Errorf("tickers %q, delisted %v: symbols changed %q, want %q", c.s.tickers, c.s.delisted, got, c.want)
+				t.Errorf("tickers %q, delisted %v, writes %v, reused by %q: symbols changed %q, want %q", c.s.tickers, c.s.delisted, c.s.writes, c.s.reusedBy, got, c.want)
 			}
 		}
 		// Multipliers: an option's, assumed for a file's option and for a
@@ -1430,14 +1434,15 @@ func TestToolMapping(t *testing.T) {
 			{name: "a class share spelled two ways, named by -manual", api: []string{"JKL/B"}, file: []string{"JKL.B"}, manual: "jkl/b", identity: "JKL-B", why: "asked"},
 			// A third key had the ticker later, of another CUSIP: the file's
 			// key, which the link makes one with the API's, is not another,
-			// and the ticker, which two CUSIPs had, names neither.
+			// and the ticker is the security's, which an account holds, not
+			// the third key's, which the API named by it later (I-5).
 			{
 				name: "a third key of the ticker, of another CUSIP", api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", other: "ZZJ12K205",
-				identity: "ZZJ12K106",
+				identity: "JKLM",
 			},
 			{
 				name: "a third key of the ticker, -manual naming it", api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", other: "ZZJ12K205",
-				manual: "JKLM", identity: "ZZJ12K106", why: "asked",
+				manual: "JKLM", identity: "JKLM", why: "asked",
 			},
 			{
 				name: "a third key of the ticker, the API's delisted", api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106",
@@ -1541,8 +1546,10 @@ func TestToolMapping(t *testing.T) {
 			t.Errorf("-manual JKLM of the API's rows alone: unused %q (%v), %d records", unused, err, len(apiOnly))
 		}
 		// Two companies that had one ticker at different times, of two
-		// CUSIPs, are two securities, each known by its CUSIP: -manual
-		// naming the ticker makes two assets of them, not one.
+		// CUSIPs, are two securities: the one that an account holds keeps
+		// the ticker, the other, which only a History file names by it, is
+		// known by its CUSIP (I-5). -manual naming the ticker makes two
+		// assets of them, not one.
 		reused := toolCaseNamed("two_keys")
 		reused.in.manual = []string{"JKLM"}
 		for i := range reused.in.securities {
@@ -1556,7 +1563,7 @@ func TestToolMapping(t *testing.T) {
 		for _, p := range reusedProfiles {
 			names = append(names, p.Name)
 		}
-		if !slices.Equal(names, []string{"Security (ZZJ12K106)", "Security (ZZJ99Z109)"}) {
+		if !slices.Equal(names, []string{"Security (JKLM)", "Security (ZZJ99Z109)"}) {
 			t.Errorf("a ticker of two companies: assets %q", names)
 		}
 		for _, c := range []struct {
@@ -1819,9 +1826,11 @@ func TestToolMapping(t *testing.T) {
 		// and options by their OCC form or their futures symbol; never by a
 		// ticker alone (I-1). A key that knows no CUSIP and has had a ticker
 		// that another has had too is written on its own, its identity its
-		// key, and listed with each that had it (I-4); a ticker that
-		// securities of two CUSIPs had names neither, and one that a key on
-		// its own had too is still the other's.
+		// key, and listed with each that had it (I-4); of securities of two
+		// CUSIPs whose current symbol is one ticker, the one that Schwab's
+		// API saw under it last keeps it, and neither when the API saw both
+		// under it at one instant (I-5); and one that a key on its own had
+		// too is still the other's.
 		in := tcInput(toolInput{})
 		add := func(key, assetType, cusip string, symbols ...string) {
 			in.securities = append(in.securities, toolSecurityRow{key: key, assetType: assetType, cusip: cusip, symbol: symbols[len(symbols)-1]})
@@ -1864,10 +1873,13 @@ func TestToolMapping(t *testing.T) {
 			// A bond with a ticker under the API's key, beside the file's
 			// key of that ticker, of no asset type: two, neither of a CUSIP.
 			{"a bond with a ticker", []string{"i:1000104", "x:66000104"}, false, []string{"i:1000104", "x:66000104"}, []bool{true, false}},
-			// GRPE, which two CUSIPs had, names neither of them; GRPD's two
-			// keys, which know no CUSIP, are each on their own.
+			// GRPE, which the API named two CUSIPs by at one instant, names
+			// neither of them; GRPD's two keys, which know no CUSIP, are each
+			// on their own.
 			{"a key whose ticker two CUSIPs had", []string{"i:1000105", "x:66000105", "i:1000106", "i:1000107"}, false, []string{"i:1000105", "x:66000105", "ZZG10E105", "ZZG10F102"}, []bool{false, false, false, false}},
-			{"a file's key of a ticker that two CUSIPs had", []string{"x:66000106", "i:1000109", "i:1000108"}, false, []string{"x:66000106", "ZZG10J104", "ZZG10H108"}, []bool{false, false, false}},
+			// GRPH, which the API named i:1000108 by a month after it named
+			// i:1000109 so, is i:1000108's.
+			{"a file's key of a ticker that two CUSIPs had", []string{"x:66000106", "i:1000109", "i:1000108"}, false, []string{"x:66000106", "ZZG10J104", "GRPH"}, []bool{false, false, false}},
 			{"a file's key beside one between two CUSIPs", []string{"x:66000108", "i:1000110", "x:66000107", "i:1000111"}, false, []string{"x:66000108", "GRPK", "x:66000107", "GRPL"}, []bool{false, false, false, false}},
 			// A file's option and the API's of one contract; and a futures
 			// option, which has no OCC form, by its symbol, named by the
@@ -2392,6 +2404,222 @@ func TestToolMapping(t *testing.T) {
 				t.Errorf("%s: the row without a key is of %+v", tool, s)
 			}
 			chainStepFrom(t, e, t.TempDir())
+		}
+	})
+
+	t.Run("one writer per ticker", func(t *testing.T) {
+		t.Parallel()
+		// Securities of two CUSIPs whose current symbol is one ticker, as
+		// when a company takes a ticker that another gave up, or a security
+		// keeps its ticker under a new CUSIP: one at most writes it, as its
+		// PP ticker, its symbol for Yahoo and its identity (I-5). Of
+		// several, one that an account holds keeps it, else the one that
+		// Schwab's API named by it last; one that only History files name
+		// by it keeps it from none, and of the best rank two that the API
+		// named by it last at one instant keep it from both. Each that does
+		// not keep it is written as a delisted one is: no PP ticker, its
+		// CUSIP as its WKN and identity, MANUAL in Ghostfolio (reused), and
+		// named in PP's symbols_changed, no_ticker, because reused by the
+		// key of the one that keeps it, or undecided. The tools hold them
+		// apart.
+		type sec struct {
+			// key is an API key (i:) or a History file's (x:), whose names
+			// are its source's; cusip is "" for none; seen is when its source
+			// named it by the ticker, at New York's clock; held says that
+			// A1's snapshot holds it.
+			key, cusip, seen string
+			held             bool
+		}
+		build := func(ticker string, secs []sec) toolInput {
+			securities, names := tcSecurities()
+			in := toolInput{securities: securities, names: names, snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 100_000)}}
+			for i, s := range secs {
+				seen := tcNY(s.seen)
+				in.securities = append(in.securities, toolSecurityRow{key: s.key, assetType: "EQUITY", symbol: ticker, cusip: s.cusip})
+				in.names = append(in.names,
+					toolName{key: s.key, kind: "symbol", value: ticker, firstSeen: seen, lastSeen: seen},
+					toolName{key: s.key, kind: "description", value: fmt.Sprintf("%s COMPANY %d", ticker, i+1), firstSeen: seen, lastSeen: seen})
+				if historyFileKey(s.key) {
+					in.rows = append(in.rows, rcFile(fmt.Sprintf("C7f9a%04d.1", i+1), 1, "2024-03-01", "Buy", "buy", s.key, ticker, centsOf(1_000_000), 10, -1_000))
+				} else {
+					in.rows = append(in.rows, rcTrade(fmt.Sprintf("T7f9a%06d", i+1), 1, "2024-03-01 10:00:00", "buy", s.key, ticker, 1_000_000, 10, -1_000, 0))
+				}
+				if s.held {
+					in.positions = append(in.positions, rcPosition("2026-11-10", s.key, 1_000_000, 12))
+				}
+			}
+			return tcInput(in)
+		}
+		for _, c := range []struct {
+			name, ticker string
+			secs         []sec
+			// keeper is the key that keeps the ticker, "" for none.
+			keeper string
+		}{
+			// An old -json imported after the snapshot dates the other's name
+			// last: the one held keeps it all the same.
+			{"held against named later", "TKWA", []sec{
+				{"i:1000601", "ZZW60A104", "2025-03-03 18:30:00", true}, {"i:1000602", "ZZW60B102", "2026-11-12 10:04:05", false},
+			}, "i:1000601"},
+			// B2's: a History file names the old company by the ticker after
+			// the API last named the new one so, which no instant of the
+			// History file's outranks.
+			{"named against History only", "TKWB", []sec{
+				{"i:1000603", "ZZW60C100", "2025-09-02 18:30:00", false}, {"x:66000603", "ZZW60D108", "2026-02-10 09:00:00", false},
+			}, "i:1000603"},
+			{"held against History only", "TKWC", []sec{
+				{"i:1000604", "ZZW60F103", "2025-09-02 18:30:00", true}, {"x:66000604", "ZZW60E106", "2026-02-10 09:00:00", false},
+			}, "i:1000604"},
+			{"two named, the later keeps it", "TKWD", []sec{
+				{"i:1000605", "ZZW60G101", "2025-06-02 18:30:00", false}, {"i:1000606", "ZZW60H109", "2024-01-02 18:30:00", false},
+			}, "i:1000605"},
+			{"two held, the one named later keeps it", "TKWE", []sec{
+				{"i:1000607", "ZZW60J105", "2026-03-02 18:30:00", true}, {"i:1000608", "ZZW60K102", "2026-11-10 18:05:00", true},
+			}, "i:1000608"},
+			{"two held at one instant", "TKWF", []sec{
+				{"i:1000609", "ZZW60L100", "2026-11-10 18:05:00", true}, {"i:1000610", "ZZW60M108", "2026-11-10 18:05:00", true},
+			}, ""},
+			{"two named at one instant", "TKWG", []sec{
+				{"i:1000611", "ZZW61A103", "2026-03-02 18:30:00", false}, {"i:1000612", "ZZW61B101", "2026-03-02 18:30:00", false},
+			}, ""},
+			// A tie keeps it from those of the tie alone, in whatever order
+			// the keys come.
+			{"two named at one instant, a third later", "TKWH", []sec{
+				{"i:1000613", "ZZW61C109", "2026-05-01 18:30:00", false},
+				{"i:1000614", "ZZW61D107", "2026-03-02 18:30:00", false},
+				{"i:1000615", "ZZW61E105", "2026-03-02 18:30:00", false},
+			}, "i:1000613"},
+			{"two named at one instant, a third before", "TKWJ", []sec{
+				{"i:1000616", "ZZW61F102", "2026-01-02 18:30:00", false},
+				{"i:1000617", "ZZW61G100", "2026-03-02 18:30:00", false},
+				{"i:1000618", "ZZW61H108", "2026-03-02 18:30:00", false},
+			}, ""},
+			{"one held beside two named at one instant", "TKWK", []sec{
+				{"i:1000619", "ZZW61J104", "2026-03-02 18:30:00", false},
+				{"i:1000620", "ZZW61K101", "2026-03-02 18:30:00", false},
+				{"i:1000621", "ZZW61L109", "2024-01-02 18:30:00", true},
+			}, "i:1000621"},
+			// The History files' instants order no names but their own.
+			{"History only on both sides", "TKWL", []sec{
+				{"x:66000622", "ZZW62A102", "2025-01-15 09:00:00", false}, {"x:66000623", "ZZW62B100", "2026-01-15 09:00:00", false},
+			}, ""},
+			// One of no CUSIP is written on its own (I-4), which writes no
+			// ticker: the other is the only one that may keep it.
+			{"one of no CUSIP beside one of a CUSIP", "TKWM", []sec{
+				{"i:1000624", "ZZW62C108", "2024-01-02 18:30:00", false}, {"x:66000624", "", "2026-01-15 09:00:00", false},
+			}, "i:1000624"},
+			{"one of no CUSIP, held and named later, beside one of a CUSIP", "TKWQ", []sec{
+				{"i:1000627", "ZZW62F101", "2024-01-02 18:30:00", false}, {"i:1000628", "", "2026-11-10 18:05:00", true},
+			}, "i:1000627"},
+		} {
+			in := build(c.ticker, c.secs)
+			ix := newToolIndex(&in)
+			var changed, manual []string
+			keys := map[string]bool{}
+			for _, s := range c.secs {
+				keys[s.key] = true
+				got := ix.security(s.key, "")
+				keeps := s.key == c.keeper
+				ticker, identity, why, symbols, by, name := c.ticker, c.ticker, "", "", "", "Security ("+c.ticker+")"
+				switch {
+				case s.cusip == "":
+					ticker, identity, why, name = "", s.key, "unsure", "Security ("+s.key+")"
+				case !keeps:
+					ticker, identity, why, symbols, by, name = "", s.cusip, "reused", "no_ticker undecided", c.keeper, "Security ("+s.cusip+")"
+					if c.keeper != "" {
+						symbols = "no_ticker reused"
+					}
+					changed = append(changed, fmt.Sprintf("%s MANUAL no_ticker %s %s", s.key, strings.TrimPrefix(symbols, "no_ticker "), by))
+				}
+				if why != "" {
+					manual = append(manual, s.key+" "+why)
+				}
+				if got.writes != keeps || got.ppTicker() != ticker || got.identity() != identity || got.manual != why || whysOf(got) != symbols ||
+					got.reusedBy != by || got.gfName() != name {
+					t.Errorf("%s: %s writes %v, PP ticker %q, identity %q, MANUAL %q as %q, symbols changed %q, reused by %q",
+						c.name, s.key, got.writes, got.ppTicker(), got.identity(), got.manual, got.gfName(), whysOf(got), got.reusedBy)
+				}
+			}
+			// The ticker finds one security at most in either tool, and every
+			// other is held apart, as each tool holds it.
+			for _, tool := range []string{toolPP, toolGF} {
+				e := caseExport(t, toolCase{name: c.name, in: in}, tool)
+				var m struct {
+					SymbolsChanged *[]toolSymbolsEntry  `json:"symbols_changed"`
+					Ghostfolio     *toolGhostfolioEntry `json:"ghostfolio"`
+				}
+				if err := json.Unmarshal(e.manifest, &m); err != nil {
+					t.Fatal(err)
+				}
+				s := chainStepFrom(t, e, t.TempDir())
+				if tool == toolPP {
+					var got []string
+					for _, x := range deref(m.SymbolsChanged) {
+						got = append(got, fmt.Sprintf("%s %s %s %s %s", x.SecurityKey, x.WrittenAs, strings.Join(x.Why, ","), x.Because, x.ReusedBy))
+					}
+					f := ppFileNamed(t, s.pp, ppSecuritiesFile)
+					if !slices.Equal(got, changed) || e.SymbolsChanged != len(changed) || strings.Count(string(f.data), "\n"+c.ticker+",") != map[bool]int{true: 1}[c.keeper != ""] {
+						t.Errorf("%s: symbols changed %q (%d), want %q; PP's securities:\n%s", c.name, got, e.SymbolsChanged, changed, f.data)
+					}
+					pm := newPPModel()
+					ppApply(t, pm, s)
+					ppReconcile(t, pm, s.in, s.events, s.outcomes)
+					if held := pm.shares("Schwab A1 ...135"); len(held) != len(c.secs) {
+						t.Errorf("%s: PP holds %d securities of %d", c.name, len(held), len(c.secs))
+					}
+					continue
+				}
+				var got []string
+				for _, x := range m.Ghostfolio.Manual {
+					if keys[x.SecurityKey] {
+						got = append(got, x.SecurityKey+" "+x.Why)
+					}
+				}
+				if !slices.Equal(got, manual) || slices.Contains(m.Ghostfolio.Yahoo, c.ticker) != (c.keeper != "") || e.SymbolsChanged != 0 {
+					t.Errorf("%s: Ghostfolio's manual %q, want %q; Yahoo %q; symbols changed %d", c.name, got, manual, m.Ghostfolio.Yahoo, e.SymbolsChanged)
+				}
+				gm := newGFModel()
+				if _, err := gfApply(t, gm, s); err != nil {
+					t.Fatal(err)
+				}
+				gfReconcile(t, s.in, s.events, s.outcomes, gm)
+				if held := gm.holdings(); len(held) != len(c.secs) {
+					t.Errorf("%s: Ghostfolio holds %v", c.name, held)
+				}
+			}
+		}
+		// A class share's ticker spelled two ways is one ticker, which the
+		// one that the API named by it last keeps.
+		spelled := build("TKWR.A", []sec{{"i:1000629", "ZZW62H107", "2025-01-02 18:30:00", false}, {"i:1000630", "ZZW62J103", "2026-01-02 18:30:00", false}})
+		for i := range spelled.names {
+			if n := &spelled.names[i]; n.key == "i:1000630" && n.kind == "symbol" {
+				n.value = "TKWR/A"
+			}
+		}
+		six := newToolIndex(&spelled)
+		if a, b := six.security("i:1000629", ""), six.security("i:1000630", ""); a.writes || a.ppTicker() != "" || a.reusedBy != "i:1000630" || !b.writes || b.ppTicker() != "TKWR-A" {
+			t.Errorf("one ticker spelled two ways: i:1000629 writes %v, PP ticker %q, reused by %q; i:1000630 writes %v, PP ticker %q", a.writes, a.ppTicker(), a.reusedBy, b.writes, b.ppTicker())
+		}
+		// One that an account held at an earlier snapshot, and not at its
+		// latest, is not held: the one that the API named by the ticker
+		// last keeps it.
+		sold := build("TKWS", []sec{{"i:1000633", "ZZW62K100", "2026-06-01 18:05:00", false}, {"i:1000634", "ZZW62L108", "2026-09-01 18:30:00", false}})
+		sold.positions = append(sold.positions, rcPosition("2026-06-01", "i:1000633", 1_000_000, 11))
+		sold.snapshots = append(sold.snapshots, rcSnapshot(1, "2026-06-01", 100_000))
+		six = newToolIndex(&sold)
+		if a, b := six.security("i:1000633", ""), six.security("i:1000634", ""); a.writes || a.reusedBy != "i:1000634" || !b.writes {
+			t.Errorf("held before the latest snapshot: i:1000633 writes %v, reused by %q; i:1000634 writes %v", a.writes, a.reusedBy, b.writes)
+		}
+		// One that the API named by the ticker before it took another is no
+		// longer one of it: the other, alone of the ticker now, keeps it,
+		// and each writes its own (I-5).
+		renamed := build("TKWN", []sec{{"i:1000625", "ZZW62D106", "2024-01-02 18:30:00", false}, {"i:1000626", "ZZW62E104", "2025-06-02 18:30:00", false}})
+		renamed.names = append(renamed.names, toolName{key: "i:1000625", kind: "symbol", value: "TKWO", firstSeen: tcNY("2025-01-02 18:30:00"), lastSeen: tcNY("2025-01-02 18:30:00")})
+		ix := newToolIndex(&renamed)
+		for key, ticker := range map[string]string{"i:1000625": "TKWO", "i:1000626": "TKWN"} {
+			if s := ix.security(key, ""); !s.writes || s.ppTicker() != ticker || s.identity() != ticker || s.manual != "" {
+				t.Errorf("renamed away: %s writes %v, PP ticker %q, identity %q, MANUAL %q", key, s.writes, s.ppTicker(), s.identity(), s.manual)
+			}
 		}
 	})
 
@@ -2935,7 +3163,7 @@ func TestToolMapping(t *testing.T) {
 		sec := func(key, ticker, cusip, name string) *toolSecurity {
 			s := &toolSecurity{key: key, cusip: cusip, name: name}
 			if ticker != "" {
-				s.tickers = []string{ticker}
+				s.tickers, s.writes = []string{ticker}, true
 			}
 			return s
 		}

@@ -882,7 +882,8 @@ type (
 	// holdings check names them; how the export writes it (its ticker, or
 	// MANUAL for one that PP gets no price feed for); every symbol that it
 	// has had, as each source named it, with when that source saw it last;
-	// why, and because for no_ticker; and new.
+	// why, and because for no_ticker, with reused_by, the key of the
+	// security that keeps the ticker, for reused; and new.
 	toolSymbolsEntry struct {
 		SecurityKey  string           `json:"security_key"`
 		SecurityKeys []string         `json:"security_keys,omitempty"`
@@ -890,6 +891,7 @@ type (
 		Names        []toolSymbolName `json:"names"`
 		Why          []string         `json:"why"`
 		Because      string           `json:"because,omitempty"`
+		ReusedBy     string           `json:"reused_by,omitempty"`
 		New          bool             `json:"new,omitempty"`
 	}
 	// A toolSymbolName is a symbol that a security has had (sourcedSymbol):
@@ -1092,7 +1094,7 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 			s := ch.members[0]
 			entry := toolSymbolsEntry{
 				SecurityKey: s.key, WrittenAs: cmp.Or(s.ppTicker(), "MANUAL"), Names: []toolSymbolName{},
-				Why: ch.why, Because: ch.because, New: ch.new,
+				Why: ch.why, Because: ch.because, ReusedBy: ch.reusedBy, New: ch.new,
 			}
 			if len(ch.members) > 1 {
 				for _, k := range ch.members {

@@ -1434,9 +1434,9 @@ and the export after you decide one writes it.
   changes with whichever source saw the security last. Ghostfolio's MANUAL
   assets are named from their identity instead, after what they are: the
   ticker in Yahoo's form (`Security (VBR)`), but for an option, a delisted
-  security, a bond whose CUSIP the store knows, and a ticker that a
-  security of another CUSIP has had too, as when a company takes a ticker
-  that another gave up; else the CUSIP (`Bond` and its CUSIP), else the OCC
+  security, a bond whose CUSIP the store knows, and one that does not keep
+  its ticker (below), as when a company takes a ticker that another gave
+  up; else the CUSIP (`Bond` and its CUSIP), else the OCC
   symbol (`XYZ 2025-02-21 40 put (XYZ250221P00040000)`), else the key
   (`Security (i:205187341)`); with the description in their comment: on a
   shared instance Ghostfolio finds such an asset again by its name alone.
@@ -1472,10 +1472,17 @@ and the export after you decide one writes it.
   K:…` that joins it to each; the symbol of rows without a key likewise,
   named `Security (no key <symbol>)`, with its rows and the `schwabtx edit
   REF -security K:…` that gives each one of those securities. Its
-  differences in the holdings check are its own, marked `unsure`. A ticker
-  that securities of two CUSIPs have had, as when a company takes a ticker
-  that another gave up, or a security keeps its ticker under a new CUSIP,
-  is the identity of neither, each known by its CUSIP.
+  differences in the holdings check are its own, marked `unsure`. Of
+  securities of two CUSIPs whose current name is one ticker, as when a
+  company takes a ticker that another gave up, or a security keeps its
+  ticker under a new CUSIP, one that an account holds at its latest
+  snapshot keeps it, else the one that Schwab's API named by it last; one
+  that only History files name by it never takes it from one that the API
+  names, and when two of the best rank were seen at one instant, or none is
+  held or named by the API, none keeps it. One that does not keep it is
+  written as a delisted one is, known by its CUSIP (in Ghostfolio a MANUAL
+  asset), and listed under PP's `symbols_changed`, so that no ticker that a
+  tool finds securities by names two.
 - **Options.** In PP an option's ticker is its OCC symbol in compact form,
   `XYZ250221P00040000`, the form Yahoo uses, and a futures option's is its
   symbol; in Ghostfolio every option is a MANUAL asset, since Yahoo's search
@@ -1483,8 +1490,9 @@ and the export after you decide one writes it.
   a `FIXED_INCOME` security, or one known only by CUSIPs, as files name
   bonds and CDs.
 - **Without a price feed**, a security gets prices from the snapshots: in PP
-  an option, a bond, a security without a ticker or delisted, and one whose
-  ticker keeps a `.` in Yahoo's form (PP compares tickers only up to a `.`);
+  an option, a bond, a security without a ticker, delisted or that does not
+  keep its ticker, and one whose ticker keeps a `.` in Yahoo's form (PP
+  compares tickers only up to a `.`);
   in Ghostfolio, as MANUAL assets, the same and a ticker that is not a plain
   one of Yahoo's (up to six letters and digits, and a class), and those that
   `-manual` names. A price is the snapshot position's market value over its
@@ -1499,7 +1507,9 @@ and the export after you decide one writes it.
   that may no longer trade, with `why`: `renamed`, one that has had two
   tickers that differ in Yahoo's form and is written with its latest;
   `no_ticker`, one written without the ticker that it has had, `because`
-  it is `delisted`; and, with `-since`, `changed`, one whose identifiers
+  it is `delisted`, another security keeps its ticker (`reused`, with that
+  one's key in `reused_by`), or none does (`undecided`); and, with
+  `-since`, `changed`, one whose identifiers
   that PP finds it by differ from those that the chain wrote it with (its
   ticker and WKN, or its name when it has neither), of those that the
   export writes, and of those that a row it gives names or an exported
@@ -1731,8 +1741,8 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `in_balances` | Ghostfolio: per account, the cash rows that its balances carry |
 | `flagged`, `waiting` | the rows with a flag that needs you, with their flags, and the file rows that wait for you, each with the command that shows it |
 | `holdings` | `differences`: each difference from the latest snapshot, of a security as the tool holds it, under its least key (`security_key`, with `security_keys` when the store has several) and as the tool finds it: for PP `pp_security`, the `ticker`, `wkn` and `name` written, and for Ghostfolio `ghostfolio_asset`, the asset that holds it (its `data_source`, `symbol` and a MANUAL asset's `name`); with the snapshot's day, `snapshot_shares`, `written_shares` and their `difference`, the first less the second; `left_out` when a row of the account left out, of the rows that the snapshot holds, moves its shares; `unsure` when the security is written on its own, of a key under `keys_unsure`; `before` when DIR listed it alike; and `carried` when this export could not check its account and copied it from DIR; `gone`: each that DIR listed, of an account that this export checks, and that it does not find, with `was`, DIR's difference; and `not_checked`, the accounts not checked: with rows and no snapshot, or, for PP, with snapshots and nothing that PP holds; for PP, `cash`: each account whose cash that the records leave differs from its latest snapshot's, with the snapshot's day, `snapshot_cash`, `written_cash` and their `difference`, `left_out` when a row of the account left out moves cash, and `before` and `carried` likewise; `cash_gone`: each account whose difference DIR listed and this export finds none of, with `was`; and `cash_not_checked`: each account whose cash the export does not check, with the snapshot's day and `why` (`margin`: its latest snapshot is of a margin account with a margin or short balance; `no_cash`: its latest snapshot holds no cash figure) |
-| `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`unsure`, `option`, `bond`, `no_ticker`, `delisted`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
-| `symbols_changed` | PP: each security that PP may hold otherwise than written, or that may no longer trade, as PP holds it: its key (the least, with `security_keys` when the store has several); how it is written now (`written_as`: its ticker, or `MANUAL` when PP gets no price feed for it); every symbol it has had (`names`), once for each source that named it, with its `source`, `api` or `history`, and `last_seen_at`, when that source saw it last; `why`, of `renamed`, `no_ticker` and, with `-since`, `changed`; `because` for `no_ticker` (`delisted`); and, with `-since`, `new` when no export of the chain wrote it |
+| `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`unsure`, `option`, `bond`, `no_ticker`, `delisted`, `reused`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
+| `symbols_changed` | PP: each security that PP may hold otherwise than written, or that may no longer trade, as PP holds it: its key (the least, with `security_keys` when the store has several); how it is written now (`written_as`: its ticker, or `MANUAL` when PP gets no price feed for it); every symbol it has had (`names`), once for each source that named it, with its `source`, `api` or `history`, and `last_seen_at`, when that source saw it last; `why`, of `renamed`, `no_ticker` and, with `-since`, `changed`; `because` for `no_ticker` (`delisted`, `reused` with `reused_by`, the key of the security that keeps the ticker, or `undecided`); and, with `-since`, `new` when no export of the chain wrote it |
 | `keys_unsure` | each key of the store that knows no CUSIP and shares a ticker with another security, or whose rows are linked to securities of two CUSIPs, of a row that the export writes or gives, or that it prices, each written on its own: its key (`security_key`, with `security_keys` when the export takes several for one), or for the rows of a symbol without a key, `security_key` "" with its `symbol` and their `refs`; what the store knows of it, each a fact that decides nothing: its `descriptions`, the one seen first first, its `tickers`, each once for each source that named it (`api` or `history`) with `last_seen_at`, when that source saw it last, the first and last day of the export's `rows` of it, and whether an account's latest snapshot by `-to` holds it (`held`); `before` when DIR listed it alike, with the same securities; and each of those `securities` that it may be, with its key (or the `symbol` of rows without one), its `cusip` ("" for none), the same facts, and the `command` that says in the store that it is that one: `schwabtx edit K:… -same K:…`, or for rows without a key `schwabtx edit REF -security K:…`, for each ref; "" for a security that the store holds under no key |
 | `coverage` | each account's coverage by source, as the manifest of `-dir` |
 

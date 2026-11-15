@@ -791,12 +791,18 @@ type toolSecurity struct {
 	nameSeen  time.Time
 	// rep is the first, in the order of their keys (keyRank), of the
 	// store's securities that the tools take for one with it (groupAll),
-	// whose key or symbol names them all when nothing else does; reused
-	// says that its ticker is one that a security of another CUSIP has had
-	// too, as when a company takes a ticker that another gave up, so that
-	// it is not its identity.
-	rep    *toolSecurity
-	reused bool
+	// whose key or symbol names them all when nothing else does.
+	rep *toolSecurity
+	// writes says that it writes its ticker, as PP's Ticker Symbol, as the
+	// symbol that Ghostfolio asks Yahoo about and as its identity (I-5 of
+	// the consolidation): the ticker is its current symbol, it is neither
+	// delisted nor written on its own, and of the securities whose current
+	// symbol that ticker is, it is the one that keeps it (tickerKeeper).
+	// One whose current symbol is a ticker that it does not keep is reused,
+	// and reusedBy is then the first key of the one that keeps it, "" when
+	// none does (undecided).
+	writes   bool
+	reusedBy string
 	// unsure says that it knows no CUSIP and shares a ticker with another
 	// security that the tools do not take for one with it (groupAll), or
 	// that its rows are linked to securities of two CUSIPs: it is written
@@ -813,8 +819,8 @@ type toolSecurity struct {
 	// deliveries and prices are left out.
 	bondUnit bool
 	// manual is why Ghostfolio gets it as a MANUAL asset: unsure, option,
-	// bond, no_ticker, delisted, not_plain or asked (-manual); "" when
-	// Ghostfolio asks Yahoo for it.
+	// bond, no_ticker, delisted, reused, not_plain or asked (-manual); ""
+	// when Ghostfolio asks Yahoo for it.
 	manual string
 }
 
@@ -848,17 +854,19 @@ func (s *toolSecurity) ticker() string {
 // ppTicker returns the Ticker Symbol that PP gets for it: none for one
 // written on its own (unsure), whose ticker would find the other security;
 // an option's OCC compact form, so that a live contract can take Yahoo's
-// quotes; none for a delisted security, whose ticker another company may
-// have taken by now, nor for one that keeps a "." in Yahoo's form, which PP
-// would take for the ticker before the dot (PSA.PRK for PSA); else its
-// ticker in Yahoo's form.
+// quotes; none for one that does not write its ticker (writes): a delisted
+// security, whose ticker another company may have taken by now, and one
+// whose ticker another security keeps, or none does (reused), as PP would
+// take two securities of one ticker for one; nor for one that keeps a "."
+// in Yahoo's form, which PP would take for the ticker before the dot
+// (PSA.PRK for PSA); else its ticker in Yahoo's form.
 func (s *toolSecurity) ppTicker() string {
 	switch {
 	case s.unsure:
 		return ""
 	case s.occ != "":
 		return s.occ
-	case s.delisted:
+	case !s.writes:
 		return ""
 	}
 	t := yahooForm(s.ticker())
@@ -870,7 +878,7 @@ func (s *toolSecurity) ppTicker() string {
 
 // ppManual reports whether PP gets snapshot prices for it, having no feed
 // that serves it: an option, a bond, or one without a PP ticker (none, one
-// delisted, or one with a dot).
+// delisted or reused, or one with a dot).
 func (s *toolSecurity) ppManual() bool {
 	return s.assetType == "OPTION" || s.bond || s.ppTicker() == ""
 }
@@ -894,14 +902,15 @@ func (s *toolSecurity) gfSymbol() string {
 }
 
 // identity returns what identifies the security whatever store keys it
-// has: its ticker in Yahoo's form, which Ghostfolio knows a security by
-// that it asks Yahoo about, and which the store's securities that the tools
-// take for one (a History file's key and the API's, linked, with a CUSIP
-// under one of them only) have had alike; but for an option, a future, a
-// delisted security, a bond whose CUSIP the store knows, one written on its
-// own, and a ticker that a security of another CUSIP has had too, which
-// have none (identityTicker); else its CUSIP, else its OCC compact form,
-// else the key, else the symbol, of the first of them.
+// has: the ticker that it writes, in Yahoo's form, which Ghostfolio knows a
+// security by that it asks Yahoo about, and which the store's securities
+// that the tools take for one (a History file's key and the API's, linked,
+// with a CUSIP under one of them only) have had alike; but for an option, a
+// future, a bond whose CUSIP the store knows, and one that writes no ticker
+// (a delisted security, one written on its own, one whose ticker another
+// security keeps), which have none (identityTicker); else its CUSIP, else
+// its OCC compact form, else the key, else the symbol, of the first of
+// them.
 func (s *toolSecurity) identity() string {
 	r := s.first()
 	return cmp.Or(s.identityTicker(), s.cusip, s.occ, r.key, r.symbol)
@@ -909,17 +918,30 @@ func (s *toolSecurity) identity() string {
 
 // identityTicker returns the ticker in Yahoo's form that is the security's
 // identity, "" when it has none: it is an option or a future, which its
-// OCC form or its key names; it is delisted, its ticker another company's
-// now perhaps; it is a bond whose CUSIP the store knows; it is written on
-// its own (unsure), as another security has had its ticker; its ticker is
-// one that a security of another CUSIP has had too, which two companies
-// cannot share as one identity; or it has no ticker.
+// OCC form or its key names; it is a bond whose CUSIP the store knows; or
+// it does not write a ticker (writes): it has none, it is delisted, its
+// ticker another company's now perhaps, it is written on its own (unsure),
+// as another security has had its ticker, or another security whose
+// current symbol is its ticker keeps it, or none does, as two companies
+// cannot share one identity (I-5 of the consolidation).
 func (s *toolSecurity) identityTicker() string {
-	if s.occ != "" || s.assetType == "OPTION" || s.assetType == "FUTURE" || s.delisted || s.bond && s.cusip != "" || s.unsure || s.reused {
+	if !s.writes || s.occ != "" || s.assetType == "OPTION" || s.assetType == "FUTURE" || s.bond && s.cusip != "" {
 		return ""
 	}
 	return yahooForm(s.ticker())
 }
+
+// mayKeep reports whether it may keep its ticker (I-5 of the
+// consolidation): its current symbol is a ticker, and it is neither
+// delisted nor written on its own.
+func (s *toolSecurity) mayKeep() bool { return s.ticker() != "" && !s.delisted && !s.unsure }
+
+// reused reports whether its current symbol is a ticker that it may keep
+// (mayKeep) and does not: another security whose current symbol is that
+// ticker keeps it (reusedBy), or none does (I-5 of the consolidation). It
+// is then written as a delisted one is: without a PP ticker, known by its
+// CUSIP, MANUAL in Ghostfolio.
+func (s *toolSecurity) reused() bool { return s.mayKeep() && !s.writes }
 
 // safeName returns the name of a security written on its own (unsure) in
 // both tools: Security and the first of its keys in parentheses,
@@ -988,8 +1010,8 @@ func (s *toolSecurity) gfName() string {
 // The whys of PP's symbols_changed (R-10 of the consolidation): a security
 // renamed, which has had two tickers that differ in Yahoo's form and is
 // written with its latest; one written without the ticker that it has had,
-// with why (because: delisted); and, with -since, one that PP finds by
-// other identifiers than the chain wrote it with (finds).
+// with why (because: delisted, reused or undecided); and, with -since, one
+// that PP finds by other identifiers than the chain wrote it with (finds).
 const (
 	whyRenamed  = "renamed"
 	whyNoTicker = "no_ticker"
@@ -999,9 +1021,11 @@ const (
 // symbolWhys returns why PP may hold the security otherwise than written,
 // or why it may no longer trade, of PP's symbols_changed's whys that the
 // security has of itself (renamed, no_ticker), and for no_ticker why it has
-// no ticker: delisted, as its latest symbol is its CUSIP. PP keeps the
-// ticker and the feed of a security that it holds. An option, which PP
-// finds by its OCC form, has none.
+// no ticker: delisted, as its latest symbol is its CUSIP; reused, as
+// another security whose current symbol is its ticker keeps it (reusedBy);
+// undecided, as none does (I-5 of the consolidation). PP keeps the ticker
+// and the feed of a security that it holds. An option, which PP finds by
+// its OCC form, has none.
 func (s *toolSecurity) symbolWhys() (why []string, because string) {
 	if s.assetType == "OPTION" {
 		return nil, ""
@@ -1013,8 +1037,13 @@ func (s *toolSecurity) symbolWhys() (why []string, because string) {
 	if len(forms) > 1 && s.ppTicker() != "" {
 		why = append(why, whyRenamed)
 	}
-	if s.delisted {
+	switch {
+	case s.delisted:
 		why, because = append(why, whyNoTicker), "delisted"
+	case s.reused() && s.reusedBy != "":
+		why, because = append(why, whyNoTicker), "reused"
+	case s.reused():
+		why, because = append(why, whyNoTicker), "undecided"
 	}
 	return why, because
 }
@@ -1100,16 +1129,20 @@ type toolIndex struct {
 	secs     map[secRef]*toolSecurity
 	prices   map[string][]toolPrice
 	// bases are the securities as their own symbols and names make them
-	// (base); members, once groupAll has run, the bases of each security's
-	// group, by its ref; and reused the tickers (symbolForm) that groups of
-	// two CUSIPs have had.
+	// (base); and members, once groupAll has run, the bases of each
+	// security's group, by its ref.
 	bases   map[secRef]*toolSecurity
 	members map[secRef][]*toolSecurity
-	reused  map[string]bool
 	// unsure are, by the ref of each of their securities, the groups that
 	// are written on their own, as the export cannot be sure that they are
 	// not another security (groupAll).
 	unsure map[secRef]*toolUnsure
+	// keepers are, by the ref of each of their securities, the groups whose
+	// current symbol is a ticker, neither delisted nor written on their own
+	// (groupAll), each with the ref of the first of the group that keeps
+	// that ticker (tickerKeeper): its own first's when it keeps it, the
+	// zero ref when none does.
+	keepers map[secRef]secRef
 	// groups are the securities that each group is written as (group), and
 	// groupPrices its prices (pricesOfGroup), by the ref of its first.
 	groups      map[secRef]*toolSecurity
@@ -1254,7 +1287,8 @@ func (ix *toolIndex) security(key, symbol string) *toolSecurity {
 // group returns, once for all of them, the security that b and the store's
 // securities that the tools take for one with it (membersOf) are written
 // as: what they have had together (join); whether it is written on its own
-// (unsure), with its descriptions as its note; why Ghostfolio gets it as a
+// (unsure), with its descriptions as its note; whether it writes its
+// ticker, or another keeps it (keepers); why Ghostfolio gets it as a
 // MANUAL asset; and, for a bond, whether its unit is off, by the rows and
 // prices of every one of them (4.4 of the design), so that no tool keeps a
 // holding that the rows of one key opened and those of another, left out,
@@ -1267,6 +1301,13 @@ func (ix *toolIndex) group(b *toolSecurity) *toolSecurity {
 	g := ix.join(members)
 	if ix.unsure[members[0].ref()] != nil {
 		g.unsure, g.note = true, strings.Join(ix.descriptionsOf(members), "; ")
+	}
+	if g.mayKeep() {
+		k := ix.keepers[members[0].ref()]
+		g.writes = k == members[0].ref()
+		if !g.writes {
+			g.reusedBy = k.key
+		}
 	}
 	g.manual = ix.gfManual(g)
 	g.bondUnit = g.bond && !ix.followsFace(g)
@@ -1388,9 +1429,8 @@ func optionContract(symbols []string) (schwab.OCC, string) {
 // last; their CUSIP and asset type; delisted when the latest of those
 // symbols is a CUSIP, as of one security, never because one of them alone
 // reads so; a bond by those; the description that the store saw first of
-// any of them; for an option, one contract and one multiplier, which a
-// futures option that a History file names has none of (multiplier); and
-// whether its ticker is one that a security of another group has had too.
+// any of them; and for an option, one contract and one multiplier, which a
+// futures option that a History file names has none of (multiplier).
 func (ix *toolIndex) join(members []*toolSecurity) *toolSecurity {
 	s := new(toolSecurity)
 	*s = *members[0]
@@ -1424,9 +1464,6 @@ func (ix *toolIndex) join(members []*toolSecurity) *toolSecurity {
 	if s.assetType == "OPTION" {
 		s.contract, s.occ = optionContract(s.symbols)
 		s.multiplier, s.assumed, s.badMultiplier = ix.multiplier(members)
-	}
-	if t := s.ticker(); t != "" {
-		s.reused = ix.reused[symbolForm(t)]
 	}
 	return s
 }
@@ -1551,10 +1588,10 @@ func (ix *toolIndex) multiplier(members []*toolSecurity) (m int64, assumed, bad 
 }
 
 // groupAll works out, once, which of the store's securities the tools take
-// for one, where the store holds them apart (3.5 of the design, I-1 and I-4
-// of the consolidation): the store joins two keys only when they had one
-// symbol at times that overlap, so a security that a History file's rows
-// name, under an ItemIssueId or a symbol, and the API's rows, under an
+// for one, where the store holds them apart (3.5 of the design, I-1, I-4
+// and I-5 of the consolidation): the store joins two keys only when they
+// had one symbol at times that overlap, so a security that a History file's
+// rows name, under an ItemIssueId or a symbol, and the API's rows, under an
 // instrumentId, often stays two, a CUSIP under one of them only. The tools
 // take for one only those that the store's data make one security
 // (certainJoins): those that know one CUSIP, that name one option contract
@@ -1565,19 +1602,22 @@ func (ix *toolIndex) multiplier(members []*toolSecurity) (m int64, assumed, bad 
 // securities of two CUSIPs, is unsure: it may be one of those, or another
 // company, which the store does not say. It is written on its own, in a
 // form that neither tool merges with another, and listed with each that it
-// may be (toolUnsure), for you to say which it is in the store. A ticker
-// that groups of two CUSIPs have had, as when a company takes a ticker that
-// another gave up, or a security keeps its ticker under a new CUSIP, is
-// reused: neither one's identity. Every security of the store is grouped,
-// whatever the export selects, and those of rows and legs that have a
-// symbol but no key, so that every export groups alike; the first of a
+// may be (toolUnsure), for you to say which it is in the store. Of the
+// groups whose current symbol is one ticker, neither delisted nor unsure,
+// as when a company takes a ticker that another gave up, or a security
+// keeps its ticker under a new CUSIP, one at most keeps it (tickerKeeper),
+// so that no ticker that a tool finds securities by names two. Every
+// security of the store is grouped, whatever the export selects, and those
+// of rows and legs that have a symbol but no key, so that every export
+// groups alike; which group keeps a ticker depends on the export's -to
+// too, by what the accounts hold at their latest snapshots. The first of a
 // group, in the order of the keys (keyRank), then of the symbols of those
 // without, names it.
 func (ix *toolIndex) groupAll() {
 	if ix.members != nil {
 		return
 	}
-	ix.members, ix.reused, ix.unsure = map[secRef][]*toolSecurity{}, map[string]bool{}, map[secRef]*toolUnsure{}
+	ix.members, ix.unsure, ix.keepers = map[secRef][]*toolSecurity{}, map[secRef]*toolUnsure{}, map[secRef]secRef{}
 	var all []*toolSecurity
 	seen := map[secRef]bool{}
 	add := func(key, symbol string) {
@@ -1680,17 +1720,72 @@ func (ix *toolIndex) groupAll() {
 			ix.unsure[all[i].ref()] = u
 		}
 	}
-	// A group written on its own writes no ticker: its ticker is no other
-	// one's to give up.
-	for f, hs := range holders {
-		n := 0
-		for _, r := range hs {
-			if ix.unsure[all[r].ref()] == nil {
-				n++
+	// The groups that may keep each ticker, whose current symbol it is, and
+	// the one that keeps it. A group written on its own writes no ticker.
+	candidates := map[string][]int{}
+	for _, r := range slices.Sorted(maps.Keys(groups)) {
+		s := ix.join(members(r))
+		s.unsure = ix.unsure[all[r].ref()] != nil
+		if s.mayKeep() {
+			f := symbolForm(s.ticker())
+			candidates[f] = append(candidates[f], r)
+		}
+	}
+	held := heldKeys(ix.in)
+	for f, rs := range candidates {
+		var of [][]*toolSecurity
+		for _, r := range rs {
+			of = append(of, members(r))
+		}
+		var keeper secRef
+		if k := ix.tickerKeeper(f, of, held); k >= 0 {
+			keeper = all[rs[k]].ref()
+		}
+		for _, r := range rs {
+			for _, i := range groups[r] {
+				ix.keepers[all[i].ref()] = keeper
 			}
 		}
-		ix.reused[f] = n > 1
 	}
+}
+
+// tickerKeeper returns, of groups, the groups of the store's securities
+// whose current symbol is the ticker t (symbolForm) and that may keep it
+// (mayKeep), the index of the one that keeps it (I-5 of the consolidation),
+// -1 for none: of those that an account holds at its latest snapshot by -to
+// (held, heldKeys), or of all when none is held, the one that Schwab's API
+// saw under t last; none when two were seen under it last at one instant.
+// One that only the History files name by t, which the API never saw under
+// it, keeps it from none that the API names, and of two such none keeps
+// it: no instant of a History file is compared with one of the API's. The
+// one group of t keeps it, whatever names it.
+func (ix *toolIndex) tickerKeeper(t string, groups [][]*toolSecurity, held map[string]bool) int {
+	// best is the keeper's rank so far, 0 for one held, 1 for one not, 2
+	// before the first; latest when the API saw it under t last, the zero
+	// time for never.
+	best, keeper, latest := 2, -1, time.Time{}
+	for i, g := range groups {
+		rank, seen := 1, time.Time{}
+		if slices.ContainsFunc(g, func(m *toolSecurity) bool { return m.key != "" && held[m.key] }) {
+			rank = 0
+		}
+		for _, n := range ix.namesOf(g) {
+			if n.source == "api" && n.symbol == t {
+				seen = n.lastSeen
+			}
+		}
+		switch {
+		case rank > best:
+		case rank < best || seen.After(latest):
+			best, keeper, latest = rank, i, seen
+		case seen.Equal(latest):
+			// Two of the best rank so far, seen under t last at one
+			// instant, or never: neither keeps it, unless one of a later
+			// instant or of a better rank comes.
+			keeper = -1
+		}
+	}
+	return keeper
 }
 
 // securityOrder orders the store's securities as groupAll groups them: by
@@ -1980,7 +2075,9 @@ func heldKeys(in *toolInput) map[string]bool {
 
 // gfManual returns why Ghostfolio gets s as a MANUAL asset, "" when it
 // asks Yahoo (3.5 and 6.6 of the design): unsure for one written on its
-// own, which Yahoo would take for the security of its ticker.
+// own, which Yahoo would take for the security of its ticker; reused for
+// one whose ticker another security keeps, or none does (I-5 of the
+// consolidation), which Yahoo would take for that one.
 func (ix *toolIndex) gfManual(s *toolSecurity) string {
 	switch {
 	case s.unsure:
@@ -1993,6 +2090,8 @@ func (ix *toolIndex) gfManual(s *toolSecurity) string {
 		return "no_ticker"
 	case s.delisted:
 		return "delisted"
+	case s.reused():
+		return "reused"
 	case !plainYahoo.MatchString(yahooForm(s.ticker())):
 		return "not_plain"
 	}

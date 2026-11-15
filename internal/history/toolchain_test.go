@@ -3499,6 +3499,122 @@ func TestToolReimport(t *testing.T) {
 		}
 	})
 
+	t.Run("a ticker that a security of another CUSIP keeps since", func(t *testing.T) {
+		t.Parallel()
+		// PP keeps a security's ticker until you clear it (L13 of the
+		// consolidation). A1 bought TKWP of one CUSIP and sold it; a company
+		// of another CUSIP has had TKWP since, which A1 holds now. The next
+		// export gives the ticker to the one held (I-5) and writes the old
+		// one without it, by its CUSIP, which PP finds its rows by still, so
+		// that they stay given; it names the old one in symbols_changed,
+		// no_ticker because reused by the new one's key, and changed. You
+		// clear the old one's ticker in PP before importing (step 8): the
+		// new one's rows make a PP security of their own, and PP holds what
+		// the snapshot holds, where the old one, left with its ticker, would
+		// take them. Ghostfolio, whose activities of the old one are of its
+		// symbol for Yahoo, gets them again under its MANUAL asset, listed
+		// changed, and names nothing.
+		const oldKey, newKey, oldCUSIP, newCUSIP, name = "i:1000631", "i:1000632", "ZZW63A101", "ZZW63B109", "Schwab A1 ...135"
+		securities, names := tcSecurities()
+		first := tcInput(toolInput{
+			to:         "2026-04-30",
+			securities: append(slices.Clone(securities), toolSecurityRow{key: oldKey, assetType: "EQUITY", symbol: "TKWP", cusip: oldCUSIP}),
+			names: append(slices.Clone(names),
+				toolName{key: oldKey, kind: "symbol", value: "TKWP", firstSeen: tcNY("2025-01-06 18:30:00"), lastSeen: tcNY("2026-03-02 18:30:00")},
+				toolName{key: oldKey, kind: "description", value: "TKWP OLD CORP", firstSeen: tcNY("2025-01-06 18:30:00"), lastSeen: tcNY("2026-03-02 18:30:00")},
+			),
+			rows: []toolRow{
+				rcTrade("T7f9b000001", 1, "2025-01-06 10:00:00", "buy", oldKey, "TKWP", 10_000_000, 20, -20_000, 0),
+				rcTrade("T7f9b000002", 1, "2026-03-02 10:00:00", "sell", oldKey, "TKWP", -10_000_000, 25, 25_000, 0),
+			},
+			snapshots: []toolSnapshot{rcSnapshot(1, "2026-04-30", 5_000)},
+		})
+		later := first
+		later.to = "2026-11-12"
+		later.securities = append(slices.Clone(first.securities), toolSecurityRow{key: newKey, assetType: "EQUITY", symbol: "TKWP", cusip: newCUSIP})
+		later.names = append(slices.Clone(first.names),
+			toolName{key: newKey, kind: "symbol", value: "TKWP", firstSeen: tcNY("2026-06-01 18:30:00"), lastSeen: tcNY("2026-11-10 18:05:00")},
+			toolName{key: newKey, kind: "description", value: "TKWP NEW INC", firstSeen: tcNY("2026-06-01 18:30:00"), lastSeen: tcNY("2026-11-10 18:05:00")},
+		)
+		later.rows = append(slices.Clone(first.rows), rcTrade("T7f9b000003", 1, "2026-06-01 10:00:00", "buy", newKey, "TKWP", 1_000_000, 30, -3_000, 0))
+		later.positions = []toolPosition{rcPosition("2026-11-10", newKey, 1_000_000, 32)}
+		later.snapshots = append(slices.Clone(first.snapshots), rcSnapshot(1, "2026-11-10", 2_000))
+		later = tcInput(later)
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, first, tool, nil, rcAt1)
+			e2 := chainStepOf(t, later, tool, e1, rcAt2)
+			e3 := chainStepOf(t, later, tool, e2, rcAt3)
+			changed, gone := rcChanged(e2)
+			var m struct {
+				SymbolsChanged *[]toolSymbolsEntry `json:"symbols_changed"`
+				Securities     []chainSecurity     `json:"securities"`
+			}
+			if err := json.Unmarshal(e2.manifest, &m); err != nil {
+				t.Fatal(err)
+			}
+			var got, secs []string
+			for _, x := range deref(m.SymbolsChanged) {
+				got = append(got, fmt.Sprintf("%s %s %s %s %s", x.SecurityKey, x.WrittenAs, strings.Join(x.Why, ","), x.Because, x.ReusedBy))
+			}
+			for _, s := range m.Securities {
+				if s.SecurityKey == oldKey || s.SecurityKey == newKey {
+					secs = append(secs, fmt.Sprintf("%s %s %s %s %v", s.SecurityKey, s.Identity, s.Ticker, s.WKN, s.Why))
+				}
+			}
+			want, wantSecs, wantChanged := []string{"i:1000631 MANUAL no_ticker,changed reused i:1000632"}, []string{
+				"i:1000631 ZZW63A101  ZZW63A101 [no_ticker]", "i:1000632 TKWP TKWP ZZW63B109 []",
+			}, []string(nil)
+			if tool == toolGF {
+				want, wantSecs, wantChanged = nil, []string{"i:1000631 ZZW63A101   []", "i:1000632 TKWP   []"}, []string{
+					"T7f9b000001: 2025-01-06 BUY 200.00 -> 2025-01-06 BUY 200.00", "T7f9b000002: 2026-03-02 SELL 250.00 -> 2026-03-02 SELL 250.00",
+				}
+			}
+			if e1.e.SymbolsChanged != 0 || e2.e.SymbolsChanged != len(want) || e3.e.SymbolsChanged != 0 || !slices.Equal(got, want) ||
+				!slices.Equal(secs, wantSecs) || !slices.Equal(changed, wantChanged) || len(gone) != 0 {
+				t.Errorf("%s: symbols changed %d, %d %q, %d; the chain's %q; changed %q, gone %q", tool, e1.e.SymbolsChanged, e2.e.SymbolsChanged, got, e3.e.SymbolsChanged, secs, changed, gone)
+			}
+			if tool == toolGF {
+				// The third export holds nothing new, which the dialog does
+				// not import.
+				gm := newGFModel()
+				for _, s := range []*chainStep{e1, e2} {
+					if _, err := gfApply(t, gm, s); err != nil {
+						t.Fatal(err)
+					}
+				}
+				gfReconcile(t, e2.in, e2.events, e2.outcomes, gm)
+				continue
+			}
+			pm, left := newPPModel(), newPPModel()
+			ppApply(t, pm, e1)
+			ppApply(t, left, e1)
+			// Step 8: the old one's ticker cleared in PP, before importing.
+			for _, sec := range pm.securities {
+				if sec.wkn == oldCUSIP {
+					sec.ticker = ""
+				}
+			}
+			ppApply(t, pm, e2)
+			ppApply(t, pm, e3)
+			ppReconcile(t, pm, e3.in, e3.events, e3.outcomes)
+			held := map[string]int64{}
+			for sec, q := range pm.shares(name) {
+				held[sec.ticker+" "+sec.wkn] += q
+			}
+			if !maps.Equal(held, map[string]int64{" " + oldCUSIP: 0, "TKWP " + newCUSIP: 100_000_000}) {
+				t.Errorf("PP holds %v", held)
+			}
+			ppApply(t, left, e2)
+			held = map[string]int64{}
+			for sec, q := range left.shares(name) {
+				held[sec.ticker+" "+sec.wkn] += q
+			}
+			if !maps.Equal(held, map[string]int64{"TKWP " + oldCUSIP: 100_000_000}) {
+				t.Errorf("PP, the old one's ticker left, holds %v; want the new one's share on the old one's security", held)
+			}
+		}
+	})
+
 	t.Run("5f an opening position and opening cash booked by hand, then the rows they stood for", func(t *testing.T) {
 		t.Parallel()
 		// The first export has only the API's sale of 10 XYZ: A1's cash
