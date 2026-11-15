@@ -288,6 +288,7 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 		if !h.Before && !h.Carried {
 			differences = append(differences, ToolDifference{
 				Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Asset: h.Asset.shown(), Finds: f, Value: string(h.Difference), LeftOut: h.LeftOut,
+				Unsure: h.Unsure,
 			})
 		}
 	}
@@ -333,15 +334,63 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	// symbols_changed is PP's alone.
 	check("securities that PP may hold otherwise than written", e.SymbolsChanged, len(deref(m.SymbolsChanged)))
 	check("symbols_changed", e.Tool == toolPP, m.SymbolsChanged != nil)
+	// keys_unsure, with the facts of each key and of each security that it
+	// may be; each of its keys or symbols is that of the differences marked
+	// unsure, and of no other (I-11).
+	facts := func(f toolFactsEntry) ToolFacts {
+		out := ToolFacts{Descriptions: f.Descriptions, Held: f.Held}
+		if f.Rows != nil {
+			out.First, out.Last = f.Rows.First, f.Rows.Last
+		}
+		for _, k := range f.Tickers {
+			at, err := time.Parse(time.RFC3339, k.LastSeenAt)
+			if err != nil || k.Source != "api" && k.Source != "history" {
+				t.Errorf("the manifest lists the ticker %+v", k)
+			}
+			out.Tickers = append(out.Tickers, ToolTicker{Ticker: k.Ticker, Source: k.Source, LastSeen: at})
+		}
+		return out
+	}
+	shown := func(us []ToolUnsure) []ToolUnsure {
+		out := slices.Clone(us)
+		for i := range out {
+			norm := func(f ToolFacts) ToolFacts {
+				f.Descriptions, f.Tickers = orNil(f.Descriptions), slices.Clone(f.Tickers)
+				for j := range f.Tickers {
+					f.Tickers[j].LastSeen = f.Tickers[j].LastSeen.UTC()
+				}
+				return f
+			}
+			out[i].Facts, out[i].Securities = norm(out[i].Facts), slices.Clone(out[i].Securities)
+			for j := range out[i].Securities {
+				out[i].Securities[j].Facts = norm(out[i].Securities[j].Facts)
+			}
+		}
+		return out
+	}
 	var unsure []ToolUnsure
+	marked := map[string]bool{}
 	for _, u := range m.KeysUnsure {
-		k := ToolUnsure{Key: u.SecurityKey, Keys: u.SecurityKeys, Tickers: u.Tickers, TakenFor: deref(u.TakenFor)}
+		k := ToolUnsure{Key: u.SecurityKey, Keys: u.SecurityKeys, Symbol: u.Symbol, Refs: u.Refs, Facts: facts(u.toolFactsEntry), Before: u.Before}
 		for _, s := range u.Securities {
-			k.Securities = append(k.Securities, ToolUnsureSecurity{Key: s.SecurityKey, CUSIP: s.CUSIP, Command: s.Command, Apart: s.Apart})
+			k.Securities = append(k.Securities, ToolUnsureSecurity{Key: s.SecurityKey, Symbol: s.Symbol, CUSIP: s.CUSIP, Facts: facts(s.toolFactsEntry), Command: s.Command})
 		}
 		unsure = append(unsure, k)
+		marked["symbol "+u.Symbol] = u.SecurityKey == ""
+		for _, key := range append([]string{u.SecurityKey}, u.SecurityKeys...) {
+			marked["key "+key] = key != ""
+		}
 	}
-	check("keys unsure", e.Unsure, unsure)
+	check("keys unsure", shown(e.Unsure), shown(unsure))
+	for _, h := range m.Holdings.Differences {
+		of := "key " + h.SecurityKey
+		if h.SecurityKey == "" {
+			of = "symbol " + h.Symbol
+		}
+		if !h.Carried && marked[of] != h.Unsure {
+			t.Errorf("the manifest lists the difference of %s %s marked unsure %v, and keys_unsure %v", h.Account, of, h.Unsure, marked)
+		}
+	}
 	var unused []string
 	for _, s := range m.Chain.Manual {
 		if s.Unused {
@@ -356,9 +405,10 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 			t.Fatalf("the first file is %s: %v", e.Files[0].Name, err)
 		}
 		securities, prices := map[string]bool{}, 0
+		date := slices.Index(rows[0], "Date of Quote")
 		for _, r := range rows[1:] {
 			securities[strings.Join(r[:3], "|")] = true
-			if r[4] != "" {
+			if r[date] != "" {
 				prices++
 			}
 		}
@@ -780,6 +830,50 @@ func TestToolExport(t *testing.T) {
 			t.Errorf("%s: the export after your pairing lists %q and %q, writes %q", tool, c, g, s.refs(outcomeWritten))
 		}
 		models[tool].apply(t, s, -1)
+		since[tool] = s
+	}
+
+	// The full export wrote META's sale, of the API's key, on its own: the
+	// store holds that key apart from the position's, of META's CUSIP, and
+	// the two share META alone (I-4 of the consolidation). You say that they
+	// are one security: the next export lists the sale as changed, writes it
+	// under META, lists nothing unsure, names no security as changed in
+	// symbols, and lists the difference of the sale's security gone and
+	// META's with its value.
+	if _, err := ts.s.DecideAll(t.Context(), []Decision{{Kind: "security", Subject: "k:i:1940083512", Value: "same k:c:30303M102"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools {
+		if u := unsureText(full[tool].e.Unsure); !slices.Equal(u, []string{"i:1940083512: c:30303M102 schwabtx edit K:i:1940083512 -same K:c:30303M102; symbol META"}) {
+			t.Errorf("%s: the full export lists %q", tool, u)
+		}
+		s := toolExportTo(t, ts, toolSince(t, tool, "2026-11-13", since[tool]), filepath.Join(base, tool, "since4"))
+		toolStoreGolden(t, s, tool, "since4")
+		was := "portfolio 2026-03-13 Sell 603.36"
+		if tool == toolGF {
+			was = "2026-03-13 SELL 603.40 fee 0.04"
+		}
+		var differences []string
+		for _, d := range s.e.Differences {
+			line := cmp.Or(d.Asset, d.Finds) + " " + d.Value
+			if d.Gone {
+				line += " gone"
+			}
+			if d.Unsure {
+				line += " unsure"
+			}
+			differences = append(differences, line)
+		}
+		meta := map[string][]string{
+			toolPP: {"name Security (i:1940083512) 1 gone", "WKN 30303M102 2"},
+			toolGF: {"Security (i:1940083512) 1 gone", "META 2"},
+		}[tool]
+		if c, g := rcChanged(s); !slices.Equal(c, []string{"T73508261942: " + was + " -> " + was}) || len(g) > 0 || !slices.Equal(s.refs(outcomeWritten), []string{"T73508261942"}) ||
+			len(s.e.Unsure) > 0 || s.e.SymbolsChanged > 0 || !slices.Equal(differences, meta) {
+			t.Errorf("%s: the export after your -same lists %q and %q, writes %q, unsure %q, %d securities changed, differences %q",
+				tool, c, g, s.refs(outcomeWritten), unsureText(s.e.Unsure), s.e.SymbolsChanged, differences)
+		}
+		models[tool].apply(t, s, 1)
 	}
 }
 

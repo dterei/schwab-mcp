@@ -259,7 +259,7 @@ func TestPPFiles(t *testing.T) {
 		if !slices.Equal(got, wants) {
 			t.Errorf("files\n%v\nwant\n%v", got, wants)
 		}
-		if f := ppFileNamed(t, none, "securities.csv"); string(f.data) != "Ticker Symbol,WKN,Security Name,Currency,Date of Quote,Quote\n" {
+		if f := ppFileNamed(t, none, "securities.csv"); string(f.data) != "Ticker Symbol,WKN,Security Name,Note,Currency,Date of Quote,Quote\n" {
 			t.Errorf("securities.csv of no security is %q", f.data)
 		}
 	})
@@ -452,13 +452,13 @@ func TestPPFiles(t *testing.T) {
 		// priced per share; a security with a ticker gets none; a security
 		// that a record names, without prices, a row of its own.
 		files := ppFilesOf("holdings")
-		want := "Ticker Symbol,WKN,Security Name,Currency,Date of Quote,Quote\n" +
-			"ABCD,ZZB123458,ABCD INDUSTRIES INC,USD,,\n" +
-			"EFGH,,EFGH TOTAL MARKET ETF,USD,,\n" +
-			"XYZ,98389B100,XYZ CORP COMMON STOCK,USD,,\n" +
-			"XYZ250221P00040000,,XYZ 02/21/2025 40.00 P,USD,,\n" +
-			"XYZ260918C00050000,,XYZ 09/18/2026 50.00 C,USD,,\n" +
-			"XYZ270115P00045000,,XYZ 01/15/2027 45.00 P,USD,2026-11-10,1.55\n"
+		want := "Ticker Symbol,WKN,Security Name,Note,Currency,Date of Quote,Quote\n" +
+			"ABCD,ZZB123458,ABCD INDUSTRIES INC,,USD,,\n" +
+			"EFGH,,EFGH TOTAL MARKET ETF,,USD,,\n" +
+			"XYZ,98389B100,XYZ CORP COMMON STOCK,,USD,,\n" +
+			"XYZ250221P00040000,,XYZ 02/21/2025 40.00 P,,USD,,\n" +
+			"XYZ260918C00050000,,XYZ 09/18/2026 50.00 C,,USD,,\n" +
+			"XYZ270115P00045000,,XYZ 01/15/2027 45.00 P,,USD,2026-11-10,1.55\n"
 		if f := ppFileNamed(t, files, "securities.csv"); string(f.data) != want {
 			t.Errorf("securities.csv is\n%s\nwant\n%s", f.data, want)
 		}

@@ -1899,7 +1899,7 @@ func TestToolCheckersPP(t *testing.T) {
 			{"a quote without its date", ppReplace(secs, "USD,2025-01-31,", "USD,,"), `the Date of Quote ""`},
 			{"a date without its quote", ppReplace(secs, ",1.55\n", ",\n"), `the Quote ""`},
 			{"another currency", ppSetCell(acct1, "T62000101", "Transaction Currency", "EUR"), `the currency is "EUR"`},
-			{"a security in another currency", ppReplace(secs, "XYZ,98389B100,XYZ CORP COMMON STOCK,USD", "XYZ,98389B100,XYZ CORP COMMON STOCK,EUR"), `the currency is "EUR"`},
+			{"a security in another currency", ppReplace(secs, "XYZ,98389B100,XYZ CORP COMMON STOCK,,USD", "XYZ,98389B100,XYZ CORP COMMON STOCK,,EUR"), `the currency is "EUR"`},
 			{"a misspelt type", ppSetCell(acct1, "T62000114", "Type", "Withdraw"), `the Type "Withdraw"`},
 			{"a type in lower case", ppSetCell(acct1, "T62000114", "Type", "withdrawal"), `the Type "withdrawal"`},
 			{"no type", ppSetCell(acct1, "T62000114", "Type", ""), `the Type ""`},
@@ -1938,9 +1938,9 @@ func TestToolCheckersPP(t *testing.T) {
 			{"another securities account", ppSetCell(port1, "T62000102", "Securities Account", "Schwab A2 ...398"), `the Securities Account "Schwab A2 ...398" is not the file's`},
 			{"cash on a delivery", ppSetCell(port1, "Cf6000001.8", "Cash Account", "Schwab A1 ...135"), `Type Delivery (Outbound) has the Cash Account "Schwab A1 ...135"`},
 			{"a sale of no cash account", ppSetCell(port1, "T62000113", "Cash Account", ""), `Type Sell has the Cash Account ""`},
-			{"a security of no identifier", ppReplace(secs, "EFGH,,EFGH TOTAL MARKET ETF,USD,,", ",,,USD,,"), "names no security"},
-			{"a security listed twice", ppReplace(secs, "EFGH,,EFGH TOTAL MARKET ETF,USD,,\n", "EFGH,,EFGH TOTAL MARKET ETF,USD,,\nEFGH,,EFGH TOTAL MARKET ETF,USD,,\n"), "lists its security again"},
-			{"a security not listed", ppReplace(secs, "EFGH,,EFGH TOTAL MARKET ETF,USD,,\n", ""), `names a security that securities.csv does not list: "EFGH"`},
+			{"a security of no identifier", ppReplace(secs, "EFGH,,EFGH TOTAL MARKET ETF,,USD,,", ",,,,USD,,"), "names no security"},
+			{"a security listed twice", ppReplace(secs, "EFGH,,EFGH TOTAL MARKET ETF,,USD,,\n", "EFGH,,EFGH TOTAL MARKET ETF,,USD,,\nEFGH,,EFGH TOTAL MARKET ETF,,USD,,\n"), "lists its security again"},
+			{"a security not listed", ppReplace(secs, "EFGH,,EFGH TOTAL MARKET ETF,,USD,,\n", ""), `names a security that securities.csv does not list: "EFGH"`},
 			{"a security named otherwise", ppRecords(acct1, "T62000105", func(r [][]string, i int) [][]string {
 				ticker, wkn := slices.Index(r[0], "Ticker Symbol"), slices.Index(r[0], "WKN")
 				r[i][ticker], r[i][wkn] = r[i][wkn], r[i][ticker]

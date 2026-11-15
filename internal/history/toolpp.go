@@ -66,6 +66,7 @@ const (
     {"label": "Ticker Symbol", "field": "ticker"},
     {"label": "WKN", "field": "wkn"},
     {"label": "Security Name", "field": "name"},
+    {"label": "Note", "field": "note"},
     {"label": "Currency", "field": "currency"},
     {"label": "Date of Quote", "field": "date", "format": "yyyy-MM-dd"},
     {"label": "Quote", "field": "quote", "format": "0,000.00"}
@@ -124,7 +125,7 @@ const (
 // The header of each kind of file: its configuration's column labels, in
 // their order, which is the order of each row's cells.
 var (
-	ppSecuritiesHeader = []string{"Ticker Symbol", "WKN", "Security Name", "Currency", "Date of Quote", "Quote"}
+	ppSecuritiesHeader = []string{"Ticker Symbol", "WKN", "Security Name", "Note", "Currency", "Date of Quote", "Quote"}
 	ppAccountHeader    = []string{
 		"Date", "Time", "Type", "Value", "Transaction Currency", "Fees", "Ticker Symbol", "WKN", "Security Name", "Note",
 		"Cash Account", "Offset Account",
@@ -162,7 +163,10 @@ type ppFile struct {
 // ppFiles returns the files of the PP export of in, whose tool is PP and
 // whose records are events (toolEvents), in the order to import them (5.1
 // of the design): securities.csv, which makes the securities before the
-// records that name them; then, for each account with a record, in the
+// records that name them, a security written on its own with its
+// descriptions as its note, which PP updates on a security that it holds
+// (CSVSecurityExtractor.java:155-157), and every other with none, which
+// changes nothing there; then, for each account with a record, in the
 // order of their ids, its account file and its portfolio file, each when it
 // has a row; then the three configurations. securities.csv is written even
 // with no row, as are the configurations.
@@ -170,11 +174,12 @@ func ppFiles(in *toolInput, events []toolEvent) []ppFile {
 	var securities [][]string
 	for _, l := range mergeListed(toolPP, listSecurities(in, events)) {
 		ticker, wkn, name := ppIdentifiers(l.security)
+		note := ppTrim(l.security.note)
 		if len(l.prices) == 0 {
-			securities = append(securities, []string{ticker, wkn, name, ppCurrency, "", ""})
+			securities = append(securities, []string{ticker, wkn, name, note, ppCurrency, "", ""})
 		}
 		for _, p := range l.prices {
-			securities = append(securities, []string{ticker, wkn, name, ppCurrency, string(p.date), roundRat(p.price, 8)})
+			securities = append(securities, []string{ticker, wkn, name, note, ppCurrency, string(p.date), roundRat(p.price, 8)})
 		}
 	}
 	files := []ppFile{{
@@ -311,10 +316,16 @@ func (r ppRecord) cells() []string {
 // gets for security s (3.5 of the design), by which PP finds the security
 // or makes it: its PP ticker, its CUSIP and its name, which every security
 // of the store that the tools take for one with it has alike (join). A
-// security that would have none of the three, having no description, no
-// CUSIP and a ticker kept from PP for its dot, is named by its latest
-// symbol, else its key: PP refuses a record of no security.
+// security written on its own (unsure) has a name alone, made from its key
+// (safeName), which PP finds no other security by, and which a description
+// learned later does not change (I-6 of the consolidation). A security
+// that would have none of the three, having no description, no CUSIP and
+// a ticker kept from PP for its dot, is named by its latest symbol, else
+// its key: PP refuses a record of no security.
 func ppIdentifiers(s *toolSecurity) (ticker, wkn, name string) {
+	if s.unsure {
+		return "", "", ppTrim(s.safeName())
+	}
 	ticker, wkn, name = ppTrim(s.ppTicker()), ppTrim(s.cusip), ppTrim(s.name)
 	if ticker == "" && wkn == "" && name == "" {
 		name = ppTrim(cmp.Or(s.symbol, s.key))

@@ -1606,12 +1606,53 @@ func (v twoKeys) toolCase() toolCase {
 	return c
 }
 
+// sameKey returns in as the store reads it once you say that the security
+// of key is the one of canonical (edit -same), which ranks first of the
+// two: the security's rows, legs, positions and days are canonical's, and
+// so are its names, each with the key that had it; its own row of the
+// store's securities goes, and so do the links between the two.
+func sameKey(in toolInput, key, canonical string) toolInput {
+	in.rows, in.legs, in.positions, in.days = slices.Clone(in.rows), slices.Clone(in.legs), slices.Clone(in.positions), slices.Clone(in.days)
+	for i := range in.rows {
+		if r := &in.rows[i]; r.securityKey == key {
+			r.securityKey = canonical
+		}
+	}
+	for i := range in.legs {
+		if l := &in.legs[i]; l.securityKey == key {
+			l.securityKey = canonical
+		}
+	}
+	for i := range in.positions {
+		if p := &in.positions[i]; p.key == key {
+			p.key = canonical
+		}
+	}
+	for i := range in.days {
+		if d := &in.days[i]; d.key == key {
+			d.key = canonical
+		}
+	}
+	in.names = slices.Clone(in.names)
+	for i := range in.names {
+		if n := &in.names[i]; n.key == key {
+			n.key, n.from = canonical, cmp.Or(n.from, key)
+		}
+	}
+	in.securities = slices.DeleteFunc(slices.Clone(in.securities), func(r toolSecurityRow) bool { return r.key == key })
+	in.links = slices.DeleteFunc(slices.Clone(in.links), func(l toolLink) bool {
+		return l.file == key && l.api == canonical || l.file == canonical && l.api == key
+	})
+	return in
+}
+
 // toolCaseTwoKeys holds one security that the store holds under two keys,
 // a History file's and the API's, neither with a CUSIP: bought in the
 // file's rows and sold in the API's, and held under the API's key, which
-// -manual names for Ghostfolio. Each tool holds it as one security: one
-// row of PP's securities, one MANUAL asset, and one holding, which the
-// snapshot's shares match.
+// -manual names for Ghostfolio. The store linked a row of the file's key
+// to the API's row of it, as it does when a later file holds the sale too,
+// so that each tool holds it as one security: one row of PP's securities,
+// one MANUAL asset, and one holding, which the snapshot's shares match.
 func toolCaseTwoKeys() toolCase {
 	securities, names := tcSecurities()
 	securities = append(securities,
@@ -1646,6 +1687,7 @@ func toolCaseTwoKeys() toolCase {
 			},
 			positions: []toolPosition{rcPosition("2026-11-10", keyTwoAPI, 6_000_000, 1080)},
 			snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 100_000)},
+			links:     []toolLink{{file: keyTwoFile, api: keyTwoAPI}},
 		}),
 		want: []toolWant{
 			{"Cf7a8b9c0.1", "Buy 1500.00 shares 10", "BUY 1500.00 shares 10"},

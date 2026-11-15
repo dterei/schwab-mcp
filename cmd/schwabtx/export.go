@@ -792,57 +792,100 @@ func notCheckedLines(w io.Writer, e *history.ToolExport, manifest string) {
 	}
 }
 
-// unsureLines says on w which keys of the store, with no CUSIP, had a
-// ticker that other securities have had too, of other CUSIPs or at another
-// time, which an export whose manifest is manifest cannot be sure of
-// (history.ToolUnsure): how it writes each, and the command that says which
-// security each is, for each that it may be, in the store at path, with its
-// CUSIP when the store knows one.
+// unsureLines says on w which keys of the store, with no CUSIP, share a
+// ticker with another security that an export whose manifest is manifest
+// cannot join them to (history.ToolUnsure), but those that the export it
+// goes on from listed alike: each is written on its own, and you judge
+// which security it is by what the store knows of it and of each that it
+// may be, which its line says, with the command, for the store at path,
+// that says it is that one.
 func unsureLines(w io.Writer, path string, unsure []history.ToolUnsure, manifest string) {
-	switch n := len(unsure); {
-	case n == 1:
-		fmt.Fprintf(w, "1 key of the store with no CUSIP had a ticker that other securities have had too (%s lists it): the export cannot tell which it is; say which in the store (docs/tools.md):\n", manifest)
-	case n > 1:
-		fmt.Fprintf(w, "%d keys of the store with no CUSIP had tickers that other securities have had too (%s lists them): the export cannot tell which each is; say which in the store (docs/tools.md):\n", n, manifest)
-	}
+	var listed []history.ToolUnsure
 	for _, u := range unsure {
-		// Whether each security that it is not written as, of one at least,
-		// had its ticker at another time.
-		others, apart := 0, true
-		for _, s := range u.Securities {
-			if s.Key == "" || s.Key != u.TakenFor {
-				others++
-				apart = apart && s.Apart
-			}
+		if !u.Before {
+			listed = append(listed, u)
 		}
-		apart = apart && others > 0
-		var as string
-		switch {
-		case u.TakenFor != "" && apart:
-			as = "written as " + u.TakenFor + ", the others having had its ticker at other times"
-		case u.TakenFor != "":
-			as = "written as " + u.TakenFor + ", which had it first"
-		case apart:
-			as = "on its own, each of the others having had its ticker at another time"
-		default:
-			as = "on its own, its tickers each of another"
-		}
+	}
+	status := copyCommand(path, "status", "K:…")
+	switch n := len(listed); {
+	case n == 1:
+		fmt.Fprintf(w, "1 key of the store with no CUSIP shares a ticker with another security that the export cannot join it to (%s lists it under keys_unsure, with what the store knows of it): it is written on its own, which neither tool merges with another. Before you import, judge it by its names and the days of its rows (%s shows its names over time): if it is the security named after it, run that command and export again; if it is not, run nothing and book its differences as any other's (docs/tools.md):\n", manifest, status)
+	case n > 1:
+		fmt.Fprintf(w, "%d keys of the store with no CUSIP share a ticker with another security that the export cannot join them to (%s lists them under keys_unsure, with what the store knows of each): each is written on its own, which neither tool merges with another. Before you import, judge each by its names and the days of its rows (%s shows its names over time): if it is the security named after it, run that command and export again; if it is not, run nothing and book its differences as any other's (docs/tools.md):\n", n, manifest, status)
+	}
+	for _, u := range listed {
 		var commands []string
 		for _, s := range u.Securities {
-			if s.Key == "" {
-				continue
-			}
-			c := "-same " + quoteArg("K:"+s.Key)
-			if len(commands) == 0 {
+			facts := unsureFacts(s.Facts, s.CUSIP)
+			var c string
+			switch {
+			case s.Key == "":
+				c = "the rows of " + plainCell(s.Symbol) + " without a key"
+			case u.Key == "" && len(commands) == 0:
+				c = copyCommand(path, "edit", "REF", "-security", quoteArg("K:"+s.Key))
+			case u.Key == "":
+				c = "-security " + quoteArg("K:"+s.Key)
+			case len(commands) == 0:
 				c = copyCommand(path, "edit", quoteArg("K:"+u.Key), "-same", quoteArg("K:"+s.Key))
+			default:
+				c = "-same " + quoteArg("K:"+s.Key)
 			}
-			if s.CUSIP != "" {
-				c += " (" + s.CUSIP + ")"
+			if facts != "" {
+				c += " (" + facts + ")"
 			}
 			commands = append(commands, c)
 		}
-		fmt.Fprintf(w, "  %s (%s), %s: %s\n", plainCell(u.Key), plainCell(strings.Join(u.Tickers, ", ")), as, strings.Join(commands, " or "))
+		if u.Key == "" {
+			fmt.Fprintf(w, "  %s, %s without a key (%s): %s for each; settling the keys of %[1]s first may let the store place them\n",
+				plainCell(u.Symbol), plural(len(u.Refs), "row"), strings.Join(u.Refs, ", "), strings.Join(commands, " or "))
+			continue
+		}
+		key := plainCell(u.Key)
+		if facts := unsureFacts(u.Facts, ""); facts != "" {
+			key += ", " + facts
+		}
+		fmt.Fprintf(w, "  %s: %s\n", key, strings.Join(commands, " or "))
 	}
+}
+
+// unsureFacts returns, as a key's line says them, what the store knows of a
+// security that keys_unsure names: its descriptions; its CUSIP, "" for
+// none; each of its tickers, from Schwab's API, in History files or both;
+// the days of the export's rows of it; and held, when an account holds it.
+func unsureFacts(f history.ToolFacts, cusip string) string {
+	var parts []string
+	if len(f.Descriptions) > 0 {
+		parts = append(parts, plainCell(strings.Join(f.Descriptions, "; ")))
+	}
+	if cusip != "" {
+		parts = append(parts, "CUSIP "+plainCell(cusip))
+	}
+	var tickers []string
+	sources := map[string][]string{}
+	for _, t := range f.Tickers {
+		if _, ok := sources[t.Ticker]; !ok {
+			tickers = append(tickers, t.Ticker)
+		}
+		where := "from Schwab's API"
+		if t.Source == "history" {
+			where = "in History files"
+		}
+		sources[t.Ticker] = append(sources[t.Ticker], where)
+	}
+	for _, t := range tickers {
+		parts = append(parts, plainCell(t)+" "+strings.Join(sources[t], " and "))
+	}
+	switch f.First {
+	case "":
+	case f.Last:
+		parts = append(parts, "rows "+string(f.First))
+	default:
+		parts = append(parts, "rows "+string(f.First)+" to "+string(f.Last))
+	}
+	if f.Held {
+		parts = append(parts, "held")
+	}
+	return strings.Join(parts, ", ")
 }
 
 // toolDeletions says on w what of the export e for a tool changed or went,
@@ -961,6 +1004,9 @@ func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string)
 			value = "gone: delete what you added for it, if anything"
 		case d.LeftOut:
 			value += ", less the rows left out of it that you book by hand"
+		}
+		if d.Unsure && !d.Gone {
+			value += ", of a key under keys_unsure"
 		}
 		fmt.Fprintf(w, "  %s: %s: %s\n", toolAccountName(e, d.Account), what, value)
 	}

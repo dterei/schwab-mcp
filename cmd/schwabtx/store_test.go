@@ -1184,24 +1184,48 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 				SymbolsChanged: 2, CashNotChecked: []history.ToolCashUnchecked{{Account: "A2 ...398", Why: "margin"}}, Flagged: 2, Waiting: 2,
 				// A3, new, has rows and no snapshot; A4 snapshots alone.
 				NoSnapshot: []string{"A3 ...777"}, NotInTool: []string{"A4 ...783"},
+				// A difference of a key written on its own says so, after what
+				// the rows left out of it move.
 				Differences: []history.ToolDifference{
 					{Account: "A1 ...135", Key: "i:1854092", Symbol: "XYZ", Finds: "WKN 98389B100", Value: "-5", Gone: true},
 					{Account: "A1 ...135", Cash: true, Value: "997.04", LeftOut: true},
+					{Account: "A1 ...135", Key: "x:66000009", Symbol: "JKLM", Finds: "name Security (x:66000009)", Value: "-10", LeftOut: true, Unsure: true},
 				},
+				// Keys written on their own, each with what the store knows of
+				// it and of each security that it may be: of one ticker, from
+				// either source or both; of a key to quote, and a security that
+				// the store holds under no key; listed alike before, which is
+				// not counted again; and the rows of a symbol without a key.
 				Unsure: []history.ToolUnsure{
-					{Key: "x:66000017", Tickers: []string{"JKLM"}, TakenFor: "i:1000013", Securities: []history.ToolUnsureSecurity{{Key: "i:1000013", CUSIP: "ZZJ12K106"}, {Key: "i:1000213", CUSIP: "ZZJ12K205"}}},
 					{
-						Key: "s:FILE:GRPC FD@2025-01-02", Keys: []string{"s:FILE:GRPC FD@2025-01-02", "x:66000102"}, Tickers: []string{"GRPB", "GRPC-FD"},
-						Securities: []history.ToolUnsureSecurity{{Key: "i:1000102", CUSIP: "ZZG10B101"}, {CUSIP: "ZZG10D105"}, {Key: "i:1000103", CUSIP: "ZZG10C109"}},
+						Key: "x:66000009", Facts: history.ToolFacts{
+							Descriptions: []string{"JKLM HOLDINGS"}, Tickers: []history.ToolTicker{{Ticker: "JKLM", Source: "history"}}, First: "2019-03-04", Last: "2020-11-30",
+						},
+						Securities: []history.ToolUnsureSecurity{
+							{Key: "i:1000213", Facts: history.ToolFacts{
+								Descriptions: []string{"JKLM HOLDINGS INC"}, Tickers: []history.ToolTicker{{Ticker: "JKLM", Source: "api"}}, First: "2026-01-05", Last: "2026-10-30", Held: true,
+							}},
+							{Key: "i:1000214", CUSIP: "ZZJ12K205", Facts: history.ToolFacts{Tickers: []history.ToolTicker{{Ticker: "JKLM", Source: "api"}, {Ticker: "JKLM", Source: "history"}}}},
+						},
 					},
-					// Keys whose ticker another security had at another time:
-					// on their own, beside one of a CUSIP or none, and taken for
-					// the one of two that had it while it did.
-					{Key: "x:66000302", Tickers: []string{"TKRZ"}, Securities: []history.ToolUnsureSecurity{{Key: "i:1000301", CUSIP: "ZZM40A100", Apart: true}}},
-					{Key: "i:1000303", Tickers: []string{"TKRY"}, Securities: []history.ToolUnsureSecurity{{Key: "x:66000303", Apart: true}}},
 					{
-						Key: "x:66000501", Tickers: []string{"GRPZ"}, TakenFor: "c:ZZS50B109",
-						Securities: []history.ToolUnsureSecurity{{Key: "i:1000501", CUSIP: "ZZR50A102", Apart: true}, {Key: "c:ZZS50B109", CUSIP: "ZZS50B109"}},
+						Key: "s:FILE:GRPC FD@2025-01-02", Keys: []string{"s:FILE:GRPC FD@2025-01-02", "x:66000102"}, Facts: history.ToolFacts{
+							Descriptions: []string{"GRPC FUND", "GRPC FD"}, Tickers: []history.ToolTicker{{Ticker: "GRPC-FD", Source: "history"}}, First: "2024-05-01", Last: "2024-05-01",
+						},
+						Securities: []history.ToolUnsureSecurity{
+							{Key: "i:1000103", CUSIP: "ZZG10C109", Facts: history.ToolFacts{Tickers: []history.ToolTicker{{Ticker: "GRPC-FD", Source: "api"}}}},
+							{Symbol: "GRPC-FD"},
+						},
+					},
+					{Key: "x:66000010", Before: true, Securities: []history.ToolUnsureSecurity{{Key: "i:1000215"}}},
+					{
+						Symbol: "VBR", Refs: []string{"T73508261948", "T73508261952"},
+						Securities: []history.ToolUnsureSecurity{
+							{Key: "i:4417355", Facts: history.ToolFacts{
+								Descriptions: []string{"VANGUARD SMALL-CAP VALUE ETF"}, Tickers: []history.ToolTicker{{Ticker: "VBR", Source: "api"}}, First: "2024-01-02", Last: "2026-11-02", Held: true,
+							}},
+							{Key: "x:66000002", Facts: history.ToolFacts{Tickers: []history.ToolTicker{{Ticker: "VBR", Source: "history"}}}},
+						},
 					},
 				},
 				Accounts: []history.ToolAccount{newly(history.ToolAccount{Label: "A3 ...777", Account: "...777", Nickname: "Joint\u202eTrust", Name: "Schwab A3 ...777", Exported: true}), a1},
@@ -1212,17 +1236,16 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 left out 3 rows (pp-2026-12-15/manifest.json lists each, with what to do): split 1, no_quantity 2
 wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_not_written 1
 2 securities have changed symbol or may no longer trade (pp-2026-12-15/manifest.json lists each under symbols_changed, with why): before you import, set each that Portfolio Performance holds as docs/tools.md step 8 says; one that is new to it asks nothing
-5 keys of the store with no CUSIP had tickers that other securities have had too (pp-2026-12-15/manifest.json lists them): the export cannot tell which each is; say which in the store (docs/tools.md):
-  x:66000017 (JKLM), written as i:1000013, which had it first: schwabtx edit K:x:66000017 -same K:i:1000013 (ZZJ12K106) or -same K:i:1000213 (ZZJ12K205)
-  s:FILE:GRPC FD@2025-01-02 (GRPB, GRPC-FD), on its own, its tickers each of another: schwabtx edit QUOTED -same K:i:1000102 (ZZG10B101) or -same K:i:1000103 (ZZG10C109)
-  x:66000302 (TKRZ), on its own, each of the others having had its ticker at another time: schwabtx edit K:x:66000302 -same K:i:1000301 (ZZM40A100)
-  i:1000303 (TKRY), on its own, each of the others having had its ticker at another time: schwabtx edit K:i:1000303 -same K:x:66000303
-  x:66000501 (GRPZ), written as c:ZZS50B109, the others having had its ticker at other times: schwabtx edit K:x:66000501 -same K:i:1000501 (ZZR50A102) or -same K:c:ZZS50B109 (ZZS50B109)
+3 keys of the store with no CUSIP share a ticker with another security that the export cannot join them to (pp-2026-12-15/manifest.json lists them under keys_unsure, with what the store knows of each): each is written on its own, which neither tool merges with another. Before you import, judge each by its names and the days of its rows (schwabtx status K:… shows its names over time): if it is the security named after it, run that command and export again; if it is not, run nothing and book its differences as any other's (docs/tools.md):
+  x:66000009, JKLM HOLDINGS, JKLM in History files, rows 2019-03-04 to 2020-11-30: schwabtx edit K:x:66000009 -same K:i:1000213 (JKLM HOLDINGS INC, JKLM from Schwab's API, rows 2026-01-05 to 2026-10-30, held) or -same K:i:1000214 (CUSIP ZZJ12K205, JKLM from Schwab's API and in History files)
+  s:FILE:GRPC FD@2025-01-02, GRPC FUND; GRPC FD, GRPC-FD in History files, rows 2024-05-01: schwabtx edit QUOTED -same K:i:1000103 (CUSIP ZZG10C109, GRPC-FD from Schwab's API) or the rows of GRPC-FD without a key
+  VBR, 2 rows without a key (T73508261948, T73508261952): schwabtx edit REF -security K:i:4417355 (VANGUARD SMALL-CAP VALUE ETF, VBR from Schwab's API, rows 2024-01-02 to 2026-11-02, held) or -security K:x:66000002 (VBR in History files) for each; settling the keys of VBR first may let the store place them
 2 rows of this export carry a flag that needs you (schwabtx status -review); if you uncount one, the next -since export lists what to delete
 2 file transactions wait for you to resolve them (schwabtx status -review) and are not in this export
-1 difference from the latest snapshots is new or changed since pp-2026-12-01, and 1 is gone (pp-2026-12-15/manifest.json lists each): before importing, delete what you added by hand in Portfolio Performance for each that is gone, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); Portfolio Performance marks a new row equal to one that it holds as existing (docs/tools.md step 4):
+2 differences from the latest snapshots are new or changed since pp-2026-12-01, and 1 is gone (pp-2026-12-15/manifest.json lists each): before importing, delete what you added by hand in Portfolio Performance for each that is gone, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); Portfolio Performance marks a new row equal to one that it holds as existing (docs/tools.md step 4):
   Schwab A1 ...135: XYZ (WKN 98389B100): gone: delete what you added for it, if anything
   Schwab A1 ...135: cash: 997.04, less the rows left out of it that you book by hand
+  Schwab A1 ...135: JKLM (name Security (x:66000009)): -10, less the rows left out of it that you book by hand, of a key under keys_unsure
 1 account's cash in Portfolio Performance is not checked (pp-2026-12-15/manifest.json lists it under holdings.cash_not_checked): A2 ...398, a margin account with a margin or short balance at its latest snapshot: compare the cash that Schwab shows for it with the balance of its deposit account in Portfolio Performance, and book the difference as step 4 says; the next export that checks it lists its difference again (docs/tools.md step 4)
 1 account has rows and no snapshot to check against (pp-2026-12-15/manifest.json lists it under holdings.not_checked): Schwab A3 ...777: take one with schwabtx snapshot (an account that Schwab has closed has none); the next export that checks it lists its differences
 1 account has snapshots and nothing in Portfolio Performance (pp-2026-12-15/manifest.json lists it under holdings.not_checked): A4 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
@@ -1332,9 +1355,12 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-14 -dir <a new f
 				// A3's cash row has no snapshot to be carried by, nor its
 				// holdings to be checked against.
 				NoSnapshot: []string{"A3 ...777"},
-				Unsure: []history.ToolUnsure{
-					{Key: "x:66000017", Tickers: []string{"JKLM"}, TakenFor: "i:1000013", Securities: []history.ToolUnsureSecurity{{Key: "i:1000013", CUSIP: "ZZJ12K106"}, {Key: "i:1000213", CUSIP: "ZZJ12K205"}}},
-				},
+				Unsure: []history.ToolUnsure{{
+					Key: "x:66000017", Facts: history.ToolFacts{Tickers: []history.ToolTicker{{Ticker: "JKLM", Source: "history"}}, First: "2024-03-11", Last: "2024-03-11"},
+					Securities: []history.ToolUnsureSecurity{{Key: "i:1000013", CUSIP: "ZZJ12K106", Facts: history.ToolFacts{
+						Descriptions: []string{"JKLM SMALL-CAP VALUE ETF"}, Tickers: []history.ToolTicker{{Ticker: "JKLM", Source: "api"}}, Held: true,
+					}}},
+				}},
 				Changed: []history.ToolChange{{Ref: "T73508261950", Account: "A1 ...135", Was: "2024-04-04 DIVIDEND 3.86", Now: "2024-04-04 DIVIDEND 3.68"}},
 				Gone:    []history.ToolChange{{Ref: "T73508261945", Account: "A2 ...398", Was: "2025-01-22 SELL 412.50 fee 0.65", Why: "left out: gf_cash"}},
 				// A security is named by its asset, as Ghostfolio shows it: a
@@ -1347,6 +1373,7 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-14 -dir <a new f
 					{Account: "A1 ...135", Key: "i:1854092", Symbol: "XYZ", Asset: "Security (XYZ)", Finds: "MANUAL", Value: "10"},
 					{Account: "A2 ...398", Key: "i:1000877", Symbol: "ZZTB", Asset: "ZZTB", Finds: "YAHOO", Value: "3"},
 					{Account: "A2 ...398", Key: "c:30303M102", Asset: "Security (30303M102)", Finds: "MANUAL", Value: "1"},
+					{Account: "A1 ...135", Key: "x:66000017", Symbol: "JKLM", Asset: "Security (x:66000017)", Finds: "MANUAL", Value: "-10", Unsure: true},
 				},
 			},
 			want: `wrote 1 activity for Ghostfolio to gf-2026-12-01, since gf-2026-11-13, up to 2026-11-30: 2 accounts with 22 balances, 1 manual asset, 1 symbol for Yahoo
@@ -1354,19 +1381,20 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-14 -dir <a new f
   1 of their rows is dated on or before 2026-11-12, the end of gf-2026-11-13: it came late, was decided or took a new ref since
 2 deposits, withdrawals and journals are not in the accounts' balances yet, posted after the latest snapshot was taken (A2 ...398: of 2026-11-28, taken 2026-11-28 18:05 in New York; A3 ...777: none), which a later one will carry
 left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_cash 2
-1 key of the store with no CUSIP had a ticker that other securities have had too (gf-2026-12-01/manifest.json lists it): the export cannot tell which it is; say which in the store (docs/tools.md):
-  x:66000017 (JKLM), written as i:1000013, which had it first: schwabtx edit -store STORE K:x:66000017 -same K:i:1000013 (ZZJ12K106) or -same K:i:1000213 (ZZJ12K205)
+1 key of the store with no CUSIP shares a ticker with another security that the export cannot join it to (gf-2026-12-01/manifest.json lists it under keys_unsure, with what the store knows of it): it is written on its own, which neither tool merges with another. Before you import, judge it by its names and the days of its rows (schwabtx status -store STORE K:… shows its names over time): if it is the security named after it, run that command and export again; if it is not, run nothing and book its differences as any other's (docs/tools.md):
+  x:66000017, JKLM in History files, rows 2024-03-11: schwabtx edit -store STORE K:x:66000017 -same K:i:1000013 (JKLM SMALL-CAP VALUE ETF, CUSIP ZZJ12K106, JKLM from Schwab's API, held)
 1 row of this export carries a flag that needs you (schwabtx status -store STORE -review); if you uncount it, the next -since export lists what to delete
 1 symbol for Yahoo has no row since 2025-11-30 and is not held (gf-2026-12-01/manifest.json lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual
 before importing, delete in Ghostfolio what changed or went (gf-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 DIVIDEND 3.86 (comment schwabtx A1 ...135 T73508261950): changed; the new form is in this export
   Schwab A2 ...398: 2025-01-22 SELL 412.50 fee 0.65 (comment schwabtx A2 ...398 T73508261945): gone, left out (gf_cash)
-3 differences from the latest snapshots are new or changed since gf-2026-11-13, and 2 are gone (gf-2026-12-01/manifest.json lists each): after importing, delete what you added by hand in Ghostfolio for each that is gone, under the asset named, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
+4 differences from the latest snapshots are new or changed since gf-2026-11-13, and 2 are gone (gf-2026-12-01/manifest.json lists each): after importing, delete what you added by hand in Ghostfolio for each that is gone, under the asset named, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
   Schwab A1 ...135: XYZ (YAHOO): gone: delete what you added for it, if anything
   Schwab A2 ...398: ZZTA (YAHOO): gone: delete what you added for it, if anything
   Schwab A1 ...135: Security (XYZ) (MANUAL): 10
   Schwab A2 ...398: ZZTB (YAHOO): 3
   Schwab A2 ...398: Security (30303M102) (MANUAL): 1
+  Schwab A1 ...135: Security (x:66000017) (MANUAL): -10, of a key under keys_unsure
 1 account has rows and no snapshot to check against (gf-2026-12-01/manifest.json lists it under holdings.not_checked): Schwab A3 ...777: take one with schwabtx snapshot (an account that Schwab has closed has none); the next export that checks it lists its differences
 Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
 set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:

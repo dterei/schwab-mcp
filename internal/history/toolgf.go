@@ -202,8 +202,9 @@ func gfAccounts(in *toolInput, events []toolEvent) []gfAccount {
 // performance; then, in the order of listSecurities, each security that
 // Ghostfolio gets as a MANUAL asset and that an activity is of or a
 // selected account held, named from its identity alone, with its
-// description in its comment and its snapshot prices: one for the store's
-// securities of one symbol, whatever their keys (mergeListed).
+// description in its comment, or every description of one written on its
+// own, and its snapshot prices: one for the store's securities of one
+// symbol, whatever their keys (mergeListed).
 func gfAssets(in *toolInput, events []toolEvent) ([]gfProfile, []gfAsset) {
 	profiles, assets := []gfProfile{}, []gfAsset{}
 	for _, c := range gfCashProfiles {
@@ -227,7 +228,7 @@ func gfAssets(in *toolInput, events []toolEvent) ([]gfProfile, []gfAsset) {
 		if s.manual == "" {
 			continue
 		}
-		p := gfProfile{Comment: s.name, Currency: "USD", CUSIP: s.cusip, DataSource: "MANUAL", Name: s.gfName(), Symbol: s.gfSymbol()}
+		p := gfProfile{Comment: cmp.Or(s.note, s.name), Currency: "USD", CUSIP: s.cusip, DataSource: "MANUAL", Name: s.gfName(), Symbol: s.gfSymbol()}
 		switch {
 		case s.bond:
 			p.AssetClass, p.AssetSubClass = "FIXED_INCOME", "BOND"

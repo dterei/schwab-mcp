@@ -141,7 +141,7 @@
       "T73508261942": {
         "day": "2026-03-13",
         "as": "portfolio 2026-03-13 Sell 603.36",
-        "fp": "91a6098a9dbceefa"
+        "fp": "86818fe8be4b41b7"
       },
       "T73508261944": {
         "day": "2025-01-21",
@@ -292,10 +292,9 @@
     {
       "security_key": "i:1940083512",
       "symbol": "META",
-      "identity": "META",
-      "ticker": "META",
-      "wkn": "30303M102",
-      "name": "META PLATFORMS INC CLASS A"
+      "identity": "i:1940083512",
+      "name": "Security (i:1940083512)",
+      "unsure": true
     },
     {
       "security_key": "i:1973757747",
@@ -606,20 +605,29 @@
       {
         "account": "A2 ...398",
         "security_key": "c:30303M102",
-        "security_keys": [
-          "c:30303M102",
-          "i:1940083512"
-        ],
         "symbol": "META",
         "pp_security": {
           "ticker": "META",
-          "wkn": "30303M102",
-          "name": "META PLATFORMS INC CLASS A"
+          "wkn": "30303M102"
         },
         "snapshot": "2026-11-10",
         "snapshot_shares": 1,
+        "written_shares": 0,
+        "difference": 1,
+        "before": true
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:1940083512",
+        "symbol": "META",
+        "pp_security": {
+          "name": "Security (i:1940083512)"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
         "written_shares": -1,
-        "difference": 2,
+        "difference": 1,
+        "unsure": true,
         "before": true
       },
       {
@@ -734,7 +742,52 @@
     ]
   },
   "symbols_changed": [],
-  "keys_unsure": [],
+  "keys_unsure": [
+    {
+      "security_key": "i:1940083512",
+      "descriptions": [
+        "META PLATFORMS INC CLASS A"
+      ],
+      "tickers": [
+        {
+          "ticker": "META",
+          "source": "api",
+          "last_seen_at": "2026-08-05T00:00:01Z"
+        }
+      ],
+      "rows": {
+        "first": "2026-03-13",
+        "last": "2026-03-13"
+      },
+      "held": false,
+      "before": true,
+      "securities": [
+        {
+          "security_key": "c:30303M102",
+          "cusip": "30303M102",
+          "descriptions": [],
+          "tickers": [
+            {
+              "ticker": "META",
+              "source": "api",
+              "last_seen_at": "2026-11-10T23:05:00Z"
+            }
+          ],
+          "held": true,
+          "command": "schwabtx edit K:i:1940083512 -same K:c:30303M102"
+        },
+        {
+          "security_key": "",
+          "symbol": "META",
+          "cusip": "",
+          "descriptions": [],
+          "tickers": [],
+          "held": false,
+          "command": ""
+        }
+      ]
+    }
+  ],
   "coverage": [
     {
       "account_id": 1,

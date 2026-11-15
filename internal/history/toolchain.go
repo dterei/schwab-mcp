@@ -148,7 +148,8 @@ type chainGiven struct {
 // that it had of itself (symbolWhys), which a later export names it again
 // for only when it lacks one; for Ghostfolio, kept for the record and
 // compared with nothing, its symbol, data source and profile name ("" for a
-// security that Ghostfolio asks Yahoo about, which has no profile).
+// security that Ghostfolio asks Yahoo about, which has no profile); and
+// unsure when it was written on its own, of a key under keys_unsure.
 type chainSecurity struct {
 	SecurityKey string   `json:"security_key"`
 	Symbol      string   `json:"symbol"`
@@ -159,6 +160,7 @@ type chainSecurity struct {
 	DataSource  string   `json:"data_source,omitempty"`
 	Name        string   `json:"name,omitempty"`
 	Why         []string `json:"why,omitempty"`
+	Unsure      bool     `json:"unsure,omitempty"`
 }
 
 // ref returns how the chain knows the security: by its key, or by its symbol
@@ -272,7 +274,10 @@ type chainCashHolding struct {
 // Before says that the export it goes on from listed the same difference
 // under the same key as its own; Carried that this export could not check
 // the account and copied the difference, as it was, from the export it goes
-// on from, for the next export that checks the account (K-6).
+// on from, for the next export that checks the account (K-6). Unsure says
+// that the security is written on its own, of a key under keys_unsure: a
+// fact, which changes neither what to book for it nor whether it is before
+// or gone (I-11).
 type chainHolding struct {
 	Account        string           `json:"account"`
 	SecurityKey    string           `json:"security_key"`
@@ -285,6 +290,7 @@ type chainHolding struct {
 	WrittenShares  json.Number      `json:"written_shares"`
 	Difference     json.Number      `json:"difference"`
 	LeftOut        bool             `json:"left_out,omitempty"`
+	Unsure         bool             `json:"unsure,omitempty"`
 	Before         bool             `json:"before,omitempty"`
 	Carried        bool             `json:"carried,omitempty"`
 }
@@ -441,13 +447,14 @@ type chainSameAs struct {
 
 // A toolChain is the manifest of the export that a -since export goes on
 // from, as parseChain reads it: that export's exported_at, the store it was
-// made from (when the store was made, Q0), its format and layout, and its
-// chain's part.
+// made from (when the store was made, Q0), its format and layout, its
+// chain's part, and the keys that it listed under keys_unsure.
 type toolChain struct {
-	ExportedAt string `json:"exported_at"`
-	Store      string `json:"store"`
-	Format     string `json:"format"`
-	Layout     int    `json:"layout"`
+	ExportedAt string            `json:"exported_at"`
+	Store      string            `json:"store"`
+	Format     string            `json:"format"`
+	Layout     int               `json:"layout"`
+	KeysUnsure []toolUnsureEntry `json:"keys_unsure"`
 	chainManifest
 }
 
@@ -501,6 +508,22 @@ func (c *toolChain) refuse(in *toolInput, dir string) error {
 		return fmt.Errorf("-to %s is before the end of the export in %s, %s", in.to, dir, c.Chain.To)
 	}
 	return nil
+}
+
+// listed reports whether the export whose manifest is c listed u under
+// keys_unsure alike: the same key, or the same symbol of rows without one,
+// with the same securities that it may be, in their order; false for no
+// export. What the store knows of each changes nothing: what you judge them
+// by is listed again only when their securities change.
+func (c *toolChain) listed(u ToolUnsure) bool {
+	if c == nil {
+		return false
+	}
+	return slices.ContainsFunc(c.KeysUnsure, func(e toolUnsureEntry) bool {
+		return e.SecurityKey == u.Key && e.Symbol == u.Symbol && slices.EqualFunc(e.Securities, u.Securities, func(a toolUnsureSecurity, b ToolUnsureSecurity) bool {
+			return a.SecurityKey == b.Key && a.Symbol == b.Symbol
+		})
+	})
 }
 
 // account returns the id of the account that the chain selects, 0 for every
@@ -1144,7 +1167,7 @@ func (c *chainResult) compareHoldings(events []toolEvent, moves map[string]bool)
 			SnapshotShares: json.Number(formatMicros(d.snapshotShares)), WrittenShares: json.Number(formatMicros(d.writtenShares)),
 			Difference: json.Number(formatMicros(d.snapshotShares - d.writtenShares)),
 		}
-		h.LeftOut = moves[h.key()]
+		h.LeftOut, h.Unsure = moves[h.key()], d.security.unsure
 		c.holdings = append(c.holdings, h)
 		now = append(now, chainEntry{h.Account, h.key(), chainRat(h.Difference), false})
 	}
@@ -1281,8 +1304,10 @@ type symbolsChange struct {
 // chain's entry lacks, which is every why of one that the chain never wrote
 // (new). A PP Security Name that changes beside a ticker or a WKN changes
 // nothing that PP finds the security by, and the chain's entry takes it all
-// the same. The store's securities that PP takes for one (mergeListed) are
-// one security, as PP holds them. Ghostfolio's chain securities are kept for
+// the same. One that the chain wrote on its own (unsure) and that is no
+// longer unsure is never named: you delete PP's security of it once empty.
+// The store's securities that PP takes for one (mergeListed) are one
+// security, as PP holds them. Ghostfolio's chain securities are kept for
 // the record and compared with nothing: it holds a security that is written
 // under another symbol, data source or name as another asset, whose rows the
 // export lists as changed by their fp.
@@ -1318,7 +1343,7 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 	changes, had := map[secRef]symbolsChange{}, map[secRef]bool{}
 	for _, l := range listed {
 		s := l.security
-		w := chainSecurity{SecurityKey: s.key, Symbol: s.symbol, Identity: s.identity()}
+		w := chainSecurity{SecurityKey: s.key, Symbol: s.symbol, Identity: s.identity(), Unsure: s.unsure}
 		if c.in.tool == toolGF {
 			w.GFSymbol, w.DataSource = s.gfSymbol(), s.gfDataSource()
 			if s.manual != "" {
@@ -1332,6 +1357,14 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 		w.Why = why
 		prev, ok := byRef[w.ref()]
 		had[s.ref()] = ok
+		byRef[w.ref()] = w
+		if ok && prev.Unsure && !s.unsure {
+			// Written on its own before, and joined since (R-10): PP's
+			// security of it ends empty, its rows listed as changed and
+			// written under the security that it joined, whose identifiers
+			// PP would hold twice if you gave them to this one.
+			continue
+		}
 		named := slices.ContainsFunc(why, func(y string) bool { return !slices.Contains(prev.Why, y) })
 		if ok && prev.finds() != w.finds() {
 			why, named = append(slices.Clone(why), whyChanged), true
@@ -1339,7 +1372,6 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 		if named {
 			changes[s.ref()] = symbolsChange{why: why, because: because}
 		}
-		byRef[w.ref()] = w
 	}
 	if c.in.tool == toolPP {
 		for _, l := range mergeListed(toolPP, listed) {

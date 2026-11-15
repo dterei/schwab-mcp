@@ -1397,6 +1397,106 @@ func rcChanged(s *chainStep) (changed, gone []string) {
 	return changed, gone
 }
 
+// rcBookPP books by hand in m, as stderr has you, each difference of shares
+// that s lists of the securities account named name: a delivery of the
+// difference into the security that PP finds as the line says, made with
+// the identifiers written when PP holds none; one booked before for that
+// security is made equal to the line instead, and deleted when the line is
+// gone. A line before or carried asks nothing. It returns, by how PP finds
+// each security, what it booked by hand of it.
+func rcBookPP(t *testing.T, m *ppModel, s *chainStep, name string) map[string]int64 {
+	t.Helper()
+	o := ppOwnerNamed(m.portfolios, name)
+	security := func(p *chainPPSecurity) *ppSecurity {
+		for _, x := range m.securities {
+			if ppFinds(x.ticker, x.wkn, x.name) == ppFinds(p.Ticker, p.WKN, p.Name) {
+				return x
+			}
+		}
+		x := &ppSecurity{ticker: p.Ticker, wkn: p.WKN, name: p.Name, currency: "USD"}
+		m.securities = append(m.securities, x)
+		return x
+	}
+	booked := func(sec *ppSecurity) int {
+		return slices.IndexFunc(o.txs, func(x *ppTx) bool { return x.note == "by hand" && x.security == sec })
+	}
+	for _, g := range s.res.holdingsGone {
+		i := booked(security(g.PP))
+		if i < 0 {
+			t.Fatalf("PP holds nothing booked by hand as %s for %+v", g.PP.shown(), g)
+		}
+		o.txs = slices.Delete(o.txs, i, i+1)
+	}
+	for _, h := range s.res.holdings {
+		if h.Before || h.Carried {
+			continue
+		}
+		sec := security(h.PP)
+		v, _ := new(big.Rat).SetString(string(h.Difference))
+		typ, shares := "DELIVERY_INBOUND", v.Mul(v, big.NewRat(100_000_000, 1)).Num().Int64()
+		if shares < 0 {
+			typ, shares = "DELIVERY_OUTBOUND", -shares
+		}
+		if i := booked(sec); i >= 0 {
+			o.txs[i].typ, o.txs[i].shares = typ, shares
+			continue
+		}
+		o.txs = append(o.txs, &ppTx{typ: typ, day: "2026-01-01", currency: "USD", amount: 30_000, shares: shares, security: sec, note: "by hand", owner: o})
+	}
+	out := map[string]int64{}
+	for _, tx := range o.txs {
+		if tx.note == "by hand" {
+			q := tx.shares
+			if tx.typ == "DELIVERY_OUTBOUND" {
+				q = -q
+			}
+			out[ppFinds(tx.security.ticker, tx.security.wkn, tx.security.name)] = q
+		}
+	}
+	return out
+}
+
+// rcBookGF adds by hand in g, as stderr has you after importing s, each
+// difference of shares that s lists of the account named name: a BUY of a
+// difference above none, a SELL of one below, of the asset that the line
+// names; one added before for that asset is made equal to the line
+// instead, and deleted when the line is gone.
+func rcBookGF(t *testing.T, g *gfModel, s *chainStep, name string) {
+	t.Helper()
+	account := g.accounts[slices.IndexFunc(g.accounts, func(a *gfmAccount) bool { return a.name == name })].id
+	added := func(a *chainAsset) int {
+		return slices.IndexFunc(g.activities, func(x gfmActivity) bool {
+			return x.comment == "by hand" && x.account == account && x.source == a.DataSource && x.symbol == a.Symbol
+		})
+	}
+	for _, d := range s.res.holdingsGone {
+		i := added(d.Asset)
+		if i < 0 {
+			t.Fatalf("Ghostfolio holds nothing added by hand as %s for %+v", d.Asset.shown(), d)
+		}
+		g.activities = slices.Delete(g.activities, i, i+1)
+	}
+	for _, h := range s.res.holdings {
+		if h.Before || h.Carried {
+			continue
+		}
+		v, _ := new(big.Rat).SetString(string(h.Difference))
+		typ := "BUY"
+		if v.Sign() < 0 {
+			typ = "SELL"
+			v.Neg(v)
+		}
+		if i := added(h.Asset); i >= 0 {
+			g.activities[i].typ, g.activities[i].quantity = typ, v
+			continue
+		}
+		g.activities = append(g.activities, gfmActivity{
+			account: account, comment: "by hand", currency: "USD", source: h.Asset.DataSource, symbol: h.Asset.Symbol, typ: typ,
+			date: "2026-01-01T12:00:00.000Z", fee: new(big.Rat), quantity: v, unitPrice: big.NewRat(30, 1),
+		})
+	}
+}
+
 // TestToolReimport chains exports and imports through the models of PP
 // and Ghostfolio (11.5 of the design): each export goes on from the one
 // before by its manifest's chain part, is imported as the how-to says, with
@@ -2431,11 +2531,12 @@ func TestToolReimport(t *testing.T) {
 	t.Run("a security of two keys, a CUSIP under the API's", func(t *testing.T) {
 		t.Parallel()
 		// JKLM, which the store holds under a History file's key that knows
-		// no CUSIP and the API's key that knows one: PP finds every record of
-		// either by that WKN, as one security, and so does the replay. Two
-		// file buys alike; then the API's row of one of them, under the
-		// other key, takes its place: it is the same as the file row gone,
-		// whose records PP holds, and given, so that PP marks nothing.
+		// no CUSIP and the API's key that knows one, which a link of two
+		// earlier rows joins: PP finds every record of either by that WKN, as
+		// one security, and so does the replay. Two file buys alike; then the
+		// API's row of one of them, under the other key, takes its place: it
+		// is the same as the file row gone, whose records PP holds, and
+		// given, so that PP marks nothing.
 		base := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106"}.toolCase().in
 		deposit := rcCash("T7f0nn100", 1, "2026-01-02 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000)
 		fileBuy := func(ref string) toolRow {
@@ -2447,26 +2548,76 @@ func TestToolReimport(t *testing.T) {
 		first.to, first.rows, first.positions, first.snapshots = "2026-01-31", []toolRow{deposit, b1, b2}, nil, nil
 		then.to, then.rows, then.positions, then.snapshots = "2026-02-27", []toolRow{deposit, b1, api}, nil, nil
 		then.uncounted = []toolUncounted{{ref: b2.ref, account: 1, why: "linked", matchedWith: api.ref}}
-		for _, tool := range []string{toolPP, toolGF} {
-			e1 := chainStepOf(t, tcInput(first), tool, nil, rcAt1)
-			e2 := chainStepOf(t, tcInput(then), tool, e1, rcAt2)
-			if tool == toolGF {
-				m := newGFModel()
-				for _, s := range []*chainStep{e1, e2} {
-					if _, err := gfApply(t, m, s); err != nil {
-						t.Fatal(err)
+		// Without that link, the file's key is written on its own, listed
+		// with the API's key, which knows a CUSIP, as the security that it
+		// may be. The API's row beside the file rows, which nothing links,
+		// is of the other security: PP holds two, and marks nothing across
+		// them. When the store links the API's row to a file row only at the
+		// second export, as it does, that joins them: the other file row is
+		// changed, to the security joined, and the row linked gone, as it
+		// was written apart from the API's; PP's security of the file's key
+		// ends empty, and is named nowhere.
+		apart := first
+		apart.links = nil
+		alone := then
+		alone.links, alone.uncounted, alone.rows = nil, nil, []toolRow{deposit, b1, b2, api}
+		listed := func(before string) string {
+			return keyTwoFile + before + ": " + keyTwoAPI + " schwabtx edit K:" + keyTwoFile + " -same K:" + keyTwoAPI
+		}
+		const name = "Schwab A1 ...135"
+		for _, c := range []struct {
+			name        string
+			first, then toolInput
+			unsure      [2][]string
+			changed     []string
+		}{
+			{"linked", first, then, [2][]string{nil, nil}, nil},
+			{"not linked", apart, alone, [2][]string{{listed("")}, {listed(" before")}}, nil},
+			{"linked at the second", apart, then, [2][]string{{listed("")}, nil}, []string{b1.ref + ": portfolio 2026-01-14 Buy 300.00 -> portfolio 2026-01-14 Buy 300.00"}},
+		} {
+			for _, tool := range []string{toolPP, toolGF} {
+				e1 := chainStepOf(t, tcInput(c.first), tool, nil, rcAt1)
+				e2 := chainStepOf(t, tcInput(c.then), tool, e1, rcAt2)
+				for i, s := range []*chainStep{e1, e2} {
+					if got := unsureText(s.e.Unsure); !slices.Equal(got, c.unsure[i]) {
+						t.Errorf("%s, %s, export %d: unsure %q, want %q", c.name, tool, i+1, got, c.unsure[i])
 					}
-					gfReconcile(t, s.in, s.events, s.outcomes, m)
 				}
-				continue
-			}
-			if got := rcMarks(e2); len(e2.res.sameAs) != 1 || e2.res.sameAs[0].Gone != b2.ref || !slices.Contains(e2.refs(outcomeGiven), api.ref) || len(got) > 0 {
-				t.Errorf("the same %+v, given %q, PP marks %q", e2.res.sameAs, e2.refs(outcomeGiven), got)
-			}
-			m := newPPModel()
-			for _, s := range []*chainStep{e1, e2} {
-				ppApply(t, m, s)
-				ppReconcile(t, m, s.in, s.events, s.outcomes)
+				if tool == toolGF {
+					m := newGFModel()
+					for _, s := range []*chainStep{e1, e2} {
+						if _, err := gfApply(t, m, s); err != nil {
+							t.Fatal(err)
+						}
+						gfReconcile(t, s.in, s.events, s.outcomes, m)
+					}
+					if held := m.holdings(); len(held) != 1+len(c.unsure[1]) {
+						t.Errorf("%s: Ghostfolio holds %v", c.name, held)
+					}
+					continue
+				}
+				changed, gone := rcChanged(e2)
+				same := len(e2.res.sameAs) == 1 && e2.res.sameAs[0].Gone == b2.ref && slices.Contains(e2.refs(outcomeGiven), api.ref)
+				if got := rcMarks(e2); len(got) > 0 || same != (c.name == "linked") || !slices.Equal(changed, c.changed) ||
+					c.changed != nil && (!slices.Equal(gone, []string{b2.ref + " linked to " + api.ref + ": portfolio 2026-01-14 Buy 300.00"}) || len(e2.res.symbolsChanged) > 0) {
+					t.Errorf("%s: the same %+v, given %q, changed %q, gone %q, symbols changed %+v, PP marks %q",
+						c.name, e2.res.sameAs, e2.refs(outcomeGiven), changed, gone, e2.res.symbolsChanged, got)
+				}
+				m := newPPModel()
+				for _, s := range []*chainStep{e1, e2} {
+					ppApply(t, m, s)
+					ppReconcile(t, m, s.in, s.events, s.outcomes)
+				}
+				var held []int64
+				for _, q := range m.shares(name) {
+					if q != 0 {
+						held = append(held, q)
+					}
+				}
+				if slices.Sort(held); c.name == "not linked" && !slices.Equal(held, []int64{200_000_000, 400_000_000}) ||
+					c.name != "not linked" && !slices.Equal(held, []int64{400_000_000}) {
+					t.Errorf("%s: PP holds %v (in 10^-8)", c.name, held)
+				}
 			}
 		}
 
@@ -2517,52 +2668,89 @@ func TestToolReimport(t *testing.T) {
 	t.Run("a security of two keys delisted", func(t *testing.T) {
 		t.Parallel()
 		// Bought under a History file's key, of a file exported before the
-		// API's rows, and sold under the API's, which knows the CUSIP; then
-		// the API's key is delisted, as only it learns, and pays a dividend. Ghostfolio's two rows, of one YAHOO
-		// asset before, are changed to one MANUAL asset, and the dividend is
-		// of it too, whose investment it has; PP finds both by their WKN, as
-		// before, and holds them as they were.
+		// API's rows, and sold under the API's, which knows the CUSIP and
+		// which a link joins to the file's; then the API's key is delisted,
+		// as only it learns, and pays a dividend. Ghostfolio's two rows, of
+		// one YAHOO asset before, are changed to one MANUAL asset, and the
+		// dividend is of it too, whose investment it has; PP finds both by
+		// their WKN, as before, and holds them as they were. Without the
+		// link, the file's key is written on its own, listed with the API's
+		// as the security that it may be, before at the second export: its
+		// buy stays given in both tools, and only the sale is of the security
+		// delisted; each tool holds two securities, and the snapshot's shares
+		// are of the API's key alone, so that its difference and the file
+		// key's are listed, the file key's marked unsure.
 		before := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", filed: tcFiledEarly}.toolCase().in
 		after := twoKeys{api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", filed: tcFiledEarly}.toolCase().in
 		before.to, before.positions, before.snapshots = "2026-03-31", nil, nil
 		dividend := rcCash("T61002898", 1, "2026-09-15 10:00:00", "DIVIDEND_OR_INTEREST", "Ordinary Dividend~ZZJ12K106", "dividend", 300)
 		dividend.securityKey, dividend.symbol = keyTwoAPI, "ZZJ12K106"
 		after.rows = append(slices.Clone(after.rows), dividend)
-		for _, tool := range []string{toolPP, toolGF} {
-			e1 := chainStepOf(t, before, tool, nil, rcAt1)
-			e2 := chainStepOf(t, tcInput(after), tool, e1, rcAt2)
-			changed, _ := rcChanged(e2)
-			// Its identifiers changed under both of its keys, whose rows are
-			// written or given: PP, which writes the dividend alone, names
-			// one security, as it holds it, delisted and changed; Ghostfolio
-			// none.
-			if got := e2.res.symbolsChanged; tool == toolGF && (e2.e.SymbolsChanged != 0 || len(got) != 0) ||
-				tool == toolPP && (e2.e.SymbolsChanged != 1 || len(got) != 1 || len(got[0].members) != 2 || !slices.Equal(got[0].why, []string{whyNoTicker, whyChanged}) || got[0].because != "delisted") {
-				t.Errorf("%s: %d securities changed symbol: %+v", tool, e2.e.SymbolsChanged, got)
+		listed := keyTwoFile + " before: " + keyTwoAPI + " schwabtx edit K:" + keyTwoFile + " -same K:" + keyTwoAPI
+		for _, linked := range []bool{true, false} {
+			if !linked {
+				before.links, after.links = nil, nil
 			}
-			if tool == toolPP {
-				if len(changed) > 0 || !slices.Equal(e2.refs(outcomeWritten), []string{dividend.ref}) {
-					t.Errorf("PP: written %q, changed %q", e2.refs(outcomeWritten), changed)
+			for _, tool := range []string{toolPP, toolGF} {
+				e1 := chainStepOf(t, before, tool, nil, rcAt1)
+				e2 := chainStepOf(t, tcInput(after), tool, e1, rcAt2)
+				changed, _ := rcChanged(e2)
+				// Its identifiers changed under both of its keys, whose rows
+				// are written or given: PP, which writes the dividend alone,
+				// names one security, as it holds it, delisted and changed;
+				// Ghostfolio none.
+				members := 2
+				var unsure []string
+				var lines []ToolDifference
+				if !linked {
+					finds, file, asset, alone := "WKN ZZJ12K106", "name Security ("+keyTwoFile+")", "", ""
+					if tool == toolGF {
+						finds, file, asset, alone = "MANUAL", "MANUAL", "Security (ZZJ12K106)", "Security ("+keyTwoFile+")"
+					}
+					members, unsure = 1, []string{listed}
+					lines = []ToolDifference{
+						{Account: "A1 ...135", Key: keyTwoAPI, Symbol: "ZZJ12K106", Asset: asset, Finds: finds, Value: "10"},
+						{Account: "A1 ...135", Key: keyTwoFile, Symbol: "JKLM", Asset: alone, Finds: file, Value: "-10", Unsure: true},
+					}
 				}
-				m := newPPModel()
+				if tool == toolPP {
+					// The snapshot's cash, which the rows do not reach.
+					lines = append(lines, ToolDifference{Account: "A1 ...135", Cash: true, Value: "1817.00"})
+				}
+				if got := unsureText(e2.e.Unsure); !slices.Equal(got, unsure) || !reflect.DeepEqual(e2.e.Differences, lines) {
+					t.Errorf("linked %v, %s: unsure %q, listed %+v", linked, tool, got, e2.e.Differences)
+				}
+				if got := e2.res.symbolsChanged; tool == toolGF && (e2.e.SymbolsChanged != 0 || len(got) != 0) ||
+					tool == toolPP && (e2.e.SymbolsChanged != 1 || len(got) != 1 || len(got[0].members) != members || !slices.Equal(got[0].why, []string{whyNoTicker, whyChanged}) || got[0].because != "delisted") {
+					t.Errorf("linked %v, %s: %d securities changed symbol: %+v", linked, tool, e2.e.SymbolsChanged, got)
+				}
+				if tool == toolPP {
+					if len(changed) > 0 || !slices.Equal(e2.refs(outcomeWritten), []string{dividend.ref}) {
+						t.Errorf("linked %v, PP: written %q, changed %q", linked, e2.refs(outcomeWritten), changed)
+					}
+					m := newPPModel()
+					for _, s := range []*chainStep{e1, e2} {
+						ppApply(t, m, s)
+						ppReconcile(t, m, s.in, s.events, s.outcomes)
+					}
+					if held := m.shares("Schwab A1 ...135"); len(held) != 3-members {
+						t.Errorf("linked %v, PP holds %v", linked, held)
+					}
+					continue
+				}
+				if len(changed) != members || len(e2.gf.file.AssetProfiles) != 1 || e2.gf.file.AssetProfiles[0].Name != "Security (ZZJ12K106)" {
+					t.Errorf("linked %v, Ghostfolio: changed %q, assets %+v", linked, changed, e2.gf.file.AssetProfiles)
+				}
+				m := newGFModel()
 				for _, s := range []*chainStep{e1, e2} {
-					ppApply(t, m, s)
-					ppReconcile(t, m, s.in, s.events, s.outcomes)
+					if _, err := gfApply(t, m, s); err != nil {
+						t.Fatal(err)
+					}
+					gfReconcile(t, s.in, s.events, s.outcomes, m)
 				}
-				continue
-			}
-			if len(changed) != 2 || len(e2.gf.file.AssetProfiles) != 1 || e2.gf.file.AssetProfiles[0].Name != "Security (ZZJ12K106)" {
-				t.Errorf("Ghostfolio: changed %q, assets %+v", changed, e2.gf.file.AssetProfiles)
-			}
-			m := newGFModel()
-			for _, s := range []*chainStep{e1, e2} {
-				if _, err := gfApply(t, m, s); err != nil {
-					t.Fatal(err)
+				if held, p := m.holdings(), m.performance(); len(held) != 3-members || linked && len(p.noInvestment) > 0 {
+					t.Errorf("linked %v, Ghostfolio holds %v; no investment %v", linked, held, p.noInvestment)
 				}
-				gfReconcile(t, s.in, s.events, s.outcomes, m)
-			}
-			if held, p := m.holdings(), m.performance(); len(held) != 1 || len(p.noInvestment) > 0 {
-				t.Errorf("Ghostfolio holds %v; no investment %v", held, p.noInvestment)
 			}
 		}
 	})
@@ -2572,17 +2760,329 @@ func TestToolReimport(t *testing.T) {
 		// -manual names JKLM, the ticker of the History file's key, which
 		// the API's key never had: the first export writes the file's buy,
 		// and the next the API's sale alone, MANUAL by that name, which it
-		// uses then too.
-		in := twoKeys{
-			api: []string{"JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", fileCUSIP: "ZZJ12K106", filed: tcFiledEarly, manual: "JKLM",
-		}.toolCase().in
-		first := in
-		first.to, first.rows, first.positions, first.snapshots = "2025-12-31", in.rows[:1], nil, nil
-		e1 := chainStepOf(t, first, toolGF, nil, rcAt1)
-		e2 := chainStepOf(t, in, toolGF, e1, rcAt2)
-		if !slices.Equal(e2.refs(outcomeWritten), []string{in.rows[1].ref}) || len(e1.unused) > 0 || len(e2.unused) > 0 ||
-			e2.gf.file.Activities[0].DataSource != "MANUAL" || strings.Contains(string(e2.manifest), `"unused": true`) {
-			t.Errorf("written %q, unused %q then %q", e2.refs(outcomeWritten), e1.unused, e2.unused)
+		// uses then too, when the two keys are one security, by a CUSIP that
+		// both know or by a link. When nothing joins them, they are two
+		// securities, which no ticker makes unsure: -manual names the file
+		// key's alone, the sale is written for Yahoo, and the next export
+		// says that -manual is unused, as it writes nothing of the file key.
+		for _, c := range []struct {
+			name      string
+			fileCUSIP string
+			linked    bool
+			source    string
+			unused    []string
+		}{
+			{"one CUSIP", "ZZJ12K106", false, "MANUAL", nil},
+			{"a link", "", true, "MANUAL", nil},
+			{"neither", "", false, "YAHOO", []string{"JKLM"}},
+		} {
+			in := twoKeys{
+				api: []string{"JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", fileCUSIP: c.fileCUSIP, filed: tcFiledEarly, manual: "JKLM",
+			}.toolCase().in
+			if !c.linked {
+				in.links = nil
+			}
+			first := in
+			first.to, first.rows, first.positions, first.snapshots = "2025-12-31", in.rows[:1], nil, nil
+			e1 := chainStepOf(t, first, toolGF, nil, rcAt1)
+			e2 := chainStepOf(t, in, toolGF, e1, rcAt2)
+			if !slices.Equal(e2.refs(outcomeWritten), []string{in.rows[1].ref}) || len(e1.unused) > 0 || !slices.Equal(e2.unused, c.unused) || len(e1.e.Unsure)+len(e2.e.Unsure) > 0 ||
+				e1.gf.file.Activities[0].DataSource != "MANUAL" || e2.gf.file.Activities[0].DataSource != c.source || strings.Contains(string(e2.manifest), `"unused": true`) != (c.unused != nil) {
+				t.Errorf("%s: written %q, unused %q then %q, unsure %q then %q", c.name, e2.refs(outcomeWritten), e1.unused, e2.unused, unsureText(e1.e.Unsure), unsureText(e2.e.Unsure))
+			}
+		}
+	})
+
+	t.Run("a key listed alike before", func(t *testing.T) {
+		t.Parallel()
+		// JKLM's History file key, which knows no CUSIP and nothing joins,
+		// is listed at the first export with the API's key as the security
+		// that it may be; the next export, of the same store, lists it
+		// alike, before, and stderr does not count it again; a third key of
+		// the ticker, of another CUSIP, then makes it a key of two
+		// securities that it may be, which the third export lists again.
+		in := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106"}.toolCase().in
+		in.links = nil
+		third := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", other: "ZZJ12K205"}.toolCase().in
+		third.links = nil
+		cmd := func(k string) string { return k + " schwabtx edit K:" + keyTwoFile + " -same K:" + k }
+		want := [][]string{
+			{keyTwoFile + ": " + cmd(keyTwoAPI)},
+			{keyTwoFile + " before: " + cmd(keyTwoAPI)},
+			{keyTwoFile + ": " + cmd(keyTwoAPI) + "; " + cmd(keyTwoOther)},
+		}
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, in, tool, nil, rcAt1)
+			e2 := chainStepOf(t, in, tool, e1, rcAt2)
+			e3 := chainStepOf(t, third, tool, e2, rcAt3)
+			for i, s := range []*chainStep{e1, e2, e3} {
+				if got := unsureText(s.e.Unsure); !slices.Equal(got, want[i]) {
+					t.Errorf("%s, export %d: unsure %q, want %q", tool, i+1, got, want[i])
+				}
+			}
+		}
+	})
+
+	t.Run("the -same remedy", func(t *testing.T) {
+		t.Parallel()
+		// JKLM under a History file's key that knows no CUSIP, which nothing
+		// joins to the API's key that knows one: the first export writes the
+		// file's buy on its own, lists the key with the API's as the
+		// security that it may be, and lists its difference, marked, beside
+		// the API key's: you book both by hand. You then say in the store
+		// that the two are one (-same), which makes them one canonical key.
+		// The next export lists the buy as changed, to write it under the
+		// security joined; lists nothing under keys_unsure; lists the file
+		// key's difference gone and the API key's with its new value, which
+		// you book in their place; and names no security under
+		// symbols_changed: PP's security of the file's key ends empty. Each
+		// tool then holds the snapshot's shares, and nothing of the file's
+		// key.
+		in := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106"}.toolCase().in
+		in.links = nil
+		in.positions = []toolPosition{rcPosition("2026-11-10", keyTwoAPI, 8_000_000, 1440)}
+		said := sameKey(in, keyTwoFile, keyTwoAPI)
+		const name = "Schwab A1 ...135"
+		buy := in.rows[0].ref
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, in, tool, nil, rcAt1)
+			e2 := chainStepOf(t, said, tool, e1, rcAt2)
+			api := ToolDifference{Account: "A1 ...135", Key: keyTwoAPI, Symbol: "JKLM", Finds: "WKN ZZJ12K106", Value: "12"}
+			file := ToolDifference{Account: "A1 ...135", Key: keyTwoFile, Symbol: "JKLM", Finds: "name Security (" + keyTwoFile + ")", Value: "-10", Unsure: true}
+			if tool == toolGF {
+				api.Asset, api.Finds, file.Asset, file.Finds = "JKLM", "YAHOO", "Security ("+keyTwoFile+")", "MANUAL"
+			}
+			gone, joined := file, api
+			gone.Unsure, gone.Gone, joined.Value = false, true, "2"
+			first, then := []ToolDifference{api, file}, []ToolDifference{gone, joined}
+			if tool == toolPP {
+				// The snapshot's cash, which the rows do not reach, the same
+				// at both.
+				first = append(first, ToolDifference{Account: "A1 ...135", Cash: true, Value: "1820.00"})
+			}
+			changed, goneRows := rcChanged(e2)
+			if got := unsureText(e1.e.Unsure); !slices.Equal(got, []string{keyTwoFile + ": " + keyTwoAPI + " schwabtx edit K:" + keyTwoFile + " -same K:" + keyTwoAPI}) ||
+				len(e2.e.Unsure) > 0 || !reflect.DeepEqual(e1.e.Differences, first) || !reflect.DeepEqual(e2.e.Differences, then) ||
+				len(changed) != 1 || !strings.HasPrefix(changed[0], buy+": ") || len(goneRows) > 0 || len(e2.res.symbolsChanged) > 0 {
+				t.Errorf("%s: unsure %q then %q, listed %+v then %+v, changed %q, gone %q, symbols changed %+v",
+					tool, unsureText(e1.e.Unsure), unsureText(e2.e.Unsure), e1.e.Differences, e2.e.Differences, changed, goneRows, e2.res.symbolsChanged)
+			}
+			if tool == toolPP {
+				m := newPPModel()
+				ppApply(t, m, e1)
+				rcBookPP(t, m, e1, name)
+				// What you booked, made equal to the lines before importing.
+				booked := rcBookPP(t, m, e2, name)
+				ppApply(t, m, e2)
+				var held []string
+				for sec, q := range m.shares(name) {
+					if q != 0 {
+						held = append(held, fmt.Sprintf("%s %d", ppFinds(sec.ticker, sec.wkn, sec.name), q))
+					}
+				}
+				if !slices.Equal(held, []string{"wkn ZZJ12K106 800000000"}) || !maps.Equal(booked, map[string]int64{"wkn ZZJ12K106": 200_000_000}) {
+					t.Errorf("PP holds %q (in 10^-8), by hand %v", held, booked)
+				}
+				continue
+			}
+			g := newGFModel()
+			for _, s := range []*chainStep{e1, e2} {
+				if _, err := gfApply(t, g, s); err != nil {
+					t.Fatal(err)
+				}
+				rcBookGF(t, g, s, name)
+			}
+			if held := g.holdings(); len(held) != 1 || held[gfmHolding{g.accounts[0].id, "YAHOO", "JKLM"}].Cmp(big.NewRat(8, 1)) != 0 {
+				t.Errorf("Ghostfolio holds %v", held)
+			}
+		}
+	})
+
+	t.Run("hand entries across an unsure phase", func(t *testing.T) {
+		t.Parallel()
+		// A1 holds 100 GRPQ at its snapshot, under the API's key, which knows
+		// the CUSIP, and which no row of the store bought yet: the first
+		// export lists the difference, which you book by hand. A key of a
+		// History file that knows no CUSIP then has GRPQ too, and is listed
+		// under keys_unsure, the API's key among the securities that it may
+		// be: that difference stays the same, before, and what you booked
+		// stays. Three ways on:
+		//   - an export of A1 alone, the key's row in A2: the store joins
+		//     the key to the other company's, of another CUSIP that had GRPQ
+		//     years before, and A1's difference is still before;
+		//   - the store gets the purchase under the API's key: its difference
+		//     is gone, and you delete what you booked;
+		//   - the key's row is the purchase, in A1, while two companies have
+		//     had GRPQ: the key is written on its own and its difference,
+		//     marked, booked too; you say that it is the second company's,
+		//     and both differences are gone.
+		// Each tool then holds the snapshot's shares, and nothing by hand.
+		const (
+			keyOld  = "i:1000910"
+			keyHeld = "i:1000911"
+			keyFile = "x:66000911"
+			name    = "Schwab A1 ...135"
+		)
+		seen := func(key, kind, value, at string) toolName {
+			return toolName{key: key, kind: kind, value: value, firstSeen: tcNY(at), lastSeen: tcNY(at)}
+		}
+		base := func(old bool) toolInput {
+			in := toolInput{to: "2026-02-27", snapshots: []toolSnapshot{rcSnapshot(1, "2026-02-26", 0)}}
+			in.securities, in.names = tcSecurities()
+			in.securities = append(in.securities, toolSecurityRow{key: keyHeld, assetType: "EQUITY", symbol: "GRPQ", cusip: "ZZQ32B104", description: "GRPQ BIOSCIENCES INC"})
+			in.names = append(in.names, seen(keyHeld, "symbol", "GRPQ", "2026-02-26 18:05:00"), seen(keyHeld, "description", "GRPQ BIOSCIENCES INC", "2026-02-26 18:05:00"))
+			if old {
+				in.securities = append(in.securities, toolSecurityRow{key: keyOld, assetType: "EQUITY", symbol: "GRPQ", cusip: "ZZQ31A107", description: "GRPQ HOLDINGS INC"})
+				in.names = append(in.names, seen(keyOld, "symbol", "GRPQ", "2019-06-03 18:05:00"), seen(keyOld, "description", "GRPQ HOLDINGS INC", "2019-06-03 18:05:00"))
+			}
+			in.positions = []toolPosition{rcPosition("2026-02-26", keyHeld, 100_000_000, 5200)}
+			in.rows = []toolRow{
+				rcCash("T7h000101", 1, "2026-01-05 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 10_000),
+				rcCash("T7h000102", 1, "2026-01-06 10:00:00", "ELECTRONIC_FUND", "ACH Debit", "withdrawal", -10_000),
+			}
+			return in
+		}
+		// withFile returns in with the History file's key, and its rows.
+		withFile := func(in toolInput, rows ...toolRow) toolInput {
+			in.securities = append(slices.Clone(in.securities), toolSecurityRow{key: keyFile, symbol: "GRPQ", description: "GRPQ BIOSCIENCES INC"})
+			in.names = append(slices.Clone(in.names), seen(keyFile, "symbol", "GRPQ", "2026-02-20 09:00:00"), seen(keyFile, "description", "GRPQ BIOSCIENCES INC", "2026-02-20 09:00:00"))
+			in.rows = append(slices.Clone(in.rows), rows...)
+			return in
+		}
+		withRows := func(in toolInput, rows ...toolRow) toolInput {
+			in.rows = append(slices.Clone(in.rows), rows...)
+			return in
+		}
+		dividend := rcFile("C7h00001.1", 2, "2026-01-15", "Qualified Dividend", "dividend", keyFile, "GRPQ", sql.NullInt64{}, 0, 2_500)
+		deposit := rcFile("C7h00002.1", 1, "2025-06-01", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 500_000)
+		purchase := func(key string) toolRow {
+			return rcFile("C7h00002.2", 1, "2025-06-02", "Buy", "buy", key, "GRPQ", centsOf(100_000_000), 50, -500_000)
+		}
+		held := ToolDifference{Account: "A1 ...135", Key: keyHeld, Symbol: "GRPQ", Finds: "WKN ZZQ32B104", Value: "100"}
+		alone := ToolDifference{Account: "A1 ...135", Key: keyFile, Symbol: "GRPQ", Finds: "name Security (" + keyFile + ")", Value: "-100", Unsure: true}
+		gone := func(d ToolDifference) ToolDifference {
+			d.Gone, d.Unsure = true, false
+			return d
+		}
+		listed := func(before string, of ...string) string {
+			var cmds []string
+			for _, k := range of {
+				cmds = append(cmds, k+" schwabtx edit K:"+keyFile+" -same K:"+k)
+			}
+			return keyFile + before + ": " + strings.Join(cmds, "; ")
+		}
+		for _, c := range []struct {
+			name   string
+			inputs []toolInput
+			unsure [][]string
+			lines  [][]ToolDifference
+			// kept says that what you booked by hand stays, standing for
+			// the purchase that the store does not hold.
+			kept bool
+		}{
+			{
+				"A1 alone, the key joined to another company's",
+				[]toolInput{
+					onlyAccount(tcInput(withFile(base(true), dividend)), 1),
+					onlyAccount(tcInput(sameKey(withFile(base(true), dividend), keyFile, keyOld)), 1),
+				},
+				[][]string{nil, nil},
+				[][]ToolDifference{{held}, nil},
+				true,
+			},
+			{
+				"the purchase under the API's key",
+				[]toolInput{
+					tcInput(base(false)),
+					tcInput(withFile(base(false), dividend)),
+					tcInput(withRows(withFile(base(false), dividend), deposit, purchase(keyHeld))),
+				},
+				[][]string{nil, {listed("", keyHeld)}, {listed(" before", keyHeld)}},
+				[][]ToolDifference{{held}, nil, {gone(held)}},
+				false,
+			},
+			{
+				"the key's purchase, said to be the second company's",
+				[]toolInput{
+					tcInput(base(true)),
+					tcInput(withFile(base(true), deposit, purchase(keyFile))),
+					tcInput(sameKey(withFile(base(true), deposit, purchase(keyFile)), keyFile, keyHeld)),
+				},
+				[][]string{nil, {listed("", keyOld, keyHeld)}, nil},
+				[][]ToolDifference{{held}, {alone}, {gone(held), gone(alone)}},
+				false,
+			},
+		} {
+			for _, tool := range []string{toolPP, toolGF} {
+				var steps []*chainStep
+				var prev *chainStep
+				for i, in := range c.inputs {
+					prev = chainStepOf(t, in, tool, prev, []string{rcAt1, rcAt2, rcAt3}[i])
+					steps = append(steps, prev)
+				}
+				for i, s := range steps {
+					lines := slices.Clone(c.lines[i])
+					for j := range lines {
+						if tool == toolGF {
+							asset, finds := "GRPQ", "YAHOO"
+							if lines[j].Key == keyFile {
+								asset, finds = "Security ("+keyFile+")", "MANUAL"
+							}
+							lines[j].Asset, lines[j].Finds = asset, finds
+						}
+					}
+					if got := unsureText(s.e.Unsure); !slices.Equal(got, c.unsure[i]) || !reflect.DeepEqual(s.e.Differences, lines) {
+						t.Errorf("%s, %s, export %d: unsure %q, listed %+v, want %q, %+v", c.name, tool, i+1, got, s.e.Differences, c.unsure[i], lines)
+					}
+				}
+				if tool == toolPP {
+					m := newPPModel()
+					var booked map[string]int64
+					for i, s := range steps {
+						// What a first import lists you book after importing
+						// it; what a later one lists, before: what you booked,
+						// made equal to the lines or deleted, and a new
+						// security's made with the identifiers written.
+						if i == 0 {
+							ppApply(t, m, s)
+						}
+						booked = rcBookPP(t, m, s, name)
+						if i > 0 {
+							ppApply(t, m, s)
+						}
+					}
+					var shares []string
+					for sec, q := range m.shares(name) {
+						if q != 0 {
+							shares = append(shares, fmt.Sprintf("%s %d", ppFinds(sec.ticker, sec.wkn, sec.name), q))
+						}
+					}
+					if !slices.Equal(shares, []string{"wkn ZZQ32B104 10000000000"}) || (len(booked) > 0) != c.kept {
+						t.Errorf("%s: PP holds %q (in 10^-8), by hand %v", c.name, shares, booked)
+					}
+					continue
+				}
+				g := newGFModel()
+				for i, s := range steps {
+					// The dialog cannot import a file with no activity, as
+					// the first export is, its cash in the balances: a direct
+					// import makes its account. What it lists you add after
+					// importing.
+					var err error
+					if i == 0 && len(s.gf.file.Activities) == 0 {
+						_, err = gfImportDirect(g, s.file)
+					} else if _, err = gfApply(t, g, s); len(s.gf.file.Activities) == 0 {
+						err = nil
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					rcBookGF(t, g, s, name)
+				}
+				if held := g.holdings(); len(held) != 1 || held[gfmHolding{g.accounts[0].id, "YAHOO", "GRPQ"}].Cmp(big.NewRat(100, 1)) != 0 {
+					t.Errorf("%s: Ghostfolio holds %v", c.name, held)
+				}
+			}
 		}
 	})
 
@@ -2863,7 +3363,7 @@ func TestToolReimport(t *testing.T) {
 				t.Errorf("%s: symbols changed %d, %d; changed %q, gone %q, given %q", tool, e1.e.SymbolsChanged, e2.e.SymbolsChanged, changed, gone, e2.refs(outcomeGiven))
 			}
 			if tool == toolPP {
-				if f := ppFileNamed(t, e1.pp, ppSecuritiesFile); !strings.Contains(string(f.data), "\nSPNC,69389B101,SPINCO INC,USD,,\n") {
+				if f := ppFileNamed(t, e1.pp, ppSecuritiesFile); !strings.Contains(string(f.data), "\nSPNC,69389B101,SPINCO INC,,USD,,\n") {
 					t.Errorf("PP's securities:\n%s", f.data)
 				}
 				m := newPPModel()

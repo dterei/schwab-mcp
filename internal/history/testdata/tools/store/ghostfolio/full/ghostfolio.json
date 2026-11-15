@@ -123,6 +123,15 @@
       "symbol": "aa464282-62a4-83b2-bf95-beb6f80fca79"
     },
     {
+      "assetClass": "EQUITY",
+      "assetSubClass": "STOCK",
+      "comment": "META PLATFORMS INC CLASS A",
+      "currency": "USD",
+      "dataSource": "MANUAL",
+      "name": "Security (i:1940083512)",
+      "symbol": "a934cd5e-f88f-8f16-a739-a10f1dacfe06"
+    },
+    {
       "comment": "E-MINI S&P 500 OPTIONS MAR 25 5050 PUT",
       "currency": "USD",
       "dataSource": "MANUAL",
@@ -334,11 +343,11 @@
       "accountId": "2a1620c1-a41c-8592-88fc-7092e7c386d4",
       "comment": "schwabtx A2 ...398 T73508261942",
       "currency": "USD",
-      "dataSource": "YAHOO",
+      "dataSource": "MANUAL",
       "date": "2026-03-13T12:01:11.419Z",
       "fee": 0.04,
       "quantity": 1,
-      "symbol": "META",
+      "symbol": "a934cd5e-f88f-8f16-a739-a10f1dacfe06",
       "type": "SELL",
       "unitPrice": 603.4
     },

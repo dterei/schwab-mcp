@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -839,9 +838,10 @@ func TestToolReadNamesOfOneSource(t *testing.T) {
 // later file's ticker (fileEntry), as does a second buy that the later file
 // alone holds, of a day between the two; and an API key of the old ticker,
 // which sold it under that ticker before the later file: Q12 has the file
-// key's rows under the new ticker alone, its names are dated by the two
-// files' exports, and both tools take the two keys for one security of the
-// new ticker, which the export does not list as unsure.
+// key's rows under the new ticker alone, and its names are dated by the two
+// files' exports. Nothing but the old ticker ties the two keys, neither of a
+// CUSIP, so both tools write each on its own and list it with the other
+// (I-4 of the consolidation).
 func TestToolReadRenameRestated(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -894,15 +894,17 @@ func TestToolReadRenameRestated(t *testing.T) {
 			sec := ev.security
 			ticker, _, _ := ppIdentifiers(sec)
 			refs = append(refs, ev.ref)
-			if sec.identity() != "JKLN" || sec.gfDataSource() != "YAHOO" || sec.gfSymbol() != "JKLN" || ticker != "JKLN" || sec.first().key != "i:900000401" {
-				t.Errorf("%s %s of %s: identity %s, %s %s, PP ticker %q", tool, ev.ref, sec.key, sec.identity(), sec.gfDataSource(), sec.gfSymbol(), ticker)
+			if !sec.unsure || sec.identity() != sec.key || sec.gfDataSource() != "MANUAL" || ticker != "" {
+				t.Errorf("%s %s of %s: unsure %v, identity %s, %s, PP ticker %q", tool, ev.ref, sec.key, sec.unsure, sec.identity(), sec.gfDataSource(), ticker)
 			}
 		}
 		if len(refs) != 3 {
 			t.Errorf("%s: records %q", tool, refs)
 		}
-		if u := keysUnsure(&e, events); len(u) != 0 {
-			t.Errorf("%s: unsure %+v", tool, *u[0])
+		if u := unsureText(keysUnsure(&e, events)); !slices.Equal(u, []string{
+			"i:900000401: x:66000401 schwabtx edit K:i:900000401 -same K:x:66000401", "x:66000401: i:900000401 schwabtx edit K:x:66000401 -same K:i:900000401",
+		}) {
+			t.Errorf("%s: unsure %q", tool, u)
 		}
 	}
 }
@@ -916,9 +918,11 @@ func TestToolReadRenameRestated(t *testing.T) {
 // which no snapshot held and the store knows no CUSIP of, took TKNA in
 // October 2025, read at once. Q12 holds the API's rows apart from the
 // file's, and Q5 each name with the key that had it, when it is not the
-// security's own: the API's rows date the rename, the file's restated buy
-// nothing, and both tools keep the other company apart, as a key that they
-// cannot be sure of.
+// security's own. The store holds S's position, two months after the read,
+// under the position's key, apart: S knows no CUSIP, and shares TKNA with
+// the other company and TKNB with S's position, so both tools write S and
+// the other company each on its own, and list each with what the store knows
+// of it (I-4 of the consolidation).
 func TestToolReadJoinedHistoryKey(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -980,12 +984,20 @@ func TestToolReadJoinedHistoryKey(t *testing.T) {
 		if sa, qa := ix.security("i:1000800", ""), ix.security("i:1000801", ""); sa.rep == qa.rep || qa.identity() != "i:1000801" {
 			t.Errorf("%s: S is of %s, Q of %s, one security %v", tool, sa.identity(), qa.identity(), sa.rep == qa.rep)
 		}
+		// What the store knows of each: S's description of the History file,
+		// its tickers by source, its rows of the file and of the API; Q's
+		// ticker of the API's read and its rows; the position's key, of S's
+		// CUSIP and ticker, held.
 		events, _ := toolEvents(&e)
-		want := []ToolUnsure{{Key: "i:1000801", Tickers: []string{"TKNA"}, Securities: []ToolUnsureSecurity{{
-			Key: "i:1000800", CUSIP: "ZZQ80A107", Command: "schwabtx edit K:i:1000801 -same K:i:1000800", Apart: true,
-		}}}}
-		if got := toolUnsures(keysUnsure(&e, events)); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s: unsure %+v", tool, got)
+		s := "[TKNB HOLDINGS INC, TKNA api 2026-01-05, TKNB api 2026-01-05, TKNB history 2026-01-04, rows 2015-03-02..2026-01-02]"
+		q := "[, TKNA api 2026-01-05, rows 2025-10-01..2025-11-03]"
+		want := []string{
+			"i:1000800 " + s + ": i:1000801 " + q + " schwabtx edit K:i:1000800 -same K:i:1000801; " +
+				"c:ZZQ80A107 ZZQ80A107 [, TKNB api 2026-03-02, held] schwabtx edit K:i:1000800 -same K:c:ZZQ80A107",
+			"i:1000801 " + q + ": i:1000800 " + s + " schwabtx edit K:i:1000801 -same K:i:1000800",
+		}
+		if got := unsureText(keysUnsure(&e, events), true); !slices.Equal(got, want) {
+			t.Errorf("%s: unsure %q", tool, got)
 		}
 	}
 }

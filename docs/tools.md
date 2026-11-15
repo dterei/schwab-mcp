@@ -40,31 +40,33 @@ made up.
   otherwise, start over in the tool (below).
 - **Do not rename** the accounts that you make for an export, or that it
   makes, and in Ghostfolio its assets: the tools find them again by name.
-- **A key that the export cannot place.** A History file's rows name a
-  security by a key of the file, which often knows no CUSIP. When the store
-  linked one of its rows to an API row as one transaction, the export takes
-  the two keys for one security, unless their links reach securities of two
-  CUSIPs. Otherwise, when securities of two CUSIPs have had its ticker (a
-  company that took a ticker another gave up, or a security that kept its
-  ticker under a new CUSIP), the export writes its rows as the one that had
-  the ticker first, by the days of its rows under it, since a file's rows
-  come before the API's, or, when its tickers are each of another, on their
-  own. A key whose ticker another security gave up before it had it,
-  delisted, renamed or merged away, is not taken for that one, whatever
-  CUSIPs they know: two companies of one ticker at different times stay two.
-  The days of the API's rows say when a security went by a ticker, but a
-  History file names every row by the ticker of its export, an old row too,
-  so a file's rows go by the exports that named them, whatever key the store
-  holds them under: a security renamed or delisted between two of a file's
-  exports, with no API row under its new symbol, gave its ticker up at the
-  later one, and another key that had the ticker in between is taken for it,
-  as one security. stderr and the manifest's `keys_unsure` name each such
-  key, with a `schwabtx edit K:… -same K:…` for each security it may be
-  (`apart` for one that had the ticker at another time). Run the one that is
-  right, and the store joins the two keys: if that is not how the export
-  wrote it, export again before you import, in a new folder (delete the one
-  not imported); once imported, the next `-since` export lists what changed,
-  to delete.
+- **A security that the export cannot join.** The store may hold one
+  security under several keys: a History file's, which often knows no
+  CUSIP, the API's, and the positions'. The export takes keys for one
+  security only when the store makes that certain: they know one CUSIP,
+  name one option contract or futures symbol, or have rows that the store
+  linked as one transaction. A key with no CUSIP that shares a ticker with
+  another security is written on its own, named `Security (x:66000002)` in
+  both tools, which neither merges with another. stderr and the manifest's
+  `keys_unsure` list each: its names, the days of its rows, whether it is
+  held, the same of each security that it may be, and the command that
+  says it is that one (`schwabtx edit K:x:66000002 -same K:i:4417355`);
+  `schwabtx status K:…` shows a key's names over time. Before you import,
+  judge each. If it is that security, run the command and export again: a
+  full export to a new folder, or, for a `-since` export, the same
+  `schwabtx export` once you have moved away the folder that you did not
+  import (the export refuses to go on twice from one folder). If it is
+  another security, run nothing, and book its differences as any other's
+  (step 4); later `-since` exports do not count it again, a full export
+  lists it again. Many keys at once, as when your History file was
+  exported long before your first snapshot: export the History again from
+  Schwab and import it within a week of a snapshot
+  ([docs/store.md](store.md#history-exports)), so that the store joins the
+  keys of each security that you hold itself; then export again. Once
+  imported, a `-same` still works: the next `-since` export lists the rows
+  written on their own to delete, writes them under the joined security,
+  and lists the differences again (step 4). Then delete the empty security
+  `Security (<key>)` in PP, or the empty asset of that name in Ghostfolio.
 - **A full export** assumes that the tool holds none of its accounts' rows,
   as the line after its first says: a first import into new, empty
   accounts, or a redo of every account (in [PP](#starting-over), in
@@ -191,6 +193,10 @@ and the types' names, whatever PP's language and locale.
      ticker of one company that no CUSIP joins: one security under two
      keys. Take their `security_key`s from the manifest, run `schwabtx edit
      K:<one> -same K:<other>`, export again, and book nothing for them.
+   - A difference marked `unsure` (on stderr, "of a key under
+     keys_unsure") is of a key written on its own: settle the key first
+     ([above](#in-both-tools)); if you join it, export again before you
+     book.
    - **Cash**: book its difference as a Deposit when positive, or a
      Withdrawal when negative, dated the day before the account's first
      row, less the rows left out that you book by hand. PP's deposit
@@ -230,19 +236,27 @@ and the types' names, whatever PP's language and locale.
 ### Later imports
 
 6. **With `-since`** naming the folder that you imported last, once you
-   have imported it, and a new folder. Before importing, set each security
-   that it lists under `symbols_changed` as step 8 says; delete in PP what
-   it lists as changed or gone; and delete what you booked by hand for the
-   differences that it lists as gone, then make what you booked for each
-   other equal to it (step 4). Each is listed with how its note begins. A
-   transfer is one row of its paying account's file, its note naming its
-   paying side and then its receiving side (`schwabtx A2 ...398
-   T73600000101 to A1 ...135 T73600000102`): delete it once, by the note
-   quoted, and PP deletes both of its legs. When two equal records share
-   the note quoted, as after a row came back beside the one that took its
-   place, delete either: they are alike in all that PP keeps. Then import
-   in the order printed, and tick exactly the rows it lists to tick. Say
-   that you book the interest adjustment of the walk-through as a fee:
+   have imported it, and a new folder. Then, in this order:
+   1. New keys under `keys_unsure`: settle each
+      ([above](#in-both-tools)). If you run a `-same`, move this folder
+      away and export again with the same `-since`.
+   2. `symbols_changed`: set each that PP holds as step 8 says.
+   3. Delete in PP what stderr lists as changed or gone, by how its note
+      begins. A transfer is one row of its paying account's file, its note
+      naming its paying side and then its receiving side (`schwabtx A2
+      ...398 T73600000101 to A1 ...135 T73600000102`): delete it once, by
+      the note quoted, and PP deletes both of its legs. When two equal
+      records share the note quoted, as after a row came back beside the
+      one that took its place, delete either: they are alike in all that
+      PP keeps.
+   4. Your hand entries, to the differences listed, gone ones first:
+      delete what you booked for each that is gone, then make what you
+      booked for each other equal to it (step 4).
+   5. Make the accounts that it names to make (step 2).
+   6. Import the files in the order printed, and tick exactly the rows it
+      lists to tick (step 3).
+
+   Say that you book the interest adjustment of the walk-through as a fee:
 
    ```
    $ schwabtx edit T73508261949 -category fee
@@ -463,13 +477,14 @@ with its description in its comment.
    ids may be another user's, Ghostfolio gives the accounts and assets new
    ids and finds them again by their names: do not rename them. An asset's
    name is made from what identifies the security: its ticker (`Security
-   (VBR)`), which the store's rows of it from every source share, under
-   every key that the store holds it by; an option's symbol (`XYZ
-   2025-02-21 40 put (XYZ250221P00040000)`); the CUSIP of a bond, of a
-   delisted security, whose ticker another company may have taken, and of
-   one whose ticker a security of another CUSIP has had too; else its key
-   in the store (`Security (i:205187341)`), as for a futures option. Its
-   description is in its comment.
+   (VBR)`), which its rows share under every key that the export takes for
+   it; an option's symbol (`XYZ 2025-02-21 40 put (XYZ250221P00040000)`);
+   the CUSIP of a bond, of a delisted security, whose ticker another
+   company may have taken, and of one whose ticker a security of another
+   CUSIP has had too; else its key in the store (`Security
+   (i:205187341)`), as for a futures option or a key written on its own
+   ([above](#in-both-tools)). Its description is in its comment, and every
+   description of a key written on its own.
 5. **Fees and taxes** are FEE activities of the assets `Schwab fees` and
    `Schwab taxes`, which carry a price of 1 so that Ghostfolio takes them off
    net performance; their refunds are interest of the same asset, which
@@ -498,12 +513,18 @@ with its description in its comment.
 ### Later imports
 
 7. **With `-since`**, as for PP, each export imported before the next is
-   made. Delete in Ghostfolio what it lists as changed or gone (the
-   activities page filters by account and date, and each activity's comment
-   names its row), import the file, delete what you added by hand for the
-   differences that it lists as gone, then make what you added for each
-   other equal to it (step 6), and set the cash it prints. Say you
-   withdraw the decision of PP's example:
+   made. Then, in this order:
+   1. New keys under `keys_unsure`, as in PP (step 6).
+   2. Delete in Ghostfolio what stderr lists as changed or gone (the
+      activities page filters by account and date, and each activity's
+      comment names its row).
+   3. Import the file.
+   4. Your hand entries, to the differences listed, gone ones first:
+      delete what you added for each that is gone, then make what you
+      added for each other equal to it (step 6).
+   5. Set each account's cash that it prints (step 2).
+
+   Say you withdraw the decision of PP's example:
 
    ```
    $ schwabtx edit T73508261949 -category auto
@@ -612,4 +633,15 @@ status -review` says why each is flagged. If you uncount one, the next
 `waiting`, come in a later export once you decide them. A difference
 under `holdings` marked `left_out` is one that a row of its account left
 out moves: what you add by hand for it is the difference less what you
-book by hand for that row (PP step 4, Ghostfolio step 6).
+book by hand for that row (PP step 4, Ghostfolio step 6). One marked
+`unsure` is of a key under `keys_unsure`, written on its own: what you add
+for it is the difference all the same, unless you join the key first.
+
+Each key under `keys_unsure`: judge it, and run its command if it is that
+security ([In both tools](#in-both-tools)). An entry of a symbol without a
+key lists its rows (`refs`), which the store could not place, as when the
+symbol names two keys that it holds apart (their flag
+`unresolved_security` shows with `schwabtx status -review -all`): settle
+those keys first, which may let the store place the rows itself; else give
+each its security with `schwabtx edit REF -security K:…`; then export
+again.

@@ -9,6 +9,7 @@
     {"label": "Ticker Symbol", "field": "ticker"},
     {"label": "WKN", "field": "wkn"},
     {"label": "Security Name", "field": "name"},
+    {"label": "Note", "field": "note"},
     {"label": "Currency", "field": "currency"},
     {"label": "Date of Quote", "field": "date", "format": "yyyy-MM-dd"},
     {"label": "Quote", "field": "quote", "format": "0,000.00"}

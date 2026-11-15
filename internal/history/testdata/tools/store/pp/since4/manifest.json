@@ -1,0 +1,824 @@
+{
+  "exported_at": "2026-11-12T15:04:05.678Z",
+  "schema": 1,
+  "rules": 1,
+  "calendar": 1,
+  "store": "2026-11-12T15:04:05.678Z",
+  "format": "pp",
+  "layout": 1,
+  "filters": {
+    "account": null,
+    "to": "2026-11-13",
+    "manual": [],
+    "since": "2026-11-12T15:04:05.678Z"
+  },
+  "chain": {
+    "id": "2026-11-12T15:04:05.678Z",
+    "account": null,
+    "manual": [],
+    "to": "2026-11-13"
+  },
+  "files": [
+    {
+      "file": "securities.csv",
+      "kind": "securities",
+      "configuration": "pp-securities.json",
+      "rows": 5,
+      "tick": 0
+    },
+    {
+      "file": "portfolio-transactions-A2-398.csv",
+      "kind": "portfolio",
+      "configuration": "pp-portfolio-transactions.json",
+      "account": "A2 ...398",
+      "rows": 1,
+      "tick": 0
+    }
+  ],
+  "accounts": [
+    {
+      "label": "A1 ...135",
+      "account": "...135",
+      "nickname": "Individual",
+      "name": "Schwab A1 ...135",
+      "exported": false,
+      "last_day": null,
+      "new": false
+    },
+    {
+      "label": "A2 ...398",
+      "account": "...398",
+      "nickname": "Options & Margin",
+      "name": "Schwab A2 ...398",
+      "exported": true,
+      "last_day": "2026-03-13",
+      "new": false
+    },
+    {
+      "label": "A3 ...398",
+      "account": "...398",
+      "nickname": "",
+      "name": "Schwab A3 ...398",
+      "exported": false,
+      "last_day": null,
+      "new": false
+    }
+  ],
+  "units": {
+    "dates": "New York calendar dates, YYYY-MM-DD",
+    "fp": "the first 16 hex digits of the SHA-256 of the fields that PP keeps of a row's records, joined by U+001F",
+    "manifest": "amounts, quantities and shares signed, as the store's: into the account is positive",
+    "money": "Value and Fees: dollars with two places, unsigned, as the Type says which way the cash goes, from the store's whole cents",
+    "prices": "Quote: dollars per share, or per dollar of a bond's face, a snapshot's market value over its shares, rounded to 8 places",
+    "shares": "Shares: shares, an option's contracts times its multiplier, or a bond's face value in dollars, from the store's whole millionths",
+    "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
+  },
+  "written": {
+    "rows": 1,
+    "types": {
+      "Sell": 1
+    }
+  },
+  "given": {
+    "A1 ...135": {
+      "T73508261943": {
+        "day": "2025-06-02",
+        "as": "portfolio 2025-06-02 Buy 605.46",
+        "fp": "c3f5c07b618e2613"
+      },
+      "T73508261946": {
+        "day": "2024-04-04",
+        "as": "portfolio 2024-04-04 Buy 2.70",
+        "fp": "030f3ad1ebb64bb6"
+      },
+      "T73508261947": {
+        "day": "2024-03-15",
+        "as": "portfolio 2024-03-15 Sell 83.27",
+        "fp": "9554649a6c050e74"
+      },
+      "T73508261949": {
+        "day": "2024-04-30",
+        "as": "account 2024-04-30 Interest 0.42",
+        "fp": "0e891a9cbd629003"
+      },
+      "T73508261950": {
+        "day": "2024-04-04",
+        "as": "account 2024-04-04 Dividend 3.86",
+        "fp": "9334f8b184344cfb"
+      },
+      "T73508261951": {
+        "day": "2023-12-15",
+        "as": "account 2023-12-15 Deposit 10000.00",
+        "fp": "cd54d6178f4e3104"
+      },
+      "T73508261952": {
+        "day": "2023-07-19",
+        "as": "account 2023-07-19 Deposit 2500.00",
+        "fp": "989f670601508ae3"
+      },
+      "T73508261953": {
+        "day": "2023-06-12",
+        "as": "account 2023-06-12 Deposit 150.00",
+        "fp": "0ee80d5918a55b3c"
+      },
+      "T73508261954": {
+        "day": "2024-04-04",
+        "as": "account 2024-04-04 Taxes 1.16",
+        "fp": "90a1b3ebd685761d"
+      },
+      "T73600000102": {
+        "day": "2026-09-09",
+        "as": "account 2026-09-09 Deposit 500.00",
+        "fp": "c2aaa912458fcd84"
+      },
+      "T73600000103": {
+        "day": "2026-09-10",
+        "as": "portfolio 2026-09-10 Delivery (Outbound) 460.20",
+        "fp": "90406769fc3084b1"
+      },
+      "T73600000107": {
+        "day": "2026-09-21",
+        "as": "account 2026-09-21 Dividend 0.26",
+        "fp": "ec05c939514a688e"
+      },
+      "T73600000108": {
+        "day": "2026-09-23",
+        "as": "account 2026-09-23 Dividend 0.26",
+        "fp": "1c6162cb4f99db55"
+      }
+    },
+    "A2 ...398": {
+      "T73508261941": {
+        "day": "2026-08-04",
+        "as": "portfolio 2026-08-04 Sell 311.31",
+        "fp": "a77429ea2f0fd2ea"
+      },
+      "T73508261942": {
+        "day": "2026-03-13",
+        "as": "portfolio 2026-03-13 Sell 603.36",
+        "fp": "91a6098a9dbceefa"
+      },
+      "T73508261944": {
+        "day": "2025-01-21",
+        "as": "portfolio 2025-01-21 Buy 400.67",
+        "fp": "fa029d246d62196e"
+      },
+      "T73508261945": {
+        "day": "2025-01-14",
+        "as": "portfolio 2025-01-14 Buy 1052.82",
+        "fp": "1afa47e57bf63f61"
+      },
+      "T73508261948": {
+        "day": "2026-07-15",
+        "as": "account 2026-07-15 Dividend 25.00",
+        "fp": "35a0d0a4bc5bddb9"
+      },
+      "T73600000104": {
+        "day": "2026-09-10",
+        "as": "portfolio 2026-09-10 Delivery (Inbound) 460.20",
+        "fp": "25b5bb53a6a452ca"
+      },
+      "T73600000105": {
+        "day": "2026-09-15",
+        "as": "portfolio 2026-09-15 Buy 211.34; portfolio 2026-09-15 Sell 80.00",
+        "fp": "943c7eb52d3495b5"
+      }
+    },
+    "A3 ...398": {
+      "C6e4c5a90.1": {
+        "day": "2026-11-09",
+        "as": "account 2026-11-09 Dividend 4.20",
+        "fp": "a4a0fb9b83319ae0"
+      },
+      "Cad2f64b0.1": {
+        "day": "2026-07-01",
+        "as": "portfolio 2026-07-01 Sell 1200.00",
+        "fp": "626610430ebe1080",
+        "with": "Cad2f64b0.2"
+      },
+      "Cad2f64b0.10": {
+        "day": "2026-03-20",
+        "as": "account 2026-03-20 Interest Charge 4.17",
+        "fp": "84e7b0aae1fb0d8d"
+      },
+      "Cad2f64b0.11": {
+        "day": "2026-03-16",
+        "as": "portfolio 2026-03-16 Delivery (Outbound) 0.00",
+        "fp": "7ea9fd89e6d14dc5"
+      },
+      "Cad2f64b0.12": {
+        "day": "2026-03-09",
+        "as": "portfolio 2026-03-09 Delivery (Inbound) 0.00",
+        "fp": "15d0771a62f0879f"
+      },
+      "Cad2f64b0.13": {
+        "day": "2026-03-02",
+        "as": "account 2026-03-02 Deposit 250.00",
+        "fp": "52b9c9aebc6d8871"
+      },
+      "Cad2f64b0.14": {
+        "day": "2026-02-24",
+        "as": "portfolio 2026-02-24 Buy 498.00",
+        "fp": "29111e7d9da04f70"
+      },
+      "Cad2f64b0.15": {
+        "day": "2026-02-18",
+        "as": "portfolio 2026-02-18 Sell 100.00",
+        "fp": "364d18d407b197cf"
+      },
+      "Cad2f64b0.16": {
+        "day": "2026-02-17",
+        "as": "portfolio 2026-02-17 Buy 100.00",
+        "fp": "7f41558fa3802747"
+      },
+      "Cad2f64b0.17": {
+        "day": "2026-02-10",
+        "as": "portfolio 2026-02-10 Buy 1140.00",
+        "fp": "6d8c1b27a8aab887"
+      },
+      "Cad2f64b0.4": {
+        "day": "2026-06-01",
+        "as": "portfolio 2026-06-01 Delivery (Inbound) 4990.00",
+        "fp": "6e6a27ac91dfa0a7"
+      },
+      "Cad2f64b0.5": {
+        "day": "2026-05-18",
+        "as": "portfolio 2026-05-18 Delivery (Outbound) 0.00",
+        "fp": "fd8cd8cd6a5c795a"
+      },
+      "Cad2f64b0.6": {
+        "day": "2026-05-15",
+        "as": "account 2026-05-15 Dividend 212.50",
+        "fp": "e7ec4a5f8b63edb1"
+      },
+      "Cad2f64b0.7": {
+        "day": "2026-04-20",
+        "as": "account 2026-04-20 Tax Refund 1.25",
+        "fp": "b0e294af98beade1"
+      },
+      "Cad2f64b0.8": {
+        "day": "2026-04-06",
+        "as": "portfolio 2026-04-06 Buy 251.32",
+        "fp": "eae7bf4186168e15"
+      },
+      "Cad2f64b0.9": {
+        "day": "2026-04-01",
+        "as": "portfolio 2026-04-01 Buy 9962.15",
+        "fp": "203e73f5f985bf36"
+      },
+      "Ceaa643bd.1": {
+        "day": "2026-11-13",
+        "as": "account 2026-11-13 Dividend 3.06",
+        "fp": "e75889974b2b4420"
+      }
+    }
+  },
+  "securities": [
+    {
+      "security_key": "c:00507V109",
+      "symbol": "00507V109",
+      "identity": "00507V109",
+      "wkn": "00507V109",
+      "why": [
+        "no_ticker"
+      ]
+    },
+    {
+      "security_key": "c:0XYZ..RI60045000",
+      "symbol": "XYZ   260619P00045000",
+      "identity": "XYZ260619P00045000",
+      "ticker": "XYZ260619P00045000",
+      "name": "XYZ 06/19/2026 45.00 P"
+    },
+    {
+      "security_key": "i:1854092",
+      "symbol": "XYZ",
+      "identity": "XYZ",
+      "ticker": "XYZ",
+      "wkn": "98389B100",
+      "name": "XYZ CORP COMMON STOCK"
+    },
+    {
+      "security_key": "i:1940083512",
+      "symbol": "META",
+      "identity": "META",
+      "ticker": "META",
+      "wkn": "30303M102",
+      "name": "META PLATFORMS INC CLASS A"
+    },
+    {
+      "security_key": "i:1973757747",
+      "symbol": "AAPL",
+      "identity": "AAPL",
+      "ticker": "AAPL",
+      "wkn": "037833100"
+    },
+    {
+      "security_key": "i:205187341",
+      "symbol": "/ESH25_P5050:XCME",
+      "identity": "i:205187341",
+      "ticker": "/ESH25_P5050:XCME",
+      "name": "E-MINI S&P 500 OPTIONS MAR 25 5050 PUT"
+    },
+    {
+      "security_key": "i:219771034",
+      "symbol": "XYZ   250221P00040000",
+      "identity": "XYZ250221P00040000",
+      "ticker": "XYZ250221P00040000",
+      "name": "XYZ 02/21/2025 40.00 P"
+    },
+    {
+      "security_key": "i:219834765",
+      "symbol": "XYZ   260918C00050000",
+      "identity": "XYZ260918C00050000",
+      "ticker": "XYZ260918C00050000",
+      "name": "XYZ 09/18/2026 50.00 C"
+    },
+    {
+      "security_key": "i:219950001",
+      "symbol": "XYZ   261016P00045000",
+      "identity": "XYZ261016P00045000",
+      "ticker": "XYZ261016P00045000",
+      "name": "XYZ 10/16/2026 45.00 P"
+    },
+    {
+      "security_key": "i:219950002",
+      "symbol": "XYZ   261016P00040000",
+      "identity": "XYZ261016P00040000",
+      "ticker": "XYZ261016P00040000",
+      "name": "XYZ 10/16/2026 40.00 P"
+    },
+    {
+      "security_key": "i:4417302",
+      "symbol": "BND",
+      "identity": "BND",
+      "ticker": "BND",
+      "name": "VANGUARD TOTAL BOND MARKET ETF"
+    },
+    {
+      "security_key": "i:4417355",
+      "symbol": "VBR",
+      "identity": "VBR",
+      "ticker": "VBR",
+      "name": "VANGUARD SMALL-CAP VALUE ETF"
+    },
+    {
+      "security_key": "s:FILE:9128ZZQ15@2026-07-20",
+      "symbol": "9128ZZQ15",
+      "identity": "9128ZZQ15",
+      "wkn": "9128ZZQ15"
+    },
+    {
+      "security_key": "s:FILE:ABCD@2026-07-20",
+      "symbol": "ABCD",
+      "identity": "ABCD",
+      "ticker": "ABCD"
+    },
+    {
+      "security_key": "s:FILE:EFGH@2026-07-20",
+      "symbol": "EFGH",
+      "identity": "EFGH",
+      "ticker": "EFGH"
+    },
+    {
+      "security_key": "s:FILE:MNOP@2026-07-20",
+      "symbol": "MNOP",
+      "identity": "MNOP",
+      "ticker": "MNOP"
+    },
+    {
+      "security_key": "s:FILE:QRST@2026-07-20",
+      "symbol": "QRST",
+      "identity": "QRST",
+      "ticker": "QRST"
+    },
+    {
+      "security_key": "s:FILE:XYZ 05/15/2026 50.00 C@2026-07-20",
+      "symbol": "XYZ 05/15/2026 50.00 C",
+      "identity": "XYZ260515C00050000",
+      "ticker": "XYZ260515C00050000"
+    }
+  ],
+  "changed": [
+    {
+      "ref": "T73508261942",
+      "account": "A2 ...398",
+      "was": "portfolio 2026-03-13 Sell 603.36",
+      "now": "portfolio 2026-03-13 Sell 603.36"
+    }
+  ],
+  "gone": [],
+  "same_as": [],
+  "tick": [],
+  "left_out": [
+    {
+      "ref": "T73600000106",
+      "account": "A2 ...398",
+      "day": null,
+      "category": "dividend",
+      "kind": "DIVIDEND_OR_INTEREST",
+      "description": "Ordinary Dividend~META",
+      "symbol": "META",
+      "quantity": null,
+      "amount": 0.53,
+      "reason": "no_day",
+      "advice": "check",
+      "command": "schwabtx status T73600000106",
+      "before": true
+    },
+    {
+      "ref": "Cad2f64b0.3",
+      "account": "A3 ...398",
+      "day": "2026-06-15",
+      "category": "other",
+      "kind": "Stock Split",
+      "description": "ABCD INDUSTRIES INC",
+      "symbol": "ABCD",
+      "quantity": 6,
+      "amount": 0.00,
+      "reason": "other",
+      "advice": "split",
+      "command": "",
+      "before": true
+    }
+  ],
+  "caveats": [],
+  "combined": [],
+  "flagged": [
+    {
+      "ref": "Cad2f64b0.13",
+      "account": "A3 ...398",
+      "day": "2026-03-02",
+      "outcome": "given",
+      "flags": [
+        "unpaired_journal"
+      ]
+    },
+    {
+      "ref": "Cad2f64b0.12",
+      "account": "A3 ...398",
+      "day": "2026-03-09",
+      "outcome": "given",
+      "flags": [
+        "unpaired_journal"
+      ]
+    },
+    {
+      "ref": "Cad2f64b0.11",
+      "account": "A3 ...398",
+      "day": "2026-03-16",
+      "outcome": "given",
+      "flags": [
+        "unpaired_journal"
+      ]
+    },
+    {
+      "ref": "Cad2f64b0.4",
+      "account": "A3 ...398",
+      "day": "2026-06-01",
+      "outcome": "given",
+      "flags": [
+        "unpaired_journal"
+      ]
+    },
+    {
+      "ref": "Ceaa643bd.1",
+      "account": "A3 ...398",
+      "day": "2026-11-13",
+      "outcome": "given",
+      "flags": [
+        "near_duplicate"
+      ]
+    }
+  ],
+  "waiting": [
+    {
+      "ref": "C264b1b4d.2",
+      "account": "A1 ...135",
+      "day": "2024-05-31",
+      "kind": "Bank Interest",
+      "amount": 0.37,
+      "why": "held_out",
+      "command": "schwabtx status C264b1b4d.2"
+    },
+    {
+      "ref": "C264b1b4d.1",
+      "account": "A1 ...135",
+      "day": "2026-09-22",
+      "kind": "Qualified Dividend",
+      "amount": 0.26,
+      "why": "uncertain",
+      "command": "schwabtx status C264b1b4d.1"
+    }
+  ],
+  "holdings": {
+    "differences": [
+      {
+        "account": "A1 ...135",
+        "security_key": "c:00507V109",
+        "symbol": "00507V109",
+        "pp_security": {
+          "wkn": "00507V109"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 10,
+        "written_shares": 0,
+        "difference": 10,
+        "before": true
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "c:808515779",
+        "symbol": "SWVXX",
+        "pp_security": {
+          "ticker": "SWVXX",
+          "wkn": "808515779",
+          "name": "SCHWAB VALUE ADVANTAGE MONEY FUND"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 1220.89,
+        "written_shares": 0,
+        "difference": 1220.89,
+        "before": true
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "c:922908769",
+        "symbol": "VTI",
+        "pp_security": {
+          "ticker": "VTI",
+          "wkn": "922908769",
+          "name": "VANGUARD TOTAL STOCK MARKET ETF"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 12,
+        "written_shares": 0,
+        "difference": 12,
+        "before": true
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:1973757747",
+        "symbol": "AAPL",
+        "pp_security": {
+          "ticker": "AAPL",
+          "wkn": "037833100"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 2.1788,
+        "written_shares": 1,
+        "difference": 1.1788,
+        "before": true
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:4417302",
+        "symbol": "BND",
+        "pp_security": {
+          "ticker": "BND",
+          "name": "VANGUARD TOTAL BOND MARKET ETF"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 0.0378,
+        "difference": -0.0378,
+        "before": true
+      },
+      {
+        "account": "A1 ...135",
+        "security_key": "i:4417355",
+        "symbol": "VBR",
+        "pp_security": {
+          "ticker": "VBR",
+          "name": "VANGUARD SMALL-CAP VALUE ETF"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": -0.4513,
+        "difference": 0.4513,
+        "before": true
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "c:0XYZ..RI60045000",
+        "symbol": "XYZ   260619P00045000",
+        "pp_security": {
+          "ticker": "XYZ260619P00045000",
+          "name": "XYZ 06/19/2026 45.00 P"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": -200,
+        "written_shares": 0,
+        "difference": -200,
+        "before": true
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:1940083512",
+        "symbol": "META",
+        "pp_security": {
+          "ticker": "META",
+          "wkn": "30303M102",
+          "name": "META PLATFORMS INC CLASS A"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 1,
+        "written_shares": -1,
+        "difference": 2
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:1973757747",
+        "symbol": "AAPL",
+        "pp_security": {
+          "ticker": "AAPL",
+          "wkn": "037833100"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 2,
+        "difference": -2,
+        "before": true
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:205187341",
+        "symbol": "/ESH25_P5050:XCME",
+        "pp_security": {
+          "ticker": "/ESH25_P5050:XCME",
+          "name": "E-MINI S&P 500 OPTIONS MAR 25 5050 PUT"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 50,
+        "difference": -50,
+        "before": true
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:219771034",
+        "symbol": "XYZ   250221P00040000",
+        "pp_security": {
+          "ticker": "XYZ250221P00040000",
+          "name": "XYZ 02/21/2025 40.00 P"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 200,
+        "difference": -200,
+        "before": true
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:219834765",
+        "symbol": "XYZ   260918C00050000",
+        "pp_security": {
+          "ticker": "XYZ260918C00050000",
+          "name": "XYZ 09/18/2026 50.00 C"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": -100,
+        "difference": 100,
+        "before": true
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:219950001",
+        "symbol": "XYZ   261016P00045000",
+        "pp_security": {
+          "ticker": "XYZ261016P00045000",
+          "name": "XYZ 10/16/2026 45.00 P"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": 100,
+        "difference": -100,
+        "before": true
+      },
+      {
+        "account": "A2 ...398",
+        "security_key": "i:219950002",
+        "symbol": "XYZ   261016P00040000",
+        "pp_security": {
+          "ticker": "XYZ261016P00040000",
+          "name": "XYZ 10/16/2026 40.00 P"
+        },
+        "snapshot": "2026-11-10",
+        "snapshot_shares": 0,
+        "written_shares": -100,
+        "difference": 100,
+        "before": true
+      }
+    ],
+    "gone": [
+      {
+        "account": "A2 ...398",
+        "security_key": "i:1940083512",
+        "symbol": "META",
+        "pp_security": {
+          "name": "Security (i:1940083512)"
+        },
+        "was": 1
+      }
+    ],
+    "cash": [
+      {
+        "account": "A1 ...135",
+        "snapshot": "2026-11-10",
+        "snapshot_cash": 1532.17,
+        "written_cash": 12628.75,
+        "difference": -11096.58,
+        "before": true
+      },
+      {
+        "account": "A2 ...398",
+        "snapshot": "2026-11-10",
+        "snapshot_cash": -12.34,
+        "written_cash": -645.16,
+        "difference": 632.82,
+        "before": true
+      }
+    ],
+    "cash_gone": [],
+    "cash_not_checked": [],
+    "not_checked": [
+      "A3 ...398",
+      "A4 ...783"
+    ]
+  },
+  "symbols_changed": [],
+  "keys_unsure": [],
+  "coverage": [
+    {
+      "account_id": 1,
+      "account": "...135",
+      "source": "api",
+      "from": "2023-06-12",
+      "to": "2025-06-01"
+    },
+    {
+      "account_id": 1,
+      "account": "...135",
+      "source": "api",
+      "from": "2026-09-02",
+      "to": "2026-11-09"
+    },
+    {
+      "account_id": 1,
+      "account": "...135",
+      "source": "file_filtered",
+      "from": "2023-12-15",
+      "to": "2026-09-22"
+    },
+    {
+      "account_id": 1,
+      "account": "...135",
+      "source": "snapshot",
+      "from": "2026-11-09",
+      "to": "2026-11-10"
+    },
+    {
+      "account_id": 2,
+      "account": "...398",
+      "source": "api",
+      "from": "2025-01-14",
+      "to": "2026-08-03"
+    },
+    {
+      "account_id": 2,
+      "account": "...398",
+      "source": "api",
+      "from": "2026-09-02",
+      "to": "2026-11-09"
+    },
+    {
+      "account_id": 2,
+      "account": "...398",
+      "source": "snapshot",
+      "from": "2026-11-09",
+      "to": "2026-11-10"
+    },
+    {
+      "account_id": 3,
+      "account": "...398",
+      "source": "file",
+      "from": "2026-11-13",
+      "to": "2026-11-16"
+    },
+    {
+      "account_id": 3,
+      "account": "...398",
+      "source": "file_unknown",
+      "from": "2026-02-10",
+      "to": "2026-07-01"
+    },
+    {
+      "account_id": 4,
+      "account": "...783",
+      "source": "snapshot",
+      "from": "2026-11-09",
+      "to": "2026-11-10"
+    }
+  ]
+}

@@ -792,19 +792,29 @@ type toolSecurity struct {
 	// rep is the first, in the order of their keys (keyRank), of the
 	// store's securities that the tools take for one with it (groupAll),
 	// whose key or symbol names them all when nothing else does; reused
-	// says that its ticker is one that another security has had too, of
-	// another CUSIP or at another time, as when a company takes a ticker
-	// that another gave up, so that it is not its identity.
+	// says that its ticker is one that a security of another CUSIP has had
+	// too, as when a company takes a ticker that another gave up, so that
+	// it is not its identity.
 	rep    *toolSecurity
 	reused bool
+	// unsure says that it knows no CUSIP and shares a ticker with another
+	// security that the tools do not take for one with it (groupAll), or
+	// that its rows are linked to securities of two CUSIPs: it is written
+	// on its own, in a form that neither tool merges with another
+	// (safeName), and listed under keys_unsure. note is then its
+	// descriptions, oldest first, joined by "; ", which PP keeps as the
+	// security's note and Ghostfolio as its asset's comment; "" for any
+	// other security.
+	unsure bool
+	note   string
 	// bondUnit says that it is a bond whose rows or snapshot prices, of any
 	// of the store's securities that the tools take for one with it, do not
 	// follow face value and prices per 100 (4.4 of the design): its trades,
 	// deliveries and prices are left out.
 	bondUnit bool
-	// manual is why Ghostfolio gets it as a MANUAL asset: option, bond,
-	// no_ticker, delisted, not_plain or asked (-manual); "" when Ghostfolio
-	// asks Yahoo for it.
+	// manual is why Ghostfolio gets it as a MANUAL asset: unsure, option,
+	// bond, no_ticker, delisted, not_plain or asked (-manual); "" when
+	// Ghostfolio asks Yahoo for it.
 	manual string
 }
 
@@ -835,16 +845,20 @@ func (s *toolSecurity) ticker() string {
 	return s.tickers[0]
 }
 
-// ppTicker returns the Ticker Symbol that PP gets for it: an option's OCC
-// compact form, so that a live contract can take Yahoo's quotes; none for
-// a delisted security, whose ticker another company may have taken by now,
-// nor for one that keeps a "." in Yahoo's form, which PP would take for the
-// ticker before the dot (PSA.PRK for PSA); else its ticker in Yahoo's form.
+// ppTicker returns the Ticker Symbol that PP gets for it: none for one
+// written on its own (unsure), whose ticker would find the other security;
+// an option's OCC compact form, so that a live contract can take Yahoo's
+// quotes; none for a delisted security, whose ticker another company may
+// have taken by now, nor for one that keeps a "." in Yahoo's form, which PP
+// would take for the ticker before the dot (PSA.PRK for PSA); else its
+// ticker in Yahoo's form.
 func (s *toolSecurity) ppTicker() string {
-	if s.occ != "" {
+	switch {
+	case s.unsure:
+		return ""
+	case s.occ != "":
 		return s.occ
-	}
-	if s.delisted {
+	case s.delisted:
 		return ""
 	}
 	t := yahooForm(s.ticker())
@@ -882,12 +896,12 @@ func (s *toolSecurity) gfSymbol() string {
 // identity returns what identifies the security whatever store keys it
 // has: its ticker in Yahoo's form, which Ghostfolio knows a security by
 // that it asks Yahoo about, and which the store's securities that the tools
-// take for one (a History file's key and the API's, with a CUSIP under one
-// of them only) have had alike; but for an option, a future, a delisted
-// security, a bond whose CUSIP the store knows, and a ticker that another
-// security has had too, of another CUSIP or at another time, which have
-// none (identityTicker); else its CUSIP, else its OCC compact form, else
-// the key, else the symbol, of the first of them.
+// take for one (a History file's key and the API's, linked, with a CUSIP
+// under one of them only) have had alike; but for an option, a future, a
+// delisted security, a bond whose CUSIP the store knows, one written on its
+// own, and a ticker that a security of another CUSIP has had too, which
+// have none (identityTicker); else its CUSIP, else its OCC compact form,
+// else the key, else the symbol, of the first of them.
 func (s *toolSecurity) identity() string {
 	r := s.first()
 	return cmp.Or(s.identityTicker(), s.cusip, s.occ, r.key, r.symbol)
@@ -896,14 +910,29 @@ func (s *toolSecurity) identity() string {
 // identityTicker returns the ticker in Yahoo's form that is the security's
 // identity, "" when it has none: it is an option or a future, which its
 // OCC form or its key names; it is delisted, its ticker another company's
-// now perhaps; it is a bond whose CUSIP the store knows; its ticker is one
-// that another security has had too, of another CUSIP or at another time,
-// which two companies cannot share as one identity; or it has no ticker.
+// now perhaps; it is a bond whose CUSIP the store knows; it is written on
+// its own (unsure), as another security has had its ticker; its ticker is
+// one that a security of another CUSIP has had too, which two companies
+// cannot share as one identity; or it has no ticker.
 func (s *toolSecurity) identityTicker() string {
-	if s.occ != "" || s.assetType == "OPTION" || s.assetType == "FUTURE" || s.delisted || s.bond && s.cusip != "" || s.reused {
+	if s.occ != "" || s.assetType == "OPTION" || s.assetType == "FUTURE" || s.delisted || s.bond && s.cusip != "" || s.unsure || s.reused {
 		return ""
 	}
 	return yahooForm(s.ticker())
+}
+
+// safeName returns the name of a security written on its own (unsure) in
+// both tools: Security and the first of its keys in parentheses,
+// "Security (x:66000009)", which no other security of the store has, so
+// that neither tool takes it for another by its name; or, for the security
+// that rows without a key name by their symbol alone, "Security (no key
+// VBR)", which is never the name of a security known by the ticker VBR.
+func (s *toolSecurity) safeName() string {
+	r := s.first()
+	if r.key == "" {
+		return "Security (no key " + r.symbol + ")"
+	}
+	return "Security (" + r.key + ")"
 }
 
 // first returns the first of the store's securities that the tools take for
@@ -939,8 +968,12 @@ func (s *toolSecurity) uuidName() string {
 // read from its OCC form; Bond; or Security; and the identity in
 // parentheses: "XYZ 2025-02-21 40 put (XYZ250221P00040000)". The
 // description, which changes with the source that saw the security last,
-// goes in the asset's comment.
+// goes in the asset's comment. One written on its own is named by its key
+// (safeName).
 func (s *toolSecurity) gfName() string {
+	if s.unsure {
+		return s.safeName()
+	}
 	what := "Security"
 	switch {
 	case s.occ != "":
@@ -1068,13 +1101,14 @@ type toolIndex struct {
 	prices   map[string][]toolPrice
 	// bases are the securities as their own symbols and names make them
 	// (base); members, once groupAll has run, the bases of each security's
-	// group, by its ref; and reused the tickers (symbolForm) that securities
-	// of two groups have had.
+	// group, by its ref; and reused the tickers (symbolForm) that groups of
+	// two CUSIPs have had.
 	bases   map[secRef]*toolSecurity
 	members map[secRef][]*toolSecurity
 	reused  map[string]bool
 	// unsure are, by the ref of each of their securities, the groups that
-	// groupAll cannot be sure of (placeAlone).
+	// are written on their own, as the export cannot be sure that they are
+	// not another security (groupAll).
 	unsure map[secRef]*toolUnsure
 	// groups are the securities that each group is written as (group), and
 	// groupPrices its prices (pricesOfGroup), by the ref of its first.
@@ -1082,10 +1116,8 @@ type toolIndex struct {
 	groupPrices map[secRef][]toolPrice
 	// days are when the store's rows of any source had each symbol of each
 	// key (Q12), by key, "" for the rows of a symbol without one, and
-	// symbol; fileDays when the History files' rows had it; and keyDays
-	// each key's of each source, by key.
+	// symbol; fileDays when the History files' rows had it.
 	days, fileDays map[[2]string]toolSymbolDays
-	keyDays        map[string][]toolSymbolDays
 }
 
 // newToolIndex indexes in.
@@ -1094,7 +1126,7 @@ func newToolIndex(in *toolInput) *toolIndex {
 		in: in, accounts: map[int64]toolAccount{}, secRows: map[string]*toolSecurityRow{}, names: map[string][]toolName{},
 		legs: map[rowKey][]toolLeg{}, manual: map[string]bool{}, secs: map[secRef]*toolSecurity{}, prices: map[string][]toolPrice{},
 		bases: map[secRef]*toolSecurity{}, groups: map[secRef]*toolSecurity{}, groupPrices: map[secRef][]toolPrice{},
-		days: map[[2]string]toolSymbolDays{}, fileDays: map[[2]string]toolSymbolDays{}, keyDays: map[string][]toolSymbolDays{},
+		days: map[[2]string]toolSymbolDays{}, fileDays: map[[2]string]toolSymbolDays{},
 	}
 	for _, d := range in.days {
 		k := [2]string{d.key, d.symbol}
@@ -1110,7 +1142,6 @@ func newToolIndex(in *toolInput) *toolIndex {
 			span.first, span.last = min(span.first, d.first), max(span.last, d.last)
 			m[k] = span
 		}
-		ix.keyDays[d.key] = append(ix.keyDays[d.key], d)
 	}
 	for _, a := range in.accounts {
 		ix.accounts[a.id] = a
@@ -1222,17 +1253,21 @@ func (ix *toolIndex) security(key, symbol string) *toolSecurity {
 
 // group returns, once for all of them, the security that b and the store's
 // securities that the tools take for one with it (membersOf) are written
-// as: what they have had together (join), why Ghostfolio gets it as a MANUAL
-// asset, and, for a bond, whether its unit is off, by the rows and prices
-// of every one of them (4.4 of the design), so that no tool keeps a holding
-// that the rows of one key opened and those of another, left out, would
-// close. It is under the key or symbol of the first of them.
+// as: what they have had together (join); whether it is written on its own
+// (unsure), with its descriptions as its note; why Ghostfolio gets it as a
+// MANUAL asset; and, for a bond, whether its unit is off, by the rows and
+// prices of every one of them (4.4 of the design), so that no tool keeps a
+// holding that the rows of one key opened and those of another, left out,
+// would close. It is under the key or symbol of the first of them.
 func (ix *toolIndex) group(b *toolSecurity) *toolSecurity {
 	members := ix.membersOf(b)
 	if g, ok := ix.groups[members[0].ref()]; ok {
 		return g
 	}
 	g := ix.join(members)
+	if ix.unsure[members[0].ref()] != nil {
+		g.unsure, g.note = true, strings.Join(ix.descriptionsOf(members), "; ")
+	}
 	g.manual = ix.gfManual(g)
 	g.bondUnit = g.bond && !ix.followsFace(g)
 	ix.groups[members[0].ref()] = g
@@ -1489,200 +1524,6 @@ func (ix *toolIndex) rowDays(m *toolSecurity, symbol string) toolSymbolDays {
 	return ix.days[[2]string{m.key, symbol}]
 }
 
-// since returns when members, the store's securities that the tools take
-// for one, first had a symbol that is: the first day of the API's rows and
-// legs under one (Q12), or the New York date when the store first saw one
-// (Q5), whichever is earlier, as of a History file the export that first
-// named it so; "" for never. A History file's rows date nothing, whatever
-// key the store gives them, since the file names them by the ticker of its
-// newest export. It returns too the first instant that the store saw one,
-// the zero time for none. A name's instant is its source's, which a late
-// -json import makes late, and an API row's day says when the security went
-// by its symbol.
-func (ix *toolIndex) since(members []*toolSecurity, is func(symbol string) bool) (nytime.Date, time.Time) {
-	var day nytime.Date
-	var at time.Time
-	earlier := func(d nytime.Date) {
-		if d != "" && (day == "" || d < day) {
-			day = d
-		}
-	}
-	for _, m := range members {
-		if m.key == "" {
-			if is(m.symbol) {
-				earlier(ix.rowDays(m, m.symbol).first)
-			}
-			continue
-		}
-		for _, d := range ix.keyDays[m.key] {
-			if !d.file() && is(d.symbol) {
-				earlier(d.first)
-			}
-		}
-		for _, n := range ix.names[m.key] {
-			if n.kind == "symbol" && is(n.value) {
-				earlier(nytime.DateOf(n.firstSeen))
-				if at.IsZero() || n.firstSeen.Before(at) {
-					at = n.firstSeen
-				}
-			}
-		}
-	}
-	return day, at
-}
-
-// lastUnder returns the last day that members, the store's securities that
-// the tools take for one, are known to have had a symbol that is, "" for
-// never. Of the API, the last day of its rows and legs under one (Q12),
-// which name it as of their day: the store dates the API's names by the
-// read or the -json import that brought them, which may hold years of rows;
-// with no such row, as of a position's key, the New York date when the
-// store last saw one (Q5). Of the History files, whatever key the store
-// gives their rows, the last export that named it so, which comes after
-// every row that it names so, or the last of those rows.
-func (ix *toolIndex) lastUnder(members []*toolSecurity, is func(symbol string) bool) nytime.Date {
-	var day nytime.Date
-	for _, m := range members {
-		if m.key == "" {
-			if is(m.symbol) {
-				day = max(day, ix.rowDays(m, m.symbol).last)
-			}
-			continue
-		}
-		var rows, named, file nytime.Date
-		for _, d := range ix.keyDays[m.key] {
-			switch {
-			case !is(d.symbol):
-			case d.file():
-				file = max(file, d.last)
-			default:
-				rows = max(rows, d.last)
-			}
-		}
-		for _, n := range ix.names[m.key] {
-			switch {
-			case n.kind != "symbol" || !is(n.value):
-			case n.file():
-				file = max(file, nytime.DateOf(n.lastSeen))
-			default:
-				named = max(named, nytime.DateOf(n.lastSeen))
-			}
-		}
-		if rows == "" {
-			rows = named
-		}
-		day = max(day, rows, file)
-	}
-	return day
-}
-
-// tookUp returns the first day, on or after the day after, that members,
-// the store's securities that the tools take for one, are known to have had
-// a symbol that is, and the instant when the store saw it so, when a
-// sighting gives that day; "" for none. The API's rows and legs had it on
-// the first and the last days of those under it (Q12), and the store at
-// the first and last sightings of it (Q5): of a span that holds after, the
-// last alone is known to be on or after it. A History file had it at the
-// exports that named it so, whatever key the store gives its rows, but one
-// that knows the security by no ticker on the days of its rows under it
-// (byRows).
-func (ix *toolIndex) tookUp(members []*toolSecurity, is func(symbol string) bool, after nytime.Date) (nytime.Date, time.Time) {
-	var day nytime.Date
-	var at time.Time
-	take := func(d nytime.Date, t time.Time) {
-		if d == "" || d < after {
-			return
-		}
-		if day == "" || d < day || d == day && !t.IsZero() && (at.IsZero() || t.Before(at)) {
-			day, at = d, t
-		}
-	}
-	span := func(first, last nytime.Date, firstAt, lastAt time.Time) {
-		take(first, firstAt)
-		take(last, lastAt)
-	}
-	for _, m := range members {
-		if m.key == "" {
-			if is(m.symbol) {
-				d := ix.rowDays(m, m.symbol)
-				span(d.first, d.last, time.Time{}, time.Time{})
-			}
-			continue
-		}
-		byRows := ix.byRows(m)
-		for _, d := range ix.keyDays[m.key] {
-			if is(d.symbol) && (!d.file() || byRows) {
-				span(d.first, d.last, time.Time{}, time.Time{})
-			}
-		}
-		for _, n := range ix.names[m.key] {
-			switch {
-			case n.kind != "symbol" || !is(n.value):
-			case n.file() && byRows && ix.fileDays[[2]string{m.key, n.value}].last != "":
-				// The file's rows date it, above.
-			default:
-				span(nytime.DateOf(n.firstSeen), nytime.DateOf(n.lastSeen), n.firstSeen, n.lastSeen)
-			}
-		}
-	}
-	return day, at
-}
-
-// formOf returns a test of a symbol: whether it is the ticker f, as the
-// export compares tickers (symbolForm).
-func formOf(f string) func(string) bool {
-	return func(symbol string) bool { return symbolForm(symbol) == f }
-}
-
-// gaveUp reports whether members, a group of the store's securities that a
-// CUSIP or an OCC form joins, gave the ticker f (symbolForm) up before had,
-// the day that another security first had it, at hadAt (since): their
-// latest symbol (symbolsOf) is no longer f, as of a security renamed or
-// delisted, and they took it up (tookUp) on or after their last day under f
-// (lastUnder) and before had; or the store saw them under it at hadAt, the
-// instant that it first saw the other under f, so that one source named the
-// two otherwise at once. A History file took up a symbol by the export that
-// named it so, not by the days of the rows that the export restates under
-// it, whatever key the store gives them; so a security renamed or delisted
-// between two of a file's exports, with no row of the API's under its new
-// symbol, gave the ticker up only by the later, and another key that had
-// the ticker between them is taken for it, as one security.
-func (ix *toolIndex) gaveUp(members []*toolSecurity, f string, had nytime.Date, hadAt time.Time) bool {
-	symbols := ix.symbolsOf(members)
-	if had == "" || len(symbols) == 0 || symbolForm(symbols[0].value) == f {
-		return false
-	}
-	day, at := ix.tookUp(members, formOf(symbolForm(symbols[0].value)), ix.lastUnder(members, formOf(f)))
-	return day != "" && (day < had || day == had && !at.IsZero() && at.Equal(hadAt))
-}
-
-// apart reports whether a and b, groups of the store's securities that a
-// CUSIP or an OCC form joins, had the ticker f (symbolForm) at times that
-// do not meet: one of them gave it up (gaveUp) before the other first had
-// it, as when a company takes a ticker that another gave up when it was
-// renamed, delisted or merged away. The days of the API's rows and the
-// exports that named the History files' rows decide (since, tookUp), which
-// do not depend on when the store read a row.
-func (ix *toolIndex) apart(a, b []*toolSecurity, f string) bool {
-	da, ta := ix.since(a, formOf(f))
-	db, tb := ix.since(b, formOf(f))
-	return ix.gaveUp(a, f, db, tb) || ix.gaveUp(b, f, da, ta)
-}
-
-// earlierSince reports whether a security that first had a ticker on day,
-// first seen with it at at (since), had it before one that did on other, at
-// otherAt: by the day, a day before none; of one day, by the instant, an
-// instant before none.
-func earlierSince(day nytime.Date, at time.Time, other nytime.Date, otherAt time.Time) bool {
-	switch {
-	case day != other:
-		return day != "" && (other == "" || day < other)
-	case !at.IsZero() && !otherAt.IsZero():
-		return at.Before(otherAt)
-	}
-	return !at.IsZero() && otherAt.IsZero()
-}
-
 // multiplier returns the multiplier of an option that the store holds as
 // members (4.1 of the design): the one that those of them that the store
 // knows one of know, when it is a whole number from 1 to 10 000, else bad;
@@ -1710,33 +1551,27 @@ func (ix *toolIndex) multiplier(members []*toolSecurity) (m int64, assumed, bad 
 }
 
 // groupAll works out, once, which of the store's securities the tools take
-// for one, where the store holds them apart (3.5 of the design): the store
-// joins two keys only when they had one symbol at times that overlap, so a
-// security that a History file's rows name, under an ItemIssueId or a
-// symbol, and the API's rows, under an instrumentId, often stays two, a
-// CUSIP under one of them only; and when it is delisted or renamed, only
-// the API's key learns it. The groups are first those that the store's
-// data make one security (certainJoins): those that know one CUSIP, that
-// name one option contract or one futures symbol, and whose rows the store
-// linked as one transaction. Of those, the groups that have had a ticker
-// alike (symbolForm), or an option's symbol, join when those that have had
-// it know at most one CUSIP between them, and had it at times that meet: a
-// ticker that two securities of different CUSIPs have had, as when a
-// company takes a ticker that another gave up, joins none of them, and is
-// reused; and of those that know one CUSIP or none, one that had it after
-// another gave it up (apart), as such a company known by a History file's
-// key or by an API key that no snapshot held, joins those that had it with
-// it, apart from the other, and the ticker is reused too. A group that its
-// tickers would give two CUSIPs, through a security that had a ticker of
-// each, is joined by those certain joins alone. Then a group with a key
-// that knows no CUSIP, as a History file's key often does, and that those
-// joins leave tied by its tickers to securities of other CUSIPs, or apart
-// from it, is placed among them (placeAlone): it is taken for the one that
-// had its ticker first, or stays on its own when its tickers are each of
-// another, or each had it at another time. Every security of the store is
-// grouped, whatever the export selects, and those of rows and legs that
-// have a symbol but no key, so that every export groups alike; the first of
-// a group, in the order of the keys (keyRank), then of the symbols of those
+// for one, where the store holds them apart (3.5 of the design, I-1 and I-4
+// of the consolidation): the store joins two keys only when they had one
+// symbol at times that overlap, so a security that a History file's rows
+// name, under an ItemIssueId or a symbol, and the API's rows, under an
+// instrumentId, often stays two, a CUSIP under one of them only. The tools
+// take for one only those that the store's data make one security
+// (certainJoins): those that know one CUSIP, that name one option contract
+// or one futures symbol, and whose rows the store linked as one
+// transaction; never those of a ticker alone, which another company may
+// have had. A group that knows no CUSIP and that has had a ticker that
+// another group has had too (symbolForm), or whose rows are linked to
+// securities of two CUSIPs, is unsure: it may be one of those, or another
+// company, which the store does not say. It is written on its own, in a
+// form that neither tool merges with another, and listed with each that it
+// may be (toolUnsure), for you to say which it is in the store. A ticker
+// that groups of two CUSIPs have had, as when a company takes a ticker that
+// another gave up, or a security keeps its ticker under a new CUSIP, is
+// reused: neither one's identity. Every security of the store is grouped,
+// whatever the export selects, and those of rows and legs that have a
+// symbol but no key, so that every export groups alike; the first of a
+// group, in the order of the keys (keyRank), then of the symbols of those
 // without, names it.
 func (ix *toolIndex) groupAll() {
 	if ix.members != nil {
@@ -1773,126 +1608,117 @@ func (ix *toolIndex) groupAll() {
 	for _, p := range ix.in.positions {
 		add(p.key, "")
 	}
-	slices.SortFunc(all, func(a, b *toolSecurity) int {
-		switch {
-		case a.key != "" && b.key != "":
-			return keyRank(a.key, b.key)
-		case a.key != "" || b.key != "":
-			// A key before a symbol alone.
-			return strings.Compare(b.key, a.key)
-		}
-		return strings.Compare(a.symbol, b.symbol)
-	})
-	parent := certainJoins(all, ix.in.links)
-	find, union := parent.find, parent.union
-	cusips := func(is []int) int { return cusipsOf(all, is) }
-	alone := slices.Clone(parent)
-	// The groups that those joins make, which the joins by ticker compare.
-	staged := map[int][]*toolSecurity{}
-	stage := make([]int, len(all))
-	for i, s := range all {
-		stage[i] = find(i)
-		staged[stage[i]] = append(staged[stage[i]], s)
-	}
-	// By ticker: an option's symbol, which no stock has, joins the keys of
-	// one contract that has no OCC form.
+	slices.SortFunc(all, securityOrder)
+	g, links := certainJoins(all, ix.in.links)
+	// Each group by its root, the least of its indexes; the groups that have
+	// had each ticker; and the groups of each link component.
+	groups := map[int][]int{}
 	holders := map[string][]int{}
 	for i, s := range all {
+		r := g.find(i)
+		groups[r] = append(groups[r], i)
 		for _, t := range s.tickers {
-			if f := symbolForm(t); !slices.Contains(holders[f], i) {
-				holders[f] = append(holders[f], i)
+			if f := symbolForm(t); !slices.Contains(holders[f], r) {
+				holders[f] = append(holders[f], r)
 			}
 		}
 	}
-	for _, f := range slices.Sorted(maps.Keys(holders)) {
-		hs := holders[f]
-		if cusips(hs) > 1 {
+	components := map[int][]int{}
+	for r := range groups {
+		components[links.find(r)] = append(components[links.find(r)], r)
+	}
+	members := func(r int) []*toolSecurity {
+		var out []*toolSecurity
+		for _, i := range groups[r] {
+			out = append(out, all[i])
+		}
+		return out
+	}
+	for r := range groups {
+		for _, i := range groups[r] {
+			ix.members[all[i].ref()] = members(r)
+		}
+	}
+	for _, r := range slices.Sorted(maps.Keys(groups)) {
+		if cusipsOf(all, groups[r]) > 0 {
 			continue
 		}
-		// The groups that had it, in the order that they first had it, each
-		// joined to the last of those before it that it is apart from none
-		// of, else on to a group of its own.
-		var roots []int
-		for _, i := range hs {
-			if !slices.Contains(roots, stage[i]) {
-				roots = append(roots, stage[i])
-			}
-		}
-		type had struct {
-			day nytime.Date
-			at  time.Time
-		}
-		first := map[int]had{}
-		for _, r := range roots {
-			day, at := ix.since(staged[r], formOf(f))
-			first[r] = had{day, at}
-		}
-		slices.SortStableFunc(roots, func(a, b int) int {
-			switch {
-			case earlierSince(first[a].day, first[a].at, first[b].day, first[b].at):
-				return -1
-			case earlierSince(first[b].day, first[b].at, first[a].day, first[a].at):
-				return 1
-			}
-			return 0
-		})
-		var joined [][]int
-		for _, r := range roots {
-			k := len(joined) - 1
-			for ; k >= 0; k-- {
-				if !slices.ContainsFunc(joined[k], func(c int) bool { return ix.apart(staged[c], staged[r], f) }) {
-					break
+		// The others that have had one of its tickers, and, when its
+		// links reach securities of two CUSIPs, which join it to none,
+		// those of them.
+		var of []int
+		for _, i := range groups[r] {
+			for _, t := range all[i].tickers {
+				for _, h := range holders[symbolForm(t)] {
+					if h != r && !slices.Contains(of, h) {
+						of = append(of, h)
+					}
 				}
 			}
-			if k < 0 {
-				joined = append(joined, []int{r})
-				continue
-			}
-			joined[k] = append(joined[k], r)
-			union(joined[k][0], r)
 		}
-	}
-	groups := map[int][]int{}
-	for i := range all {
-		groups[find(i)] = append(groups[find(i)], i)
-	}
-	for _, is := range groups {
-		if cusips(is) > 1 {
-			for _, i := range is {
-				parent[i] = alone[i]
+		component := components[links.find(r)]
+		var reached []int
+		for _, c := range component {
+			reached = append(reached, groups[c]...)
+		}
+		if cusipsOf(all, reached) > 1 {
+			for _, c := range component {
+				if cusipsOf(all, groups[c]) > 0 && !slices.Contains(of, c) {
+					of = append(of, c)
+				}
 			}
 		}
+		if len(of) == 0 {
+			continue
+		}
+		slices.Sort(of)
+		u := &toolUnsure{members: members(r)}
+		for _, c := range of {
+			u.of = append(u.of, members(c))
+		}
+		for _, i := range groups[r] {
+			ix.unsure[all[i].ref()] = u
+		}
 	}
-	for _, j := range ix.placeAlone(all, find, holders, cusips) {
-		union(j[0], j[1])
-	}
-	members := map[int][]*toolSecurity{}
-	for i, s := range all {
-		members[find(i)] = append(members[find(i)], s)
-	}
-	for i, s := range all {
-		ix.members[s.ref()] = members[find(i)]
-	}
+	// A group written on its own writes no ticker: its ticker is no other
+	// one's to give up.
 	for f, hs := range holders {
-		roots := map[int]bool{}
-		for _, i := range hs {
-			roots[find(i)] = true
+		n := 0
+		for _, r := range hs {
+			if ix.unsure[all[r].ref()] == nil {
+				n++
+			}
 		}
-		ix.reused[f] = len(roots) > 1
+		ix.reused[f] = n > 1
 	}
 }
 
+// securityOrder orders the store's securities as groupAll groups them: by
+// their keys (keyRank), a key before a symbol alone, then by their symbols.
+func securityOrder(a, b *toolSecurity) int {
+	switch {
+	case a.key != "" && b.key != "":
+		return keyRank(a.key, b.key)
+	case a.key != "" || b.key != "":
+		// A key before a symbol alone.
+		return strings.Compare(b.key, a.key)
+	}
+	return strings.Compare(a.symbol, b.symbol)
+}
+
 // certainJoins returns the groups of all, the store's securities, that the
-// store's data make one security each (3.5 of the design): those that know
-// one CUSIP; those that name one option contract, by its OCC form, or one
-// future or futures option, by its symbol (one that starts with "/"); and
-// of the groups that those make, those whose rows the store linked as one
-// transaction (links): the groups that links reach, one from another, are
-// one when they know one CUSIP at most between them, and stay apart when
-// they know two or more, as a History file's key of no CUSIP whose rows
-// are linked to rows of two securities of different CUSIPs, whatever order
-// the links come in. A ticker alone joins none.
-func certainJoins(all []*toolSecurity, links []toolLink) unionFind {
+// store's data make one security each (3.5 of the design, I-1 of the
+// consolidation): those that know one CUSIP; those that name one option
+// contract, by its OCC form, or one future or futures option, by its symbol
+// (one that starts with "/"); and of the groups that those make, those whose
+// rows the store linked as one transaction (links): the groups that links
+// reach, one from another, are one when they know one CUSIP at most between
+// them, and stay apart when they know two or more, as a History file's key
+// of no CUSIP whose rows are linked to rows of two securities of different
+// CUSIPs, whatever order the links come in. A ticker alone joins none. It
+// returns too the components that the links make: the component of a group
+// is that of its root (unionFind.find).
+func certainJoins(all []*toolSecurity, links []toolLink) (groups, components unionFind) {
 	g := newUnionFind(len(all))
 	first := map[string]int{}
 	at := map[secRef]int{}
@@ -1925,19 +1751,19 @@ func certainJoins(all []*toolSecurity, links []toolLink) unionFind {
 			c.union(g.find(a), g.find(b))
 		}
 	}
-	components := map[int][]int{}
+	byComponent := map[int][]int{}
 	for i := range all {
 		r := c.find(g.find(i))
-		components[r] = append(components[r], i)
+		byComponent[r] = append(byComponent[r], i)
 	}
-	for _, is := range components {
+	for _, is := range byComponent {
 		if cusipsOf(all, is) <= 1 {
 			for _, i := range is[1:] {
 				g.union(is[0], i)
 			}
 		}
 	}
-	return g
+	return g, c
 }
 
 // cusipsOf returns how many CUSIPs the securities of all at the indexes is
@@ -1980,188 +1806,185 @@ func (u unionFind) union(a, b int) {
 	u[max(ra, rb)] = min(ra, rb)
 }
 
-// A toolUnsure is a group of the store's securities that knows no CUSIP and
-// whose tickers other securities have had too, of other CUSIPs, or apart
-// from it, so that the export cannot be sure which of them it is
-// (placeAlone): it takes it for the one that had its ticker first, or
-// leaves it on its own, and lists it for you to say which it is in the
-// store (keysUnsure).
+// A toolUnsure is a group of the store's securities that knows no CUSIP
+// and that the export cannot be sure is not another security (groupAll):
+// another has had one of its tickers, as a company that took a ticker that
+// another gave up, or the same security under a key that the store holds
+// apart, or its rows are linked to securities of two CUSIPs. It is written
+// on its own, in a form that neither tool merges with another (safeName),
+// and listed, with what the store knows of it and of each that it may be,
+// for you to say which it is in the store (keysUnsure).
 type toolUnsure struct {
-	// keys are the keys of the group, in the order of keys (keyRank), and
-	// tickers those of its tickers (symbolForm) that the others have had.
-	keys, tickers []string
-	// of are the securities that it may be, each by the first of its keys
-	// and its CUSIP, in that order; taken is the one of them that it is
-	// written as, -1 for none.
-	of    []toolUnsureOf
-	taken int
+	// members are its securities, in the order of their keys, then
+	// symbols; of are the groups that it may be, each by its securities,
+	// in the order of their first.
+	members []*toolSecurity
+	of      [][]*toolSecurity
 }
 
-// A toolUnsureOf is a security that a toolUnsure may be: the first of its
-// keys, "" for none, its CUSIP, "" for none, and whether the two had their
-// ticker at times that do not meet (apart), which the export takes for two
-// securities.
-type toolUnsureOf struct {
-	key, cusip string
-	apart      bool
-}
-
-// placeAlone returns the joins that groupAll makes, after the certain ones
-// (certainJoins) and those by ticker, of the groups of all (find) that have
-// a key, know no CUSIP and had a ticker that other securities have had too
-// (3.5 of the design): each as the roots of the two groups that it joins.
-// Of a CUSIP, another counts when the two had the ticker at times that meet
-// (apart); one that gave it up before the group had it is apart, and so is
-// one of no CUSIP that did, so that two companies of one ticker are not one.
-//   - One that a ticker of it ties to one security of a CUSIP alone joins
-//     it: the joins by ticker made that join, and undid it for another key
-//     of their group, which had tickers of two CUSIPs.
-//   - One whose tickers securities of two or more CUSIPs have had alike,
-//     which the joins by ticker leave on its own, as when the store holds a
-//     reorganized security's new CUSIP or another company under the ticker
-//     of a History file's key, is taken for the one of them that had one of
-//     its tickers first (since: an API key by the days of its rows under it,
-//     a late import of old rows dating its names late; a History file's key
-//     by the export that first named it so), else by when the store first
-//     saw each; when none of them says, the first of them.
-//   - One whose tickers are each of another stays on its own: its rows may
-//     be of each.
-//   - One that the others had the ticker apart from, alone or beside those
-//     above, is taken for the one of the others that had it while it did,
-//     as above, or stays on its own when none did: its rows may still be of
-//     one of them.
-//
-// The export cannot be sure of the last three, which a tool would otherwise
-// split, or take for whichever its ticker finds: each of their securities
-// is recorded in ix.unsure.
-func (ix *toolIndex) placeAlone(all []*toolSecurity, find func(int) int, holders map[string][]int, cusips func([]int) int) [][2]int {
-	groups := map[int][]int{}
-	for i := range all {
-		groups[find(i)] = append(groups[find(i)], i)
-	}
-	members := func(c int) []*toolSecurity {
-		var out []*toolSecurity
-		for _, i := range groups[c] {
-			out = append(out, all[i])
-		}
-		return out
-	}
-	var joins [][2]int
-	for _, r := range slices.Sorted(maps.Keys(groups)) {
-		is := groups[r]
-		if cusips(is) > 0 || !slices.ContainsFunc(is, func(i int) bool { return all[i].key != "" }) {
-			continue
-		}
-		// The groups that had each of its tickers: of a CUSIP, apart from it
-		// or not (live), and of none, apart when they gave it up before it
-		// had it; and those live that alone of such groups had one.
-		mine := members(r)
-		ties, live, apart, only := map[int][]string{}, map[int]bool{}, map[int]bool{}, map[int]bool{}
-		var forms []string
-		for _, i := range is {
-			for _, t := range all[i].tickers {
-				f := symbolForm(t)
-				if slices.Contains(forms, f) {
-					continue
-				}
-				forms = append(forms, f)
-				had, hadAt := ix.since(mine, formOf(f))
-				var held []int
-				for _, h := range holders[f] {
-					c := find(h)
-					if c == r || slices.Contains(ties[c], f) {
-						continue
-					}
-					switch theirs := members(c); {
-					case cusips(groups[c]) > 0 && !ix.apart(mine, theirs, f):
-						live[c] = true
-						held = append(held, c)
-					case cusips(groups[c]) > 0, ix.gaveUp(theirs, f, had, hadAt):
-						apart[c] = true
-					default:
-						continue
-					}
-					ties[c] = append(ties[c], f)
-				}
-				if len(held) == 1 {
-					only[held[0]] = true
-				}
-			}
-		}
-		if len(ties) == 0 {
-			continue
-		}
-		if len(apart) == 0 && len(only) == 1 {
-			for c := range only {
-				joins = append(joins, [2]int{r, c})
-			}
-			continue
-		}
-		u := &toolUnsure{taken: -1}
-		for _, i := range is {
-			if all[i].key != "" {
-				u.keys = append(u.keys, all[i].key)
-			}
-		}
-		of := slices.Sorted(maps.Keys(ties))
-		var day nytime.Date
-		var at time.Time
-		for k, c := range of {
-			o := toolUnsureOf{key: all[c].key, apart: apart[c]}
-			for _, i := range groups[c] {
-				o.cusip = cmp.Or(o.cusip, all[i].cusip)
-			}
-			u.of = append(u.of, o)
-			for _, f := range ties[c] {
-				if !slices.Contains(u.tickers, f) {
-					u.tickers = append(u.tickers, f)
-				}
-				switch {
-				case !live[c] || len(only) > 1:
-				case len(only) == 1:
-					if only[c] {
-						u.taken = k
-					}
-				default:
-					if d, a := ix.since(members(c), formOf(f)); u.taken < 0 || earlierSince(d, a, day, at) {
-						u.taken, day, at = k, d, a
-					}
-				}
-			}
-		}
-		if u.taken >= 0 {
-			joins = append(joins, [2]int{r, of[u.taken]})
-		}
-		slices.Sort(u.tickers)
-		for _, i := range is {
-			ix.unsure[all[i].ref()] = u
-		}
-	}
-	return joins
-}
-
-// keysUnsure returns, in the order of the first of their keys, the groups
-// that the export of in writes or prices (listSecurities) and cannot be
-// sure of (placeAlone): it takes each for the security of another CUSIP
-// that had its ticker first, or while it did, or leaves it on its own, and
-// you say which it is in the store.
-func keysUnsure(in *toolInput, events []toolEvent) []*toolUnsure {
+// keysUnsure returns the groups written on their own (toolUnsure) that the
+// export of in writes or gives a record of, events, or prices
+// (listSecurities), in the order of the first of their keys, then of their
+// symbols (2.2 of the consolidation): each with what the store knows of it
+// (facts), and of each security that it may be, with the command that says
+// in the store that it is that one, naming no -store: for a key, edit
+// K:<key> -same K:<theirs>; for the symbol of rows without a key, edit REF
+// -security K:<theirs>, of each of those rows (Refs). Each fact is the
+// store's; none decides anything.
+func keysUnsure(in *toolInput, events []toolEvent) []ToolUnsure {
 	ix := newToolIndex(in)
 	ix.groupAll()
-	var out []*toolUnsure
+	held := heldKeys(in)
+	var unsure []*toolUnsure
 	for _, l := range listSecurities(in, events) {
-		if u := ix.unsure[l.security.ref()]; u != nil && !slices.Contains(out, u) {
-			out = append(out, u)
+		if u := ix.unsure[l.security.ref()]; u != nil && !slices.Contains(unsure, u) {
+			unsure = append(unsure, u)
 		}
 	}
-	slices.SortFunc(out, func(a, b *toolUnsure) int { return keyRank(a.keys[0], b.keys[0]) })
+	slices.SortFunc(unsure, func(a, b *toolUnsure) int { return securityOrder(a.members[0], b.members[0]) })
+	var out []ToolUnsure
+	for _, u := range unsure {
+		first := u.members[0]
+		t := ToolUnsure{Key: first.key, Facts: ix.facts(u.members, held)}
+		if first.key == "" {
+			t.Symbol = first.symbol
+			for i := range in.rows {
+				if r := &in.rows[i]; r.securityKey == "" && r.symbol == first.symbol {
+					t.Refs = append(t.Refs, r.ref)
+				}
+			}
+		}
+		if len(u.members) > 1 {
+			for _, m := range u.members {
+				if m.key != "" {
+					t.Keys = append(t.Keys, m.key)
+				}
+			}
+		}
+		for _, o := range u.of {
+			s := ToolUnsureSecurity{Key: o[0].key, Facts: ix.facts(o, held)}
+			for _, m := range o {
+				s.CUSIP = cmp.Or(s.CUSIP, m.cusip)
+			}
+			switch {
+			case s.Key == "":
+				// The store holds it under no key, which no command names.
+				s.Symbol = o[0].symbol
+			case t.Key == "":
+				s.Command = "schwabtx edit REF -security " + shellQuote("K:"+s.Key)
+			default:
+				s.Command = "schwabtx edit " + shellQuote("K:"+t.Key) + " -same " + shellQuote("K:"+s.Key)
+			}
+			t.Securities = append(t.Securities, s)
+		}
+		out = append(out, t)
+	}
 	return out
 }
 
+// facts returns what the store knows of ss, the store's securities of one
+// group (2.2 of the consolidation): their descriptions (descriptionsOf);
+// their tickers, as each source named them (namesOf), with when that source
+// saw each last; the first and the last day of the export's rows and legs
+// of them; and whether an account holds one of them at its latest snapshot,
+// of held (heldKeys).
+func (ix *toolIndex) facts(ss []*toolSecurity, held map[string]bool) ToolFacts {
+	f := ToolFacts{Descriptions: ix.descriptionsOf(ss)}
+	for _, n := range ix.namesOf(ss) {
+		if !schwab.IsCUSIP(n.symbol) {
+			f.Tickers = append(f.Tickers, ToolTicker{Ticker: n.symbol, Source: n.source, LastSeen: n.lastSeen})
+		}
+	}
+	of := func(key, symbol string) bool {
+		return slices.ContainsFunc(ss, func(s *toolSecurity) bool { return s.is(key, symbol) })
+	}
+	days := map[rowKey]nytime.Date{}
+	day := func(d nytime.Date) {
+		if d == "" {
+			return
+		}
+		if f.First == "" || d < f.First {
+			f.First = d
+		}
+		f.Last = max(f.Last, d)
+	}
+	for i := range ix.in.rows {
+		r := &ix.in.rows[i]
+		days[rowKey{r.account, r.ref}] = r.day
+		if of(r.securityKey, r.symbol) {
+			day(r.day)
+		}
+	}
+	for _, l := range ix.in.legs {
+		if of(l.securityKey, l.symbol) {
+			day(days[rowKey{l.account, l.ref}])
+		}
+	}
+	f.Held = slices.ContainsFunc(ss, func(s *toolSecurity) bool { return s.key != "" && held[s.key] })
+	return f
+}
+
+// descriptionsOf returns the descriptions that the store has seen of ss,
+// the store's securities of one group (Q5): each once, the one seen first
+// first, by when the store first saw it, then by its text.
+func (ix *toolIndex) descriptionsOf(ss []*toolSecurity) []string {
+	first := map[string]time.Time{}
+	for _, s := range ss {
+		if s.key == "" {
+			continue
+		}
+		for _, n := range ix.names[s.key] {
+			if t, ok := first[n.value]; n.kind == "description" && (!ok || n.firstSeen.Before(t)) {
+				first[n.value] = n.firstSeen
+			}
+		}
+	}
+	return slices.SortedFunc(maps.Keys(first), func(a, b string) int {
+		return cmp.Or(first[a].Compare(first[b]), cmp.Compare(a, b))
+	})
+}
+
+// heldKeys returns the keys of the store's securities that an account holds
+// at its latest snapshot by the export's last day (Q6), long or short: a
+// selected account's latest by its snapshots, any other's by its positions.
+func heldKeys(in *toolInput) map[string]bool {
+	type snap struct {
+		date nytime.Date
+		at   time.Time
+	}
+	latest := map[int64]snap{}
+	later := func(id int64, d nytime.Date, at time.Time) {
+		if l, ok := latest[id]; d != "" && (in.to == "" || d <= in.to) && (!ok || d > l.date || d == l.date && at.After(l.at)) {
+			latest[id] = snap{d, at}
+		}
+	}
+	snapshotted := map[int64]bool{}
+	for _, s := range in.snapshots {
+		snapshotted[s.account] = true
+		later(s.account, s.marketDate, s.fetchedAt)
+	}
+	for _, p := range in.positions {
+		if !snapshotted[p.account] {
+			later(p.account, p.marketDate, p.fetchedAt)
+		}
+	}
+	held := map[string]bool{}
+	for _, p := range in.positions {
+		if l, ok := latest[p.account]; ok && p.marketDate == l.date && p.fetchedAt.Equal(l.at) &&
+			(p.long.Valid && p.long.Int64 > 0 || p.short.Valid && p.short.Int64 > 0) {
+			held[p.key] = true
+		}
+	}
+	return held
+}
+
 // gfManual returns why Ghostfolio gets s as a MANUAL asset, "" when it
-// asks Yahoo (3.5 and 6.6 of the design).
+// asks Yahoo (3.5 and 6.6 of the design): unsure for one written on its
+// own, which Yahoo would take for the security of its ticker.
 func (ix *toolIndex) gfManual(s *toolSecurity) string {
 	switch {
+	case s.unsure:
+		return "unsure"
 	case s.assetType == "OPTION":
 		return "option"
 	case s.bond:
@@ -3602,34 +3425,9 @@ func yahooIdle(in *toolInput, events []toolEvent) []toolIdle {
 		sym := symbolOf(l.securityKey, "")
 		last[sym] = max(last[sym], days[rowKey{l.account, l.ref}])
 	}
-	// Each account's latest snapshot: a selected account's from its
-	// snapshots, any other's from its positions.
-	type snap struct {
-		date nytime.Date
-		at   time.Time
-	}
-	latest := map[int64]snap{}
-	later := func(id int64, d nytime.Date, at time.Time) {
-		if l, ok := latest[id]; d != "" && (in.to == "" || d <= in.to) && (!ok || d > l.date || d == l.date && at.After(l.at)) {
-			latest[id] = snap{d, at}
-		}
-	}
-	snapshotted := map[int64]bool{}
-	for _, s := range in.snapshots {
-		snapshotted[s.account] = true
-		later(s.account, s.marketDate, s.fetchedAt)
-	}
-	for _, p := range in.positions {
-		if !snapshotted[p.account] {
-			later(p.account, p.marketDate, p.fetchedAt)
-		}
-	}
 	held := map[string]bool{}
-	for _, p := range in.positions {
-		if l, ok := latest[p.account]; ok && p.marketDate == l.date && p.fetchedAt.Equal(l.at) &&
-			(p.long.Valid && p.long.Int64 > 0 || p.short.Valid && p.short.Int64 > 0) {
-			held[symbolOf(p.key, "")] = true
-		}
+	for k := range heldKeys(in) {
+		held[symbolOf(k, "")] = true
 	}
 	yearBefore := nytime.Date("")
 	if t, err := time.Parse(time.DateOnly, string(in.to)); err == nil {

@@ -136,10 +136,10 @@ type ToolExport struct {
 	// chain writes or names them: together, the manifest's
 	// holdings.not_checked.
 	NoSnapshot, NotInTool []string
-	// Unsure are the keys of the store that know no CUSIP and had a ticker
-	// that other securities have had too, of other CUSIPs or at another
-	// time, which the export writes as one of them, or on their own, and
-	// cannot be sure of.
+	// Unsure are the keys of the store that know no CUSIP and share a
+	// ticker with another security, or whose rows are linked to securities
+	// of two CUSIPs, which the export writes on their own and cannot be
+	// sure are not another security (the manifest's keys_unsure).
 	Unsure []ToolUnsure
 	// Unused are the symbols that the chain's -manual names and that
 	// nothing in the export uses, as given.
@@ -260,13 +260,14 @@ type ToolCashRows struct {
 // the records leave, as the manifest writes it, signed: shares, or dollars
 // with two places; for one gone, the one that the export it goes on from
 // listed. LeftOut says that a row that the export leaves out moves it
-// (left_out).
+// (left_out), and Unsure that the security is written on its own, of a key
+// under keys_unsure (unsure).
 type ToolDifference struct {
-	Account, Key, Symbol string
-	Cash                 bool
-	Asset, Finds         string
-	Value                string
-	Gone, LeftOut        bool
+	Account, Key, Symbol  string
+	Cash                  bool
+	Asset, Finds          string
+	Value                 string
+	Gone, LeftOut, Unsure bool
 }
 
 // A ToolCashUnchecked is, for PP, an account whose cash the cash check does
@@ -316,63 +317,65 @@ type ToolTick struct {
 }
 
 // A ToolUnsure is a key of the store that knows no CUSIP, as a History
-// file's key often does, and had a ticker that other securities have had
-// too: of other CUSIPs, as when the store holds a reorganized security's new
-// CUSIP or another company under that ticker, or at another time, as when
-// it had the ticker after another company gave it up (3.5 of the design). A
-// tool export cannot be sure which of them it is, and writes its rows as
-// the one that had its ticker first, or on their own when its tickers are
-// each of another or each had it at another time. You say which it is in
-// the store, with one of the commands.
+// file's key often does, and that the export cannot be sure is not another
+// security (I-4 of the consolidation): another has had one of its tickers,
+// as a company that took a ticker that another gave up, or the same
+// security under a key that the store holds apart, or its rows are linked
+// to securities of two CUSIPs. The export writes it on its own, in a form
+// that neither tool merges with another, and lists it with what the store
+// knows of it and of each security that it may be. You judge which it is,
+// and say so in the store with the command of that one, or with none if it
+// is another.
 type ToolUnsure struct {
-	// Key is its key, and Keys every key of the store that the export takes
-	// for one security with it, when there are several; Tickers those of its
-	// tickers, in Yahoo's form, that the others have had.
-	Key     string
-	Keys    []string
-	Tickers []string
-	// TakenFor is the key of the security that the export writes it as, ""
-	// when it stays on its own.
-	TakenFor string
+	// Key is its key, the first of the group's, and Keys every key of the
+	// store that the export takes for one security with it, when there
+	// are several. For the security that rows without a key name by their
+	// symbol alone, Key is "", Symbol is that symbol, and Refs are the
+	// refs of the export's rows of it.
+	Key    string
+	Keys   []string
+	Symbol string
+	Refs   []string
+	// Facts are what the store knows of it.
+	Facts ToolFacts
+	// Before says that the export it goes on from listed it alike, with the
+	// same securities, so that stderr does not count it again.
+	Before bool
 	// Securities are those that it may be, in the order of their keys.
 	Securities []ToolUnsureSecurity
 }
 
-// A ToolUnsureSecurity is a security that a ToolUnsure may be: the first of
-// its keys, its CUSIP ("" for none), and the command, naming no -store,
-// that tells the store that the ToolUnsure's key is of it; Key and Command
-// are "" for a security that the store holds under no key. Apart says that
-// the two had the ticker at times that do not meet, by the days of the API's
-// rows and the exports that named the History files' keys: one gave it up,
-// renamed, delisted or merged away, before the other had it, so that the
-// export does not take them for one.
+// A ToolUnsureSecurity is a security that a ToolUnsure may be: the first
+// of its keys, or for one that the store holds under no key its Symbol;
+// its CUSIP, "" for none; what the store knows of it; and the command,
+// naming no -store, that tells the store that the ToolUnsure is it: edit
+// K:<key> -same K:<its key>, or, for rows without a key, edit REF -security
+// K:<its key>, for each of the ToolUnsure's Refs; "" for one under no key.
 type ToolUnsureSecurity struct {
-	Key, CUSIP, Command string
-	Apart               bool
+	Key, Symbol, CUSIP string
+	Facts              ToolFacts
+	Command            string
 }
 
-// toolUnsures returns the keys that the groups unsure stand for, as an
-// export says them.
-func toolUnsures(unsure []*toolUnsure) []ToolUnsure {
-	var out []ToolUnsure
-	for _, u := range unsure {
-		t := ToolUnsure{Key: u.keys[0], Tickers: slices.Clone(u.tickers)}
-		if len(u.keys) > 1 {
-			t.Keys = slices.Clone(u.keys)
-		}
-		if u.taken >= 0 {
-			t.TakenFor = u.of[u.taken].key
-		}
-		for _, o := range u.of {
-			s := ToolUnsureSecurity{Key: o.key, CUSIP: o.cusip, Apart: o.apart}
-			if o.key != "" {
-				s.Command = "schwabtx edit " + shellQuote("K:"+t.Key) + " -same " + shellQuote("K:"+o.key)
-			}
-			t.Securities = append(t.Securities, s)
-		}
-		out = append(out, t)
-	}
-	return out
+// A ToolFacts is what the store knows of a security that keys_unsure names
+// (2.2 of the consolidation), each a fact that decides nothing: its
+// descriptions, the one seen first first; its tickers, each once for each
+// source that named it; the first and the last day of the export's rows and
+// legs of it, "" for none; and whether an account holds it at its latest
+// snapshot by the export's last day.
+type ToolFacts struct {
+	Descriptions []string
+	Tickers      []ToolTicker
+	First, Last  nytime.Date
+	Held         bool
+}
+
+// A ToolTicker is a ticker that a security has had, in Yahoo's form, as one
+// source named it: Source is api, for Schwab's API, or history, for the
+// History files, and LastSeen when that source saw it last.
+type ToolTicker struct {
+	Ticker, Source string
+	LastSeen       time.Time
 }
 
 // A ToolCount is how many rows of a tool export have a code: a reason for
@@ -482,8 +485,15 @@ func exportTool(in *toolInput, o ToolOptions, since *toolChain, at time.Time, v 
 	}
 	e := &ToolExport{
 		At: at, Tool: in.tool, To: in.to, Coverage: in.coverage, Waiting: len(in.waiting), Late: res.late,
-		SymbolsChanged: len(res.symbolsChanged), Unsure: toolUnsures(keysUnsure(in, res.written)), Unused: unused,
+		SymbolsChanged: len(res.symbolsChanged), Unused: unused,
 		in: in, events: events, outcomes: outcomes, res: res, store: store,
+	}
+	// The keys written on their own of the rows that the export writes or
+	// gives, the rows of events, those that the export it goes on from
+	// listed alike before.
+	e.Unsure = keysUnsure(in, events)
+	for i := range e.Unsure {
+		e.Unsure[i].Before = since.listed(e.Unsure[i])
 	}
 	if in.account != 0 {
 		e.Account = in.accountOf(in.account).label()
@@ -625,7 +635,7 @@ func (e *ToolExport) count() {
 		if !h.Before && !h.Carried {
 			e.Differences = append(e.Differences, ToolDifference{
 				Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Asset: h.Asset.shown(), Finds: toolFinds(h.PP, h.Asset),
-				Value: string(h.Difference), LeftOut: h.LeftOut,
+				Value: string(h.Difference), LeftOut: h.LeftOut, Unsure: h.Unsure,
 			})
 		}
 	}
@@ -889,25 +899,64 @@ type (
 		Source     string `json:"source"`
 		LastSeenAt string `json:"last_seen_at"`
 	}
-	// A toolUnsureEntry is a key that the export cannot be sure of
-	// (ToolUnsure): taken_for is null when it stays on its own.
+	// A toolUnsureEntry is a key that the export writes on its own, as it
+	// cannot be sure that it is not another security (ToolUnsure), with
+	// what the store knows of it; for rows without a key, its symbol and
+	// their refs, security_key being "". A -since export reads them back
+	// (toolChain.listed).
 	toolUnsureEntry struct {
-		SecurityKey  string               `json:"security_key"`
-		SecurityKeys []string             `json:"security_keys,omitempty"`
-		Tickers      []string             `json:"tickers"`
-		TakenFor     *string              `json:"taken_for"`
-		Securities   []toolUnsureSecurity `json:"securities"`
+		SecurityKey  string   `json:"security_key"`
+		SecurityKeys []string `json:"security_keys,omitempty"`
+		Symbol       string   `json:"symbol,omitempty"`
+		Refs         []string `json:"refs,omitempty"`
+		toolFactsEntry
+		Before     bool                 `json:"before,omitempty"`
+		Securities []toolUnsureSecurity `json:"securities"`
 	}
 	// A toolUnsureSecurity is a security that a toolUnsureEntry may be
-	// (ToolUnsureSecurity): apart is set when the two had the ticker at
-	// times that do not meet.
+	// (ToolUnsureSecurity), with what the store knows of it, and the command
+	// that says in the store that the key is it.
 	toolUnsureSecurity struct {
 		SecurityKey string `json:"security_key"`
+		Symbol      string `json:"symbol,omitempty"`
 		CUSIP       string `json:"cusip"`
-		Apart       bool   `json:"apart,omitempty"`
-		Command     string `json:"command"`
+		toolFactsEntry
+		Command string `json:"command"`
+	}
+	// A toolFactsEntry is what the store knows of a security (ToolFacts):
+	// rows, the first and the last day of the export's rows and legs of
+	// it, is absent when it has none.
+	toolFactsEntry struct {
+		Descriptions []string          `json:"descriptions"`
+		Tickers      []toolTickerEntry `json:"tickers"`
+		Rows         *toolRowsEntry    `json:"rows,omitempty"`
+		Held         bool              `json:"held"`
+	}
+	// A toolTickerEntry is a ticker that a security has had, as one source
+	// named it (ToolTicker).
+	toolTickerEntry struct {
+		Ticker     string `json:"ticker"`
+		Source     string `json:"source"`
+		LastSeenAt string `json:"last_seen_at"`
+	}
+	// A toolRowsEntry is the first and the last day of rows.
+	toolRowsEntry struct {
+		First nytime.Date `json:"first"`
+		Last  nytime.Date `json:"last"`
 	}
 )
+
+// factsEntry returns f as the manifest writes it.
+func factsEntry(f ToolFacts) toolFactsEntry {
+	e := toolFactsEntry{Descriptions: orEmpty(f.Descriptions), Tickers: []toolTickerEntry{}, Held: f.Held}
+	for _, t := range f.Tickers {
+		e.Tickers = append(e.Tickers, toolTickerEntry{Ticker: t.Ticker, Source: t.Source, LastSeenAt: exportInstant(t.LastSeen)})
+	}
+	if f.First != "" {
+		e.Rows = &toolRowsEntry{First: f.First, Last: f.Last}
+	}
+	return e
+}
 
 // manifestOf returns the export's manifest.json (8.1 of the design), with
 // its keys in the design's order: the existing manifest's first keys and
@@ -1058,12 +1107,14 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 		m.SymbolsChanged = &list
 	}
 	for _, u := range e.Unsure {
-		entry := toolUnsureEntry{SecurityKey: u.Key, SecurityKeys: u.Keys, Tickers: u.Tickers, Securities: []toolUnsureSecurity{}}
-		if u.TakenFor != "" {
-			entry.TakenFor = &u.TakenFor
+		entry := toolUnsureEntry{
+			SecurityKey: u.Key, SecurityKeys: u.Keys, Symbol: u.Symbol, Refs: u.Refs, toolFactsEntry: factsEntry(u.Facts), Before: u.Before,
+			Securities: []toolUnsureSecurity{},
 		}
 		for _, s := range u.Securities {
-			entry.Securities = append(entry.Securities, toolUnsureSecurity{SecurityKey: s.Key, CUSIP: s.CUSIP, Apart: s.Apart, Command: s.Command})
+			entry.Securities = append(entry.Securities, toolUnsureSecurity{
+				SecurityKey: s.Key, Symbol: s.Symbol, CUSIP: s.CUSIP, toolFactsEntry: factsEntry(s.Facts), Command: s.Command,
+			})
 		}
 		m.KeysUnsure = append(m.KeysUnsure, entry)
 	}
