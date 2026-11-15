@@ -909,6 +909,33 @@ func TestPositionsOfAnUnreadableAccount(t *testing.T) {
 	}
 }
 
+// The weights of one account's positions in the portfolio divide by every
+// shared account's value, so an account that is not picked and sent no
+// value, as the fixtures' ...783 does, leaves each null, and the warning
+// figures_missing says why, in get_positions and in the positions resource
+// alike.
+func TestPortfolioWeightsOfOneAccount(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, withoutStore())
+	const why = "Schwab sent no current value for ...783 (Contributory), so every portfolio_weight is null."
+	r := e.call("get_positions", `{"account":"398","detail":"full"}`)
+	if r.isError || !slices.Contains(r.warnings(), "figures_missing") || !strings.Contains(r.text, why) {
+		t.Errorf("one account's positions beside an account of no value: %.600s", r.text)
+	}
+	for _, p := range positionsOf(r) {
+		if p["portfolio_weight"] != nil {
+			t.Errorf("%v has a portfolio weight", p["symbol"])
+		}
+	}
+	res, err := e.readResource("schwab://accounts/398/positions")
+	if err != nil || !strings.Contains(res.Contents[0].Text, why) {
+		t.Errorf("the positions resource: %v, %v", res, err)
+	}
+	if r := e.call("get_positions", `{"account":"783"}`); strings.Contains(r.text, "every portfolio_weight is null") {
+		t.Errorf("the account of no value picked: %.600s", r.text)
+	}
+}
+
 // weight is a value's share of a base, to 4 places, null for either null
 // and for a base not above 0.
 func TestWeight(t *testing.T) {

@@ -563,11 +563,15 @@ func (s *Server) getPositions(ctx context.Context, c *call, in positionsIn) (get
 		return getPositionsOut{}, err
 	}
 	portfolio := lookup.FromCents(0) // every shared account's value
-	var picks []int
+	var picks, unvalued []int        // the accounts picked, and those not picked that sent no value
 	for i, a := range accounts {
-		portfolio = portfolio.Plus(lookup.BalanceOf(a).Value)
-		if !one || a.SecuritiesAccount.AccountNumber == picked[0].number {
+		b := lookup.BalanceOf(a)
+		portfolio = portfolio.Plus(b.Value)
+		switch {
+		case !one || a.SecuritiesAccount.AccountNumber == picked[0].number:
 			picks = append(picks, i)
+		case b.NoValue:
+			unvalued = append(unvalued, i)
 		}
 	}
 	if len(picks) == 0 {
@@ -581,6 +585,11 @@ func (s *Server) getPositions(ctx context.Context, c *call, in positionsIn) (get
 		Total: positionTotal{Value: lookup.FromCents(0), Market: lookup.FromCents(0), Cost: lookup.FromCents(0), OpenPL: lookup.FromCents(0)},
 	}
 	c.warnExtendedHours()
+	// The portfolio's weights divide by every shared account's value, the
+	// accounts not picked included.
+	for _, i := range unvalued {
+		c.warn("figures_missing", "Schwab sent no current value for %s, so every portfolio_weight is null.", c.accountLabel(c.ref(dirs[i])))
+	}
 	var rows []positionRow
 	problems := make([][]schwab.Problem, len(picks))
 	for k, i := range picks {
