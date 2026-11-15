@@ -15,9 +15,10 @@ import (
 )
 
 // The reference page of transaction types names each of Schwab's types,
-// each of the local history's categories and each reason of counted_why
-// that the store's schema takes, says that Schwab may send others, and is
-// served as Markdown, private, for a day, in both eras.
+// each of the local history's categories and, in its sentence on
+// counted_why, each reason that the store's schema takes, says that
+// Schwab may send others, and is served as Markdown, private, for a day, in
+// both eras.
 func TestTransactionTypesPage(t *testing.T) {
 	t.Parallel()
 	for _, protocol := range caseProtocols {
@@ -52,12 +53,48 @@ func TestTransactionTypesPage(t *testing.T) {
 		if n := e.fake.APICalls() + e.fake.TokenRequests(); n != 1 {
 			t.Errorf("reading the page sent %d requests to Schwab", n-1)
 		}
-		for _, why := range countedWhys(t) {
-			if !regexp.MustCompile(`[ (]` + why + `[,:;)]`).MatchString(text) {
-				t.Errorf("the page does not name the counted_why %s", why)
-			}
+		// The reasons that count, and those that do not, as the store gives
+		// them (internal/history's matching, docs/store.md's table of
+		// counted_why); user is the user's own decision, either way.
+		counts, not, rest := countedWhyLists(t, text)
+		named := slices.Concat(counts, not)
+		if regexp.MustCompile(`\buser\b`).MatchString(rest) && strings.Contains(rest, "either way") {
+			named = append(named, "user")
+		}
+		slices.Sort(named)
+		whys := countedWhys(t)
+		slices.Sort(whys)
+		if !slices.Equal(counts, []string{"api", "file", "tda", "policy"}) ||
+			!slices.Equal(not, []string{"gone", "invalid", "linked", "uncertain", "held_out"}) || !slices.Equal(named, whys) {
+			t.Errorf("the page says a row counts for %q, does not for %q, and then %q; the schema takes %q", counts, not, rest, whys)
 		}
 	}
+}
+
+// countedWhyLists returns what the page's sentence on counted_why says: the
+// reasons why a row counts, the first word of each item in the parentheses
+// after "counts and why"; those why it does not, after "why not"; and the
+// rest of the sentence after them.
+func countedWhyLists(t *testing.T, page string) (counts, not []string, rest string) {
+	t.Helper()
+	_, sentence, ok := strings.Cut(strings.Join(strings.Fields(page), " "), "counted and counted_why say ")
+	sentence, _, _ = strings.Cut(sentence, ". ")
+	m := regexp.MustCompile(`^whether a row counts and why \(([^)]*)\), or why not \(([^)]*)\)(.*)$`).FindStringSubmatch(sentence)
+	if !ok || m == nil {
+		t.Fatalf("the page's sentence on counted_why is not as the test reads it: %q", sentence)
+	}
+	words := func(list string) []string {
+		var out []string
+		for item := range strings.SplitSeq(list, ",") {
+			item = strings.TrimSpace(item)
+			if w := regexp.MustCompile(`^(?:or )?([a-z_]+)`).FindStringSubmatch(item); w != nil {
+				item = w[1]
+			}
+			out = append(out, item)
+		}
+		return out
+	}
+	return words(m[1]), words(m[2]), m[3]
 }
 
 // countedWhys returns the values of counted_why that the store's schema

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -681,26 +683,72 @@ func TestTextEqualsStructured(t *testing.T) {
 
 // The middleware's backstop, the second net, covers what addTool's does
 // not: a tool registered with the SDK's own AddTool that returns a known
-// number in its text, its structured content and an error has all three
-// replaced, its text still its structured content, the warning
-// value_withheld added, and each hit logged.
+// number in its text, its structured content and an error result has all
+// three replaced, its text still its structured content, and the warning
+// value_withheld added; so have a resource's contents, their text and URI,
+// and a prompt's description and messages. A protocol error has its
+// message replaced, and its data, which resources/read drops: a handler's,
+// and the SDK's own for a tool or a prompt that no name matches, which
+// quotes the name the client sent. addTool's own net replaces a known
+// number in a tool's error before the middleware sees it. Each hit is
+// logged, and told to the hook with where it was.
 func TestMiddlewareBackstopCatchesALeak(t *testing.T) {
 	t.Parallel()
-	var hits atomic.Int32
+	var mu sync.Mutex
+	hits, told := map[string]int{}, 0
 	leak := `{"source":"local","warnings":[],"note":"account 29470135","n":61803398}`
+	failure := &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "no account 29470135", Data: json.RawMessage(`{"account":"29470135"}`)}
 	e := newEnv(t, withBackstopAllowed(), withOptions(func(o *Options) {
-		o.onBackstop = func(string, int) { hits.Add(1) }
+		o.onBackstop = func(where string, n int) {
+			mu.Lock()
+			hits[where] += n
+			told++
+			mu.Unlock()
+		}
 	}), withTools(func(s *Server) {
 		s.MCP().AddTool(&mcp.Tool{Name: "leaks", InputSchema: map[string]any{"type": "object"}},
 			func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				if string(req.Params.Arguments) == `{"error":true}` {
+				switch string(req.Params.Arguments) {
+				case `{"error":true}`:
 					return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "[internal] account 29470135"}}}, nil
+				case `{"protocol":true}`:
+					return nil, failure
 				}
 				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: leak}}, StructuredContent: json.RawMessage(leak)}, nil
 			})
+		testTool(s, "fails", nil, func(context.Context, *call, struct{}) (echoOut, error) {
+			return echoOut{}, &toolErr{code: codeInternal, msg: "account 29470135"}
+		})
+		s.addResource(&mcp.Resource{URI: "schwab://test/leaks", Name: "leaks", MIMEType: "text/plain"},
+			func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+				return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{
+					{URI: "schwab://test/29470135", MIMEType: "text/plain", Text: "account 29470135"},
+				}}, nil
+			})
+		s.addResource(&mcp.Resource{URI: "schwab://test/fails", Name: "fails", MIMEType: "text/plain"},
+			func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) { return nil, failure })
+		s.MCP().AddPrompt(&mcp.Prompt{Name: "leaks"}, func(context.Context, *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+			return &mcp.GetPromptResult{Description: "for 29470135", Messages: []*mcp.PromptMessage{
+				{Role: "user", Content: &mcp.TextContent{Text: "review 29470135"}},
+			}}, nil
+		})
 	}))
 	e.srv.mask.known.Add(individual, options) // as the directory would have
-	res, err := e.cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "leaks", Arguments: json.RawMessage(`{}`)})
+	ctx := t.Context()
+	// hit checks that the hook was told of n values replaced in where, and
+	// nowhere else, since the last check.
+	hit := func(what, where string, n int) {
+		t.Helper()
+		mu.Lock()
+		got := maps.Clone(hits)
+		clear(hits)
+		mu.Unlock()
+		if !maps.Equal(got, map[string]int{where: n}) {
+			t.Errorf("%s: the hook was told of %v, want %d in %s", what, got, n, where)
+		}
+	}
+
+	res, err := e.cs.CallTool(ctx, &mcp.CallToolParams{Name: "leaks", Arguments: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -713,18 +761,67 @@ func TestMiddlewareBackstopCatchesALeak(t *testing.T) {
 	if string(raw) != strings.ReplaceAll(want, "'", `'`) && string(raw) != want {
 		t.Errorf("structured content =\n%s\nwant the text", raw)
 	}
-	res, err = e.cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "leaks", Arguments: json.RawMessage(`{"error":true}`)})
+	hit("a tool's answer", "tools/call", 2)
+	res, err = e.cs.CallTool(ctx, &mcp.CallToolParams{Name: "leaks", Arguments: json.RawMessage(`{"error":true}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := res.Content[0].(*mcp.TextContent).Text; got != "[internal] account ...135" {
 		t.Errorf("the error = %q", got)
 	}
-	if n := hits.Load(); n != 2 {
-		t.Errorf("the hook was told of %d hits, want 2", n)
+	hit("a tool's error result", "tools/call", 1)
+	res, err = e.cs.CallTool(ctx, callParams("fails"))
+	if err != nil || res.Content[0].(*mcp.TextContent).Text != "[internal] account ...135" {
+		t.Errorf("an error of addTool's: %v, %v", res, err)
 	}
-	if strings.Count(e.logs.String(), "masking backstop replaced") != 2 {
-		t.Errorf("the hits were not logged:\n%s", e.logs)
+	hit("an error of addTool's", "fails", 1)
+
+	read, err := e.cs.ReadResource(ctx, &mcp.ReadResourceParams{URI: "schwab://test/leaks"})
+	if err != nil || read.Contents[0].Text != "account ...135" || read.Contents[0].URI != "schwab://test/...135" {
+		t.Errorf("a resource's contents: %+v, %v", read, err)
+	}
+	hit("a resource's contents", "resources/read", 2)
+	prompt, err := e.cs.GetPrompt(ctx, &mcp.GetPromptParams{Name: "leaks"})
+	if err != nil || prompt.Description != "for ...135" || prompt.Messages[0].Content.(*mcp.TextContent).Text != "review ...135" {
+		t.Errorf("a prompt: %+v, %v", prompt, err)
+	}
+	hit("a prompt", "prompts/get", 2)
+
+	// Protocol errors: a tool's, which keeps its data cleared; a resource
+	// read's, which drops it; and the SDK's own.
+	for _, tc := range []struct {
+		what, where string
+		call        func() error
+		says, data  string
+		n           int
+	}{
+		{"a tool's protocol error", "tools/call", func() error {
+			_, err := e.cs.CallTool(ctx, &mcp.CallToolParams{Name: "leaks", Arguments: json.RawMessage(`{"protocol":true}`)})
+			return err
+		}, "no account ...135", `{"account":"...135"}`, 2},
+		{"a resource's protocol error", "resources/read", func() error {
+			_, err := e.cs.ReadResource(ctx, &mcp.ReadResourceParams{URI: "schwab://test/fails"})
+			return err
+		}, "no account ...135", "", 1},
+		{"an unknown tool", "tools/call", func() error {
+			_, err := e.cs.CallTool(ctx, &mcp.CallToolParams{Name: individual})
+			return err
+		}, `unknown tool "...135"`, "", 1},
+		{"an unknown prompt", "prompts/get", func() error {
+			_, err := e.cs.GetPrompt(ctx, &mcp.GetPromptParams{Name: "review " + individual})
+			return err
+		}, `unknown prompt "review ...135"`, "", 1},
+	} {
+		we, ok := errors.AsType[*jsonrpc.Error](tc.call())
+		if !ok || we.Message != tc.says || string(we.Data) != tc.data {
+			t.Errorf("%s: %+v, want %q and data %q", tc.what, we, tc.says, tc.data)
+		}
+		hit(tc.what, tc.where, tc.n)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if n := strings.Count(e.logs.String(), "masking backstop replaced"); n != told {
+		t.Errorf("%d hits were logged, and the hook was told of %d:\n%s", n, told, e.logs)
 	}
 	e.assertClean()
 }
