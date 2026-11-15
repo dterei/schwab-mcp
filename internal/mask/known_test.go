@@ -18,15 +18,16 @@ const hash = "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691"
 // it, whatever its length: its digits in one run, or in groups joined as
 // Text joins them, by up to three spaces or a dash with at most one space
 // on each side, of any kind; but never within a run of 32 or more hex
-// digits, as an account hash is. So a number inside a longer run of
-// digits, one whose groups are joined otherwise, a hash that holds one,
-// and a number that Known does not hold stay as they are. It holds only
-// numbers of 6 digits or more, written with digits alone. What it masks,
-// it masks once, the three digits a mask shows counting with the groups
-// after it, and Contains finds what it masks.
+// digits, as an account hash is, nor across a date's dashes. So a number
+// inside a longer run of digits, one whose groups are joined otherwise, a
+// hash that holds one, a date of 1900 to 2099 written YYYY-MM-DD, and a
+// number that Known does not hold stay as they are. It holds only numbers
+// of 6 digits or more, written with digits alone. What it masks, it masks
+// once, the three digits a mask shows counting with the groups after it,
+// and Contains finds what it masks.
 func TestKnown(t *testing.T) {
 	var k Known
-	k.Add("29470135", "1234567", "123456789012", "41224019", "654321", "567890")
+	k.Add("29470135", "1234567", "123456789012", "41224019", "654321", "567890", "20261113", "20260230", "21001113", "11131234")
 	k.Add("12345", "...135", "2947 0135", "２９４７０１３５", "", "29470135") // ignored, or held already
 	for _, tc := range []struct{ in, want string }{
 		{"", ""},
@@ -79,6 +80,26 @@ func TestKnown(t *testing.T) {
 		{"123 4567 890", "...890"},
 		{"123 4567 89", "...567 89"},
 
+		// A date of the years 1900 to 2099 written YYYY-MM-DD, alone or as
+		// a time's date, is a date, whose groups join nothing, though its
+		// digits spell a known number; the same digits written otherwise,
+		// and what only looks like such a date, are masked.
+		{"2026-11-13", "2026-11-13"},
+		{"as of 2026-11-13T16:40:00-05:00", "as of 2026-11-13T16:40:00-05:00"},
+		{"2026-11-13T21:40:00.000Z", "2026-11-13T21:40:00.000Z"},
+		{"from 2026-11-01 to 2026-11-13.", "from 2026-11-01 to 2026-11-13."},
+		{"sent 2026-11-13 1234567", "sent 2026-11-13 ...567"},
+		{"2026-11-13a", "2026-11-13a"},
+		{"20261113", "...113"},
+		{"2026 1113", "...113"},
+		{"2026-1113", "...113"},
+		{"2026 11 13", "...113"},
+		{"2026–11–13", "...113"},
+		{"2947-01-35", "...135"},
+		{"2026-02-30", "...230"},
+		{"2100-11-13", "...113"},
+		{"2026-11-131234", "2026-...234"},
+
 		// Within a hash, or any run of 32 hex digits or more, a known number
 		// stays; in a run of 31, it is masked. A hash's digits join no group.
 		{hash, hash},
@@ -107,7 +128,7 @@ func TestKnown(t *testing.T) {
 			t.Errorf("Contains(%q) = %v, want %v", tc.in, k.Contains(tc.in), tc.want != tc.in)
 		}
 	}
-	for _, n := range []string{"29470135", "1234567", "123456789012", "41224019", "654321", "567890"} {
+	for _, n := range []string{"29470135", "1234567", "123456789012", "41224019", "654321", "567890", "20261113"} {
 		if !k.has(n) {
 			t.Errorf("Known does not hold %s, which it was given", n)
 		}
@@ -224,13 +245,14 @@ func TestKnownHasNumber(t *testing.T) {
 }
 
 // What Text returns holds no known number, by a pattern that finds each of
-// them as the leak tests do, outside the runs of 32 hex digits or more, with
-// no digit beside it and any of Text's joiners between any two of its
-// digits; masking it again changes nothing; and Contains says whether Text
-// masks anything. The numbers overlap, so that a mask's three digits and
-// the groups after it can spell another.
+// them as the leak tests do, outside the runs of 32 hex digits or more and
+// the dates of 1900 to 2099 written YYYY-MM-DD, with no digit beside it and
+// any of Text's joiners between any two of its digits; masking it again
+// changes nothing; and Contains says whether Text masks anything. The
+// numbers overlap, so that a mask's three digits and the groups after it
+// can spell another, and one of them reads as a date.
 func FuzzKnownText(f *testing.F) {
-	numbers := []string{"29470135", "1234567", "654321", "567890", "123456789012"}
+	numbers := []string{"29470135", "1234567", "654321", "567890", "123456789012", "20261113"}
 	var k Known
 	k.Add(numbers...)
 	var patterns []*regexp.Regexp
@@ -242,12 +264,13 @@ func FuzzKnownText(f *testing.F) {
 		"", "2947 0135", "2947-0135", "2 9 4 7 0 1 3 5", "29 4701 35 77", "1234567 890", "123 4567 890", "12 3456 7890",
 		"2947\u00a00135", "2947 \u2013 0135", "Kids 123-4567 gift", hash + " 123 4567", strings.Repeat("A", 31) + "1-234567",
 		"2947-0135" + strings.Repeat("f", 27), "6 54321 567890 1234567 890", "1-2-3-4-5-6-7-8-9-0-1-2",
+		"2026-11-13", "2026-11-13 2026-11-13T16:40:00", "2026 11 13", "2026-11-131", "12026-11-13 567 890",
 	} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
 		got := k.Text(s)
-		outside := hexRun.ReplaceAllString(got, "#")
+		outside := undated(hexRun.ReplaceAllString(got, "#"))
 		for i, p := range patterns {
 			if p.MatchString(outside) {
 				t.Fatalf("Text(%q) = %q, which holds %s", s, got, numbers[i])
@@ -260,4 +283,24 @@ func FuzzKnownText(f *testing.F) {
 			t.Fatalf("Contains(%q) = %v, but Text gives %q", s, k.Contains(s), got)
 		}
 	})
+}
+
+// undated returns s with each date that Known keeps whole replaced by #:
+// a valid date of 1900 to 2099 written YYYY-MM-DD, with no digit before or
+// after it.
+func undated(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		d := s[i:]
+		if len(d) >= 10 && (i == 0 || !isDigit(s[i-1])) && (len(d) == 10 || !isDigit(d[10])) &&
+			(d[:2] == "19" || d[:2] == "20") {
+			if _, err := time.Parse(time.DateOnly, d[:10]); err == nil {
+				b.WriteByte('#')
+				i += 9
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }

@@ -5,6 +5,7 @@ import (
 	"iter"
 	"strings"
 	"sync"
+	"time"
 )
 
 // minKnown is the fewest digits that a number Known holds has: a shorter
@@ -53,10 +54,14 @@ func (k *Known) Add(numbers ...string) {
 // "ACCT...135 TRF", and "2947 0135" and "2947-0135" read "...135", while
 // "1294701350", "2947.0135" and a hash that holds 29470135 stay as they
 // are. Groups that join a known number and more digits are masked as far
-// as the number goes: "29 4701 35 77" reads "...135 77". What Text returns
-// holds no known number, and masking it again changes nothing: the three
-// digits a mask shows count with the groups joined after it, as Text counts
-// them.
+// as the number goes: "29 4701 35 77" reads "...135 77". The groups of a
+// date of the years 1900 to 2099 written YYYY-MM-DD join nothing, so that
+// a date and a time stay whole though their digits spell a known number:
+// with 20261113 known, "2026-11-13" and "2026-11-13T16:40:00-05:00" stay
+// as they are, while "20261113" and "2026 1113" read "...113". What Text
+// returns holds no known number but in a date, and masking it again
+// changes nothing: the three digits a mask shows count with the groups
+// joined after it, as Text counts them.
 func (k *Known) Text(s string) string {
 	if k == nil {
 		return s
@@ -125,15 +130,15 @@ type piece struct {
 
 // runs yields the start and end of each part of s that Text masks, in
 // order: a known number in a run of groups of digits that joiner joins,
-// each group in a run of hex digits shorter than a hash's. Digits are hex
-// digits, so each group lies in one run of hex digits, which is measured
-// once, however many numbers it holds. A number is found where its last
-// group ends, as the longest known number that ends there, made of whole
-// groups after the run's last mask, or of the three digits that mask shows
-// and groups after it, so that what Text writes holds none; the pieces
-// that no later group can join into a known number are let go, so that a
-// run of any length costs as little as a short one. The caller holds k's
-// lock.
+// each group in a run of hex digits shorter than a hash's, and none of a
+// date (isDate). Digits are hex digits, so each group lies in one run of
+// hex digits, which is measured once, however many numbers it holds. A
+// number is found where its last group ends, as the longest known number
+// that ends there, made of whole groups after the run's last mask, or of
+// the three digits that mask shows and groups after it, so that what Text
+// writes holds none; the pieces that no later group can join into a known
+// number are let go, so that a run of any length costs as little as a
+// short one. The caller holds k's lock.
 func (k *Known) runs(s string) iter.Seq2[int, int] {
 	return func(yield func(int, int) bool) {
 		if !atLeastDigits(s, minKnown) {
@@ -213,6 +218,15 @@ func (k *Known) runs(s string) iter.Seq2[int, int] {
 					j++
 					continue
 				}
+				if isDate(s, j) {
+					// A date's groups join nothing: the run ends before it,
+					// and the next group after it starts another.
+					if !end() {
+						return
+					}
+					last, stop = -1, j+len(time.DateOnly)
+					break
+				}
 				m := j // the group is s[j:m]
 				for m < stop && isDigit(s[m]) {
 					m++
@@ -234,6 +248,26 @@ func (k *Known) runs(s string) iter.Seq2[int, int] {
 		}
 		end()
 	}
+}
+
+// isDate reports whether s[j:], where a group of digits starts, begins with
+// a date of the years 1900 to 2099 written as ISO 8601 writes one,
+// YYYY-MM-DD, with no digit after it: a date, or the date of a time, such
+// as Schwab's 2026-11-13T16:40:00+0000 and the store's
+// 2026-11-13T21:40:00.000Z. Those years hold every date that Schwab and
+// the store write, and the fewer years a date may have, the less often a
+// group of a known number written in groups reads as one.
+func isDate(s string, j int) bool {
+	n := len(time.DateOnly)
+	if len(s)-j < n || len(s) > j+n && isDigit(s[j+n]) {
+		return false
+	}
+	d := s[j : j+n]
+	if d[4] != '-' || d[7] != '-' || d[:2] != "19" && d[:2] != "20" {
+		return false
+	}
+	_, err := time.Parse(time.DateOnly, d)
+	return err == nil
 }
 
 // atLeastDigits reports whether s holds n or more ASCII digits.

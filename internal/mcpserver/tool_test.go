@@ -861,6 +861,36 @@ func TestBackstopInAddTool(t *testing.T) {
 	}
 }
 
+// An account number whose digits read as a date leaves every date and time
+// whole: the answers' as_of, a row's date and time, and the asked days, of
+// the day that the number spells, come out as they are, with no
+// value_withheld and no value that the backstop's hook is told of, while
+// the number itself is never sent.
+func TestDateLikeAccountNumber(t *testing.T) {
+	t.Parallel()
+	const number = "20261113" // testNow's day
+	e := newEnv(t, withoutStore(), withFake(func(f *schwabtest.Server) {
+		f.AddAccount(schwabtest.Account{Number: number, Details: `{"securitiesAccount":{"type":"CASH","accountNumber":"` + number + `"}}`})
+		f.AddRows(schwabtest.HashFor(number), txnJSON(number, 73508265501, ny(2026, time.November, 13, 10, 0), "DIVIDEND_OR_INTEREST",
+			"Free Balance Interest Adjustment", 0.01))
+	}))
+	const asOf = "2026-11-13T16:40:00-05:00"
+	if r := e.call("list_accounts", `{}`); r.isError || r.value["as_of"] != asOf || slices.Contains(r.warnings(), "value_withheld") ||
+		!strings.Contains(r.text, `"account":"...113"`) {
+		t.Errorf("list_accounts: %.600s", r.text)
+	}
+	r := e.call("get_transactions", `{"source":"schwab","account":"113","from":"2026-11-01","to":"2026-11-13"}`)
+	rows, asked := txnRowsOf(r), txnCoverageOf(r, "...113")["asked"]
+	if r.isError || r.value["as_of"] != asOf || len(rows) != 1 || rows[0]["date"] != "2026-11-13" ||
+		rows[0]["time"] != "2026-11-13T10:00:00-05:00" || fmt.Sprint(asked) != "map[from:2026-11-01 to:2026-11-13]" ||
+		slices.Contains(r.warnings(), "value_withheld") {
+		t.Errorf("get_transactions: %.900s", r.text)
+	}
+	if sent := strings.Join(e.sent(), "\n"); strings.Contains(sent, number) {
+		t.Errorf("the number was sent or logged whole:\n%s", sent)
+	}
+}
+
 // withResources registers a fixed resource, a reference page and the
 // positions template, each answering its URI, with the guard's pattern;
 // and a resource that answers as the echo tool does.

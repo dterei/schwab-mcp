@@ -238,10 +238,12 @@ func TestSchwabDetail(t *testing.T) {
 // The backstop rewrites only what holds a known number or a secret, in a
 // string, whole or in groups, a key or a number of any form, and leaves
 // every other byte as it was: key order, number literals, escapes, a hash
-// that holds a known number.
+// that holds a known number, and a date or a time whose date's digits are
+// those of a known number.
 func TestBackstop(t *testing.T) {
 	t.Parallel()
 	m := testMasker("")
+	m.known.Add("20261113")
 	for _, tc := range []struct {
 		in, want string
 		n        int
@@ -253,6 +255,11 @@ func TestBackstop(t *testing.T) {
 		{`{"d":"Joint 2947-0135","e":"to 6180 3398 x"}`, `{"d":"Joint ...135","e":"to ...398 x"}`, 2},
 		{`{"s":"` + schwabtest.AppSecret + `","k":"key ` + schwabtest.AppKey + `"}`, `{"s":"[app secret]","k":"key [app key]"}`, 2},
 		{`["\u2028",  "29470135"  ]`, `["\u2028",  "...135"  ]`, 1},
+		{
+			`{"as_of":"2026-11-13T16:40:00-05:00","date":"2026-11-13","asked":{"from":"2026-11-01","to":"2026-11-13"},"read":"2026-11-13T21:40:00.000Z"}`,
+			`{"as_of":"2026-11-13T16:40:00-05:00","date":"2026-11-13","asked":{"from":"2026-11-01","to":"2026-11-13"},"read":"2026-11-13T21:40:00.000Z"}`, 0,
+		},
+		{`{"d":"to 2026 1113","n":20261113}`, `{"d":"to ...113","n":null}`, 2},
 	} {
 		got, n, err := m.backstop([]byte(tc.in))
 		if err != nil {
@@ -348,10 +355,12 @@ func TestLogHandler(t *testing.T) {
 // account hash holding a run of 8 digits come out as they went in, through
 // compose, schwabDetail, the log handler and the store's own details
 // through stored, while a full account number in Schwab's own words, the
-// one piece of free text, comes out masked.
+// one piece of free text, comes out masked. Dates and times stay whole
+// though their dates' digits are those of known account numbers.
 func TestComposedTextKeepsIdentifiers(t *testing.T) {
 	t.Parallel()
 	m := testMasker("")
+	m.known.Add("20260914", "20260105")
 	hash := schwabtest.HashFor(individual)
 	ids := []string{"2026-09-14", "1004517688099", "5b1d2c3e-1234-5678-9abc-def012345678", "18.6a2f1c17.1700000000.1a2b3c4d", hash}
 	composed := []string{

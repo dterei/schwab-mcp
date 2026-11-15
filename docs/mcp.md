@@ -322,7 +322,8 @@ a code, a number that cannot be an account number or a number already
 masked. A last pass over every string the server sends replaces any
 account number it has seen, written whole or in groups such as 1234 5678
 or 1234-5678, and the key, the secret and the tokens; the tests fail if it
-ever finds one.
+ever finds one. A date written 2026-11-13, alone or in a time, is kept
+whole, even when its digits are those of an account number.
 
 The server reads the local history with a reader that cannot write: it
 never creates, changes or upgrades the store.
