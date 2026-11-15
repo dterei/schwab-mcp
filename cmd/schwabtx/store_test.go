@@ -1136,12 +1136,12 @@ next time: schwabtx export -format pp -since pp-2026-11-14 -dir <a new folder>
 					{Ref: "T73508261950", Account: "A1 ...135", Was: "account 2024-04-04 Dividend 3.86", Now: "account 2024-04-04 Dividend 3.68"},
 				},
 				Gone: []history.ToolChange{
-					{
-						Ref: "T73508261953", Account: "A1 ...135", Was: "account 2025-02-10 Transfer (Inbound) 500.00",
-						Transfer: "A2 ...398 T73508261952 to A1 ...135 T73508261953", Why: "uncounted: user",
-					},
 					{Ref: "T73508261944", Account: "A2 ...398", Was: "portfolio 2025-01-21 Buy 400.67", Why: "uncounted: user"},
 					{Ref: "T73508261948", Account: "A2 ...398", Was: "account 2025-02-03 Deposit 25.00", NoteRef: "Ca3b4c5d6.4", Why: "linked to T73508261949"},
+					{
+						Ref: "T73508261952", Account: "A2 ...398", Was: "account 2025-02-10 Transfer (Outbound) 500.00",
+						Transfer: "A2 ...398 T73508261952 to A1 ...135 T73508261953", Why: "uncounted: user",
+					},
 					{Ref: "C9e8d7c6b.2", Account: "A3 ...777", Was: "portfolio 2025-03-04 Sell 10.00; account 2025-03-04 Fees 15.00", Why: "not in this export: no longer in the store, or dated after -to"},
 				},
 				Tick: []history.ToolTick{{File: "portfolio-transactions-A1-135.csv", Ref: "T73508261960", Account: "A1 ...135", As: "portfolio 2026-11-20 Buy 1001.25"}},
@@ -1153,9 +1153,9 @@ next time: schwabtx export -format pp -since pp-2026-11-14 -dir <a new folder>
 1 security has changed symbol or may no longer trade (pp-2026-12-01/manifest.json lists it under symbols_changed, with why): before you import, set it as docs/tools.md step 8 says if Portfolio Performance holds it; if it is new there, it asks nothing
 before importing, delete in Portfolio Performance what changed or went (pp-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 Dividend 3.86 (note schwabtx A1 ...135 T73508261950): changed; the new form is in this export
-  Schwab A1 ...135: 2025-02-10 Transfer (Inbound) 500.00 (note schwabtx A2 ...398 T73508261952 to A1 ...135 T73508261953): gone, uncounted (user)
   Schwab A2 ...398: 2025-01-21 Buy 400.67 (note schwabtx A2 ...398 T73508261944): gone, uncounted (user)
   Schwab A2 ...398: 2025-02-03 Deposit 25.00 (note schwabtx A2 ...398 Ca3b4c5d6.4): gone, linked to T73508261949
+  Schwab A2 ...398: 2025-02-10 Transfer (Outbound) 500.00 (note schwabtx A2 ...398 T73508261952 to A1 ...135 T73508261953): gone, uncounted (user)
   A3 ...777: 2025-03-04 Sell 10.00; 2025-03-04 Fees 15.00 (note schwabtx A3 ...777 C9e8d7c6b.2): gone, not in this export (no longer in the store, or dated after -to)
 2 differences from the latest snapshots are new or changed since pp-2026-11-13, and 2 are gone (pp-2026-12-01/manifest.json lists each): before importing, delete what you added by hand in Portfolio Performance for each that is gone, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); Portfolio Performance marks a new row equal to one that it holds as existing (docs/tools.md step 4):
   Schwab A2 ...398: ABCD (ticker ABCD): gone: delete what you added for it, if anything

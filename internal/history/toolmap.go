@@ -39,7 +39,8 @@ const (
 	// outcomeWritten is a row written as one record or more.
 	outcomeWritten = "written"
 	// outcomeCombined is the shares row of a two-row cash event, which its
-	// cash row's sale writes.
+	// cash row's sale writes, or for PP the receiving side of a transfer,
+	// which its paying side's Transfer (Outbound) writes.
 	outcomeCombined = "combined"
 	// outcomeInBalances is, for Ghostfolio, a cash row that the account's
 	// balances carry.
@@ -64,8 +65,8 @@ var toolMapping = []toolMap{
 	{"withdrawal", "amount > 0", "deposit", "account: Deposit", "account balance"},
 	{"withdrawal", "amount < 0", "withdrawal", "account: Withdrawal", "account balance"},
 	{
-		"journal", "cash, paired with a counted journal of another account of the opposite amount, both booked `journal`, both accounts exported", "transfer",
-		"account: Transfer (Outbound) in the paying account's file, Transfer (Inbound) in the receiving one's", "account balances",
+		"journal", "cash, paired with a counted journal of another account of the opposite amount, both booked `journal`, both accounts exported, the paying side written", "transfer",
+		"account: Transfer (Outbound) in the paying account's file, the receiving side combined with it", "account balances",
 	},
 	{"journal", "cash, any other, amount > 0", "deposit", "account: Deposit", "account balance"},
 	{"journal", "cash, any other, amount < 0", "withdrawal", "account: Withdrawal", "account balance"},
@@ -189,7 +190,7 @@ var toolCaveats = []toolCaveat{
 	{"fees_unknown", "", "fees off the cent grid, written as 0: the cash is right and the fees ride in the price"},
 	{"pair_amounts_differ", "", "a journal whose partner's amount is not the opposite of its own, written by its sign"},
 	{"pair_not_journal", "", "a journal whose partner you booked as another category, each written by its own"},
-	{"pair_outside", "", "a journal with an account that the export leaves out, written by its sign"},
+	{"pair_outside", "", "a journal with an account that the export leaves out, or one that receives from a side that the export does not write (dated after -to, or left out), written by its sign"},
 	{"return_of_capital", "", "a return of capital, written as a dividend: it should lower the cost basis, which neither tool can do"},
 	{"option_closed_at_zero", "", "an option expired, assigned or exercised, closed by a delivery of value 0"},
 	{"fees_apart", toolPP, "a sale whose fees exceed its proceeds, written as a Sell of the proceeds and a Fees row of the fees"},
@@ -200,12 +201,12 @@ var toolCaveats = []toolCaveat{
 type eventKind int
 
 // The kinds of record. A transfer is a cash journal between two accounts
-// of the export, written once in each account's file.
+// of the export, written once, in the paying account's file: PP books its
+// receiving leg from the same record.
 const (
 	evDeposit eventKind = iota + 1
 	evWithdrawal
-	evTransferOut // the paying account's side of a transfer
-	evTransferIn  // the receiving account's side of a transfer
+	evTransferOut // a transfer, of its paying account
 	evDeliveryIn
 	evDeliveryOut
 	evBuy
@@ -233,7 +234,6 @@ var eventKinds = [...]struct {
 	evDeposit:        {"deposit", "account", "Deposit", "", 0},
 	evWithdrawal:     {"withdrawal", "account", "Withdrawal", "", 0},
 	evTransferOut:    {"transfer", "account", "Transfer (Outbound)", "", 0},
-	evTransferIn:     {"transfer", "account", "Transfer (Inbound)", "", 0},
 	evDeliveryIn:     {"delivery in", "portfolio", "Delivery (Inbound)", "BUY", 1},
 	evDeliveryOut:    {"delivery out", "portfolio", "Delivery (Outbound)", "SELL", -1},
 	evBuy:            {"buy", "portfolio", "Buy", "BUY", 1},
@@ -249,8 +249,7 @@ var eventKinds = [...]struct {
 	evCloseIn:        {"close in", "portfolio", "Delivery (Inbound)", "BUY", 1},
 }
 
-// String returns the kind's name in toolMapping's event column; both sides
-// of a transfer are a transfer there.
+// String returns the kind's name in toolMapping's event column.
 func (k eventKind) String() string { return eventKinds[k].name }
 
 // ppType returns the PP file that takes a record of the kind, account or
@@ -726,14 +725,22 @@ type toolOutcome struct {
 	reason, advice, command string
 	// with is the other row of a two-row cash event: the shares row of a
 	// cash row written, the cash row that a shares row is combined with or
-	// left out with.
-	with string
+	// left out with; or, for PP, the paying side of a transfer that a
+	// receiving side is combined with, whose account withAccount is. Any
+	// other with is of the row's own account, and withAccount the zero
+	// account.
+	with        string
+	withAccount toolAccount
 	// caveats are a written row's caveats (toolCaveats), in their order.
 	caveats []string
 	// flags are the codes of the row's flags of severity attention, for a
 	// row written, combined or in the balances, which the manifest lists.
 	flags []string
 }
+
+// withLabel returns the label of the account of with, the row's own or the
+// transfer's paying side's.
+func (o toolOutcome) withLabel() string { return cmp.Or(o.withAccount, o.account).label() }
 
 // A secRef is how the export knows a security: by its key, or, for a row
 // without one, by its symbol.
@@ -2582,15 +2589,23 @@ type toolMapper struct {
 	// (pairTwoRows), by their index in the rows: the shares row of each
 	// cash row, and the cash row of each shares row.
 	sharesRow, cashRow map[int]int
+	// receiving are, for PP, the rows that receive a transfer, which follow
+	// their paying sides (received); paid holds the paying side of each
+	// transfer written, by its index in the rows, under its receiving
+	// side's account and ref.
+	receiving []int
+	paid      map[rowKey]int
 	// balances are the accounts' balances (toolBalances), once read.
 	balances map[int64][]toolBalance
 }
 
 // run maps every row: the shares row of a two-row cash event after its
-// cash row, whose sale decides it; then gives each row written, combined
-// or in the balances its attention flags.
+// cash row, whose sale decides it, and the receiving side of a transfer
+// after its paying side, which may come later in the rows' order; then
+// gives each row written, combined or in the balances its attention flags.
 func (m *toolMapper) run() {
 	m.pairTwoRows()
+	m.paid = map[rowKey]int{}
 	for i := range m.in.rows {
 		if _, ok := m.cashRow[i]; !ok {
 			m.decide(i)
@@ -2598,6 +2613,9 @@ func (m *toolMapper) run() {
 	}
 	for _, o := range slices.Sorted(maps.Keys(m.cashRow)) {
 		m.follow(o, m.cashRow[o])
+	}
+	for _, i := range m.receiving {
+		m.received(i)
 	}
 	for i := range m.outcomes {
 		o := &m.outcomes[i]
@@ -3075,14 +3093,17 @@ func (m *toolMapper) deliveryEvent(i int, q sql.NullInt64, s *toolSecurity, deli
 	return e, ""
 }
 
-// cashJournal maps row i, a journal of cash (3.4.3 of the design): as a
-// transfer when it is paired with a counted journal of another account of
-// the opposite amount, both booked journal, both of accounts that the export
-// selects; else by its sign, saying why a pair of two accounts is written
-// apart. A pair within one account, which you can pair by hand, is a
-// deposit and a withdrawal, which net to nothing: a transfer of an account
-// to itself names that account as its own Offset Account, and PP imports it
-// once from each side.
+// cashJournal maps row i, a journal of cash (3.4.3 of the design, R-5 of the
+// consolidation): as a transfer when it is paired with a counted journal of
+// another account of the opposite amount, both booked journal, both of
+// accounts that the export selects; else by its sign, saying why a pair of
+// two accounts is written apart. PP gets a transfer once, as a Transfer
+// (Outbound) in the paying account's file, from which it books both legs,
+// whatever the receiving side's day: the paying side writes it, and the
+// receiving side follows (received). A pair within one account, which you
+// can pair by hand, is a deposit and a withdrawal, which net to nothing: a
+// transfer of an account to itself names that account as its own Offset
+// Account, and PP imports it once from each side.
 func (m *toolMapper) cashJournal(i int) {
 	r := &m.in.rows[i]
 	if r.pairKind != "journal" || r.pairRef == "" || !r.partner.counted || r.pairAccount == r.account {
@@ -3107,19 +3128,30 @@ func (m *toolMapper) cashJournal(i int) {
 		m.gfCash(i)
 		return
 	}
-	pays := r.amount.Int64 < 0
-	kind := evTransferIn
-	if pays {
-		kind = evTransferOut
+	if r.amount.Int64 > 0 {
+		m.receiving = append(m.receiving, i)
+		return
 	}
-	e := m.event(i, kind)
-	e.value, e.pair, e.pairRef = abs64(r.amount.Int64), m.ix.account(r.pairAccount), r.pairRef
-	if !pays && r.partner.day != "" {
-		// The paying side's day and time date both sides, and its text is
-		// both notes'.
-		e.day, e.time, e.text = r.partner.day, r.partner.time, cmp.Or(r.partner.description, r.partner.kind)
-	}
+	e := m.event(i, evTransferOut)
+	e.value, e.pair, e.pairRef = -r.amount.Int64, m.ix.account(r.pairAccount), r.pairRef
 	m.written(i, []toolEvent{e})
+	m.paid[rowKey{r.pairAccount, r.pairRef}] = i
+}
+
+// received maps row i, which receives a transfer (cashJournal): combined
+// with its paying side when the export writes that side's Transfer
+// (Outbound), which carries both legs; else, as when the paying side is
+// dated after -to or left out for a reason of its own, by its sign, with
+// the caveat pair_outside, so that no leg is lost: the export that writes
+// the paying side combines it then.
+func (m *toolMapper) received(i int) {
+	r := &m.in.rows[i]
+	if j, ok := m.paid[rowKey{r.account, r.ref}]; ok {
+		p := &m.in.rows[j]
+		m.outcomes[i] = toolOutcome{ref: r.ref, account: m.ix.account(r.account), outcome: outcomeCombined, with: p.ref, withAccount: m.ix.account(p.account)}
+		return
+	}
+	m.cash(i, []string{"pair_outside"})
 }
 
 // cash maps row i, which moves cash only, by its sign: a deposit or a
@@ -3430,6 +3462,16 @@ func (e *toolEvent) inSnapshot(in *toolInput, s toolSnapshot) bool {
 	return inSnapshot(&in.rows[e.row], s)
 }
 
+// receivedIn reports whether snapshot s, of the Offset Account of record e,
+// a Transfer (Outbound), holds what the transfer's receiving row did
+// (inSnapshot), by that row's own day and time, which Q2 reads of the paying
+// row's partner whether the export selects the receiving row or, as after
+// -to, not.
+func (e *toolEvent) receivedIn(in *toolInput, s toolSnapshot) bool {
+	p := in.rows[e.row].partner
+	return inSnapshot(&toolRow{day: p.day, time: p.time}, s)
+}
+
 // A toolCashUnchecked is an account whose cash the cash check does not
 // check against its snapshot (checkedSnapshot), by the snapshot's market
 // date, and why: "margin", the snapshot is of a margin account with a
@@ -3455,13 +3497,13 @@ type toolCash struct {
 }
 
 // ppCash returns what record e moves of its account's cash in PP: the
-// value of a deposit, a sale, a dividend, interest, a refund or an inbound
-// transfer, less that of a withdrawal, a buy, a fee, a tax, an interest
-// charge or an outbound transfer; none for a delivery, which PP books
-// without cash (cash_not_written).
+// value of a deposit, a sale, a dividend, interest or a refund, less that
+// of a withdrawal, a buy, a fee, a tax, an interest charge or a transfer,
+// whose value PP books into its Offset Account too; none for a delivery,
+// which PP books without cash (cash_not_written).
 func ppCash(e toolEvent) int64 {
 	switch e.kind {
-	case evDeposit, evTransferIn, evSell, evDividend, evInterest, evFeesRefund, evTaxRefund:
+	case evDeposit, evSell, evDividend, evInterest, evFeesRefund, evTaxRefund:
 		return e.value
 	case evWithdrawal, evTransferOut, evBuy, evFees, evInterestCharge, evTaxes:
 		return -e.value
@@ -3476,14 +3518,16 @@ func ppCash(e toolEvent) int64 {
 // the snapshot holds (inSnapshot): PP's cash is the sum of the records, from
 // the account's first row in the store, so cash that the account held before
 // its rows begin, or that a row left out moved, shows as a difference. A
-// transfer's other side that the export makes from this one, its own row
-// dated after the export's last day, is in a later snapshot, so an
-// account's own rows alone count. It returns the differences, by account;
-// an account without such a snapshot has none, and one whose snapshot is of
-// a margin account with a margin or a short balance (marginInUse), or holds
+// Transfer (Outbound) credits its Offset Account too, into which PP books
+// its receiving leg, by the receiving row's own day and time (receivedIn),
+// not the transfer's: a snapshot of that account holds the cash once that
+// row has posted, and one taken before it, as by the end of -to when the
+// row is dated after, does not. It returns the differences, by account; an
+// account without such a snapshot has none, and one whose snapshot is of a
+// margin account with a margin or a short balance (marginInUse), or holds
 // no cash figure, is returned apart, unchecked, with why: it has no figure
-// to compare with that is certain. Ghostfolio's cash is the balances', so it
-// has nothing to check.
+// to compare with that is certain. Ghostfolio's cash is the balances', so
+// it has nothing to check.
 func cashCheck(in *toolInput, events []toolEvent) ([]toolCash, []toolCashUnchecked) {
 	latest := map[int64]toolSnapshot{}
 	var unchecked []toolCashUnchecked
@@ -3503,6 +3547,9 @@ func cashCheck(in *toolInput, events []toolEvent) ([]toolCash, []toolCashUncheck
 	for _, e := range events {
 		if s, ok := latest[e.account.id]; ok && e.inSnapshot(in, s) {
 			written[e.account.id] += ppCash(e)
+		}
+		if s, ok := latest[e.pair.id]; ok && e.kind == evTransferOut && e.receivedIn(in, s) {
+			written[e.pair.id] += e.value
 		}
 	}
 	var diffs []toolCash

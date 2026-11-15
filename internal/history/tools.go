@@ -83,11 +83,12 @@ type ToolExport struct {
 	// Written counts the ledger rows that the export writes; Given those
 	// that the export it goes on from gave the tool already, unchanged,
 	// which it does not write again; Combined the shares rows of two-row
-	// cash events that a sale written carries; and InBalances, for
-	// Ghostfolio, the cash rows that the accounts' balances carry. Late
-	// counts the rows written that the earlier export did not give and
-	// that are dated on or before its last day: they came late, were
-	// decided, paired or took a new ref since.
+	// cash events that a sale written carries, and for PP the receiving
+	// sides of transfers that a Transfer (Outbound) written carries; and
+	// InBalances, for Ghostfolio, the cash rows that the accounts' balances
+	// carry. Late counts the rows written that the earlier export did not
+	// give and that are dated on or before its last day: they came late,
+	// were decided, paired or took a new ref since.
 	Written, Given, Combined, InBalances, Late int
 	// Changed are the rows that the tool holds in another form than the
 	// export writes, and Gone those that it holds and that the export
@@ -288,16 +289,17 @@ type ToolChange struct {
 	// for PP, each record's file, day, Type and Value, as "portfolio
 	// 2025-01-21 Buy 400.67"; for Ghostfolio, each activity's day, type and
 	// value, with its fee. NoteRef is the ref that its PP Note names, when
-	// it is not Ref; Transfer, for a side of a PP transfer, the head of the
-	// Note that PP holds of the transfer, which names its paying side first,
-	// as "A2 ...398 T61001201 to A1 ...135 T61001202", "" for any other row.
+	// it is not Ref; Transfer, for a PP transfer's paying side, the head of
+	// the Note that PP holds of the transfer, which names its paying side
+	// first, as "A2 ...398 T61001201 to A1 ...135 T61001202", "" for any
+	// other row.
 	Was, NoteRef, Transfer string
 	// Now is, for a row changed, what the export writes of it, in Was's
 	// form; Why is, for a row gone, what became of it: uncounted with the
 	// store's reason, linked to the row that counts in its place, left out
-	// with its reason, combined with another row, or now cash, which
-	// Ghostfolio's balances carry; else "not in this export: no longer in
-	// the store, or dated after -to".
+	// with its reason, combined with another row, by its label and ref, or
+	// now cash, which Ghostfolio's balances carry; else "not in this
+	// export: no longer in the store, or dated after -to".
 	Now, Why string
 }
 
@@ -662,13 +664,14 @@ func toolFinds(pp *chainPPSecurity, asset *chainAsset) string {
 	return pp.shown()
 }
 
-// carried reports whether row i, combined with its cash row's sale, is
-// carried by a sale that the export writes, rather than by one that the
-// tool holds already.
+// carried reports whether row i, combined with its cash row's sale or, for
+// PP, with its paying side's transfer, is carried by a record that the
+// export writes, rather than by one that the tool holds already.
 func (e *ToolExport) carried(i int) bool {
-	r := &e.in.rows[i]
+	own := e.res.outcomes[i]
+	account := cmp.Or(own.withAccount, own.account).id
 	for j, o := range e.res.outcomes {
-		if c := &e.in.rows[j]; c.account == r.account && c.ref == e.res.outcomes[i].with {
+		if c := &e.in.rows[j]; c.account == account && c.ref == own.with {
 			return o.outcome == outcomeWritten
 		}
 	}
@@ -796,11 +799,14 @@ type (
 		Caveat  string      `json:"caveat"`
 	}
 	// A toolCombinedEntry is the shares row of a two-row cash event that a
-	// sale that the export writes carries, and that sale's row (with).
+	// sale that the export writes carries, and that sale's row (with); or,
+	// for PP, the receiving side of a transfer that the export writes, and
+	// the transfer's paying side, with its account's label (with_account).
 	toolCombinedEntry struct {
-		Ref     string `json:"ref"`
-		Account string `json:"account"`
-		With    string `json:"with"`
+		Ref         string `json:"ref"`
+		Account     string `json:"account"`
+		With        string `json:"with"`
+		WithAccount string `json:"with_account,omitempty"`
 	}
 	// A toolInBalancesEntry counts, for Ghostfolio, an account's cash rows
 	// that its balances carry.
@@ -996,7 +1002,11 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 			}
 		case outcomeCombined:
 			if e.carried(i) {
-				m.Combined = append(m.Combined, toolCombinedEntry{Ref: r.ref, Account: label, With: o.with})
+				c := toolCombinedEntry{Ref: r.ref, Account: label, With: o.with}
+				if o.withAccount.id != 0 {
+					c.WithAccount = o.withAccount.label()
+				}
+				m.Combined = append(m.Combined, c)
 			}
 		case outcomeInBalances:
 			inBalances[r.account]++

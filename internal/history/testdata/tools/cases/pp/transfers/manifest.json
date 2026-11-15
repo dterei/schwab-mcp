@@ -31,7 +31,7 @@
       "kind": "account",
       "configuration": "pp-account-transactions.json",
       "account": "A1 ...135",
-      "rows": 7,
+      "rows": 6,
       "tick": 0
     },
     {
@@ -73,26 +73,15 @@
     "times": "Time: HH:mm on New York's clocks, empty for a row with no time on its day"
   },
   "written": {
-    "rows": 11,
+    "rows": 10,
     "types": {
       "Deposit": 4,
-      "Transfer (Inbound)": 1,
       "Transfer (Outbound)": 1,
       "Withdrawal": 5
     }
   },
   "given": {
     "A1 ...135": {
-      "T61001202": {
-        "day": "2026-03-03",
-        "as": "account 2026-03-02 Transfer (Inbound) 1000.00",
-        "fp": "7f09e38ad1634814",
-        "keys": [
-          "f85335d1e172df21",
-          "18822233592905d9"
-        ],
-        "transfer": "A2 ...398 T61001201 to A1 ...135 T61001202"
-      },
       "T61001203": {
         "day": "2026-04-01",
         "as": "account 2026-04-01 Withdrawal 300.00",
@@ -211,7 +200,14 @@
       "caveat": "pair_not_journal"
     }
   ],
-  "combined": [],
+  "combined": [
+    {
+      "ref": "T61001202",
+      "account": "A1 ...135",
+      "with": "T61001201",
+      "with_account": "A2 ...398"
+    }
+  ],
   "flagged": [],
   "waiting": [],
   "holdings": {

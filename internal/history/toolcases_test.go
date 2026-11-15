@@ -487,11 +487,11 @@ func toolCaseCash() toolCase {
 }
 
 // toolCaseTransfers holds journals of cash between two accounts that the
-// export selects: a transfer, whose receiving side is dated a day after
-// the paying one; a pair whose amounts differ; one whose partner is not
-// counted; and a pair with a side that you booked, payer and receiver. And
-// a pair within one account, which you paired by hand. One account's
-// balance is negative.
+// export selects: a transfer, whose receiving side, dated a day after the
+// paying one, is combined with it; a pair whose amounts differ; one whose
+// partner is not counted; and a pair with a side that you booked, payer and
+// receiver. And a pair within one account, which you paired by hand. One
+// account's balance is negative.
 func toolCaseTransfers() toolCase {
 	journal := func(ref string, account int64, clock, description, category string, amount int64, pair string, pairAccount int64) toolRow {
 		return toolRow{
@@ -524,7 +524,7 @@ func toolCaseTransfers() toolCase {
 		}),
 		want: []toolWant{
 			{"T61001201", "Transfer (Outbound) 1000.00", "in_balances"},
-			{"T61001202", "Transfer (Inbound) 1000.00", "in_balances"},
+			{"T61001202", "combined with A2 ...398 T61001201", "in_balances"},
 			{"T61001203", "Withdrawal 300.00 [pair_amounts_differ]", "in_balances"},
 			{"T61001204", "Deposit 299.00 [pair_amounts_differ]", "in_balances"},
 			{"T61001205", "Withdrawal 200.00", "in_balances"},

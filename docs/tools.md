@@ -155,14 +155,14 @@ and the types' names, whatever PP's language and locale.
    - PP marks a row "Transaction does already exist" when it holds one of the
      same type, day, amount, shares and security, and leaves it unticked.
      **Tick exactly the rows that stderr and the manifest's `tick` list for
-     that file**, and leave every other such row unticked: those are the
-     second halves of transfers between your accounts, which came in with
-     their first, as PP books both sides of a transfer at once, and, in a
+     that file**, and leave every other such row unticked: those are, in a
      later export, rows that PP holds already under another ref, which
      stderr counts and the manifest lists under `same_as` (a file row now
-     linked to its API row). A row listed is new although PP takes it for
-     one it holds: a withdrawal of the day and amount of a transfer's, or a
-     trade equal to one that PP holds. What you booked by hand counts too:
+     linked to its API row). A transfer between your accounts is one row,
+     of its paying account's file, from which PP books both legs. A row
+     listed is new although PP takes it for one it holds: a withdrawal of
+     the day and amount of a transfer's, or a trade equal to one that PP
+     holds. What you booked by hand counts too:
      no list knows of it, so a row that a later export brings, equal to an
      entry that you booked for it, would be marked and left out. Before
      you import an export, delete what you booked for each difference that
@@ -240,14 +240,13 @@ and the types' names, whatever PP's language and locale.
 6. **With `-since`** naming the folder that you imported last, once you
    have imported it, and a new folder. Before importing, set each security
    that it lists under `symbols_changed` as step 8 says; delete in PP what
-   it lists as changed or gone, each transfer once: deleting either half of
-   a transfer in PP deletes both; and delete what you booked by hand for
-   the differences that it lists as gone, then make what you booked for
-   each other equal to it (step 4). Each is listed with how
-   its note begins; a transfer's note names its paying side first, in both
-   accounts (`schwabtx A2 ...398 T73600000101 to A1 ...135 T73600000102`),
-   and once you have paired transfers of one day again, perhaps another
-   receiving side than the row's: delete the transfer whose note is quoted.
+   it lists as changed or gone; and delete what you booked by hand for the
+   differences that it lists as gone, then make what you booked for each
+   other equal to it (step 4). Each is listed with how its note begins. A
+   transfer is one row of its paying account's file, its note naming its
+   paying side and then its receiving side (`schwabtx A2 ...398
+   T73600000101 to A1 ...135 T73600000102`): delete it once, by the note
+   quoted, and PP deletes both of its legs.
    A row listed as changed in the same form is one that PP holds under the
    note of a row that has come back since, such as a file row counted again
    beside the API row that took its place: delete it, and the export writes
@@ -305,8 +304,9 @@ and the types' names, whatever PP's language and locale.
    list, and name it in the next `-since`. PP keeps its securities when you
    delete their transactions: before you import, set each that the full
    export lists under `symbols_changed` as step 8 says. Every account at
-   once, not some: PP checks a transfer against the other account's side,
-   so a row that an account kept could mark a new row that no list names.
+   once, not some: a transfer is one row of its paying account's file,
+   which deleting either account's transactions deletes whole, and a row
+   that an account kept could mark a new row that no list names.
    Neither a changed symbol nor a bond's unit needs a redo.
 
    A store made again may number its accounts otherwise, and an account's

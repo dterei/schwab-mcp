@@ -183,8 +183,7 @@ func ppFiles(in *toolInput, events []toolEvent) []ppFile {
 	}}
 
 	// Each account's records, by file, in the order of their days and
-	// times: a transfer's receiving side takes the paying side's day,
-	// which can be before its own row's.
+	// times.
 	type file struct {
 		account toolAccount
 		records []*toolEvent
@@ -290,7 +289,7 @@ func ppRecordOf(e *toolEvent) ppRecord {
 		}
 	default:
 		r.cash = name
-		if e.kind == evTransferOut || e.kind == evTransferIn {
+		if e.kind == evTransferOut {
 			r.offset = e.pair.name()
 		}
 	}
@@ -326,15 +325,14 @@ func ppIdentifiers(s *toolSecurity) (ticker, wkn, name string) {
 // ppNote returns the Note of record e (5.3.1 of the design): schwabtx, the
 // account's label and the row's ref, and the leg of a trade or journal of
 // several; a transfer's paying side and then its receiving side, with "to"
-// between, in both accounts' files alike; a two-row cash event's cash row
-// and then, after "with", its shares row; then the row's text (the paying
-// side's for a transfer), and what each of the record's caveats says, in
-// their order. PP compares no notes when it looks for duplicates, so a note
-// may change between two exports of one row.
+// between; a two-row cash event's cash row and then, after "with", its
+// shares row; then the row's text, and what each of the record's caveats
+// says, in their order. PP compares no notes when it looks for duplicates,
+// so a note may change between two exports of one row.
 func ppNote(e *toolEvent) string {
 	var head string
 	switch {
-	case e.kind == evTransferOut || e.kind == evTransferIn:
+	case e.kind == evTransferOut:
 		head = ppTransferHead(e)
 	case e.with != "":
 		head = e.account.label() + " " + e.ref + " with " + e.with
@@ -357,14 +355,10 @@ func ppNote(e *toolEvent) string {
 	return ppTrim(note)
 }
 
-// ppTransferHead returns the head of the Note of record e, a side of a
-// transfer, which both of its records write alike: its paying side's label
-// and ref, "to", and its receiving side's, as "A2 ...398 T61001201 to A1
-// ...135 T61001202".
+// ppTransferHead returns the head of the Note of record e, a transfer: its
+// paying side's label and ref, "to", and its receiving side's, as "A2 ...398
+// T61001201 to A1 ...135 T61001202".
 func ppTransferHead(e *toolEvent) string {
-	if e.kind == evTransferIn {
-		return e.pair.label() + " " + e.pairRef + " to " + e.account.label() + " " + e.ref
-	}
 	return e.account.label() + " " + e.ref + " to " + e.pair.label() + " " + e.pairRef
 }
 

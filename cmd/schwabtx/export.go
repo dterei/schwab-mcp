@@ -862,7 +862,7 @@ func toolDeletions(w io.Writer, e *history.ToolExport, manifest string) {
 	fmt.Fprintf(w, "before importing, delete in %s what changed or went (%s lists each):\n", toolFormats[e.Tool].name, manifest)
 	// held says what the tool shows of row c and how its PP Note or
 	// Ghostfolio comment begins: a transfer's Note names its paying side
-	// first, in both accounts.
+	// first.
 	held := func(c history.ToolChange) string {
 		note, was, where := c.Account+" "+cmp.Or(c.NoteRef, c.Ref), c.Was, "comment"
 		if !gf {

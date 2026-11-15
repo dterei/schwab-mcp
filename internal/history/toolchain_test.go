@@ -106,9 +106,10 @@ func chainStepFrom(t *testing.T, e *ToolExport, dir string) *chainStep {
 // checkChain requires what compareChain made of s to agree with s's
 // mapping (3.1 of the design): each row given was written by the mapping,
 // and has no record to write, while each row written has all of its
-// records; each row combined follows a cash row written or given; any other
-// row keeps the mapping's outcome; and the next given holds an entry for
-// each row written or given, and none else.
+// records; each row combined follows a row written or given, its cash row
+// or, for a transfer's receiving side, its paying side, of another account;
+// any other row keeps the mapping's outcome; and the next given holds an
+// entry for each row written or given, and none else.
 func checkChain(t *testing.T, s *chainStep) {
 	t.Helper()
 	res := s.res
@@ -134,9 +135,9 @@ func checkChain(t *testing.T, s *chainStep) {
 			}
 			entries++
 		case outcomeCombined:
-			c, ok := byRef[rowKey{r.account, o.with}]
+			c, ok := byRef[rowKey{cmp.Or(o.withAccount.id, r.account), o.with}]
 			if !ok || res.outcomes[c].outcome != outcomeWritten && res.outcomes[c].outcome != outcomeGiven || entry {
-				t.Errorf("%s is combined with %s, which is not written or given", r.ref, o.with)
+				t.Errorf("%s is combined with %s %s, which is not written or given", r.ref, o.withLabel(), o.with)
 			}
 		default:
 			if o.outcome != m.outcome || entry {
@@ -623,8 +624,8 @@ func TestToolChain(t *testing.T) {
 
 	t.Run("keys", func(t *testing.T) {
 		t.Parallel()
-		// Both records of a transfer have its two legs' keys and are checked
-		// by the paying one, which a withdrawal of the paying account of its
+		// A transfer's one record has its two legs' keys and is checked by
+		// the paying one, which a withdrawal of the paying account of its
 		// day and amount shares; a deposit of the receiving account shares
 		// the receiving leg's.
 		events := rcEvents(toolCaseNamed("transfers").in, toolPP)
@@ -638,9 +639,8 @@ func TestToolChain(t *testing.T) {
 			return nil, 0
 		}
 		out, nOut := keysOf("T61001201")
-		into, nIn := keysOf("T61001202")
-		if len(out) != 2 || !slices.Equal(out, into) || nOut != 1 || nIn != 1 {
-			t.Errorf("a transfer's records: %q checked %d, and %q checked %d", out, nOut, into, nIn)
+		if len(out) != 2 || out[0] == out[1] || nOut != 1 {
+			t.Errorf("a transfer's record: %q checked %d", out, nOut)
 		}
 		cash := tcInput(toolInput{rows: []toolRow{
 			rcCash("T74200201", 2, "2026-03-02 16:00:00", "ELECTRONIC_FUND", "ACH Debit", "withdrawal", -100_000),
@@ -1242,7 +1242,7 @@ func TestToolChain(t *testing.T) {
 				"T74400104 not in this export: no longer in the store, or dated after -to: portfolio 2025-06-02 Buy 50.03",
 				"T74400106 left out: no_day: account 2025-06-02 Dividend 4.00",
 				"T74400108 uncounted: user: account 2025-06-03 Fees 2.50",
-				"C7440000.3 combined with C7440000.4: portfolio 2025-06-04 Sell 0.00",
+				"C7440000.3 combined with A1 ...135 C7440000.4: portfolio 2025-06-04 Sell 0.00",
 				"T74400101 uncounted: user: portfolio 2025-06-05 Buy 50.00",
 				"T74400109 not in this export: no longer in the store, or dated after -to: portfolio 2025-06-06 Buy 50.05",
 				"T74400110 not in this export: no longer in the store, or dated after -to: portfolio 2025-06-02 Buy 50.06",
@@ -1254,7 +1254,7 @@ func TestToolChain(t *testing.T) {
 				"T74400105 now cash, in the balances: 2025-06-02 DIVIDEND 3.00",
 				"T74400106 left out: no_day: 2025-06-02 DIVIDEND 4.00",
 				"T74400108 uncounted: user: 2025-06-03 FEE 2.50",
-				"C7440000.3 combined with C7440000.4: 2025-06-04 SELL 0.00",
+				"C7440000.3 combined with A1 ...135 C7440000.4: 2025-06-04 SELL 0.00",
 				"T74400101 uncounted: user: 2025-06-05 BUY 50.00",
 				"T74400109 not in this export: no longer in the store, or dated after -to: 2025-06-06 BUY 50.05",
 				"T74400110 not in this export: no longer in the store, or dated after -to: 2025-06-02 BUY 50.06",
@@ -1415,8 +1415,10 @@ func TestToolReimport(t *testing.T) {
 			late                                int
 		}{
 			{
+				// T71000202, the journal's receiving side, is combined with
+				// the transfer that its paying side, changed, writes.
 				toolPP,
-				[]string{"T71000201", "T71000102", "T71000105", "T71000106", "T71000103", "T71000202", "T71000104", "C7a0b1c2d.5", "C7a0b1c2d.6", "T71000108", "T71000107"},
+				[]string{"T71000201", "T71000102", "T71000105", "T71000106", "T71000103", "T71000104", "C7a0b1c2d.5", "C7a0b1c2d.6", "T71000108", "T71000107"},
 				[]string{"T71000101", "C7a0b1c2d.3"},
 				[]string{
 					"T71000102: portfolio 2026-01-06 Buy 500.65 -> portfolio 2026-01-06 Buy 500.95",
@@ -1430,7 +1432,7 @@ func TestToolReimport(t *testing.T) {
 				},
 				// T71000105, the same as the file row gone, did not come late.
 				[]string{"A1 ...135 C7a0b1c2d.1 T71000105"},
-				5,
+				4,
 			},
 			{
 				toolGF,
@@ -1480,16 +1482,17 @@ func TestToolReimport(t *testing.T) {
 				ppApply(t, m, e1)
 				ppApply(t, m, e2)
 				// The new row's entry keeps the ref of the Note that PP
-				// holds, the transfer's two records name one transaction,
-				// and the next export, which writes nothing, starts from
-				// what PP holds.
+				// holds, the transfer has one entry, its paying side's, and
+				// the next export, which writes nothing, starts from what PP
+				// holds.
 				if g := e2.res.given["A1 ...135"]["T71000105"]; g.NoteRef != "C7a0b1c2d.1" {
 					t.Errorf("T71000105's entry %+v", g)
 				}
-				if a, b := e2.res.given["A1 ...135"]["T71000103"].Transfer, e2.res.given["A2 ...398"]["T71000202"].Transfer; a != "A1 ...135 T71000103 to A2 ...398 T71000202" || a != b {
-					t.Errorf("the transfer's records are of %q and %q", a, b)
+				a := e2.res.given["A1 ...135"]["T71000103"].Transfer
+				if _, combined := e2.res.given["A2 ...398"]["T71000202"]; a != "A1 ...135 T71000103 to A2 ...398 T71000202" || combined {
+					t.Errorf("the transfer's entry is of %q; its receiving side has one %v", a, combined)
 				}
-				if got := rcMarks(e2); !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:2 T71000105", "account-transactions-A2-398.csv:2 T71000202"}) {
+				if got := rcMarks(e2); !slices.Equal(got, []string{"portfolio-transactions-A1-135.csv:2 T71000105"}) {
 					t.Errorf("PP marks %q", got)
 				}
 				ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
@@ -1599,13 +1602,18 @@ func TestToolReimport(t *testing.T) {
 
 	t.Run("4 a transfer beside an equal withdrawal", func(t *testing.T) {
 		t.Parallel()
+		// The full export writes the transfer and the withdrawal of its day
+		// and amount in one file, which PP checks against what it held
+		// before, not against each other: it marks neither. The late pair's
+		// transfer is of the day and amount of a withdrawal that PP holds,
+		// which marks it, to tick.
 		first, later := rcSequence4()
 		e1 := chainStepOf(t, first, toolPP, nil, rcAt1)
-		if got := rcMarks(e1); !slices.Equal(got, []string{"account-transactions-A2-398.csv:1 T74000201", "account-transactions-A2-398.csv:2 T74000202 tick"}) {
+		if got := rcMarks(e1); len(got) > 0 {
 			t.Errorf("the full export: PP marks %q", got)
 		}
 		e2 := chainStepOf(t, later, toolPP, e1, rcAt2)
-		if got := rcMarks(e2); !slices.Equal(got, []string{"account-transactions-A1-135.csv:1 T74000103 tick", "account-transactions-A2-398.csv:1 T74000204"}) {
+		if got := rcMarks(e2); !slices.Equal(got, []string{"account-transactions-A2-398.csv:1 T74000204 tick"}) {
 			t.Errorf("the late pair: PP marks %q", got)
 		}
 		m := newPPModel()
@@ -1614,9 +1622,10 @@ func TestToolReimport(t *testing.T) {
 		ppApply(t, m, e2)
 		ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
 
-		// Then the late pair's paying side is uncounted: its other side is
-		// a deposit by its sign, changed, and the paying side gone; the
-		// transfer, deleted once, goes with both.
+		// Then the late pair's paying side is uncounted: the paying side is
+		// gone, and its transfer, deleted once, goes with both legs; the
+		// other side, which had no entry of its own, is a deposit by its
+		// sign, written.
 		third := later
 		third.rows = slices.DeleteFunc(slices.Clone(later.rows), func(r toolRow) bool { return r.ref == "T74000204" })
 		for i := range third.rows {
@@ -1627,9 +1636,9 @@ func TestToolReimport(t *testing.T) {
 		third.uncounted = []toolUncounted{{ref: "T74000204", account: 2, why: "user"}}
 		e3 := chainStepOf(t, third, toolPP, e2, rcAt3)
 		changed, gone := rcChanged(e3)
-		if !slices.Equal(changed, []string{"T74000103: account 2026-03-05 Transfer (Inbound) 500.00 -> account 2026-03-05 Deposit 500.00"}) ||
-			!slices.Equal(gone, []string{"T74000204 uncounted: user: account 2026-03-05 Transfer (Outbound) 500.00"}) || len(e3.marks) > 0 {
-			t.Errorf("a side of the pair uncounted: changed %q, gone %q, marks %q", changed, gone, rcMarks(e3))
+		if len(changed) > 0 || !slices.Equal(gone, []string{"T74000204 uncounted: user: account 2026-03-05 Transfer (Outbound) 500.00"}) ||
+			!slices.Equal(e3.refs(outcomeWritten), []string{"T74000103"}) || len(e3.marks) > 0 {
+			t.Errorf("a side of the pair uncounted: changed %q, gone %q, written %q, marks %q", changed, gone, e3.refs(outcomeWritten), rcMarks(e3))
 		}
 		ppApply(t, m, e3)
 		ppReconcile(t, m, e3.in, e3.events, e3.outcomes)
@@ -1638,10 +1647,10 @@ func TestToolReimport(t *testing.T) {
 	t.Run("a transfer split by -to", func(t *testing.T) {
 		t.Parallel()
 		// The first export ends on the paying side's day: it writes the
-		// transfer from that side alone, beside a withdrawal of its day and
-		// amount in the same file, which PP does not check it against; the
-		// receiving side, written the next time, is of the transaction PP
-		// holds, which the withdrawal does not make it new.
+		// transfer from that side, beside a withdrawal of its day and amount
+		// in the same file, which PP does not check it against, and PP books
+		// both legs. The next export holds the receiving side, which it
+		// combines with the transfer that PP holds: it writes nothing.
 		pays := rcJournal("T74100201", 2, "2026-03-02 09:30:00", "JOURNAL TO ...135", -100_000, "T74100101", 1)
 		receives := rcJournal("T74100101", 1, "2026-03-03 08:00:00", "JOURNAL FRM ...398", 100_000, "T74100201", 2)
 		withdrawal := rcCash("T74100202", 2, "2026-03-02 11:00:00", "ELECTRONIC_FUND", "ACH Debit", "withdrawal", -100_000)
@@ -1656,28 +1665,26 @@ func TestToolReimport(t *testing.T) {
 			t.Errorf("the first export: PP marks %q", got)
 		}
 		e2 := chainStepOf(t, later, toolPP, e1, rcAt2)
-		if got := rcMarks(e2); !slices.Equal(got, []string{"account-transactions-A1-135.csv:1 T74100101"}) || !slices.Equal(e2.refs(outcomeWritten), []string{"T74100101"}) {
-			t.Errorf("the next: written %q, PP marks %q", e2.refs(outcomeWritten), got)
+		if got := rcMarks(e2); len(got) > 0 || len(e2.refs(outcomeWritten)) > 0 || !slices.Equal(e2.refs(outcomeCombined), []string{"T74100101"}) {
+			t.Errorf("the next: written %q, combined %q, PP marks %q", e2.refs(outcomeWritten), e2.refs(outcomeCombined), got)
 		}
-		if a, b := e2.res.given["A2 ...398"]["T74100201"].Transfer, e2.res.given["A1 ...135"]["T74100101"].Transfer; a != "A2 ...398 T74100201 to A1 ...135 T74100101" || a != b {
-			t.Errorf("the transfer's records are of %q and %q", a, b)
+		a := e2.res.given["A2 ...398"]["T74100201"].Transfer
+		if _, combined := e2.res.given["A1 ...135"]["T74100101"]; a != "A2 ...398 T74100201 to A1 ...135 T74100101" || combined {
+			t.Errorf("the transfer's entry is of %q; its receiving side has one %v", a, combined)
 		}
 		m := newPPModel()
 		ppApply(t, m, e1)
+		ppReconcile(t, m, e1.in, e1.events, e1.outcomes)
 		ppApply(t, m, e2)
 		ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
-		// And the export after, which writes nothing, starts from the one
-		// transaction that both records name.
-		e3 := chainStepOf(t, later, toolPP, e2, rcAt3)
-		ppApply(t, m, e3)
 	})
 
 	t.Run("a transfer split by -to, its paying side under a new ref", func(t *testing.T) {
 		t.Parallel()
-		// The paying side, a file row, is written alone; then it is linked
-		// to its API row, the same in all that PP keeps; and then the
-		// receiving side comes. PP holds one transfer, which the receiving
-		// side's record is of.
+		// The paying side, a file row, is written as the transfer; then it is
+		// linked to its API row, the same in all that PP keeps; and then the
+		// receiving side comes, combined with the transfer that PP holds,
+		// under the file row's Note: nothing is written.
 		receives := rcJournal("T74200101", 1, "2026-03-03 08:00:00", "JOURNAL FRM ...398", 100_000, "T74200201", 2)
 		partner := toolPartner{
 			day: "2026-03-03", time: receives.time, amount: receives.amount, counted: true, category: "journal",
@@ -1700,7 +1707,7 @@ func TestToolReimport(t *testing.T) {
 			marks, sameAs []string
 		}{
 			{e2, []string{"T74200201"}, []string{"account-transactions-A2-398.csv:1 T74200201"}, []string{"C74200001.1 T74200201"}},
-			{e3, []string{"T74200101"}, []string{"account-transactions-A1-135.csv:1 T74200101"}, nil},
+			{e3, nil, nil, nil},
 		} {
 			var same []string
 			for _, p := range c.step.res.sameAs {
@@ -1710,8 +1717,9 @@ func TestToolReimport(t *testing.T) {
 				t.Errorf("export %d: written %q, PP marks %q, the same %q", i+2, w, m, same)
 			}
 		}
-		if a, b := e3.res.given["A2 ...398"]["T74200201"], e3.res.given["A1 ...135"]["T74200101"]; a.NoteRef != "C74200001.1" || a.Transfer != "A2 ...398 C74200001.1 to A1 ...135 T74200101" || b.Transfer != a.Transfer {
-			t.Errorf("the transfer's entries %+v and %+v", a, b)
+		a := e3.res.given["A2 ...398"]["T74200201"]
+		if _, combined := e3.res.given["A1 ...135"]["T74200101"]; a.NoteRef != "C74200001.1" || a.Transfer != "A2 ...398 C74200001.1 to A1 ...135 T74200101" || combined {
+			t.Errorf("the transfer's entry %+v; its receiving side has one %v", a, combined)
 		}
 		m := newPPModel()
 		for _, s := range []*chainStep{e1, e2, e3} {
@@ -1722,28 +1730,37 @@ func TestToolReimport(t *testing.T) {
 
 	t.Run("a transfer split by -to, of an account with no other row", func(t *testing.T) {
 		t.Parallel()
-		// The side of the transfer that the first export holds is written
-		// as the transfer, which names the other account although that
-		// account has no row up to -to: the export names it to make, and
-		// PP books both sides at the paying side's day. The other side,
-		// written the next time, is of the transaction that PP holds.
+		// The paying side first: the first export writes the transfer,
+		// which names the other account although that account has no row
+		// up to -to: the export names it to make, and PP books both legs at
+		// the paying side's day. The next export combines the receiving
+		// side with the transfer that PP holds, and writes nothing. The
+		// receiving side first: the first export writes it by its sign, a
+		// Deposit, as no transfer is written yet, and names no other
+		// account; the next writes the transfer, in the other account's
+		// file, which it names to make, and lists the Deposit as gone,
+		// combined with it.
 		deposit := rcCash("T74300100", 1, "2026-11-02 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 500_000)
 		for _, c := range []struct {
 			what          string
 			first, second toolRow
-			next          string
+			accounts      []string
+			written, gone []string
 		}{
 			{
 				"the paying side first",
 				rcJournal("T74300101", 1, "2026-11-12 15:00:00", "JOURNAL TO ...783", -100_000, "T74300301", 3),
 				rcJournal("T74300301", 3, "2026-11-13 09:00:00", "JOURNAL FRM ...135", 100_000, "T74300101", 1),
-				"account-transactions-A3-783.csv:1 T74300301",
+				[]string{"Schwab A1 ...135 exported true new true", "Schwab A3 ...783 exported false new true"},
+				nil, nil,
 			},
 			{
 				"the receiving side first",
 				rcJournal("T74300102", 1, "2026-11-12 15:00:00", "JOURNAL FRM ...783", 100_000, "T74300302", 3),
 				rcJournal("T74300302", 3, "2026-11-13 09:00:00", "JOURNAL TO ...135", -100_000, "T74300102", 1),
-				"account-transactions-A3-783.csv:1 T74300302",
+				[]string{"Schwab A1 ...135 exported true new true"},
+				[]string{"T74300302"},
+				[]string{"T74300102 combined with A3 ...783 T74300302: account 2026-11-12 Deposit 1000.00"},
 			},
 		} {
 			alone := c.first
@@ -1758,14 +1775,15 @@ func TestToolReimport(t *testing.T) {
 			for _, a := range e1.e.Accounts {
 				accounts = append(accounts, fmt.Sprintf("%s exported %v new %v", a.Name, a.Exported, a.New))
 			}
-			if want := []string{"Schwab A1 ...135 exported true new true", "Schwab A3 ...783 exported false new true"}; !slices.Equal(accounts, want) {
-				t.Errorf("%s: the first export's accounts %q, want %q", c.what, accounts, want)
+			if !slices.Equal(accounts, c.accounts) {
+				t.Errorf("%s: the first export's accounts %q, want %q", c.what, accounts, c.accounts)
 			}
 			e2 := chainStepOf(t, later, toolPP, e1, rcAt2)
-			if w, m := e2.refs(outcomeWritten), rcMarks(e2); !slices.Equal(w, []string{c.second.ref}) || !slices.Equal(m, []string{c.next}) {
-				t.Errorf("%s: the next export writes %q, PP marks %q", c.what, w, m)
+			_, g := rcChanged(e2)
+			if w, m := e2.refs(outcomeWritten), rcMarks(e2); !slices.Equal(w, c.written) || !slices.Equal(g, c.gone) || len(m) > 0 {
+				t.Errorf("%s: the next export writes %q, lists %q gone, PP marks %q", c.what, w, g, m)
 			}
-			if a := e2.e.Accounts; len(a) != 2 || a[0].New || a[1].New {
+			if a := e2.e.Accounts; len(a) != 2 || a[0].New || a[1].New != (len(c.written) > 0) {
 				t.Errorf("%s: the next export's accounts %+v", c.what, a)
 			}
 			m := newPPModel()
@@ -1773,6 +1791,38 @@ func TestToolReimport(t *testing.T) {
 			ppReconcile(t, m, e1.in, e1.events, e1.outcomes)
 			ppApply(t, m, e2)
 			ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
+		}
+	})
+
+	t.Run("a transfer's paying side left out", func(t *testing.T) {
+		t.Parallel()
+		// The paying side has no day, and is left out for it: no transfer
+		// is written, and the receiving side goes by its sign, a Deposit,
+		// so that no leg is lost. The paying account's cash differs from its
+		// snapshot by the payment, which stderr lists; booked by hand as it
+		// says, PP holds each account's snapshot cash.
+		funds := rcCash("T7c020202", 2, "2026-03-01 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 500_000)
+		pays := rcJournal("T7c020201", 2, "2026-03-02 09:30:00", "JOURNAL TO ...135", -100_000, "T7c020101", 1)
+		pays.time = time.Time{}
+		receives := rcJournal("T7c020101", 1, "2026-03-03 08:00:00", "JOURNAL FRM ...398", 100_000, pays.ref, 2)
+		s := chainStepOf(t, tcInput(toolInput{to: "2026-03-06", rows: []toolRow{pays, funds, receives}, snapshots: []toolSnapshot{
+			rcSnapshot(1, "2026-03-05", 100_000), rcSnapshot(2, "2026-03-05", 400_000),
+		}}), toolPP, nil, rcAt1)
+		l := s.res.leftOut
+		if w := s.refs(outcomeWritten); !slices.Equal(w, []string{funds.ref, receives.ref}) || len(l) != 1 || l[0].Ref != pays.ref || l[0].Reason != "no_day" ||
+			!slices.Equal(s.outcomes[2].caveats, []string{"pair_outside"}) || !reflect.DeepEqual(s.e.Differences, []ToolDifference{{Account: "A2 ...398", Cash: true, Value: "-1000.00"}}) {
+			t.Errorf("written %q, left out %+v, caveats %q, listed %+v", w, l, s.outcomes[2].caveats, s.e.Differences)
+		}
+		m := newPPModel()
+		ppApply(t, m, s)
+		const a2 = "Schwab A2 ...398"
+		f := ppFolderOf(toolInput{tool: toolPP})
+		f["account-transactions-A2-398.csv"] = ppMade(ppAccount, map[string]string{"Date": "2026-02-27", "Type": "Withdrawal", "Value": "1000.00", "Cash Account": a2, "Note": "by hand"})
+		if _, refused := m.importFile(f.write(t), "account-transactions-A2-398.csv", a2, nil); len(refused) > 0 {
+			t.Fatal(refused)
+		}
+		if a, b := m.cash("Schwab A1 ...135"), m.cash(a2); a != 100_000 || b != 400_000 {
+			t.Errorf("PP holds %s and %s, the snapshots 1000.00 and 4000.00", formatCents(a), formatCents(b))
 		}
 	})
 
@@ -1910,11 +1960,13 @@ func TestToolReimport(t *testing.T) {
 
 	t.Run("a transfer's paying side given with another receiving side", func(t *testing.T) {
 		t.Parallel()
-		// A transfer; then its receiving side is unpaired, a Deposit,
-		// changed, whose deletion takes the transfer with it, while a new
-		// journal of A1 pairs with the paying side, which, alike in all
-		// that PP keeps, is given. The new journal's record makes the
-		// transfer again, under its Note, which both entries then name.
+		// A transfer; then its receiving side is unpaired, a Deposit, which
+		// had no entry of its own and is written, while a new journal of A1
+		// pairs with the paying side, which, alike in all that PP keeps, is
+		// given, and keeps its entry: PP holds the transfer under the Note
+		// that names the first receiving side. The new journal is combined
+		// with it, and the Deposit, equal to the transfer's receiving leg,
+		// is ticked.
 		pays := rcJournal("T79900201", 2, "2026-05-04 09:30:00", "JOURNAL TO ...135", -100_000, "T79900101", 1)
 		receives := rcJournal("T79900101", 1, "2026-05-04 09:30:05", "JOURNAL FRM ...398", 100_000, pays.ref, 2)
 		unpaired := receives
@@ -1924,10 +1976,12 @@ func TestToolReimport(t *testing.T) {
 		other := rcJournal("T79900102", 1, "2026-05-04 09:31:00", "JOURNAL FRM ...398", 100_000, pays.ref, 2)
 		e1 := chainStepOf(t, tcInput(toolInput{to: "2026-05-08", rows: []toolRow{pays, receives}}), toolPP, nil, rcAt1)
 		e2 := chainStepOf(t, tcInput(toolInput{to: "2026-05-15", rows: []toolRow{paysAgain, unpaired, other}}), toolPP, e1, rcAt2)
-		head := "A2 ...398 T79900201 to A1 ...135 T79900102"
-		if a, b := e2.res.given["A2 ...398"][pays.ref], e2.res.given["A1 ...135"][other.ref]; !slices.Equal(e2.refs(outcomeGiven), []string{pays.ref}) ||
-			a.Transfer != head || b.Transfer != head {
-			t.Errorf("given %q, the transfer's entries %+v and %+v", e2.refs(outcomeGiven), a, b)
+		a := e2.res.given["A2 ...398"][pays.ref]
+		if !slices.Equal(e2.refs(outcomeGiven), []string{pays.ref}) || !slices.Equal(e2.refs(outcomeWritten), []string{unpaired.ref}) ||
+			!slices.Equal(e2.refs(outcomeCombined), []string{other.ref}) || a.Transfer != "A2 ...398 T79900201 to A1 ...135 T79900101" ||
+			!slices.Equal(rcMarks(e2), []string{"account-transactions-A1-135.csv:1 T79900101 tick"}) {
+			t.Errorf("given %q, written %q, combined %q, the transfer's entry %+v, PP marks %q",
+				e2.refs(outcomeGiven), e2.refs(outcomeWritten), e2.refs(outcomeCombined), a, rcMarks(e2))
 		}
 		m := newPPModel()
 		for _, s := range []*chainStep{e1, e2} {
@@ -1942,8 +1996,8 @@ func TestToolReimport(t *testing.T) {
 		// (same_as); then the file row counts again beside it, unpaired, a
 		// Withdrawal of the transfer's day and amount. The API row's entry
 		// names the file row's Note: it is changed, the transfer deleted
-		// once and written again under its own, and the receiving side,
-		// given, is of the transfer that the API row makes.
+		// once and written again under its own Note, with which the
+		// receiving side, which has no entry, is combined.
 		dep := rcCash("T79300200", 2, "2026-03-01 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 500_000)
 		filePays := rcFile("C79b0c1d2.1", 2, "2026-03-02", "Journal", "journal", "", "", sql.NullInt64{}, 0, -100_000)
 		filePays.pairKind, filePays.pairRef, filePays.pairAccount = "journal", "T79300101", 1
@@ -1964,9 +2018,9 @@ func TestToolReimport(t *testing.T) {
 			e3.res.changed[0].Ref != apiPays.ref || e3.res.changed[0].Transfer != "A2 ...398 C79b0c1d2.1 to A1 ...135 T79300101" {
 			t.Errorf("back: it writes %q, lists %+v and %q, PP marks %q", w, e3.res.changed, gone, rcMarks(e3))
 		}
-		if a, b := e3.res.given["A2 ...398"][apiPays.ref], e3.res.given["A1 ...135"][receives.ref]; a.NoteRef != "" ||
-			a.Transfer != "A2 ...398 T79300201 to A1 ...135 T79300101" || b.Transfer != a.Transfer {
-			t.Errorf("the transfer's entries %+v and %+v", a, b)
+		a := e3.res.given["A2 ...398"][apiPays.ref]
+		if _, combined := e3.res.given["A1 ...135"][receives.ref]; a.NoteRef != "" || a.Transfer != "A2 ...398 T79300201 to A1 ...135 T79300101" || combined {
+			t.Errorf("the transfer's entry %+v; its receiving side has one %v", a, combined)
 		}
 		m := newPPModel()
 		for _, s := range []*chainStep{e1, e2, e3} {
@@ -1978,14 +2032,14 @@ func TestToolReimport(t *testing.T) {
 	t.Run("a transfer's receiving side given with another paying side", func(t *testing.T) {
 		t.Parallel()
 		// A file journal pays a transfer; then an API journal pays its
-		// receiving side, which, alike in all that PP keeps, is given, while
-		// the file journal stays counted, unpaired: a Withdrawal, changed,
-		// whose deletion takes the transfer with it, which the API journal
-		// makes again. The receiving side is then of that transfer, not of
-		// the file journal's, whose Withdrawal PP holds; and when it is
-		// uncounted, and the API journal is unpaired, a Withdrawal equal to
-		// the file journal's, the start holds that Withdrawal, and the API
-		// journal's is ticked.
+		// receiving side, which is combined with the API journal's transfer,
+		// written, while the file journal stays counted, unpaired: a
+		// Withdrawal, changed, whose deletion takes the transfer with it.
+		// When the receiving side is uncounted, and the API journal is
+		// unpaired, a Withdrawal equal to the file journal's, the API
+		// journal is changed too: its transfer goes with both legs, the
+		// start holds the file journal's Withdrawal, and the API journal's
+		// is ticked.
 		dep := rcCash("T79400200", 2, "2026-01-02 10:30:00", "WIRE_IN", "Wire Incoming", "deposit", 500_000)
 		file := rcFile("C79c0d1e2.1", 2, "2026-01-12", "Journal", "journal", "", "", sql.NullInt64{}, 0, -30_000)
 		file.description = "JOURNAL TO ...135"
@@ -2005,9 +2059,9 @@ func TestToolReimport(t *testing.T) {
 			to: "2026-03-27", rows: []toolRow{dep, file, api},
 			uncounted: []toolUncounted{{ref: receives.ref, account: 1, why: "user"}},
 		}), toolPP, e2, rcAt3)
-		if g := e2.res.given["A1 ...135"][receives.ref]; !slices.Equal(e2.refs(outcomeGiven), []string{dep.ref, receives.ref}) ||
-			g.Transfer != "A2 ...398 T79400201 to A1 ...135 T79400101" || e2.res.given["A2 ...398"][api.ref].Transfer != g.Transfer {
-			t.Errorf("the receiving side given %q: %+v", e2.refs(outcomeGiven), g)
+		if g := e2.res.given["A2 ...398"][api.ref]; !slices.Equal(e2.refs(outcomeGiven), []string{dep.ref}) || !slices.Equal(e2.refs(outcomeCombined), []string{receives.ref}) ||
+			g.Transfer != "A2 ...398 T79400201 to A1 ...135 T79400101" || len(e2.res.changed) != 1 || e2.res.changed[0].Ref != file.ref {
+			t.Errorf("given %q, combined %q, changed %+v, the transfer's entry %+v", e2.refs(outcomeGiven), e2.refs(outcomeCombined), e2.res.changed, g)
 		}
 		if got := rcMarks(e3); !slices.Equal(got, []string{"account-transactions-A2-398.csv:1 T79400201 tick"}) {
 			t.Errorf("uncounted: PP marks %q", got)
@@ -2023,10 +2077,10 @@ func TestToolReimport(t *testing.T) {
 		t.Parallel()
 		// A transfer; then its paying side is unpaired, a Withdrawal, whose
 		// deletion takes the transfer, while its receiving side, a file row,
-		// is linked to an API row alike, which another journal pays. PP will
-		// not hold the file row's transaction, so the API row is not the
-		// same as it: the file row is gone, and the API row is written under
-		// its own Note.
+		// is linked to an API row alike, which another journal pays. The file
+		// row had no entry of its own, so nothing of it is gone or the same:
+		// the API row is combined with the other journal's transfer, written
+		// under its own Note.
 		dep := rcCash("T79800200", 2, "2026-04-01 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 500_000)
 		pays := rcJournal("T79800201", 2, "2026-04-06 09:30:00", "JOURNAL TO ...135", -100_000, "C79a1b2c3.1", 1)
 		file := rcFile("C79a1b2c3.1", 1, "2026-04-06", "Journal", "journal", "", "", sql.NullInt64{}, 0, 100_000)
@@ -2041,9 +2095,9 @@ func TestToolReimport(t *testing.T) {
 			uncounted: []toolUncounted{{ref: file.ref, account: 1, why: "linked", matchedWith: api.ref}},
 		}), toolPP, e1, rcAt2)
 		changed, gone := rcChanged(e2)
-		if len(e2.res.sameAs) > 0 || len(changed) != 1 || !slices.Equal(gone, []string{file.ref + " linked to T79800101: account 2026-04-06 Transfer (Inbound) 1000.00"}) ||
-			e2.res.given["A1 ...135"][api.ref].NoteRef != "" {
-			t.Errorf("the same %+v, changed %q, gone %q, the API row's entry %+v", e2.res.sameAs, changed, gone, e2.res.given["A1 ...135"][api.ref])
+		if len(e2.res.sameAs) > 0 || !slices.Equal(changed, []string{pays.ref + ": account 2026-04-06 Transfer (Outbound) 1000.00 -> account 2026-04-06 Withdrawal 1000.00"}) ||
+			len(gone) > 0 || !slices.Equal(e2.refs(outcomeWritten), []string{pays.ref, paysAPI.ref}) || !slices.Equal(e2.refs(outcomeCombined), []string{api.ref}) {
+			t.Errorf("the same %+v, changed %q, gone %q, written %q, combined %q", e2.res.sameAs, changed, gone, e2.refs(outcomeWritten), e2.refs(outcomeCombined))
 		}
 		m := newPPModel()
 		ppApply(t, m, e1)
@@ -2117,14 +2171,14 @@ func TestToolReimport(t *testing.T) {
 		t.Parallel()
 		// A deposit to A1, given, of the day and amount of a transfer that
 		// comes later: PP checks the transfer by its paying leg alone, in
-		// A2, and marks neither of its records.
+		// A2, and does not mark it.
 		deposit := rcCash("T79700101", 1, "2026-03-02 16:00:00", "ELECTRONIC_FUND", "ACH Credit", "deposit", 100_000)
 		pays := rcJournal("T79700201", 2, "2026-03-02 09:30:00", "JOURNAL TO ...135", -100_000, "T79700102", 1)
 		receives := rcJournal("T79700102", 1, "2026-03-02 09:30:02", "JOURNAL FRM ...398", 100_000, "T79700201", 2)
 		e1 := chainStepOf(t, tcInput(toolInput{to: "2026-03-06", rows: []toolRow{deposit}}), toolPP, nil, rcAt1)
 		e2 := chainStepOf(t, tcInput(toolInput{to: "2026-03-06", rows: []toolRow{pays, receives, deposit}}), toolPP, e1, rcAt2)
-		if got := rcMarks(e2); !slices.Equal(got, []string{"account-transactions-A2-398.csv:1 T79700201"}) {
-			t.Errorf("PP marks %q", got)
+		if got := rcMarks(e2); len(got) > 0 || !slices.Equal(e2.refs(outcomeWritten), []string{pays.ref}) {
+			t.Errorf("written %q, PP marks %q", e2.refs(outcomeWritten), got)
 		}
 		m := newPPModel()
 		ppApply(t, m, e1)
@@ -2163,29 +2217,39 @@ func TestToolReimport(t *testing.T) {
 	t.Run("two transfers of one day paired again by hand", func(t *testing.T) {
 		t.Parallel()
 		// Each pair as the store made it; then you pair the first paying
-		// side with the second receiving side, which, alike in all that PP
-		// keeps, are both given, while the other two are unpaired, or
-		// uncounted. Both transfers are deleted with those two, so the
-		// first paying side is written again: its record makes the new
-		// transfer, which both entries name.
+		// side with the second receiving side. The first paying side, alike
+		// in all that PP keeps, is given, and keeps its entry, whose Note PP
+		// holds, and the second receiving side is combined with its
+		// transfer. The other two are unpaired, or uncounted: the second
+		// paying side's transfer is changed, or gone, and deleted with both
+		// legs, and the first receiving side, which had no entry, is a
+		// Deposit, written. Unpaired, both new rows equal a leg of the first
+		// paying side's transfer, which PP holds: both are ticked.
 		deposits, pays, receives := sameDay("T7d000")
 		p1, r1 := pairOf(pays[0], receives[0])
 		p2, r2 := pairOf(pays[1], receives[1])
 		q1, q2 := pairOf(pays[0], receives[1])
 		for _, c := range []struct {
-			name      string
-			rows      []toolRow
-			uncounted []toolUncounted
+			name           string
+			rows           []toolRow
+			uncounted      []toolUncounted
+			written, marks []string
 		}{
-			{"unpaired", []toolRow{q1, unpaired(receives[0]), unpaired(pays[1]), q2}, nil},
-			{"uncounted", []toolRow{q1, q2}, []toolUncounted{{ref: receives[0].ref, account: 1, why: "user"}, {ref: pays[1].ref, account: 2, why: "user"}}},
+			{
+				"unpaired",
+				[]toolRow{q1, unpaired(receives[0]), unpaired(pays[1]), q2},
+				nil,
+				[]string{receives[0].ref, pays[1].ref},
+				[]string{"account-transactions-A1-135.csv:1 T7d000031 tick", "account-transactions-A2-398.csv:1 T7d000022 tick"},
+			},
+			{"uncounted", []toolRow{q1, q2}, []toolUncounted{{ref: receives[0].ref, account: 1, why: "user"}, {ref: pays[1].ref, account: 2, why: "user"}}, nil, nil},
 		} {
 			e1 := chainStepOf(t, tcInput(toolInput{to: "2026-02-27", rows: slices.Concat(deposits, []toolRow{p1, r1, p2, r2})}), toolPP, nil, rcAt1)
 			e2 := chainStepOf(t, tcInput(toolInput{to: "2026-03-27", rows: slices.Concat(deposits, c.rows), uncounted: c.uncounted}), toolPP, e1, rcAt2)
-			head := "A2 ...398 T7d000021 to A1 ...135 T7d000032"
-			a, b := e2.res.given["A2 ...398"][pays[0].ref], e2.res.given["A1 ...135"][receives[1].ref]
-			if w := e2.refs(outcomeWritten); !slices.Contains(w, pays[0].ref) || slices.Contains(w, receives[1].ref) || a.Transfer != head || b.Transfer != head {
-				t.Errorf("%s: written %q, the transfer's entries %+v and %+v", c.name, w, a, b)
+			a := e2.res.given["A2 ...398"][pays[0].ref]
+			if w, m := e2.refs(outcomeWritten), rcMarks(e2); !slices.Contains(e2.refs(outcomeGiven), pays[0].ref) || !slices.Equal(w, c.written) || !slices.Equal(m, c.marks) ||
+				!slices.Equal(e2.refs(outcomeCombined), []string{receives[1].ref}) || a.Transfer != "A2 ...398 T7d000021 to A1 ...135 T7d000031" {
+				t.Errorf("%s: written %q, PP marks %q, the transfer's entry %+v", c.name, w, m, a)
 			}
 			m := newPPModel()
 			for _, s := range []*chainStep{e1, e2} {
@@ -2197,39 +2261,52 @@ func TestToolReimport(t *testing.T) {
 
 	t.Run("two transfers of one day swapping partners", func(t *testing.T) {
 		t.Parallel()
-		// The transfers swap their receiving sides, all four sides given;
-		// then one of them goes. Each side given is of the transfer of its
-		// paying side now, not of the one it was first written with, so
-		// that what goes deletes its own transfer and no other.
+		// The transfers swap their receiving sides; then one of them goes.
+		// Each transfer has one entry, its paying side's, which keeps the
+		// Note that it was written with, the one PP holds, whatever
+		// receiving side it pairs with now, so that what goes deletes its
+		// own transfer and no other.
 		deposits, pays, receives := sameDay("T7e000")
 		p1, r1 := pairOf(pays[0], receives[0])
 		p2, r2 := pairOf(pays[1], receives[1])
 		q1, s2 := pairOf(pays[0], receives[1])
 		q2, s1 := pairOf(pays[1], receives[0])
 		for _, c := range []struct {
-			name        string
-			first, then []toolRow
+			name          string
+			first, then   []toolRow
+			heads         []string
+			changed, gone []string
 		}{
-			// Swapped: given as they were, each side is of its new paying
-			// side's transfer, which PP holds still.
-			{"swapped", []toolRow{p1, r1, p2, r2}, []toolRow{q1, s2, q2, s1}},
+			// Swapped: both transfers given as they were, each under the
+			// Note of the receiving side that it was written with.
+			{
+				"swapped",
+				[]toolRow{p1, r1, p2, r2},
+				[]toolRow{q1, s2, q2, s1},
+				[]string{"A2 ...398 T7e000021 to A1 ...135 T7e000031", "A2 ...398 T7e000022 to A1 ...135 T7e000032"},
+				nil, nil,
+			},
 			// From one pair and a deposit and a withdrawal alike, to two:
-			// the new paying side's record makes a second transfer, of the
-			// receiving side given beside it.
-			{"paired", []toolRow{q1, s2, unpaired(receives[0]), unpaired(pays[1])}, []toolRow{p1, r1, p2, r2}},
+			// the first transfer given, the withdrawal changed into the
+			// second, and the deposit gone, combined with the first.
+			{
+				"paired",
+				[]toolRow{q1, s2, unpaired(receives[0]), unpaired(pays[1])},
+				[]toolRow{p1, r1, p2, r2},
+				[]string{"A2 ...398 T7e000021 to A1 ...135 T7e000032", "A2 ...398 T7e000022 to A1 ...135 T7e000032"},
+				[]string{"T7e000022: account 2026-02-03 Withdrawal 50.00 -> account 2026-02-03 Transfer (Outbound) 50.00"},
+				[]string{"T7e000031 combined with A2 ...398 T7e000021: account 2026-02-03 Deposit 50.00"},
+			},
 		} {
 			e1 := chainStepOf(t, tcInput(toolInput{to: "2026-02-27", rows: slices.Concat(deposits, c.first)}), toolPP, nil, rcAt1)
 			e2 := chainStepOf(t, tcInput(toolInput{to: "2026-03-27", rows: slices.Concat(deposits, c.then)}), toolPP, e1, rcAt2)
-			// Each side is of the transfer of its paying side now.
-			for _, r := range c.then {
-				payer := r.ref
-				if r.amount.Int64 > 0 {
-					payer = r.pairRef
-				}
-				g, pg := e2.res.given[e2.in.accountOf(r.account).label()][r.ref], e2.res.given["A2 ...398"][payer]
-				if g.Transfer == "" || g.Transfer != pg.Transfer {
-					t.Errorf("%s: %s is of %q, its paying side %s of %q", c.name, r.ref, g.Transfer, payer, pg.Transfer)
-				}
+			var heads []string
+			for _, p := range pays {
+				heads = append(heads, e2.res.given["A2 ...398"][p.ref].Transfer)
+			}
+			changed, gone := rcChanged(e2)
+			if _, ok := e2.res.given["A1 ...135"][receives[0].ref]; !slices.Equal(heads, c.heads) || !slices.Equal(changed, c.changed) || !slices.Equal(gone, c.gone) || ok {
+				t.Errorf("%s: the transfers' entries %q, changed %q, gone %q; the receiving side has one %v", c.name, heads, changed, gone, ok)
 			}
 			// The second receiving side goes, and its paying side is unpaired.
 			var left []toolRow
@@ -2255,11 +2332,13 @@ func TestToolReimport(t *testing.T) {
 
 	t.Run("a receiving side the same as a gone one, of another paying side then", func(t *testing.T) {
 		t.Parallel()
-		// A file journal receives a transfer, and its API row takes its
-		// place (same_as), under its Note; then the API row is paid by the
-		// other journal, a transfer of another Note, and its entry names no
-		// file row's Note: when the file row counts again, the API row is
-		// given still, not changed.
+		// A file journal receives a transfer, combined with it; its API row
+		// takes its place, combined with the transfer that PP holds, under
+		// the Note that names the file row; then the API row is paid by the
+		// other journal, a transfer written under its own Note, and the
+		// first changed into a withdrawal. When the file row counts again,
+		// a deposit equal to the second transfer's receiving leg, it is
+		// written and ticked, and nothing else changes.
 		deposits, pays, receives := sameDay("T7g000")
 		file := rcFile("C7g000000.1", 1, "2026-02-03", "Journal", "journal", "", "", sql.NullInt64{}, 0, 5000)
 		file.description = "JOURNAL FRM ...398"
@@ -2271,12 +2350,13 @@ func TestToolReimport(t *testing.T) {
 		e2 := chainStepOf(t, tcInput(toolInput{to: "2026-03-27", rows: slices.Concat(deposits, []toolRow{q1, a1, unpaired(pays[1])}), uncounted: linked}), toolPP, e1, rcAt2)
 		e3 := chainStepOf(t, tcInput(toolInput{to: "2026-04-27", rows: slices.Concat(deposits, []toolRow{unpaired(pays[0]), q2, a2}), uncounted: linked}), toolPP, e2, rcAt3)
 		e4 := chainStepOf(t, tcInput(toolInput{to: "2026-05-27", rows: slices.Concat(deposits, []toolRow{unpaired(pays[0]), q2, a2, unpaired(file)})}), toolPP, e3, rcAt4)
-		g2, g3 := e2.res.given["A1 ...135"][receives[0].ref], e3.res.given["A1 ...135"][receives[0].ref]
-		if g2.NoteRef != file.ref || g3.NoteRef != "" || g3.Transfer != "A2 ...398 T7g000022 to A1 ...135 T7g000031" {
-			t.Errorf("the API row's entries %+v and %+v", g2, g3)
+		if g1, g3 := e2.res.given["A2 ...398"][pays[0].ref], e3.res.given["A2 ...398"][pays[1].ref]; g1.Transfer != "A2 ...398 T7g000021 to A1 ...135 C7g000000.1" ||
+			g3.Transfer != "A2 ...398 T7g000022 to A1 ...135 T7g000031" || !slices.Equal(e3.refs(outcomeCombined), []string{receives[0].ref}) {
+			t.Errorf("the transfers' entries %+v and %+v, combined %q", g1, g3, e3.refs(outcomeCombined))
 		}
-		if changed, gone := rcChanged(e4); len(changed)+len(gone) > 0 || !slices.Equal(e4.refs(outcomeWritten), []string{file.ref}) {
-			t.Errorf("the file row back: written %q, changed %q, gone %q", e4.refs(outcomeWritten), changed, gone)
+		if changed, gone := rcChanged(e4); len(changed)+len(gone) > 0 || !slices.Equal(e4.refs(outcomeWritten), []string{file.ref}) ||
+			!slices.Equal(rcMarks(e4), []string{"account-transactions-A1-135.csv:1 C7g000000.1 tick"}) {
+			t.Errorf("the file row back: written %q, changed %q, gone %q, PP marks %q", e4.refs(outcomeWritten), changed, gone, rcMarks(e4))
 		}
 		m := newPPModel()
 		for _, s := range []*chainStep{e1, e2, e3, e4} {
@@ -2542,10 +2622,10 @@ func TestToolReimport(t *testing.T) {
 			m.deleteAccount(name)
 		}
 		ppApply(t, m, redo)
-		if got := rcMarks(redo); !slices.Equal(got, []string{
-			"account-transactions-A2-398.csv:1 T74000201", "account-transactions-A2-398.csv:2 T74000202 tick",
-			"account-transactions-A2-398.csv:3 T74000203 tick", "account-transactions-A2-398.csv:4 T74000204",
-		}) {
+		// Each transfer is one row of its paying account's file, which PP
+		// checks against what it held before, nothing once deleted: the
+		// redo marks no row.
+		if got := rcMarks(redo); len(got) > 0 {
 			t.Errorf("the redo: PP marks %q", got)
 		}
 		ppReconcile(t, m, redo.in, redo.events, redo.outcomes)

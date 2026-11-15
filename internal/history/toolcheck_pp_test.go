@@ -1767,8 +1767,9 @@ func TestToolCheckersPP(t *testing.T) {
 		for _, r := range refused {
 			t.Error(r)
 		}
-		// The transfer's second half, and only it, is marked.
-		if !slices.Equal(marked, []string{acct2 + ":1"}) {
+		// Nothing is marked: the transfer is one row, of its paying
+		// account's file.
+		if len(marked) > 0 {
 			t.Errorf("PP marks %v", marked)
 		}
 		ppReconcile(t, m, &in, events, outcomes)
@@ -1879,7 +1880,7 @@ func TestToolCheckersPP(t *testing.T) {
 			// The records, by their types.
 			{"a security on interest", ppSetCell(acct1, "T62000108", "Ticker Symbol", "XYZ"), "Type Interest names a security"},
 			{"a security on a deposit", ppSetCell(acct1, "T62000101", "Security Name", "XYZ CORP COMMON STOCK"), "Type Deposit names a security"},
-			{"a security on a transfer", ppSetCell(acct1, "T62000201", "WKN", "98389B100"), "Type Transfer (Inbound) names a security"},
+			{"a security on a transfer", ppSetCell(acct2, "T62000201", "WKN", "98389B100"), "Type Transfer (Outbound) names a security"},
 			{"a dividend of no security", ppRecords(acct1, "T62000105", func(r [][]string, i int) [][]string {
 				for _, l := range []string{"Ticker Symbol", "WKN", "Security Name"} {
 					r[i][slices.Index(r[0], l)] = ""
@@ -1900,8 +1901,8 @@ func TestToolCheckersPP(t *testing.T) {
 			{"a buy in the account file", ppSetCell(acct1, "T62000101", "Type", "Buy"), "Type Buy is written to the portfolio file"},
 			{"a deposit in the portfolio file", ppSetCell(port1, "T62000102", "Type", "Deposit"), `the Type "Deposit" is no label`},
 			{"a transfer of a security", ppSetCell(port1, "Cf6000001.8", "Type", "Transfer (Outbound)"), "Type Transfer (Outbound) is not written to the portfolio file"},
-			{"an offset account of no account", ppSetCell(acct1, "T62000201", "Offset Account", "Schwab A9 ...999"), `Offset Account "Schwab A9 ...999", which names no other account`},
-			{"a transfer to its own account", ppSetCell(acct1, "T62000201", "Offset Account", "Schwab A1 ...135"), `Offset Account "Schwab A1 ...135", which names no other account`},
+			{"an offset account of no account", ppSetCell(acct2, "T62000201", "Offset Account", "Schwab A9 ...999"), `Offset Account "Schwab A9 ...999", which names no other account`},
+			{"a transfer to its own account", ppSetCell(acct2, "T62000201", "Offset Account", "Schwab A2 ...398"), `Offset Account "Schwab A2 ...398", which names no other account`},
 			{"a transfer of no offset account", ppSetCell(acct2, "T62000201", "Offset Account", ""), `Offset Account "", which names no other account`},
 			{"an offset account on a deposit", ppSetCell(acct1, "T62000101", "Offset Account", "Schwab A2 ...398"), "Type Deposit has the Offset Account"},
 			{"another account's cash", ppSetCell(acct1, "T62000101", "Cash Account", "Schwab A2 ...398"), `the Cash Account "Schwab A2 ...398" is not the file's`},
@@ -2023,18 +2024,19 @@ func TestToolCheckersPP(t *testing.T) {
 
 		// What PP takes without a word: an Offset Account that names no
 		// account sends the transfer to the review page's first account by
-		// name, here the receiving account itself, so that A1's file makes
-		// a transfer from A1 to A1, which moves no money; and a comma for
-		// decimals reads 10000.00 as 1000000.
+		// name, here another of yours, Checking, which sorts before the
+		// receiving account, so that the receiving leg lands there; and a
+		// comma for decimals reads 10000.00 as 1000000.
 		f := maps.Clone(good)
-		ppSetCell(acct1, "T62000201", "Offset Account", "Schwab A9 ...999")(t, f)
-		m := newPPModel(ppCheckerNames...)
+		ppSetCell(acct2, "T62000201", "Offset Account", "Schwab A9 ...999")(t, f)
+		m := newPPModel(append([]string{"Checking"}, ppCheckerNames...)...)
 		if refused, _ := ppImportAll(m, f.write(t), ppCheckerNames, nil); len(refused) > 0 {
 			t.Fatal(refused)
 		}
-		a1 := ppOwnerNamed(m.accounts, "Schwab A1 ...135")
-		if !slices.ContainsFunc(a1.txs, func(tx *ppTx) bool { return tx.typ == "TRANSFER_OUT" && tx.other.owner == a1 }) {
-			t.Errorf("A1's transfer goes from %v", a1.txs)
+		if checking := ppOwnerNamed(m.accounts, "Checking"); !slices.ContainsFunc(checking.txs, func(tx *ppTx) bool {
+			return tx.typ == "TRANSFER_IN" && tx.other.owner.name == "Schwab A2 ...398"
+		}) {
+			t.Errorf("the transfer's receiving leg is not in Checking: %v", checking.txs)
 		}
 		f = maps.Clone(good)
 		ppSetColumn(config, "Value", func(c map[string]any) { c["format"] = "0.000,00" })(t, f)
@@ -2094,7 +2096,7 @@ func TestPPModel(t *testing.T) {
 		ppImportAll(m, dir, ppCheckerNames, nil)
 		cash := m.cash(a1)
 		refused, marked := ppImportAll(m, dir, ppCheckerNames, nil)
-		if len(refused) > 0 || len(marked) != 22 || m.cash(a1) != cash {
+		if len(refused) > 0 || len(marked) != 21 || m.cash(a1) != cash {
 			t.Errorf("the second import marks %d rows %v, refuses %v; A1's cash %s, was %s", len(marked), marked, refused, formatCents(m.cash(a1)), formatCents(cash))
 		}
 	})

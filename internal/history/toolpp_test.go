@@ -42,10 +42,10 @@ func ppAccountNames(e *ToolExport) []string {
 // its manifest, byte for byte, beside the configurations that every export
 // writes alike; that PP 0.90.0 read the export as it means (ppCheck); and
 // that a model of PP into which it is imported, in the order of its files,
-// mark exactly the rows that the export says PP marks, none of them to
-// tick, and then hold the ledger's cash and shares of each account
-// (ppReconcile): no row of the cases is one that PP marks as existing but
-// the second half of a transfer, which must stay unticked.
+// mark exactly the rows that the export says PP marks, which are none, and
+// then hold the ledger's cash and shares of each account (ppReconcile): no
+// row of the cases is one that PP marks as existing, as a transfer is one
+// row of its paying account's file.
 func ppCase(t *testing.T, c toolCase, golden string) {
 	e := caseExport(t, c, toolPP)
 	s := chainStepFrom(t, e, t.TempDir())
@@ -61,9 +61,7 @@ func ppCase(t *testing.T, c toolCase, golden string) {
 	m := newPPModel()
 	ppApply(t, m, s)
 	for _, mk := range s.marks {
-		if k := mk.record.kind; mk.tick || k != evTransferIn && k != evTransferOut {
-			t.Errorf("PP marks row %d of %s, of %s, as existing, to tick %v", mk.line, mk.file, mk.record.ref, mk.tick)
-		}
+		t.Errorf("PP marks row %d of %s, of %s, as existing, to tick %v", mk.line, mk.file, mk.record.ref, mk.tick)
 	}
 	ppReconcile(t, m, e.in, e.events, e.outcomes)
 }
@@ -72,13 +70,13 @@ func ppCase(t *testing.T, c toolCase, golden string) {
 // imported, hold what the ledger holds of each account of the export (11.4
 // of the design): its cash, the cash of each row written, but a
 // delivery's, which PP books without its cash (cash_not_written), and of
-// the other side of a transfer written whose own row is not, being dated
-// after the export's last day, which PP makes from the side written; and of
-// each security, the shares that the rows written and combined move, their
-// quantities, or their legs', times the security's multiplier. The model
-// finds each security by the identifiers the export writes for it, as PP
-// does; the shares of every security it holds must add up to the ledger's,
-// so that none is held twice.
+// the receiving side of each transfer written, whose own row is not
+// written, combined with it or dated after the export's last day, which PP
+// makes from the transfer; and of each security, the shares that the rows
+// written and combined move, their quantities, or their legs', times the
+// security's multiplier. The model finds each security by the identifiers
+// the export writes for it, as PP does; the shares of every security it
+// holds must add up to the ledger's, so that none is held twice.
 func ppReconcile(t *testing.T, m *ppModel, in *toolInput, events []toolEvent, outcomes []toolOutcome) {
 	t.Helper()
 	ix := newToolIndex(in)
@@ -112,7 +110,7 @@ func ppReconcile(t *testing.T, m *ppModel, in *toolInput, events []toolEvent, ou
 			cash[r.account] += r.amount.Int64
 		}
 		for _, e := range eventsOf(events, i) {
-			if (e.kind == evTransferOut || e.kind == evTransferIn) && !written[rowKey{e.pair.id, e.pairRef}] {
+			if e.kind == evTransferOut && !written[rowKey{e.pair.id, e.pairRef}] {
 				cash[e.pair.id] -= r.amount.Int64
 			}
 		}
@@ -346,43 +344,22 @@ func TestPPFiles(t *testing.T) {
 
 	t.Run("transfers", func(t *testing.T) {
 		t.Parallel()
-		// Both sides of a transfer, each in its account's file, dated and
-		// noted as the paying side; a pair written apart names its partner.
+		// A transfer is one row of the paying account's file, noted with
+		// both sides, its Offset Account the receiving account, whose file
+		// holds nothing of it; a pair written apart names its partner.
 		files := ppFilesOf("transfers")
 		a1 := ppFileNamed(t, files, "account-transactions-A1-135.csv")
 		a2 := ppFileNamed(t, files, "account-transactions-A2-398.csv")
-		note := "schwabtx A2 ...398 T61001201 to A1 ...135 T61001202: JOURNAL TO ...135"
-		for _, c := range []struct {
-			f                      ppFile
-			ref, typ, cash, offset string
-		}{
-			{a2, "T61001201", "Transfer (Outbound)", "Schwab A2 ...398", "Schwab A1 ...135"},
-			{a1, "T61001202", "Transfer (Inbound)", "Schwab A1 ...135", "Schwab A2 ...398"},
-		} {
-			row := ppRowOf(t, c.f, "T61001201")
-			if row["Type"] != c.typ || row["Date"] != "2026-03-02" || row["Time"] != "09:30" || row["Value"] != "1000.00" || row["Note"] != note ||
-				row["Cash Account"] != c.cash || row["Offset Account"] != c.offset || row["Ticker Symbol"]+row["WKN"]+row["Security Name"] != "" {
-				t.Errorf("%s's side is %v", c.ref, row)
-			}
+		row := ppRowOf(t, a2, "T61001201")
+		if row["Type"] != "Transfer (Outbound)" || row["Date"] != "2026-03-02" || row["Time"] != "09:30" || row["Value"] != "1000.00" ||
+			row["Note"] != "schwabtx A2 ...398 T61001201 to A1 ...135 T61001202: JOURNAL TO ...135" ||
+			row["Cash Account"] != "Schwab A2 ...398" || row["Offset Account"] != "Schwab A1 ...135" || row["Ticker Symbol"]+row["WKN"]+row["Security Name"] != "" {
+			t.Errorf("the transfer is %v", row)
 		}
-		// A file's rows are in the order of their dates and times: the
-		// receiving side, dated as the paying side, comes before a row of
-		// its account between the two sides' times.
-		in := tcInput(toolInput{tool: toolPP, rows: []toolRow{
-			{
-				ref: "T1", account: 2, source: "api", time: tcNY("2026-03-02 09:30:00"), kind: "JOURNAL", description: "JOURNAL TO ...135",
-				amount: centsOf(-100_000), category: "journal", pairKind: "journal", pairRef: "T3", pairAccount: 1,
-			},
-			{ref: "T2", account: 1, source: "api", time: tcNY("2026-03-02 12:00:00"), kind: "WIRE_IN", description: "Wire", amount: centsOf(500), category: "deposit"},
-			{
-				ref: "T3", account: 1, source: "api", time: tcNY("2026-03-03 08:00:00"), kind: "JOURNAL", description: "JOURNAL FRM ...398",
-				amount: centsOf(100_000), category: "journal", pairKind: "journal", pairRef: "T1", pairAccount: 2,
-			},
-		}})
-		events, _ := toolEvents(&in)
-		rows := ppRows(t, ppFileNamed(t, ppFiles(&in, events), "account-transactions-A1-135.csv"))
-		if len(rows) != 2 || rows[0]["Type"] != "Transfer (Inbound)" || rows[0]["Time"] != "09:30" || rows[1]["Type"] != "Deposit" {
-			t.Errorf("A1's rows are %v", rows)
+		for _, r := range ppRows(t, a1) {
+			if strings.Contains(r["Note"], "T61001201") || strings.Contains(r["Note"], "T61001202") {
+				t.Errorf("A1's file holds a row of the transfer: %v", r)
+			}
 		}
 		for _, c := range []struct {
 			f         ppFile
@@ -397,7 +374,7 @@ func TestPPFiles(t *testing.T) {
 			}
 		}
 		files = ppFilesOf("transfer_outside")
-		row := ppRowOf(t, ppFileNamed(t, files, "account-transactions-A1-135.csv"), "T61001202")
+		row = ppRowOf(t, ppFileNamed(t, files, "account-transactions-A1-135.csv"), "T61001202")
 		if row["Type"] != "Deposit" || row["Offset Account"] != "" || row["Note"] != "schwabtx A1 ...135 T61001202: JOURNAL FRM ...398; paired with A2 ...398 T61001201, written apart" {
 			t.Errorf("a transfer with an account outside the export is %v", row)
 		}

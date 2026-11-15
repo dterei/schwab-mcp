@@ -588,9 +588,10 @@ func TestToolExport(t *testing.T) {
 			t.Errorf("%s: an export made again writes other bytes", tool)
 		}
 
-		// The cash journal is a transfer in both accounts' files; the cash
-		// merger's shares row rides with its cash row's sale; the spread is
-		// a record for each leg.
+		// The cash journal is a transfer, one record of its paying side, in
+		// its account's file, with which its receiving side is combined; the
+		// cash merger's shares row rides with its cash row's sale; the
+		// spread is a record for each leg.
 		records := map[string][]string{}
 		for i := range s.res.written {
 			e := &s.res.written[i]
@@ -604,12 +605,10 @@ func TestToolExport(t *testing.T) {
 			records[e.ref] = append(records[e.ref], e.account.label()+" "+what)
 		}
 		if tool == toolPP {
-			for ref, w := range map[string]string{
-				"T73600000101": "A2 ...398 Transfer (Outbound)", "T73600000102": "A1 ...135 Transfer (Inbound)",
-			} {
-				if got := records[ref]; !slices.Equal(got, []string{w}) {
-					t.Errorf("%s: %s is %q, want %q", tool, ref, got, w)
-				}
+			i := slices.IndexFunc(s.res.outcomes, func(o toolOutcome) bool { return o.ref == "T73600000102" })
+			if got := records["T73600000101"]; !slices.Equal(got, []string{"A2 ...398 Transfer (Outbound)"}) || len(records["T73600000102"]) > 0 ||
+				i < 0 || s.res.outcomes[i].outcome != outcomeCombined || s.res.outcomes[i].withLabel()+" "+s.res.outcomes[i].with != "A2 ...398 T73600000101" {
+				t.Errorf("%s: the transfer is %q, its receiving side %q", tool, got, records["T73600000102"])
 			}
 		}
 		h1, h2 := fileRefs(ts.history)+"1", fileRefs(ts.history)+"2"
@@ -765,9 +764,11 @@ func TestToolExport(t *testing.T) {
 		since[tool] = s
 	}
 
-	// You pair the journal with its other side and uncount that side: the
-	// next export lists that side as gone and, for PP, the journal as
-	// changed, which is now a deposit; Ghostfolio's balances carry both.
+	// You pair the journal with its other side and uncount that side: for
+	// PP, the next export lists that side, the transfer's paying side, as
+	// gone, and its transfer goes with both legs; the journal, now a
+	// deposit, which had no entry of its own, is written. Ghostfolio's
+	// balances carry both.
 	if _, err := ts.s.DecideAll(t.Context(), toolDecisions(ts)); err != nil {
 		t.Fatal(err)
 	}
@@ -777,7 +778,6 @@ func TestToolExport(t *testing.T) {
 		toolStoreGolden(t, s, tool, "since3")
 		var changed, gone, written []string
 		if tool == toolPP {
-			changed = []string{"T73600000102: account 2026-09-08 Transfer (Inbound) 500.00 -> account 2026-09-09 Deposit 500.00"}
 			gone = []string{"T73600000101 uncounted: user: account 2026-09-08 Transfer (Outbound) 500.00"}
 			written = []string{"T73600000102"}
 		}

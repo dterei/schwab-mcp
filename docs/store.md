@@ -1178,7 +1178,7 @@ PP or Ghostfolio.
 | File | For | What it holds |
 | --- | --- | --- |
 | `securities.csv` | PP | a row per security that the rows name, and a row per snapshot price of each security that PP has no price feed for, named by a row or held by an exported account |
-| `account-transactions-A1-135.csv` | PP | the account's rows that move only cash: deposits, withdrawals, transfers, dividends, interest, fees and taxes |
+| `account-transactions-A1-135.csv` | PP | the account's rows that move only cash: deposits, withdrawals, the transfers that it pays, dividends, interest, fees and taxes |
 | `portfolio-transactions-A1-135.csv` | PP | the account's rows that move shares: buys, sells and deliveries |
 | `pp-securities.json`, `pp-account-transactions.json`, `pp-portfolio-transactions.json` | PP | the import configurations: each file's columns, by position, their formats, and the names of the types, whatever PP's language and locale |
 | `ghostfolio.json` | Ghostfolio | the accounts with their balances, the MANUAL assets with their prices, and the activities |
@@ -1241,7 +1241,7 @@ accounts' balances, and takes no negative value.
 | `deposit` | amount < 0 | withdrawal | account: Withdrawal | account balance |
 | `withdrawal` | amount > 0 | deposit | account: Deposit | account balance |
 | `withdrawal` | amount < 0 | withdrawal | account: Withdrawal | account balance |
-| `journal` | cash, paired with a counted journal of another account of the opposite amount, both booked `journal`, both accounts exported | transfer | account: Transfer (Outbound) in the paying account's file, Transfer (Inbound) in the receiving one's | account balances |
+| `journal` | cash, paired with a counted journal of another account of the opposite amount, both booked `journal`, both accounts exported, the paying side written | transfer | account: Transfer (Outbound) in the paying account's file, the receiving side combined with it | account balances |
 | `journal` | cash, any other, amount > 0 | deposit | account: Deposit | account balance |
 | `journal` | cash, any other, amount < 0 | withdrawal | account: Withdrawal | account balance |
 | `journal` | shares, quantity > 0 | delivery in | portfolio: Delivery (Inbound) | BUY |
@@ -1377,7 +1377,7 @@ A row written, but not quite as the store holds it, is in the manifest's
 | `fees_unknown` | both | fees off the cent grid, written as 0: the cash is right and the fees ride in the price |
 | `pair_amounts_differ` | both | a journal whose partner's amount is not the opposite of its own, written by its sign |
 | `pair_not_journal` | both | a journal whose partner you booked as another category, each written by its own |
-| `pair_outside` | both | a journal with an account that the export leaves out, written by its sign |
+| `pair_outside` | both | a journal with an account that the export leaves out, or one that receives from a side that the export does not write (dated after -to, or left out), written by its sign |
 | `return_of_capital` | both | a return of capital, written as a dividend: it should lower the cost basis, which neither tool can do |
 | `option_closed_at_zero` | both | an option expired, assigned or exercised, closed by a delivery of value 0 |
 | `fees_apart` | Portfolio Performance | a sale whose fees exceed its proceeds, written as a Sell of the proceeds and a Fees row of the fees |
@@ -1555,9 +1555,19 @@ then started over.
 
 - **PP.** A cash journal between two exported accounts, paired with a
   counted journal of the opposite amount and both booked `journal`, is a
-  Transfer, written in both accounts' files with the paying side's day,
-  time and text: PP books both sides from either row, and takes the row it
-  meets second as existing, which you leave unticked. Any other cash
+  transfer, written once: a Transfer (Outbound) in the paying account's
+  file, with the paying side's day, time and text, from which PP books
+  both legs. The receiving side is `combined` with it, and the receiving
+  account's file holds nothing of it; PP's cash check credits the
+  receiving account by the receiving row's own day and time, as its
+  snapshot holds it. The paying side makes the transfer whatever the
+  receiving side's day: when that is after `-to`, the export names the
+  receiving account among its accounts all the same, stderr lists it to
+  make, and the next export combines the receiving side. When the export
+  does not write the paying side, dated after `-to` or left out for a
+  reason of its own, the receiving side is a Deposit by its sign
+  (`pair_outside`), so that no leg is lost, and the export that writes the
+  transfer lists that Deposit as gone, combined with it. Any other cash
   journal is a Deposit or Withdrawal by its sign, with a caveat when it has
   a partner: one whose partner's amount is not the opposite of its own
   (`pair_amounts_differ`), one whose partner you booked as another
@@ -1565,14 +1575,10 @@ then started over.
   whose other account the export leaves out, as an `-account` export does
   (`pair_outside`). An unpaired journal is, as far as the store knows, a
   move from outside your accounts; a pair within one account, which you
-  paired by hand, is a Deposit and a Withdrawal, which net to nothing. A transfer's Offset Account names only
-  an account of the export, since PP sends a transfer whose account it
-  cannot find to the review page's first, even the transfer's own. When
-  the other side is dated after `-to`, the side up to `-to` is still the
-  transfer, which PP books whole at the paying side's day: the export
-  names the other account among its accounts all the same, stderr lists
-  it to make, and the next export writes the other side, which PP marks as
-  existing and you leave unticked.
+  paired by hand, is a Deposit and a Withdrawal, which net to nothing. A
+  transfer's Offset Account names only an account of the export, since PP
+  sends a transfer whose account it cannot find to the review page's
+  first, even the transfer's own.
 - **Ghostfolio** has no cash activities: its cash is each account's
   balances, from every snapshot's cash, signed, one per market date, in
   every file whatever `-to` says, since Ghostfolio takes them only in the
@@ -1725,15 +1731,15 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `filters` | `account` (its label, or null), `to`, `manual` (masked), and `since`, the `exported_at` of the export this one goes on from, or null |
 | `chain` | `id`, the `exported_at` of the chain's first export; `account`, `A<id>` or null for every account; `manual`, each with `unused` when no security that the export writes or prices has had it, under any of its keys; and `to` |
 | `files` | the files to import, in order, each with its `kind`, its `configuration` for PP, its `account`, `rows`, and for PP how many rows to `tick` |
-| `accounts` | each account written or named, and each that the chain wrote or named before: `label`, `account`, `nickname`, `name`, `exported`, `last_day`, `new`, and for Ghostfolio its `ghostfolio_id`, its `balances` (how many, the first and last, or why none) and its latest `cash`. A PP transfer names the account of its other side, which may have no row up to `-to`; `new` says that the chain had not listed it, and stderr lists it to make |
+| `accounts` | each account written or named, and each that the chain wrote or named before: `label`, `account`, `nickname`, `name`, `exported`, `last_day`, `new`, and for Ghostfolio its `ghostfolio_id`, its `balances` (how many, the first and last, or why none) and its latest `cash`. A PP transfer names its receiving account as its Offset Account, which may have no row of its own in the export; `new` says that the chain had not listed it, and stderr lists it to make |
 | `units` | how each value is written |
 | `written` | the ledger rows written, and the records per Type |
-| `given` | per account and ref, what the tool holds of each row once this export is imported: `day`, `as` (what the tool shows), `fp` (a hash of what it keeps), `with` (the shares row that it carries), and for PP `keys` (the hashes of what its duplicate check compares), `note_ref` (the ref that its Note names, when not its own) and `transfer` (for a side of a transfer, the head of the Note that PP holds of it: `A2 ...398 T61001201 to A1 ...135 T61001202`) |
+| `given` | per account and ref, what the tool holds of each row once this export is imported: `day`, `as` (what the tool shows), `fp` (a hash of what it keeps), `with` (the shares row that it carries), and for PP `keys` (the hashes of what its duplicate check compares), `note_ref` (the ref that its Note names, when not its own) and `transfer` (for a transfer, whose one entry is its paying side's, the head of the Note that PP holds of it: `A2 ...398 T61001201 to A1 ...135 T61001202`) |
 | `securities` | each security that the chain wrote, with its identity and the identifiers written for it, and, for PP, `why`: the whys of `symbols_changed` that it has of itself (`renamed`, `no_ticker`), for which a later export names it again only when the entry lacks one |
 | `changed`, `gone` | the rows that the tool holds and that this export writes otherwise, or neither writes nor gives: `ref`, `account`, `was`, for PP `note_ref` and `transfer` as in `given`, and `now` or `why` |
 | `same_as` | PP: rows gone under one ref and written under another, alike in all that PP keeps: nothing to do |
 | `tick` | PP: the rows that PP will mark as existing although they are new: `file`, `ref`, `account`, `as` |
-| `left_out`, `caveats`, `combined` | the rows left out, written with a caveat, and carried by a sale |
+| `left_out`, `caveats`, `combined` | the rows left out, written with a caveat, and carried by a record that this export writes: a shares row by its cash row's sale (`with`), and in PP a transfer's receiving side by its paying side's Transfer (Outbound) (`with` and `with_account`) |
 | `in_balances` | Ghostfolio: per account, the cash rows that its balances carry |
 | `flagged`, `waiting` | the rows with a flag that needs you, with their flags, and the file rows that wait for you, each with the command that shows it |
 | `holdings` | `differences`: each difference from the latest snapshot, of a security as the tool holds it, under its least key (`security_key`, with `security_keys` when the store has several) and as the tool finds it: for PP `pp_security`, the `ticker`, `wkn` and `name` written, and for Ghostfolio `ghostfolio_asset`, the asset that holds it (its `data_source`, `symbol` and a MANUAL asset's `name`); with the snapshot's day, `snapshot_shares`, `written_shares` and their `difference`, the first less the second; `left_out` when a row of the account left out, of the rows that the snapshot holds, moves its shares; `before` when DIR listed it alike; and `carried` when this export could not check its account and copied it from DIR; `gone`: each that DIR listed, of an account that this export checks, and that it does not find, with `was`, DIR's difference; and `not_checked`, the accounts not checked: with rows and no snapshot, or, for PP, with snapshots and nothing that PP holds; for PP, `cash`: each account whose cash that the records leave differs from its latest snapshot's, with the snapshot's day, `snapshot_cash`, `written_cash` and their `difference`, `left_out` when a row of the account left out moves cash, and `before` and `carried` likewise; `cash_gone`: each account whose difference DIR listed and this export finds none of, with `was`; and `cash_not_checked`: each account whose cash the export does not check, with the snapshot's day and `why` (`margin`: its latest snapshot is of a margin account with a margin or short balance; `no_cash`: its latest snapshot holds no cash figure) |
@@ -1757,38 +1763,35 @@ whatever its day:
 - a row not given before is written; those dated on or before DIR's `-to`
   are counted on stderr, as having come late or been decided since, but
   those `same_as` a row gone (below);
-- a row given with the same `fp` is given, and not written again; but in
-  PP, a transfer's side whose transfer you delete with its other side of
-  before, which changed or went, is written again, listed nowhere, when no
-  record of this export makes the transfer that it is of now (its other
-  side now is given too, as after you pair two transfers of one day again
-  by hand): PP then holds that transfer again;
+- a row given with the same `fp` is given, and not written again;
 - a row given otherwise is written, and listed under `changed`, with what
-  the tool shows of it (`was`), to delete there before importing: a journal
-  paired after its first side went in by its sign is one, the pair now a
-  transfer;
+  the tool shows of it (`was`), to delete there before importing: in PP a
+  journal's paying side paired after it went in by its sign is one, the
+  pair now a transfer, whose receiving side, given before as a Deposit, is
+  gone, combined with it;
 - a row given that this export neither writes nor gives is listed under
   `gone`, with why: uncounted (and the store's reason), linked to another
-  ref, combined with another row's sale, left out (and the reason), in
-  Ghostfolio now cash in the balances, or else not in this export: no
-  longer in the store, or dated after `-to` by a revision, which an export
-  up to its new day writes again (the export reads no row after `-to` to
-  tell the two apart). In PP, a gone row alike in everything PP keeps
-  to a row written under a new ref (a file row now linked to its API row)
-  is `same_as`: nothing to delete or tick, and the new row's entry keeps,
-  as `note_ref`, the ref that the Note PP holds names. A row of an entry
-  whose Note names a row that this export writes under its own Note (a file
-  row counted again beside the API row that took its place) is `changed`
-  too, its form alike: you delete the one that PP holds, and the export
-  writes both, so that no two of PP's transactions have Notes of one row. A
-  transfer's entries and lists carry `transfer`, the head of the Note that
-  PP holds of it, paying side first: of the transfer of its paying side
-  now, which may name the receiving side that the transfer was first
-  written with;
+  ref, combined with another row (its label and ref: a sale under its cash
+  row's, or in PP a transfer that its paying side writes), left out (and
+  the reason), in Ghostfolio now cash in the balances, or else not in this
+  export: no longer in the store, or dated after `-to` by a revision,
+  which an export up to its new day writes again (the export reads no row
+  after `-to` to tell the two apart). In PP, a gone row alike in
+  everything PP keeps to a row written under a new ref (a file row now
+  linked to its API row) is `same_as`: nothing to delete or tick, and the
+  new row's entry keeps, as `note_ref`, the ref that the Note PP holds
+  names. A row of an entry whose Note names a row that this export writes
+  under its own Note (a file row counted again beside the API row that
+  took its place) is `changed` too, its form alike: you delete the one
+  that PP holds, and the export writes both, so that no two of PP's
+  transactions have Notes of one row. A transfer has one entry, its paying
+  side's, which with the lists carries `transfer`, the head of the Note
+  that PP holds of it, paying side first, as it was written: the receiving
+  side that it names may pair with another since;
 - for PP, `tick` replays PP's duplicate check over the files in their import
   order, from what the chain gave less what changed and went, and lists each
-  new row that PP will mark as existing, but the second half of a transfer;
-  a full export makes the list too;
+  new row that PP will mark as existing, but one `same_as` a row gone, which
+  PP holds already; a full export makes the list too;
 - left-out rows that DIR listed alike are marked `before`, and stderr
   counts only the others; so are the differences of the holdings check
   and, for PP, of the cash check that DIR listed alike: of one account, of
@@ -1825,9 +1828,10 @@ names an `-account` or, for Ghostfolio, a `-manual`, the one whose command
 each `-since` export of it prints. A full export reads no chain, so without
 them it would write the other accounts' rows, or the activities of the
 MANUAL assets that Ghostfolio holds for Yahoo. Neither tool has a redo of
-one account: Portfolio Performance checks a transfer against the other
-account's side, and a full export imported over accounts that the tool
-holds writes their rows again, those whose values you changed in
+one account: in Portfolio Performance a transfer is one row of its paying
+account's file, which deleting either account's transactions deletes
+whole, and a full export imported over accounts that the tool holds
+writes their rows again, those whose values you changed in
 Ghostfolio, as a value set by hand, beside them. Only the import that
 makes a Ghostfolio account sets its balances: between redos, set its cash
 from the lines that each `-since` export prints.

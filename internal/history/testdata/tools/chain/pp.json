@@ -12,7 +12,7 @@
       "nickname": "Individual",
       "name": "Schwab A1 ...135",
       "exported": true,
-      "last_day": "2026-01-06",
+      "last_day": "2026-01-05",
       "new": true
     },
     {
@@ -44,16 +44,6 @@
           "8540b66afdb4fa55",
           "b63329b9ffc5debe"
         ]
-      },
-      "T74700102": {
-        "day": "2026-01-06",
-        "as": "account 2026-01-06 Transfer (Inbound) 10.00",
-        "fp": "eb57896d6bd0ca54",
-        "keys": [
-          "6ab46f3e0809d875",
-          "d5a3c23f8f032818"
-        ],
-        "transfer": "A2 ...398 T74700201 to A1 ...135 T74700102"
       }
     },
     "A2 ...398": {

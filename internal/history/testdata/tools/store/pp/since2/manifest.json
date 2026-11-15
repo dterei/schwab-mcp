@@ -146,16 +146,6 @@
           "0285adb25e62fdfd"
         ]
       },
-      "T73600000102": {
-        "day": "2026-09-09",
-        "as": "account 2026-09-08 Transfer (Inbound) 500.00",
-        "fp": "6a83643a9a2c6b3f",
-        "keys": [
-          "34283c6ddfeb606b",
-          "aea8c47065343a42"
-        ],
-        "transfer": "A2 ...398 T73600000101 to A1 ...135 T73600000102"
-      },
       "T73600000103": {
         "day": "2026-09-10",
         "as": "portfolio 2026-09-10 Delivery (Outbound) 460.20",

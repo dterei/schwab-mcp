@@ -56,7 +56,11 @@ func describeRow(tool string, o toolOutcome, events []toolEvent) string {
 		}
 		return s
 	case outcomeCombined:
-		return outcomeCombined + " with " + o.with
+		s := outcomeCombined + " with "
+		if o.withAccount.id != 0 {
+			s += o.withAccount.label() + " "
+		}
+		return s + o.with
 	case outcomeInBalances:
 		return outcomeInBalances
 	}
@@ -169,7 +173,7 @@ func TestToolMapping(t *testing.T) {
 			{{"cash", "T61001102"}},
 			{{"cash", "Ce1a2b3c4.3"}},
 			{{"cash", "Ce1a2b3c4.4"}},
-			{{"transfers", "T61001201"}, {"transfers", "T61001202"}},
+			{{"transfers", "T61001201"}},
 			{{"cash", "T61001105"}},
 			{{"cash", "T61001106"}},
 			{{"deliveries", "T61001502"}},
@@ -338,28 +342,22 @@ func TestToolMapping(t *testing.T) {
 
 	t.Run("transfers", func(t *testing.T) {
 		t.Parallel()
-		_, events, _ := mapCase(toolCaseNamed("transfers"), toolPP)
+		in, events, outcomes := mapCase(toolCaseNamed("transfers"), toolPP)
 		byRef := map[string]toolEvent{}
 		for _, e := range events {
 			byRef[e.ref] = e
 		}
-		// Both sides of a transfer take the paying side's day, time and
-		// text, and name each other.
-		payer, payee := byRef["T61001201"], byRef["T61001202"]
-		paid := tcNY("2026-03-02 09:30:00")
-		for _, c := range []struct {
-			e                      toolEvent
-			kind                   eventKind
-			account, pair, pairRef string
-		}{
-			{payer, evTransferOut, "A2 ...398", "A1 ...135", "T61001202"},
-			{payee, evTransferIn, "A1 ...135", "A2 ...398", "T61001201"},
-		} {
-			e := c.e
-			if e.kind != c.kind || e.day != "2026-03-02" || !e.time.Equal(paid) || e.text != "JOURNAL TO ...135" || e.value != 100_000 ||
-				e.account.label() != c.account || e.pair.label() != c.pair || e.pairRef != c.pairRef || e.security != nil {
-				t.Errorf("%s: %s on %s at %s, %q, %s, %s with %s %s", e.ref, e.kind, e.day, e.time, e.text, formatCents(e.value), e.account.label(), e.pair.label(), e.pairRef)
-			}
+		// A transfer is one record, of its paying side, on its day, at its
+		// time, with its text, which names the receiving side; the
+		// receiving side, dated the next day, is combined with it.
+		e := byRef["T61001201"]
+		if e.kind != evTransferOut || e.day != "2026-03-02" || !e.time.Equal(tcNY("2026-03-02 09:30:00")) || e.text != "JOURNAL TO ...135" || e.value != 100_000 ||
+			e.account.label() != "A2 ...398" || e.pair.label() != "A1 ...135" || e.pairRef != "T61001202" || e.security != nil {
+			t.Errorf("%s: %s on %s at %s, %q, %s, %s with %s %s", e.ref, e.kind, e.day, e.time, e.text, formatCents(e.value), e.account.label(), e.pair.label(), e.pairRef)
+		}
+		if i := slices.IndexFunc(in.rows, func(r toolRow) bool { return r.ref == "T61001202" }); outcomes[i].outcome != outcomeCombined ||
+			outcomes[i].with != "T61001201" || outcomes[i].withLabel() != "A2 ...398" || len(eventsOf(events, i)) > 0 {
+			t.Errorf("T61001202 is %s with %s %s", outcomes[i].outcome, outcomes[i].withLabel(), outcomes[i].with)
 		}
 		// A pair written apart names its partner; a journal whose partner
 		// is not counted is unpaired in effect.
@@ -374,6 +372,35 @@ func TestToolMapping(t *testing.T) {
 		_, events, _ = mapCase(toolCaseNamed("transfer_outside"), toolPP)
 		if e := events[0]; e.kind != evDeposit || e.day != "2026-03-03" || e.text != "JOURNAL FRM ...398" || e.pairRef != "T61001201" || e.pair.label() != "A2 ...398" {
 			t.Errorf("one side alone: %s on %s, %q, with %s %s", e.kind, e.day, e.text, e.pair.label(), e.pairRef)
+		}
+
+		// Both accounts selected, but the export does not write the paying
+		// side: it is dated after -to, or left out for a reason of its own
+		// (no day). No transfer: the receiving side is written by its sign,
+		// on its own day, and names the paying side, so that no leg is
+		// lost; the paying side is left out with its reason.
+		pays := rcJournal("T61001291", 2, "2026-03-04 09:30:00", "JOURNAL TO ...135", -100_000, "T61001292", 1)
+		receives := rcJournal("T61001292", 1, "2026-03-03 08:00:00", "JOURNAL FRM ...398", 100_000, pays.ref, 2)
+		after := tcInput(toolInput{to: "2026-03-03", rows: []toolRow{receives}})
+		after.rows[0].partner = toolPartner{day: "2026-03-04", time: pays.time, amount: pays.amount, counted: true, category: "journal", kind: pays.kind, description: pays.description}
+		noDay := pays
+		noDay.time = time.Time{}
+		for _, c := range []struct {
+			what string
+			in   toolInput
+			want []string
+		}{
+			{"after -to", after, []string{"T61001292 Deposit 1000.00 [pair_outside]"}},
+			{"left out", tcInput(toolInput{to: "2026-03-06", rows: []toolRow{noDay, receives}}), []string{"T61001291 left_out no_day", "T61001292 Deposit 1000.00 [pair_outside]"}},
+		} {
+			in, events, outcomes := mapCase(toolCase{name: c.what, in: c.in}, toolPP)
+			var got []string
+			for i, o := range outcomes {
+				got = append(got, in.rows[i].ref+" "+describeRow(toolPP, o, eventsOf(events, i)))
+			}
+			if e := events[0]; !slices.Equal(got, c.want) || e.day != "2026-03-03" || e.pair.label() != "A2 ...398" || e.pairRef != pays.ref {
+				t.Errorf("%s: %q, want %q; the receiving side on %s names %s %s", c.what, got, c.want, e.day, e.pair.label(), e.pairRef)
+			}
 		}
 	})
 
@@ -2528,6 +2555,51 @@ func TestToolMapping(t *testing.T) {
 			}
 		}
 
+		// A transfer is one record, of its paying side, which PP books into
+		// its Offset Account too: the check credits the receiving account
+		// by the receiving row's own day and time, as Q2 reads them of the
+		// paying row's partner. A snapshot taken once that row has posted
+		// holds it; one taken before does not, of an earlier day or of the
+		// row's own day before its time, nor one by -to when the row is
+		// dated after it; each matches the records either way. PP's model
+		// holds what the check counts.
+		pays := rcJournal("T7c010201", 2, "2026-03-02 09:30:00", "JOURNAL TO ...135", -100_000, "T7c010101", 1)
+		receives := rcJournal("T7c010101", 1, "2026-03-03 08:00:00", "JOURNAL FRM ...398", 100_000, pays.ref, 2)
+		receivesLate := rcJournal("T7c010101", 1, "2026-03-03 19:40:00", "JOURNAL FRM ...398", 100_000, pays.ref, 2)
+		funds := rcCash("T7c010202", 2, "2026-03-01 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 500_000)
+		alone := pays
+		alone.partner = toolPartner{day: "2026-03-03", time: receives.time, amount: receives.amount, counted: true, category: "journal", kind: receives.kind, description: receives.description}
+		for _, c := range []struct {
+			what string
+			in   toolInput
+			// a1 is the receiving account's snapshot cash, in cents.
+			a1 int64
+		}{
+			{"held", tcInput(toolInput{to: "2026-03-06", rows: []toolRow{funds, pays, receives}, snapshots: []toolSnapshot{
+				rcSnapshot(1, "2026-03-05", 100_000), rcSnapshot(2, "2026-03-05", 400_000),
+			}}), 100_000},
+			{"not yet posted", tcInput(toolInput{to: "2026-03-06", rows: []toolRow{funds, pays, receives}, snapshots: []toolSnapshot{
+				rcSnapshot(1, "2026-03-02", 0), rcSnapshot(2, "2026-03-05", 400_000),
+			}}), 0},
+			{"posted that evening, after the snapshot", tcInput(toolInput{to: "2026-03-06", rows: []toolRow{funds, pays, receivesLate}, snapshots: []toolSnapshot{
+				rcSnapshot(1, "2026-03-03", 0), rcSnapshot(2, "2026-03-05", 400_000),
+			}}), 0},
+			{"dated after -to", tcInput(toolInput{to: "2026-03-02", rows: []toolRow{funds, alone}, snapshots: []toolSnapshot{
+				rcSnapshot(1, "2026-03-02", 0), rcSnapshot(2, "2026-03-02", 400_000),
+			}}), 0},
+		} {
+			in, events, _ := mapCase(toolCase{name: c.what, in: c.in}, toolPP)
+			if diffs, unchecked := cashCheck(in, events); len(diffs)+len(unchecked) > 0 {
+				t.Errorf("a transfer, %s: differences %+v, unchecked %+v", c.what, diffs, unchecked)
+			}
+			s := chainStepFrom(t, caseExport(t, toolCase{name: c.what, in: c.in}, toolPP), t.TempDir())
+			m := newPPModel()
+			ppApply(t, m, s)
+			if got := m.cash("Schwab A1 ...135"); c.a1 == 100_000 && got != c.a1 || len(s.res.cash) > 0 {
+				t.Errorf("a transfer, %s: PP's A1 holds %s; cash entries %+v", c.what, formatCents(got), s.res.cash)
+			}
+		}
+
 		// A margin account with a margin balance, as of a debit, or a short
 		// balance, of short proceeds, is not checked, whatever its cash
 		// balance reads, and is listed apart, why margin; so is an account
@@ -2772,7 +2844,7 @@ func TestToolMapping(t *testing.T) {
 			if (file == "portfolio") != (k.shareSign() != 0) {
 				t.Errorf("kind %s moves shares %d, in PP's %s file", k, k.shareSign(), file)
 			}
-			if (k.gfType() == "") != (k == evDeposit || k == evWithdrawal || k == evTransferIn || k == evTransferOut) {
+			if (k.gfType() == "") != (k == evDeposit || k == evWithdrawal || k == evTransferOut) {
 				t.Errorf("kind %s is Ghostfolio's %q", k, k.gfType())
 			}
 		}
@@ -2816,7 +2888,9 @@ func checkCase(t *testing.T, c toolCase) {
 // least one each, of the row's ref and account, with a price when they are
 // deliveries (0 for an option closed) and none else; a written row's
 // caveats, those of its records; and a combined row the cash row it names,
-// written, whose records carry both refs.
+// written, whose records carry both refs, or for a transfer's receiving
+// side the paying side that it names, written as one Transfer (Outbound)
+// that names it.
 func checkOutcomes(t *testing.T, what string, in *toolInput, events []toolEvent, outcomes []toolOutcome) {
 	t.Helper()
 	if len(outcomes) != len(in.rows) {
@@ -2847,9 +2921,9 @@ func checkOutcomes(t *testing.T, what string, in *toolInput, events []toolEvent,
 		}
 		written[e.row]++
 	}
-	byRef := map[string]int{}
+	byRef := map[rowKey]int{}
 	for i, r := range in.rows {
-		byRef[r.ref] = i
+		byRef[rowKey{r.account, r.ref}] = i
 	}
 	for i, o := range outcomes {
 		r := in.rows[i]
@@ -2866,7 +2940,15 @@ func checkOutcomes(t *testing.T, what string, in *toolInput, events []toolEvent,
 				t.Errorf("%s: %s is written as %d records, caveats %v of %v", what, r.ref, written[i], o.caveats, caveats)
 			}
 		case outcomeCombined:
-			c, ok := byRef[o.with]
+			c, ok := byRef[rowKey{cmp.Or(o.withAccount.id, r.account), o.with}]
+			if o.withAccount.id != 0 {
+				pays := eventsOf(events, c)
+				if !ok || outcomes[c].outcome != outcomeWritten || len(pays) != 1 || pays[0].kind != evTransferOut ||
+					pays[0].pair.id != r.account || pays[0].pairRef != r.ref || written[i] != 0 {
+					t.Errorf("%s: %s receives the transfer of %s %s, written as %v", what, r.ref, o.withAccount.label(), o.with, pays)
+				}
+				continue
+			}
 			if !ok || outcomes[c].outcome != outcomeWritten || outcomes[c].with != r.ref || written[i] != 0 {
 				t.Errorf("%s: %s is combined with %q", what, r.ref, o.with)
 				continue
