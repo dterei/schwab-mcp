@@ -498,34 +498,46 @@ func TestStdinEndStopsTheServer(t *testing.T) {
 // When stdin ends while a call waits on Schwab, the call ends timed_out,
 // as after a signal, and the server exits 0: the SDK ends the request with
 // io.EOF as its cause, which the request to Schwab then fails with, and the
-// log does not say that Schwab could not be reached.
+// log does not say that Schwab could not be reached. So for get_balances,
+// which leaves its failure to be worded; for list_accounts, which words a
+// failure to read Schwab itself, to answer from the local history; and
+// for the accounts resource, which answers as list_accounts does.
 func TestStdinEndDuringARequestToSchwab(t *testing.T) {
 	t.Parallel()
-	w := newWorld(t)
-	waiting := make(chan struct{}, 1)
-	w.fake.Override(schwabtest.AccountsRoute, func(_ http.ResponseWriter, r *http.Request) {
-		select {
-		case waiting <- struct{}{}:
-		default:
-		}
-		<-r.Context().Done()
-	})
-	c := startChild(t, w, "--config", w.config, "--log-level", "info")
-	c.initialize()
-	c.send(callLine(2, "get_balances", "{}"))
-	select {
-	case <-waiting:
-	case <-time.After(time.Minute):
-		t.Fatal("the call did not reach Schwab's accounts within a minute")
-	}
-	c.stdin.Close()
-	if code, _ := c.wait(); code != 0 {
-		t.Errorf("exit code %d at stdin's end", code)
-	}
-	stderr := strings.Join(c.stderr.all(), "\n")
-	if !strings.Contains(stderr, "msg=call tool=get_balances") || !strings.Contains(stderr, "outcome=timed_out") ||
-		strings.Contains(stderr, "could not be reached") {
-		t.Errorf("the log of a call that stdin's end cut short:\n%s", stderr)
+	for _, tc := range []struct{ name, tool, line string }{
+		{"get_balances", "get_balances", callLine(2, "get_balances", "{}")},
+		{"list_accounts", "list_accounts", callLine(2, "list_accounts", "{}")},
+		{"schwab://accounts", "list_accounts", `{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"schwab://accounts"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t)
+			waiting := make(chan struct{}, 1)
+			w.fake.Override(schwabtest.AccountsRoute, func(_ http.ResponseWriter, r *http.Request) {
+				select {
+				case waiting <- struct{}{}:
+				default:
+				}
+				<-r.Context().Done()
+			})
+			c := startChild(t, w, "--config", w.config, "--log-level", "info")
+			c.initialize()
+			c.send(tc.line)
+			select {
+			case <-waiting:
+			case <-time.After(time.Minute):
+				t.Fatal("the call did not reach Schwab's accounts within a minute")
+			}
+			c.stdin.Close()
+			if code, _ := c.wait(); code != 0 {
+				t.Errorf("exit code %d at stdin's end", code)
+			}
+			stderr := strings.Join(c.stderr.all(), "\n")
+			if !strings.Contains(stderr, "msg=call tool="+tc.tool) || !strings.Contains(stderr, "outcome=timed_out") ||
+				strings.Contains(stderr, "could not be reached") {
+				t.Errorf("the log of a call that stdin's end cut short:\n%s", stderr)
+			}
+		})
 	}
 }
 

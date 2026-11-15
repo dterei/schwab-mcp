@@ -152,8 +152,14 @@ func (s *Server) listAccounts(ctx context.Context, c *call, _ struct{}) (listAcc
 // accountsFromStore answers list_accounts from the store's accounts, with
 // no values, when cause, why Schwab could not be read, is a reason of the
 // login or the app's set-up, which the user must act on. It fails with
-// cause otherwise, or when the store does not open or knows no account.
+// cause otherwise, or when the store does not open or knows no account;
+// unworded once ctx has ended, so that tool.call words it as the call's
+// end: the input's end fails a request to Schwab with io.EOF, which is no
+// failure to reach Schwab.
 func (c *call) accountsFromStore(ctx context.Context, cause error) (listAccountsOut, error) {
+	if ctx.Err() != nil {
+		return listAccountsOut{}, cause
+	}
 	e := c.s.toolError(c.tool, cause)
 	if !slices.Contains(loginCodes, e.code) {
 		return listAccountsOut{}, e
