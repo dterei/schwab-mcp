@@ -249,10 +249,19 @@ and the types' names, whatever PP's language and locale.
    in PP every transaction of every account of the export, then import a
    full export as in step 3, of the chain's `-account` when it has one (a
    `-since` export of such a chain prints the command), ticking its `tick`
-   list, and name it in the next `-since`. Every account at once, not
-   some: PP checks a transfer against the other account's side, so a row
-   that an account kept could mark a new row that no list names. Neither a
-   changed symbol nor a bond's unit needs a redo.
+   list, and name it in the next `-since`. Every account at once, not some:
+   PP checks a transfer against the other account's side, so a row that an
+   account kept could mark a new row that no list names. Neither a changed
+   symbol nor a bond's unit needs a redo.
+
+   A store made again may number its accounts otherwise, and an account's
+   name in PP follows its ref (`Schwab A1 ...135`): `schwabtx status` lists
+   the new store's. Name the chain's account as the new store holds it, by
+   the last digits of its number (`-account ...135`), or by its new ref when
+   two accounts end alike, not by the old chain's `A1`, which may be another
+   account now; and make in PP the accounts that the full export names, as
+   in step 2, then delete those that it no longer names, once they are
+   empty.
 
 ### Securities, options and bonds
 
@@ -452,12 +461,17 @@ beside its own, counting their shares twice. When the account has no
 activity, the dialog cannot import the file: send it by
 `POST /api/v1/import`, or set the account's cash by hand.
 
-**After a store is made again**, no export of it goes on from one of the
-old store (`-since` refuses it as another store's), and its accounts may be
-numbered otherwise: skip the `-since` step and redo every account. Delete
-each account's activities, then the account; import one full export of the
-new store, with the old chain's `-account` and `-manual`, which makes every
-account again with its balances; and name it in the next `-since`.
+**After a store is made again**, no export of it goes on from one of the old
+store (`-since` refuses it as another store's), and its accounts may be
+numbered otherwise, their names and Ghostfolio ids with them: skip the
+`-since` step and redo each account of the chain. Delete its activities,
+then the account; import one full export of the new store, with the old
+chain's `-manual` and, when the chain has an `-account`, that account as the
+new store holds it: by the last digits of its number (`-account ...135` for
+the old `A1 ...135`), or by its new ref, which `schwabtx status` lists, when
+two accounts end alike, never by the old `A1`, which may name another
+account now. The import makes the export's accounts again, with their
+balances: every account, or the chain's one. Name it in the next `-since`.
 
 ## What the manifest asks of you
 
