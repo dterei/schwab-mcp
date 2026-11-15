@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/big"
 	"reflect"
 	"regexp"
 	"runtime/debug"
@@ -229,8 +230,11 @@ func (t *tool[In, Out]) arguments(c *call, raw json.RawMessage) (In, error) {
 		}
 		return in, c.failf(codeBadArgument, "The arguments do not match the tool's input schema.")
 	}
-	// Step 3, the one decode with UseNumber, into In.
-	dec := json.NewDecoder(bytes.NewReader(raw))
+	// Step 3, the one decode with UseNumber, into In, of the arguments with
+	// each integral number written as an integer: the schema check takes
+	// 5.0 and 1e1 as integers, as JSON Schema does, and some clients send
+	// every number with a fraction.
+	dec := json.NewDecoder(bytes.NewReader(integral(raw)))
 	dec.UseNumber()
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&in); err != nil {
@@ -242,6 +246,53 @@ func (t *tool[In, Out]) arguments(c *call, raw json.RawMessage) (In, error) {
 		return in, c.failf(codeBadArgument, "The arguments do not match the tool's input schema.")
 	}
 	return in, nil
+}
+
+// integral returns raw, JSON that decodes, with each number that is an
+// integer but written with a fraction or an exponent, such as 5.0 or 1e1,
+// written as the integer, exactly, however large; raw itself when it holds
+// none.
+func integral(raw []byte) []byte {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if dec.Decode(&v) != nil {
+		return raw
+	}
+	changed := false
+	var walk func(v any) any
+	walk = func(v any) any {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, e := range x {
+				x[k] = walk(e)
+			}
+		case []any:
+			for i, e := range x {
+				x[i] = walk(e)
+			}
+		case json.Number:
+			if !strings.ContainsAny(string(x), ".eE") {
+				return x
+			}
+			f, _, err := big.ParseFloat(string(x), 10, 1024, big.ToNearestEven)
+			if err == nil && f.IsInt() {
+				n, _ := f.Int(nil)
+				changed = true
+				return json.Number(n.String())
+			}
+		}
+		return v
+	}
+	v = walk(v)
+	if !changed {
+		return raw
+	}
+	b, err := encode(v)
+	if err != nil {
+		return raw
+	}
+	return b
 }
 
 // unknownArgument is the error for an argument that the tool does not

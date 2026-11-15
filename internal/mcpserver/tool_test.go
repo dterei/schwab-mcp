@@ -112,6 +112,13 @@ func TestNullArguments(t *testing.T) {
 			t.Errorf("arguments %s: %s", args, r.text)
 		}
 	}
+	// Arguments over 64 KiB are refused before any check of their values,
+	// which the error never quotes.
+	long := `{"account":"` + strings.Repeat("a", 70<<10) + `"}`
+	r := e.call("echo", long)
+	if r.code() != "bad_argument" || !strings.Contains(r.text, "must be a JSON object of at most 64 KiB") || strings.Contains(r.text, "aaaa") {
+		t.Errorf("arguments of 70 KiB: %.300s", r.text)
+	}
 }
 
 // A bad argument is named with what it takes, from its schema, and its
@@ -152,6 +159,17 @@ func TestBadArgumentsQuoteNoValue(t *testing.T) {
 		if tc.value != "" && strings.Contains(r.text, tc.value) {
 			t.Errorf("%s %s: the error quotes the value %s: %s", tc.tool, tc.args, tc.value, r.text)
 		}
+	}
+	// A whole number written with a fraction or an exponent is a whole
+	// number, as the schema's integer is: some clients send every number so.
+	for args, limit := range map[string]float64{`{"limit":5.0}`: 5, `{"limit":1e1}`: 10, `{"limit":2.000E0}`: 2, `{"limit":200}`: 200} {
+		if r := e.call("echo", args); r.isError || r.value["limit"] != limit {
+			t.Errorf("echo %s: %s, want limit %v", args, r.text, limit)
+		}
+	}
+	if got := string(integral([]byte(`{"a":[1.5,1e2,{"b":10000000000000000000000.0}],"c":"1.0e1","d":1004517688099}`))); got !=
+		`{"a":[1.5,100,{"b":10000000000000000000000}],"c":"1.0e1","d":1004517688099}` {
+		t.Errorf("integral = %s", got)
 	}
 }
 
