@@ -236,12 +236,13 @@ and the types' names, whatever PP's language and locale.
    writes the ticker in Yahoo's form (`BRK-B` for `BRK.B`), the CUSIP as
    WKN and the description seen first as name, but no ISIN; a new security
    gets PP's Yahoo feed when it has a ticker. Each security that stderr says
-   has changed symbol, listed under `symbols_changed`: before you import,
-   give the PP security that holds its rows the new ticker, and its CUSIP
-   as WKN if it has none (PP made it before the store knew the CUSIP), or,
-   once it is delisted, no price feed, since its old ticker may now be
-   another company's; PP finds it by them, and else makes a second
-   security of the new ticker. An option's
+   has changed symbol, listed under `symbols_changed` whether or not the
+   export writes a row of it (PP keeps the rows of a security that it finds
+   by its CUSIP): before you import, give the PP security that holds its
+   rows the new ticker, and its CUSIP as WKN if it has none (PP made it
+   before the store knew the CUSIP), or, once it is delisted, no price
+   feed, since its old ticker may now be another company's; PP finds it by
+   them, and else makes a second security of the new ticker. An option's
    shares are its contracts times its multiplier, under its OCC symbol
    (`XYZ250221P00040000`); an option that expired, was assigned or exercised
    is closed by a delivery of value 0. A bond's shares are its face value in

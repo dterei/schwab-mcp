@@ -2159,11 +2159,10 @@ func TestToolReimport(t *testing.T) {
 			e1 := chainStepOf(t, before, tool, nil, rcAt1)
 			e2 := chainStepOf(t, tcInput(after), tool, e1, rcAt2)
 			changed, _ := rcChanged(e2)
-			// Its identifiers changed under each key that the export lists,
-			// both in Ghostfolio, which writes both rows again: one security
-			// whose symbol changed, as the tool holds it.
-			keys := map[string]int{toolPP: 1, toolGF: 2}[tool]
-			if got := e2.res.symbolsChanged; e2.e.SymbolsChanged != 1 || len(got) != 1 || len(got[0]) != keys {
+			// Its identifiers changed under both of its keys, whose rows are
+			// written or given: one security whose symbol changed, as the tool
+			// holds it, in PP too, which writes the dividend alone.
+			if got := e2.res.symbolsChanged; e2.e.SymbolsChanged != 1 || len(got) != 1 || len(got[0]) != 2 {
 				t.Errorf("%s: %d securities changed symbol: %v", tool, e2.e.SymbolsChanged, got)
 			}
 			if tool == toolPP {
@@ -2503,6 +2502,116 @@ func TestToolReimport(t *testing.T) {
 				}
 			}
 			gfReconcile(t, e2.in, e2.events, e2.outcomes, m)
+		}
+	})
+
+	t.Run("5e a security renamed with no row since, its CUSIP known", func(t *testing.T) {
+		t.Parallel()
+		// PP finds a security whose CUSIP the store knows by its WKN, so its
+		// one row, bought under OLDN, stays given once the store sees the
+		// security renamed NEWN; a -since export names it all the same, so
+		// that you give PP's security the new ticker, and its price feed with
+		// it, and the next export does not name it again. Ghostfolio, whose
+		// activity is of the symbol, gets the row again, changed. So with
+		// round 3's renamed two keys, which a later History file names by the
+		// new ticker.
+		const key, cusip = "i:1000901", "69389B101"
+		securities, names := tcSecurities()
+		in := func(renamed bool, to string, days ...string) toolInput {
+			in := toolInput{
+				to:         nytime.Date(to),
+				securities: append(slices.Clone(securities), toolSecurityRow{key: key, assetType: "EQUITY", cusip: cusip, symbol: "OLDN", description: "OLDN CORP"}),
+				names: append(slices.Clone(names),
+					toolName{key: key, kind: "symbol", value: "OLDN", firstSeen: tcNY("2026-01-05 18:30:00"), lastSeen: tcNY("2026-05-29 18:05:00")},
+					toolName{key: key, kind: "description", value: "OLDN CORP", firstSeen: tcNY("2026-01-05 18:30:00"), lastSeen: tcNY("2026-05-29 18:05:00")},
+				),
+				rows: []toolRow{rcTrade("T7e9000001", 1, "2026-01-05 10:00:00", "buy", key, "OLDN", 10_000_000, 30, -30_000, 0)},
+			}
+			if renamed {
+				in.securities[len(in.securities)-1].symbol = "NEWN"
+				in.names = append(in.names, toolName{key: key, kind: "symbol", value: "NEWN", firstSeen: tcNY("2026-06-01 18:05:00"), lastSeen: tcNY("2026-06-30 18:05:00")})
+			}
+			for _, d := range days {
+				in.positions = append(in.positions, rcPosition(d, key, 10_000_000, 400))
+				in.snapshots = append(in.snapshots, rcSnapshot(1, d, 0))
+			}
+			return tcInput(in)
+		}
+		before := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", filed: tcNY("2026-10-11 09:00:00")}.toolCase().in
+		after := twoKeys{api: []string{"JKLM"}, file: []string{"JKLM", "JKLN"}, apiCUSIP: "ZZJ12K106", buy: "JKLN"}.toolCase().in
+		before.manual, after.manual = nil, nil
+		for _, c := range []struct {
+			name           string
+			first, renamed toolInput
+			ticker         string
+			keys           []string
+		}{
+			{"renamed", in(false, "2026-05-29", "2026-05-29"), in(true, "2026-06-30", "2026-05-29", "2026-06-30"), "NEWN", nil},
+			{"renamed by a later History file", before, after, "JKLN", []string{keyTwoAPI, keyTwoFile}},
+		} {
+			for _, tool := range []string{toolPP, toolGF} {
+				e1 := chainStepOf(t, c.first, tool, nil, rcAt1)
+				e2 := chainStepOf(t, c.renamed, tool, e1, rcAt2)
+				e3 := chainStepOf(t, c.renamed, tool, e2, rcAt3)
+				changed, _ := rcChanged(e2)
+				written := len(changed) > 0
+				if e1.e.SymbolsChanged != 0 || e2.e.SymbolsChanged != 1 || e3.e.SymbolsChanged != 0 || written != (tool == toolGF) {
+					t.Errorf("%s %s: symbols changed %d, %d, %d; changed %q", c.name, tool, e1.e.SymbolsChanged, e2.e.SymbolsChanged, e3.e.SymbolsChanged, changed)
+				}
+				var manifest struct {
+					SymbolsChanged []toolSymbolsEntry `json:"symbols_changed"`
+					Securities     []chainSecurity    `json:"securities"`
+				}
+				if err := json.Unmarshal(e2.manifest, &manifest); err != nil {
+					t.Fatal(err)
+				}
+				if got := manifest.SymbolsChanged; len(got) != 1 || got[0].WrittenAs != c.ticker || got[0].Symbols[0] != c.ticker || !slices.Equal(got[0].SecurityKeys, c.keys) {
+					t.Errorf("%s %s: symbols changed %+v", c.name, tool, got)
+				}
+				for _, s := range manifest.Securities {
+					if s.Identity != c.ticker || tool == toolPP && s.Ticker != c.ticker {
+						t.Errorf("%s %s: the chain's security %+v", c.name, tool, s)
+					}
+				}
+				if tool == toolPP {
+					m := newPPModel()
+					for _, s := range []*chainStep{e1, e2, e3} {
+						ppApply(t, m, s)
+					}
+					ppReconcile(t, m, e3.in, e3.events, e3.outcomes)
+				}
+			}
+		}
+		// A security of no row that the chain wrote for its prices alone,
+		// held under its CUSIP, which has its ticker since: neither tool has
+		// its prices from the export now, and it is named once.
+		const posKey = "c:69389B101"
+		held := func(ticker bool, to string, days ...string) toolInput {
+			in := toolInput{
+				to:         nytime.Date(to),
+				securities: append(slices.Clone(securities), toolSecurityRow{key: posKey, assetType: "EQUITY", cusip: cusip, symbol: cusip, description: "NEWT HOLDINGS"}),
+				names: append(slices.Clone(names),
+					toolName{key: posKey, kind: "symbol", value: cusip, firstSeen: tcNY("2026-05-29 18:05:00"), lastSeen: tcNY("2026-05-29 18:05:00")},
+					toolName{key: posKey, kind: "description", value: "NEWT HOLDINGS", firstSeen: tcNY("2026-05-29 18:05:00"), lastSeen: tcNY("2026-05-29 18:05:00")},
+				),
+			}
+			if ticker {
+				in.securities[len(in.securities)-1].symbol = "NEWT"
+				in.names = append(in.names, toolName{key: posKey, kind: "symbol", value: "NEWT", firstSeen: tcNY("2026-06-30 18:05:00"), lastSeen: tcNY("2026-06-30 18:05:00")})
+			}
+			for _, d := range days {
+				in.positions = append(in.positions, rcPosition(d, posKey, 10_000_000, 400))
+				in.snapshots = append(in.snapshots, rcSnapshot(1, d, 0))
+			}
+			return tcInput(in)
+		}
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, held(false, "2026-05-29", "2026-05-29"), tool, nil, rcAt1)
+			e2 := chainStepOf(t, held(true, "2026-06-30", "2026-05-29", "2026-06-30"), tool, e1, rcAt2)
+			e3 := chainStepOf(t, held(true, "2026-06-30", "2026-05-29", "2026-06-30"), tool, e2, rcAt3)
+			if e1.e.SymbolsChanged != 0 || e2.e.SymbolsChanged != 1 || e3.e.SymbolsChanged != 0 {
+				t.Errorf("held %s: symbols changed %d, %d, %d", tool, e1.e.SymbolsChanged, e2.e.SymbolsChanged, e3.e.SymbolsChanged)
+			}
 		}
 	})
 

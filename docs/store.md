@@ -1481,10 +1481,15 @@ and the export after you decide one writes it.
   made, and Ghostfolio ties activities to their symbol. So stderr and the
   manifest's `symbols_changed` name each security, but options, that has
   had two tickers that differ in Yahoo's form, or is delisted; with
-  `-since`, each whose identifiers written differ from the earlier
-  export's. A security is the tool's, as the holdings check takes it: one
-  that the store holds under two keys is named once, under the least of
-  them, with every one in `security_keys`.
+  `-since`, each whose identifiers differ from those that the chain wrote
+  it with: of those that the export writes, and of those that a row it
+  gives names or an exported account holds, as when PP, which finds a
+  security by its CUSIP, keeps the rows of one renamed since, so that only
+  this line tells it of the new ticker. The chain then holds the new
+  identifiers, and the next export does not name it again. A security is
+  the tool's, as the holdings check takes it: one that the store holds
+  under two keys is named once, under the least of them, with every one in
+  `security_keys`.
 
 ### Accounts
 
@@ -1603,8 +1608,9 @@ then started over.
   refuse the whole import over it. **A renamed security** (`FB` to `META`)
   takes its latest ticker in every row: PP, finding no security of the new
   ticker, finds it by its CUSIP and keeps its records, needing only the new
-  ticker for its feed; without a CUSIP, and in Ghostfolio always, the rows
-  given under the old symbol are listed as changed, to delete.
+  ticker for its feed, which `symbols_changed` names, whether or not the
+  export writes a row of it; without a CUSIP, and in Ghostfolio always, the
+  rows given under the old symbol are listed as changed, to delete.
 - **Positions opened before the store's rows** have no opening row, so a
   later sale takes PP's shares below zero and gives Ghostfolio a negative
   holding, and in Ghostfolio a dividend of a holding with no investment

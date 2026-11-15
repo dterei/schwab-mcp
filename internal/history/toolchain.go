@@ -877,7 +877,7 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 	c.compareLeftOut()
 	c.compareHoldings(events)
 	c.compareCash(events)
-	c.compareSecurities()
+	c.compareSecurities(events)
 	return c
 }
 
@@ -1104,11 +1104,16 @@ func chainHoldingKey(account, key, symbol string, diff *big.Rat) string {
 // those that this export writes (listSecurities) as it writes them, and the
 // securities whose symbol changed: with -since, those that this export
 // writes under other identifiers than the earlier one, which a tool that
-// holds them does not follow by itself (3.5 of the design); without, those
-// that have had another ticker or are delisted. The store's securities that
-// the tool takes for one (mergeListed) are one security whose symbol
-// changed, as the tool holds them.
-func (c *chainResult) compareSecurities() {
+// holds them does not follow by itself (3.5 of the design), and those that
+// the chain wrote and that a row given of events names, or that an account
+// that the export selects holds, whose identifiers would be written
+// otherwise now: PP finds a security whose CUSIP the store knows by its WKN,
+// so its rows stay given when it is renamed, and PP keeps its old ticker,
+// and that ticker's price feed, until you give it the new one (4.14);
+// without -since, those that have had another ticker or are delisted. The
+// store's securities that the tool takes for one (mergeListed) are one
+// security whose symbol changed, as the tool holds them.
+func (c *chainResult) compareSecurities(events []toolEvent) {
 	byRef := map[secRef]chainSecurity{}
 	if c.since != nil {
 		for _, s := range c.since.Securities {
@@ -1116,6 +1121,27 @@ func (c *chainResult) compareSecurities() {
 		}
 	}
 	listed := listSecurities(c.in, c.written)
+	if c.since != nil {
+		known := map[secRef]bool{}
+		for _, l := range listed {
+			known[l.security.ref()] = true
+		}
+		var held []*toolSecurity
+		for i := range events {
+			if s := events[i].security; s != nil && c.outcomes[events[i].row].outcome == outcomeGiven {
+				held = append(held, s)
+			}
+		}
+		for _, s := range append(held, toolHeld(c.in)...) {
+			if _, had := byRef[s.ref()]; had && !known[s.ref()] {
+				known[s.ref()] = true
+				listed = append(listed, toolListed{security: s})
+			}
+		}
+		slices.SortFunc(listed, func(a, b toolListed) int {
+			return cmp.Or(cmp.Compare(a.security.key, b.security.key), cmp.Compare(a.security.symbol, b.security.symbol))
+		})
+	}
 	changed := map[secRef]bool{}
 	for _, l := range listed {
 		s := l.security
