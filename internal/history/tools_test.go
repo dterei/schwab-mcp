@@ -57,7 +57,6 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 			Account *string     `json:"account"`
 			To      nytime.Date `json:"to"`
 			Since   *string     `json:"since"`
-			Redo    *string     `json:"redo"`
 		} `json:"filters"`
 		Chain struct {
 			Account *string `json:"account"`
@@ -129,7 +128,6 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	check("account", e.Account, deref(m.Filters.Account))
 	check("last day", e.To, m.Filters.To)
 	check("export it goes on from", e.Since, deref(m.Filters.Since))
-	check("account redone", e.Redo, deref(m.Filters.Redo))
 	var redoAccount string
 	var redoManual []string
 	if e.Since != "" {
@@ -682,14 +680,7 @@ func TestToolExport(t *testing.T) {
 		pm.apply(t, next, -1)
 	}
 
-	// What the export refuses once it has read the store. redoOf returns
-	// the options of a Ghostfolio export that goes on from the full one
-	// with -redo naming sel.
-	redoOf := func(sel string) ToolOptions {
-		o := toolSince(t, toolGF, "2026-11-11", full[toolGF])
-		o.Redo = sel
-		return o
-	}
+	// What the export refuses once it has read the store.
 	for _, c := range []struct {
 		what string
 		o    ToolOptions
@@ -705,32 +696,10 @@ func TestToolExport(t *testing.T) {
 		{"a -manual typo", ToolOptions{Tool: toolGF, Manual: []string{"ABCD", "AAPLE"}}, "-manual names AAPLE, which no security in the store has"},
 		{"a chain of an account that the store does not hold", toolChainOf(t, full[toolPP], "A99"), "-since " + full[toolPP].dir + ": its chain selects A99, which the store does not hold"},
 		{"a chain of no account's ref", toolChainOf(t, full[toolPP], "B2"), "-since " + full[toolPP].dir + `: the manifest's chain selects the account "B2", which is no A<id>`},
-		{"a -redo of an account that the store does not hold", redoOf("A99"), "no account A99 in the store"},
-		{"a -redo that no account's number ends in", redoOf("...999"), `no account in the store matches -redo "...999"`},
-		{"a -redo outside the chain's account", func() ToolOptions {
-			o := toolChainOf(t, full[toolGF], "A1")
-			o.Tool, o.Redo = toolGF, "A2"
-			return o
-		}(), "-redo A2 ...398: the chain of -since " + full[toolGF].dir + " selects A1 ...135 alone"},
 	} {
 		if _, err := ts.s.ExportTool(t.Context(), c.o); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", c.what, err, c.want)
 		}
-	}
-	// A redo of one Ghostfolio account, named by the last digits of its
-	// number: every row of it written again, the others' given.
-	redo := toolExportTo(t, ts, redoOf("...135"), filepath.Join(base, toolGF, "redo"))
-	var ofA1, others []string
-	for i, o := range full[toolGF].res.outcomes {
-		if o.outcome == outcomeWritten && full[toolGF].in.rows[i].account == 1 {
-			ofA1 = append(ofA1, full[toolGF].in.rows[i].ref)
-		} else if o.outcome == outcomeWritten {
-			others = append(others, full[toolGF].in.rows[i].ref)
-		}
-	}
-	if changed, gone := rcChanged(redo); redo.e.Redo != "A1 ...135" || len(ofA1) == 0 || !slices.Equal(redo.refs(outcomeWritten), ofA1) ||
-		!slices.Equal(redo.refs(outcomeGiven), others) || len(changed)+len(gone) > 0 || redo.e.Late != 0 {
-		t.Errorf("the redo of A1 (%q) writes %q, gives %q, lists %q and %q, %d late; A1's rows are %q", redo.e.Redo, redo.refs(outcomeWritten), redo.refs(outcomeGiven), changed, gone, redo.e.Late, ofA1)
 	}
 
 	// The chain. The later files bring a row "as of" a day that the full
@@ -834,8 +803,6 @@ func TestToolOptions(t *testing.T) {
 		{ToolOptions{Tool: toolPP, To: "2026-02-30"}, `"...230" is not a date (YYYY-MM-DD)`},
 		{ToolOptions{Tool: toolPP, Manual: []string{"ABCD"}}, "-manual is for -format ghostfolio"},
 		{ToolOptions{Tool: toolPP, Account: "A1", Since: manifest, SinceDir: "pp-1"}, "-since pp-1 goes on from the export in pp-1, with its account: drop -account"},
-		{ToolOptions{Tool: toolPP, Redo: "A1", Since: manifest, SinceDir: "pp-1"}, "-redo is for -format ghostfolio: a redo in Portfolio Performance deletes every account and imports a full export (docs/tools.md)"},
-		{ToolOptions{Tool: toolGF, Redo: "A1"}, "-redo goes on from the export that you imported last: give its folder with -since (a full export redoes every account, docs/tools.md)"},
 		{ToolOptions{Tool: toolPP, Since: []byte("{"), SinceDir: "pp-1"}, "-since pp-1: " + filepath.Join("pp-1", "manifest.json") + " is not the manifest of a -format pp export of layout 1"},
 		{ToolOptions{Tool: toolGF, Since: bytes.Replace(manifest, []byte(`"layout": 1`), []byte(`"layout": 2`), 1), SinceDir: "gf-1"}, "-since gf-1: " + filepath.Join("gf-1", "manifest.json") + " is not the manifest of a -format ghostfolio export of layout 1"},
 	} {
@@ -843,13 +810,9 @@ func TestToolOptions(t *testing.T) {
 			t.Errorf("%+v: %v, want %q", c.o, err, c.want)
 		}
 	}
-	// A manual symbol of spaces alone names nothing, as -manual takes it;
-	// a Redo of spaces alone redoes nothing.
+	// A manual symbol of spaces alone names nothing, as -manual takes it.
 	if _, _, err := (ToolOptions{Tool: toolPP, Manual: []string{" "}}).check(now); err != nil {
 		t.Errorf("-manual of a space for pp: %v", err)
-	}
-	if o, _, err := (ToolOptions{Tool: toolGF, Redo: " "}).check(now); err != nil || o.Redo != "" {
-		t.Errorf("-redo of a space: %q, %v", o.Redo, err)
 	}
 }
 

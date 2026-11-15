@@ -696,7 +696,8 @@ func TestStoreCommandsMaskNumbers(t *testing.T) {
 		{
 			pp,
 			[]string{"export", "-format", "pp", "-account", number, "-dir", pp},
-			"wrote 2 rows for Portfolio Performance to " + pp + ", up to 2026-10-07: 1 account file\n",
+			"wrote 2 rows for Portfolio Performance to " + pp + ", up to 2026-10-07: 1 account file\n" +
+				"  this assumes Portfolio Performance holds none of these accounts' rows: a first import into new, empty accounts, or a redo of every account (docs/tools.md)\n",
 			"\nin Portfolio Performance, make a USD deposit account and a securities account for each account, named:\n  A1 ...398: Schwab A1 ...398\n" +
 				"import in this order: securities.csv, account-transactions-A1-398.csv\n",
 			[]string{"account-transactions-A1-398.csv", "manifest.json", "pp-account-transactions.json", "pp-portfolio-transactions.json", "pp-securities.json", "securities.csv"},
@@ -892,10 +893,6 @@ func TestExportToolRefusals(t *testing.T) {
 		{[]string{"-format", "ghostfolio", "-dir", out, "-to", "2026-02-30"}, `-to "...230" is not a date: give YYYY-MM-DD or MM/DD/YYYY`},
 		{[]string{"-format", "pp", "-dir", filepath.Join(dir, "notes.txt")}, "-dir " + filepath.Join(dir, "notes.txt") + ": "},
 		{[]string{"-format", "pp", "-dir", out, "-since", third, "-account", "A1"}, "-since " + third + " goes on from the export in " + third + ", with its account: drop -account"},
-		{[]string{"-format", "pp", "-dir", out, "-since", third, "-redo", "A1"}, "-redo is for -format ghostfolio: a redo in Portfolio Performance deletes every account and imports a full export (docs/tools.md)"},
-		{[]string{"-redo", "A1"}, "-redo is for -format ghostfolio"},
-		{[]string{"-format", "ghostfolio", "-dir", out, "-since", gf, "-redo", " "}, "-redo needs an account: the one that you deleted in Ghostfolio, with its activities, to redo it"},
-		{[]string{"-format", "ghostfolio", "-dir", out, "-redo", "A1"}, "-redo goes on from the export that you imported last: give its folder with -since (a full export redoes every account, docs/tools.md)"},
 		// A folder that holds an export, by its manifest or a file of the
 		// format's names in any case; -since naming -dir is one.
 		{[]string{"-format", "pp", "-dir", first}, "-dir " + first + " holds an export already: write each export to a new folder, so that none is overwritten before it is imported"},
@@ -931,7 +928,6 @@ func TestExportToolRefusals(t *testing.T) {
 		// there.
 		{[]string{"-format", "pp", "-dir", out, "-since", third, "-what", "ledger"}, "no store at "},
 		{[]string{"-format", "ghostfolio", "-dir", out, "-since", gf, "-manual", "ABCD", "-to", "2026-10-31"}, "no store at "},
-		{[]string{"-format", "ghostfolio", "-dir", out, "-since", gf, "-redo", "...135"}, "no store at "},
 		{[]string{"-format", "pp", "-dir", noManifest, "-account", "A1"}, "no store at "},
 		{[]string{"-format", "pp", "-dir", other}, "no store at "},
 		{[]string{"-format", "ghostfolio", "-dir", perAccount}, "no store at "},
@@ -1053,6 +1049,7 @@ func TestToolSummary(t *testing.T) {
 				Tick:      []history.ToolTick{{File: "account-transactions-A2-398.csv", Ref: "T73508261958", Account: "A2 ...398", As: "account 2026-03-02 Withdrawal 1000.00"}},
 			},
 			want: `wrote 17 rows for Portfolio Performance to pp-2026-11-13, up to 2026-11-12: 2 account files, 2 portfolio files, 9 securities, 14 prices
+  this assumes Portfolio Performance holds none of these accounts' rows: a first import into new, empty accounts, or a redo of every account (docs/tools.md)
   A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
   A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
 left out 1 row (pp-2026-11-13/manifest.json lists each, with what to do): other 1
@@ -1083,6 +1080,7 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 				Accounts: []history.ToolAccount{newly(a1)},
 			},
 			want: `wrote 1 row for Portfolio Performance to pp-2026-11-14, up to 2026-11-13: 1 portfolio file, 1 security
+  this assumes Portfolio Performance holds none of these accounts' rows: a first import into new, empty accounts, or a redo of every account (docs/tools.md)
 1 security may be held by Portfolio Performance otherwise than written, or may no longer trade (pp-2026-11-14/manifest.json lists it under symbols_changed, with why): on a first import into empty accounts it asks nothing; on a redo, Portfolio Performance holds it from before: set it as docs/tools.md step 8 says before you import
 in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
   A1 ...135 (Individual): Schwab A1 ...135
@@ -1257,6 +1255,7 @@ next time: schwabtx export -format pp -since pp-2026-12-31 -dir <a new folder>
 				YahooIdle:     3, IdleSince: "2025-11-12",
 			},
 			want: `wrote 12 activities for Ghostfolio to gf-2026-11-13, up to 2026-11-12: 2 accounts with 18 balances, 5 manual assets (2 more with prices only), 6 symbols for Yahoo
+  this assumes Ghostfolio holds none of these accounts: a first import, or a redo of every account (docs/tools.md)
 6 deposits, withdrawals and journals are in the accounts' balances; 2 are not yet, posted after the latest snapshot was taken (A1 ...135: of 2026-11-10, taken 2026-11-10 18:05 in New York), which a later one will carry
 -manual names ABCD and ...398 and XY?Z, which nothing in this export uses
 3 symbols for Yahoo have no row since 2025-11-12 and are not held (gf-2026-11-13/manifest.json lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual
@@ -1315,7 +1314,7 @@ Ghostfolio takes an account's balances only in the import that makes the account
 set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
   Schwab A1 ...135: 10234.56 (2026-11-28)
   Schwab A2 ...398: -12.34 (2026-11-28)
-a redo of every account (docs/tools.md) imports a full export of this chain's selection: schwabtx export -store STORE -format ghostfolio -manual BND,efgh -dir <a new folder>
+a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -store STORE -format ghostfolio -manual BND,efgh -dir <a new folder>
 next time: schwabtx export -store STORE -format ghostfolio -since gf-2026-12-01 -dir <a new folder>
 `,
 		},
@@ -1335,26 +1334,6 @@ set each account's cash in Ghostfolio to its latest snapshot, which imports do n
   Schwab A3 ...777: 40.00 (2026-12-30)
 this file holds no activity: Ghostfolio's import dialog cannot import it; its accounts and balances come with the next export that has one, or by POST /api/v1/import
 next time: schwabtx export -format ghostfolio -since gf-2026-12-31 -dir <a new folder>
-`,
-		},
-		{
-			// A redo of A1, written whole, going on from the chain for A2.
-			name: "ghostfolio, a redo of one account", dir: "gf-2027-01-05", since: "gf-2026-12-31",
-			e: history.ToolExport{
-				Tool: "ghostfolio", To: "2027-01-04", Since: "2026-12-31T12:00:00Z", SinceTo: "2026-12-30", Redo: "A1 ...135", Written: 9, Holdings: 1,
-				Files:    []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio", Rows: 9}},
-				Accounts: []history.ToolAccount{withCash(a1, 12, "10234.56", "2027-01-04"), withCash(a2, 10, "-12.34", "2027-01-04")},
-				Profiles: 2, Yahoo: 1,
-			},
-			want: `wrote 9 activities for Ghostfolio to gf-2027-01-05, since gf-2026-12-31, up to 2027-01-04: 2 accounts with 22 balances, 2 manual assets, 1 symbol for Yahoo
-  this assumes Ghostfolio holds gf-2026-12-31 and every export before it, each imported once, with what it listed deleted
-  but not A1 ...135, which you deleted with its activities to redo it: this export writes it whole, with every balance, and lists anew what to do for it by hand
-1 holding differs from the latest snapshot (gf-2027-01-05/manifest.json): a position opened before the store's rows, or a split left out; add it by hand, less the rows left out that you book by hand (docs/tools.md)
-Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
-set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
-  Schwab A1 ...135: 10234.56 (2027-01-04)
-  Schwab A2 ...398: -12.34 (2027-01-04)
-next time: schwabtx export -format ghostfolio -since gf-2027-01-05 -dir <a new folder>
 `,
 		},
 	} {

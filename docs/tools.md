@@ -65,6 +65,14 @@ made up.
   wrote it, export again before you import, in a new folder (delete the one
   not imported); once imported, the next `-since` export lists what changed,
   to delete.
+- **A full export** assumes that the tool holds none of its accounts' rows,
+  as the line after its first says: a first import into new, empty
+  accounts, or a redo of every account (in [PP](#starting-over), in
+  [Ghostfolio](#redoing-every-account)). Imported over what the tool holds,
+  it is not a redo: the tool keeps all that it holds, takes a row that it
+  holds in another form, as one changed since, for a new one beside it,
+  and the export lists every difference from the snapshots anew, those
+  that you booked by hand too.
 
 ## Portfolio Performance
 
@@ -90,6 +98,7 @@ and the types' names, whatever PP's language and locale.
    ```
    $ schwabtx export -format pp -dir pp-1
    wrote 17 rows for Portfolio Performance to pp-1, up to 2026-11-13: 2 account files, 2 portfolio files, 9 securities, 6 prices
+     this assumes Portfolio Performance holds none of these accounts' rows: a first import into new, empty accounts, or a redo of every account (docs/tools.md)
      A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
@@ -357,6 +366,7 @@ with its description in its comment.
    ```
    $ schwabtx export -format ghostfolio -dir gf-1
    wrote 13 activities for Ghostfolio to gf-1, up to 2026-11-13: 3 accounts with 12 balances, 6 manual assets (1 more with prices only), 5 symbols for Yahoo
+     this assumes Ghostfolio holds none of these accounts: a first import, or a redo of every account (docs/tools.md)
      A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
@@ -382,6 +392,7 @@ with its description in its comment.
    error: -manual names BDN, which no security in the store has
    $ schwabtx export -format ghostfolio -manual BND -dir gf-2
    wrote 13 activities for Ghostfolio to gf-2, up to 2026-11-13: 3 accounts with 12 balances, 7 manual assets (1 more with prices only), 4 symbols for Yahoo
+     this assumes Ghostfolio holds none of these accounts: a first import, or a redo of every account (docs/tools.md)
      A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
@@ -481,7 +492,7 @@ with its description in its comment.
    set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
      Schwab A1 ...135: 1532.17 (2026-11-10)
      Schwab A2 ...398: 5210.44 (2026-11-10)
-   a redo of every account (docs/tools.md) imports a full export of this chain's selection: schwabtx export -format ghostfolio -manual BND -dir <a new folder>
+   a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -format ghostfolio -manual BND -dir <a new folder>
    next time: schwabtx export -format ghostfolio -since gf-3 -dir <a new folder>
    ```
 
@@ -496,12 +507,13 @@ with its description in its comment.
    them under the new asset, and lists each of its differences that the
    export before listed with the asset that it was under, from which to
    move what you added for it by hand (step 6).
-   A full export imported again over what Ghostfolio holds is not a redo:
+   A full export imported again over what Ghostfolio holds is not a redo,
+   as its line "this assumes Ghostfolio holds none of these accounts" says:
    it says nothing of what changed or went, which stays; an activity whose
    values you changed in Ghostfolio, as a delivery's that the export wrote
    at 0 (`value_unknown`), is another than the export's, which comes in
    again beside it; and it lists every difference from the snapshots anew,
-   those you added BUYs for too. Redo an account as below.
+   those you added BUYs for too. Redo every account as below.
 8. **Limits.** On ghostfol.io, which data sources are enabled and how many
    activities one import may hold are the deployment's settings: a dry run,
    which the dialog makes first, tells. An import over that limit ("Too many
@@ -510,64 +522,39 @@ with its description in its comment.
    exports with later ones, each imported before the next is made. Each
    file carries every balance, and the first makes the accounts.
 
-### Redoing an account
+### Redoing every account
 
-**A redo of one account**, to start over with it or to have Ghostfolio take
-every balance again: delete the account's activities (filter the
-activities by the account, then Delete Activities), the BUYs you added for
-it among them, then the account; then make the next `-since` export, as
-ever from the export you imported last, with `-redo` naming the account:
+**A redo**, to start over, or when a chain broke (a store made again, a
+manifest lost, an export not imported before the next was made): delete
+each account of the chain in Ghostfolio, with its activities (filter the
+activities by the account, then Delete Activities, then delete the
+account), and import a full export of the chain's selection: the plain
+full export, or, when the chain names an `-account` or a `-manual`, the one
+that each `-since` export of it prints ("a redo (docs/tools.md) imports a
+full export of this chain's selection: …", as `gf-3` above). That one
+names the chain's `-account` and every symbol of its `-manual`
+(`chain.manual` in the last manifest): a full export reads no chain, and
+without them it writes the rows of accounts that Ghostfolio never had, or
+the activities of the MANUAL assets for Yahoo, which may not know them.
+The import makes each account again with every balance. Then set again
+what you set by hand (the values of deliveries written at 0, the opening
+positions that it lists), and name it in the next `-since`.
 
-```
-$ schwabtx export -format ghostfolio -since gf-3 -redo ...135 -dir gf-4
-wrote 8 activities for Ghostfolio to gf-4, since gf-3, up to 2026-11-13: 3 accounts with 12 balances, 3 manual assets (1 more with prices only), 2 symbols for Yahoo
-  this assumes Ghostfolio holds gf-3 and every export before it, each imported once, with what it listed deleted
-  but not A1 ...135, which you deleted with its activities to redo it: this export writes it whole, with every balance, and lists anew what to do for it by hand
-  A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
-  A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
-  A3 ...783: snapshot 2026-11-02 to 2026-11-10
-4 deposits, withdrawals and journals are in the accounts' balances
-6 holdings differ from the latest snapshot (gf-4/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
-1 symbol for Yahoo has no row since 2025-11-13 and is not held (gf-4/manifest.json lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual
-Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
-set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
-  Schwab A1 ...135: 1532.17 (2026-11-10)
-  Schwab A2 ...398: 5210.44 (2026-11-10)
-a redo of every account (docs/tools.md) imports a full export of this chain's selection: schwabtx export -format ghostfolio -manual BND -dir <a new folder>
-next time: schwabtx export -format ghostfolio -since gf-4 -dir <a new folder>
-```
-
-It writes every row of the account, as a full export would, under the
-chain's `-manual`, and lists its rows left out and its differences from
-the snapshots anew, as what you did by hand for them went with it; for the
-other accounts it goes on from the chain as ever, and their activities
-stay as Ghostfolio holds them, values you changed included. Import it,
-which makes the account again with every balance, do again what it asks
-of the account (add its opening positions, book its rows left out), and
-name it in the next `-since`. When the account has no activity, the dialog
-cannot import the file: send it by `POST /api/v1/import`, or set the
-account's cash by hand.
-
-**A redo of every account** of the chain: delete each, with its
-activities, and import a full export of the chain's selection, which a
-`-since` export prints as the full export that a redo of every account
-imports (`gf-3` above): it names the chain's `-account`, when it has one,
-and every symbol of its `-manual` (`chain.manual` in the last manifest),
-which Ghostfolio holds as MANUAL assets; without `-manual`, the full
-export writes their activities for Yahoo, which may not know them. Name
-it in the next `-since`.
+There is no redo of one account. Only the import that makes an account
+sets its balances: between redos, set an account's cash from the lines that
+every `-since` export prints.
 
 **After a store is made again**, no export of it goes on from one of the old
-store (`-since` refuses it as another store's, and `-redo` goes with
-`-since`), and its accounts may be numbered otherwise, their names and
-Ghostfolio ids with them: redo every account of the chain. Delete each,
-with its activities; import one full export of the new store, with the old
-chain's `-manual` and, when the chain has an `-account`, that account as the
-new store holds it: by the last digits of its number (`-account ...135` for
-the old `A1 ...135`), or by its new ref, which `schwabtx status` lists, when
-two accounts end alike, never by the old `A1`, which may name another
-account now. The import makes the export's accounts again, with their
-balances: every account, or the chain's one. Name it in the next `-since`.
+store (`-since` refuses it as another store's), and its accounts may be
+numbered otherwise, their names and Ghostfolio ids with them: redo every
+account of the chain. Delete each, with its activities; import one full
+export of the new store, with the old chain's `-manual` and, when the chain
+has an `-account`, that account as the new store holds it: by the last
+digits of its number (`-account ...135` for the old `A1 ...135`), or by its
+new ref, which `schwabtx status` lists, when two accounts end alike, never
+by the old `A1`, which may name another account now. The import makes the
+export's accounts again, with their balances: every account, or the chain's
+one. Name it in the next `-since`.
 
 ## What the manifest asks of you
 

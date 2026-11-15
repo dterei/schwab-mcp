@@ -394,8 +394,7 @@ your decision.
 ```
 schwabtx export [-store PATH] [-what WHAT] [-format csv|jsonl|pp|ghostfolio] [-account ACCOUNT]
                 [-from DATE] [-to DATE] [-all] [-raw] [-show-accounts]
-                [-manual SYMBOLS] [-since DIR] [-redo ACCOUNT]
-                [-o FILE | -dir DIR]
+                [-manual SYMBOLS] [-since DIR] [-o FILE | -dir DIR]
 ```
 
 Writes the ledger, the counted transactions from the API and from files,
@@ -415,10 +414,8 @@ new folder with `-dir`, with a `manifest.json` that says what the export
 wrote, what it left out and what it asks of you, as stderr does. Import
 each export once, before you make the next, and name the one you imported
 last with `-since`: the next writes only what the tool lacks, and lists what
-changed or went, to delete there first. To redo one Ghostfolio account,
-delete it there with its activities and name it with `-redo` in the next
-`-since` export. [docs/tools.md](../../docs/tools.md) says how, for each
-tool, and
+changed or went, to delete there first. [docs/tools.md](../../docs/tools.md)
+says how, for each tool, and
 [docs/store.md](../../docs/store.md#exports-for-portfolio-performance-and-ghostfolio)
 what the files hold.
 
@@ -443,9 +440,6 @@ what the files hold.
 -since DIR        with -format pp or ghostfolio: the folder of the export you
                   imported last; write only what it did not, and list what
                   changed or went
--redo ACCOUNT     with -format ghostfolio and -since: this account, which you
-                  deleted in Ghostfolio with its activities to redo it,
-                  written whole
 -o FILE           write to FILE instead of stdout
 -dir DIR          write each table to a file of its own in DIR, with
                   manifest.json (for pp and ghostfolio, a new folder)

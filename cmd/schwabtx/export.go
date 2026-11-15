@@ -47,7 +47,6 @@ func runExport(ctx context.Context, args []string, stdout, stderr io.Writer) (er
 	show := fl.Bool("show-accounts", false, "add each row's full account number")
 	manual := fl.String("manual", "", "with -format ghostfolio: these symbols, comma-separated, as manual assets priced from your snapshots (later exports with -since keep them)")
 	since := fl.String("since", "", "with -format pp or ghostfolio: the folder of the export you imported last; write only what it did not, and list what changed or went")
-	redo := fl.String("redo", "", "with -format ghostfolio and -since: this account, which you deleted in Ghostfolio with its activities to redo it, written whole")
 	out := fl.String("o", "", "write to this file, readable only by you, instead of stdout")
 	dir := fl.String("dir", "", "write each table to a file of its own in this folder, with manifest.json (for pp and ghostfolio, a new folder)")
 	fl.Usage = func() {
@@ -82,15 +81,13 @@ func runExport(ctx context.Context, args []string, stdout, stderr io.Writer) (er
 	fl.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	if _, ok := toolFormats[*format]; ok {
 		return runToolExport(ctx, toolFlags{
-			format: *format, store: *store, account: *account, to: *to, manual: *manual, since: *since, redo: *redo, dir: *dir,
+			format: *format, store: *store, account: *account, to: *to, manual: *manual, since: *since, dir: *dir,
 			what: o.What, given: given,
 		}, stderr)
 	}
 	switch {
 	case given["manual"]:
 		return errors.New("-manual is for -format ghostfolio")
-	case given["redo"]:
-		return errors.New("-redo is for -format ghostfolio")
 	case given["since"]:
 		return errors.New("-since is for -format pp and ghostfolio")
 	case *out != "" && *dir != "":
@@ -260,9 +257,9 @@ func (t toolFormat) writes(name string) bool {
 // ghostfolio: their values, -what's names split, and which flags were
 // given, whatever their values.
 type toolFlags struct {
-	format, store, account, to, manual, since, redo, dir string
-	what                                                 []string
-	given                                                map[string]bool
+	format, store, account, to, manual, since, dir string
+	what                                           []string
+	given                                          map[string]bool
 }
 
 // runToolExport writes the ledger of the store as the files that the tool
@@ -271,8 +268,7 @@ type toolFlags struct {
 // configurations, or Ghostfolio's JSON. With -since it goes on from the
 // export that you imported last: it writes only what the tool lacks,
 // whatever its day, and lists what changed or went, to delete in the tool
-// first; and for Ghostfolio, with -redo, it writes whole the account that
-// you deleted there to redo it.
+// first.
 //
 // Before it opens the store, it refuses the flags that are for csv and
 // jsonl; a folder that holds an export already, whose files this one would
@@ -302,14 +298,8 @@ func runToolExport(ctx context.Context, f toolFlags, stderr io.Writer) (err erro
 		return errors.New("-since needs a folder: the one of the export that you imported last")
 	case f.since != "" && f.given["account"]:
 		return fmt.Errorf("-since %s goes on from the export in %s, with its account: drop -account", f.since, f.since)
-	case f.given["redo"] && f.format != "ghostfolio":
-		return errors.New("-redo is for -format ghostfolio: a redo in Portfolio Performance deletes every account and imports a full export (docs/tools.md)")
-	case f.given["redo"] && strings.TrimSpace(f.redo) == "":
-		return errors.New("-redo needs an account: the one that you deleted in Ghostfolio, with its activities, to redo it")
-	case f.given["redo"] && f.since == "":
-		return errors.New("-redo goes on from the export that you imported last: give its folder with -since (a full export redoes every account, docs/tools.md)")
 	}
-	o := history.ToolOptions{Tool: f.format, Account: f.account, SinceDir: f.since, Redo: strings.TrimSpace(f.redo)}
+	o := history.ToolOptions{Tool: f.format, Account: f.account, SinceDir: f.since}
 	if o.To, err = parseDay("-to", f.to); err != nil {
 		return err
 	}
@@ -484,30 +474,36 @@ func sinceManifest(dir, format string) ([]byte, error) {
 // toolSummary says on w what an export for a tool, of the store at path,
 // wrote to the folder dir, going on from the export in the folder since (""
 // for a full export), and what it asks of you (8.2 of the tool exports'
-// design): what it wrote (toolWrote) and, going on, what it assumes that the
-// tool holds, but the account that a redo writes whole; each account's
-// coverage; what it counted that needs you (toolCountLines); what to delete
-// in the tool before importing (toolDeletions); going on, the differences
-// from the snapshots that the export it goes on from listed and that
-// changed or went, with what to do with what you added by hand for them
-// (differenceLines); for PP, the accounts to make, the order of the files
-// and the rows to tick; for Ghostfolio, the cash that its imports leave as
-// it is; going on, when the chain selects an account or, for Ghostfolio,
-// names -manual symbols, the full export that a redo of every account
-// imports; and the command that goes on from it.
+// design): what it wrote (toolWrote) and what it assumes that the tool
+// holds: for a full export, none of its accounts, as on a first import or a
+// redo of every account, and going on, the exports of the chain; each
+// account's coverage; what it counted that needs you (toolCountLines); what
+// to delete in the tool before importing (toolDeletions); going on, the
+// differences from the snapshots that the export it goes on from listed
+// and that changed or went, with what to do with what you added by hand
+// for them (differenceLines); for PP, the accounts to make, the order of
+// the files and the rows to tick; for Ghostfolio, the cash that its imports
+// leave as it is; going on, when the chain selects an account or, for
+// Ghostfolio, names -manual symbols, the full export that a redo imports;
+// and the command that goes on from it.
 func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since string) {
 	tool, gf := toolFormats[e.Tool].name, e.Tool == "ghostfolio"
 	manifest := filepath.Join(dir, "manifest.json")
 	fmt.Fprintln(w, toolWrote(e, dir, since))
-	if since != "" {
+	if since == "" {
+		// A full export reads no chain: imported over what the tool holds,
+		// it is not a redo.
+		held := "none of these accounts' rows: a first import into new, empty accounts"
+		if gf {
+			held = "none of these accounts: a first import"
+		}
+		fmt.Fprintf(w, "  this assumes %s holds %s, or a redo of every account (docs/tools.md)\n", tool, held)
+	} else {
 		done, of := "deleted and ticked", "of them"
 		if gf {
 			done, of = "deleted", "of their rows"
 		}
 		fmt.Fprintf(w, "  this assumes %s holds %s and every export before it, each imported once, with what it listed %s\n", tool, since, done)
-		if e.Redo != "" {
-			fmt.Fprintf(w, "  but not %s, which you deleted with its activities to redo it: this export writes it whole, with every balance, and lists anew what to do for it by hand\n", e.Redo)
-		}
 		if n := e.Late; n > 0 {
 			fmt.Fprintf(w, "  %d %s %s dated on or before %s, the end of %s: %s late or %s decided since\n",
 				n, of, pluralWord(n, "is", "are"), e.SinceTo, since, pluralWord(n, "it came", "they came"), pluralWord(n, "was", "were"))
@@ -579,13 +575,7 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 			args = append(args, "-manual", quoteArg(strings.Join(manual, ",")))
 		}
 		args = append(args, "-dir", "<a new folder>")
-		redo := "a redo"
-		if gf {
-			// One account is redone with -redo, which goes on from the
-			// chain.
-			redo = "a redo of every account"
-		}
-		fmt.Fprintf(w, "%s (docs/tools.md) imports a full export of this chain's selection: %s\n", redo, copyCommand(path, args...))
+		fmt.Fprintf(w, "a redo (docs/tools.md) imports a full export of this chain's selection: %s\n", copyCommand(path, args...))
 	}
 	fmt.Fprintf(w, "next time: %s\n", copyCommand(path, "export", "-format", e.Tool, "-since", quoteArg(dir), "-dir", "<a new folder>"))
 }
