@@ -58,7 +58,7 @@ func (c *call) newCursor(args, key any) (*Cursor, error) {
 // cursor of another tool or of other arguments, of another version, or one
 // that does not decode, is bad_cursor; a changed limit is not checked.
 func (c *call) readCursor(cur string, args, key any) error {
-	bad := c.failf(codeBadCursor, "The cursor does not belong to these arguments; call again without it.")
+	bad := c.badCursor()
 	b, err := base64.RawURLEncoding.DecodeString(cur)
 	if err != nil {
 		return bad
@@ -77,6 +77,12 @@ func (c *call) readCursor(cur string, args, key any) error {
 		return bad
 	}
 	return nil
+}
+
+// badCursor is the error for a cursor that does not belong to the call, or
+// whose key is none that the tool writes.
+func (c *call) badCursor() error {
+	return c.failf(codeBadCursor, "The cursor does not belong to these arguments; call again without it.")
 }
 
 // argsDigest returns the first 16 hex digits of the SHA-256 of args as

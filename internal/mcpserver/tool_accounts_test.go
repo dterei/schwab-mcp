@@ -936,9 +936,9 @@ func accountReadsHoldNoNumber(t *testing.T, e *env) {
 // An account whose positions are not a list has positions null, and so
 // have its sums and the totals; the other accounts' positions are listed.
 // An account that the directory lists and Schwab's answer does not is no
-// longer shared. A cursor of other arguments, or that does not decode, is
-// bad_cursor; another limit is not; and one past the positions that a
-// later read holds gives an empty last page.
+// longer shared. A cursor of other arguments, that does not decode, or
+// whose index no page writes, is bad_cursor; another limit is not; and one
+// past the positions that a later read holds gives an empty last page.
 func TestPositionsOfAnUnreadableAccount(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, withoutStore(), withFake(func(f *schwabtest.Server) {
@@ -970,12 +970,23 @@ func TestPositionsOfAnUnreadableAccount(t *testing.T) {
 	}
 	e.fake.Override(schwabtest.AccountsRoute, schwabtest.Answer(200, "["+string(as2[individual])+","+string(as2[options])+"]"))
 	first := e.call("get_positions", `{"limit":1}`)
-	for _, args := range []map[string]any{
+	bad := []map[string]any{
 		{"limit": 1, "symbol": "VTI", "cursor": first.value["next_cursor"]},
 		{"limit": 1, "account": "135", "cursor": first.value["next_cursor"]},
 		{"limit": 1, "detail": "full", "cursor": first.value["next_cursor"]},
 		{"cursor": "not a cursor"},
-	} {
+	}
+	// Its cursor with an index that no page writes: 2^64 - 1 and 2^63, which
+	// an int does not hold, and one below 0.
+	body, err := base64.RawURLEncoding.DecodeString(fmt.Sprint(first.value["next_cursor"]))
+	if err != nil || !strings.Contains(string(body), `"k":1}`) {
+		t.Fatalf("the first page's cursor: %s, %v", body, err)
+	}
+	for _, k := range []string{"18446744073709551615", "9223372036854775808", "-1"} {
+		forged := strings.Replace(string(body), `"k":1}`, `"k":`+k+"}", 1)
+		bad = append(bad, map[string]any{"limit": 1, "cursor": base64.RawURLEncoding.EncodeToString([]byte(forged))})
+	}
+	for _, args := range bad {
 		if r := e.call("get_positions", args); r.code() != "bad_cursor" {
 			t.Errorf("%v: %s", args, r.text)
 		}

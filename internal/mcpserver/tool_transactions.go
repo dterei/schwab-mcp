@@ -363,7 +363,7 @@ func (c *call) txnAfter(cur string, args txnArgs) (*history.LedgerKey, error) {
 		return nil, nil
 	}
 	if _, ok := dayOf(nytime.Date(k[0])); !ok || k[2] == "" || k[3] == "" {
-		return nil, c.failf(codeBadCursor, "The cursor does not belong to these arguments; call again without it.")
+		return nil, c.badCursor()
 	}
 	return &history.LedgerKey{Day: nytime.Date(k[0]), Time: k[1], Ref: k[2], Account: k[3]}, nil
 }

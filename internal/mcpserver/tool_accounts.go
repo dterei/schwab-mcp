@@ -540,10 +540,13 @@ func (s *Server) getPositions(ctx context.Context, c *call, in positionsIn) (get
 	if one {
 		args.Account = picked[0].key()
 	}
-	var start uint
+	var start int // a key of 2^63 or more fails to decode, and one below 0 is no index
 	if in.Cursor != "" {
 		if err := c.readCursor(in.Cursor, args, &start); err != nil {
 			return getPositionsOut{}, err
+		}
+		if start < 0 {
+			return getPositionsOut{}, c.badCursor()
 		}
 	}
 	accounts, err := ask(ctx, c, func(cl *schwab.Client) ([]schwab.Account, error) {
@@ -648,7 +651,7 @@ func (s *Server) getPositions(ctx context.Context, c *call, in positionsIn) (get
 	// The page: the positions from the cursor's on, while the answer, with
 	// the warnings known so far and next_cursor at its longest, stays
 	// within the page budget.
-	from := min(int(start), len(rows))
+	from := min(start, len(rows))
 	out.AsOf, out.Warnings = instantOf(c.now), slices.Clone(c.warnings)
 	fixed, err := encode(out)
 	if err != nil {
