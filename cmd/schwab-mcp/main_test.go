@@ -50,9 +50,9 @@ func TestMain(m *testing.M) {
 // does not have: stray writes to stdout every way it can once the garbage
 // collector has run, and answers whether descriptor 1 is still open and
 // which descriptor a file it opens gets; slow says on stderr that it
-// started, and waits for its context to end; stuck says so too, and never
-// returns, as a handler that ignores its context would not, so that only
-// the hard exit after a signal ends the process.
+// started, waits for its context to end, and says so; stuck says that it
+// started too, and never returns, as a handler that ignores its context
+// would not, so that only the hard exit after a signal ends the process.
 func registerTestTools(s *mcpserver.Server) {
 	object := json.RawMessage(`{"type":"object"}`)
 	s.MCP().AddTool(&mcp.Tool{Name: "stray", InputSchema: object}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -77,6 +77,7 @@ func registerTestTools(s *mcpserver.Server) {
 	s.MCP().AddTool(&mcp.Tool{Name: "slow", InputSchema: object}, func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		fmt.Fprintln(os.Stderr, "slow: started")
 		<-ctx.Done()
+		fmt.Fprintln(os.Stderr, "slow: its context ended")
 		return nil, ctx.Err()
 	})
 	s.MCP().AddTool(&mcp.Tool{Name: "stuck", InputSchema: object}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -543,7 +544,9 @@ func TestStdinEndDuringARequestToSchwab(t *testing.T) {
 
 // A SIGINT while a call runs ends the call and exits 0 within 5 seconds,
 // though stdin stays open: at once for a call that ends with its context,
-// and by the hard exit, 250 ms on, for one that never ends.
+// which the signal ends, and by the hard exit, 250 ms on, for one that
+// never ends. The hard exit alone would exit 0 too, so the call that ends
+// with its context must say that it ended before the process does.
 func TestSignalStopsTheServer(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no SIGINT to send to another process")
@@ -562,6 +565,9 @@ func TestSignalStopsTheServer(t *testing.T) {
 			}
 			if took > 5*time.Second {
 				t.Errorf("the server exited %v after SIGINT", took)
+			}
+			if tool == "slow" && !slices.Contains(c.stderr.all(), "slow: its context ended") {
+				t.Error("the call's context did not end before the server exited: the signal did not end it")
 			}
 			t.Logf("the server exited %v after SIGINT", took)
 		})
@@ -588,6 +594,42 @@ func TestMalformedLineFailsTheSession(t *testing.T) {
 	}
 	if len(lines) != 1 || !strings.Contains(lines[0], "level=ERROR") || strings.Contains(lines[0], "panic") {
 		t.Errorf("stderr holds %q, want one line at error", lines)
+	}
+}
+
+// A frame of 4 MiB, its newline included, is read, and one longer than
+// that ends the session (design 5): the server exits 1, with one line on
+// stderr that names the limit, beside the warning that the fake is not
+// Schwab. The server may stop reading before the longer frame is all
+// written, so that writing it can fail.
+func TestLongFrameFailsTheSession(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	c := startChild(t, w, "--config", w.config)
+	c.initialize()
+	// ping is a ping of size bytes, the request id.
+	ping := func(id, size int) string {
+		head := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"ping","params":{"_meta":{"pad":"`, id)
+		const tail = `"}}}`
+		return head + strings.Repeat("x", size-len(head)-len(tail)) + tail
+	}
+	c.send(ping(2, 4<<20-1))
+	if r := c.answer(2); r["result"] == nil {
+		t.Fatalf("a frame of 4 MiB: %v", r)
+	}
+	_, _ = io.WriteString(c.stdin, ping(3, 4<<20+1024)+"\n")
+	c.stdin.Close()
+	if code, _ := c.wait(); code != 1 {
+		t.Errorf("exit code %d after a frame over 4 MiB, want 1", code)
+	}
+	var lines []string
+	for _, line := range c.stderr.all() {
+		if !strings.Contains(line, "the API's address is not Schwab's") {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) != 1 || !strings.Contains(lines[0], "level=ERROR") || !strings.Contains(lines[0], "maximum line length") {
+		t.Errorf("stderr holds %q, want one line at error that names the line's length", lines)
 	}
 }
 
