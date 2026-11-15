@@ -43,7 +43,8 @@ func toolExportTo(t *testing.T, ts *toolStore, o ToolOptions, dir string) *chain
 // the counts of rows written, given, combined and in the balances, and of
 // what was left out, with a caveat, flagged, waiting, holding other shares
 // than the snapshot, or under another symbol, those listed by the export it
-// goes on from aside; what changed, went and is to tick; the -manual
+// goes on from aside, and for PP the accounts whose cash is not their
+// latest snapshot's; what changed, went and is to tick; the -manual
 // symbols that nothing uses; going on, the redo's selection, the chain's
 // account and, for Ghostfolio, its -manual symbols; for PP, the securities
 // and prices of securities.csv; and for Ghostfolio, the profiles, the
@@ -93,11 +94,14 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 		Caveats []struct {
 			Ref, Account, Caveat string
 		} `json:"caveats"`
-		Combined   []struct{ Ref string }                        `json:"combined"`
-		InBalances *[]struct{ Rows int }                         `json:"in_balances"`
-		Flagged    []struct{ Ref string }                        `json:"flagged"`
-		Waiting    []struct{ Ref string }                        `json:"waiting"`
-		Holdings   struct{ Differences []struct{ Before bool } } `json:"holdings"`
+		Combined   []struct{ Ref string } `json:"combined"`
+		InBalances *[]struct{ Rows int }  `json:"in_balances"`
+		Flagged    []struct{ Ref string } `json:"flagged"`
+		Waiting    []struct{ Ref string } `json:"waiting"`
+		Holdings   struct {
+			Differences []struct{ Before bool }
+			Cash        *[]struct{ Before bool }
+		} `json:"holdings"`
 		Ghostfolio *struct {
 			Yahoo     []string
 			YahooIdle []struct{ Symbol string } `json:"yahoo_idle"`
@@ -240,6 +244,19 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 		}
 	}
 	check("holdings that differ", e.Holdings, holdings)
+	// PP's cash check, which Ghostfolio's manifest has none of.
+	if (m.Holdings.Cash != nil) != (e.Tool == toolPP) {
+		t.Errorf("the %s manifest's holdings hold a cash check: %v", e.Tool, m.Holdings.Cash != nil)
+	}
+	cash := 0
+	if m.Holdings.Cash != nil {
+		for _, c := range *m.Holdings.Cash {
+			if !c.Before {
+				cash++
+			}
+		}
+	}
+	check("accounts whose cash differs", e.Cash, cash)
 	check("securities whose symbol changed", e.SymbolsChanged, len(m.SymbolsChanged))
 	var unsure []ToolUnsure
 	for _, u := range m.KeysUnsure {

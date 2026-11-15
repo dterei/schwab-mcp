@@ -195,6 +195,20 @@
   "waiting": [],
   "holdings": {
     "differences": [],
+    "cash": [
+      {
+        "account": "A1 ...135",
+        "snapshot": "2026-11-10",
+        "snapshot_cash": 1200.00,
+        "written_cash": 141.00
+      },
+      {
+        "account": "A2 ...398",
+        "snapshot": "2026-11-10",
+        "snapshot_cash": -12.34,
+        "written_cash": 70.00
+      }
+    ],
     "not_checked": [
       "A3 ...783"
     ]

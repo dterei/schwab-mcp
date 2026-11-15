@@ -713,6 +713,12 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 	case n > 1:
 		fmt.Fprintf(w, "%d holdings differ from the latest snapshot (%s): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)\n", n, manifest)
 	}
+	switch n := e.Cash; {
+	case n == 1:
+		fmt.Fprintf(w, "1 account's cash in %s differs from its latest snapshot's (%s): cash held before the store's first row of the account, or rows left out; book the difference as an opening deposit or withdrawal (docs/tools.md)\n", tool, manifest)
+	case n > 1:
+		fmt.Fprintf(w, "%d accounts' cash in %s differs from their latest snapshots' (%s): cash held before the store's first row of each, or rows left out; book each difference as an opening deposit or withdrawal (docs/tools.md)\n", n, tool, manifest)
+	}
 	// The rows flagged are written, given, combined or, for Ghostfolio, in
 	// the balances, which no export lists to delete: a balance is Schwab's.
 	if n := e.Flagged; n > 0 {

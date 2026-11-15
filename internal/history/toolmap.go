@@ -2818,22 +2818,29 @@ func (m *toolMapper) gfCash(i int) {
 	r := &m.in.rows[i]
 	carried := false
 	if snap, ok := m.lastBalance(r.account); ok {
-		if !r.time.IsZero() {
-			carried = !r.time.After(snap.fetchedAt)
-		} else {
-			day := r.day
-			if r.source == "file" && r.posted != "" {
-				day = r.posted
-			}
-			taken, _ := nyClock(snap.fetchedAt)
-			carried = day != "" && day < taken
-		}
+		carried = postedBefore(r, snap.fetchedAt)
 	}
 	if !carried {
 		m.leftOut(i, "gf_cash")
 		return
 	}
 	m.outcomes[i] = toolOutcome{ref: r.ref, account: m.ix.account(r.account), outcome: outcomeInBalances}
+}
+
+// postedBefore reports whether row r was posted before the instant taken,
+// when a snapshot was taken, so that its cash is in the snapshot's (6.3 of
+// the design): an API row by its time; a file row by its posted date and an
+// API row without a time by its day, before the New York date of taken.
+func postedBefore(r *toolRow, taken time.Time) bool {
+	if !r.time.IsZero() {
+		return !r.time.After(taken)
+	}
+	day := r.day
+	if r.source == "file" && r.posted != "" {
+		day = r.posted
+	}
+	on, _ := nyClock(taken)
+	return day != "" && day < on
 }
 
 // lastBalance returns the account's last balance in Ghostfolio
@@ -3035,6 +3042,76 @@ func holdingsCheck(in *toolInput, events []toolEvent) ([]toolHolding, []toolAcco
 		}
 	}
 	return diffs, unchecked
+}
+
+// A toolCash is a difference of the cash check, PP's beside the holdings
+// check (4.15 of the design): what an account's latest snapshot taken on or
+// before the export's last day holds of cash, against what PP holds of it
+// once the records are imported, of the rows posted before that snapshot
+// was taken.
+type toolCash struct {
+	account toolAccount
+	// snapshot is the market date of the snapshot.
+	snapshot nytime.Date
+	// snapshotCash and writtenCash are the cash of the snapshot and of the
+	// records, in cents, signed.
+	snapshotCash, writtenCash int64
+}
+
+// ppCash returns what record e moves of its account's cash in PP: the
+// value of a deposit, a sale, a dividend, interest, a refund or an inbound
+// transfer, less that of a withdrawal, a buy, a fee, a tax, an interest
+// charge or an outbound transfer; none for a delivery, which PP books
+// without cash (cash_not_written).
+func ppCash(e toolEvent) int64 {
+	switch e.kind {
+	case evDeposit, evTransferIn, evSell, evDividend, evInterest, evFeesRefund, evTaxRefund:
+		return e.value
+	case evWithdrawal, evTransferOut, evBuy, evFees, evInterestCharge, evTaxes:
+		return -e.value
+	}
+	return 0
+}
+
+// cashCheck compares, for PP, the cash of each selected account's latest
+// closed-phase snapshot taken on or before the export's last day with the
+// cash that the records events leave in PP's deposit account, of the rows
+// posted before that snapshot was taken (postedBefore): PP's cash is the
+// sum of the records, from the account's first row in the store, so cash
+// that the account held before its rows begin, or that a row left out
+// moved, shows as a difference. A snapshot taken later may hold rows dated
+// after that day, which the export does not read; and a transfer's other
+// side that the export makes from this one, its own row dated after that
+// day, is in a later snapshot, so an account's own rows alone count. It
+// returns the differences, by account; an account without such a snapshot
+// of its cash has none. Ghostfolio's cash is the balances', so it has
+// nothing to check.
+func cashCheck(in *toolInput, events []toolEvent) []toolCash {
+	latest := map[int64]toolSnapshot{}
+	for _, s := range in.snapshots {
+		if !in.selected(s.account) || s.marketDate == "" || !s.cash.Valid {
+			continue
+		}
+		if taken, _ := nyClock(s.fetchedAt); in.to != "" && taken > in.to {
+			continue
+		}
+		if l, ok := latest[s.account]; !ok || s.fetchedAt.After(l.fetchedAt) {
+			latest[s.account] = s
+		}
+	}
+	written := map[int64]int64{}
+	for _, e := range events {
+		if s, ok := latest[e.account.id]; ok && e.row >= 0 && e.row < len(in.rows) && postedBefore(&in.rows[e.row], s.fetchedAt) {
+			written[e.account.id] += ppCash(e)
+		}
+	}
+	var diffs []toolCash
+	for _, id := range slices.Sorted(maps.Keys(latest)) {
+		if s := latest[id]; s.cash.Int64 != written[id] {
+			diffs = append(diffs, toolCash{account: in.accountOf(id), snapshot: s.marketDate, snapshotCash: s.cash.Int64, writtenCash: written[id]})
+		}
+	}
+	return diffs
 }
 
 // A toolIdle is a symbol that Ghostfolio's import asks Yahoo about that

@@ -197,11 +197,27 @@ type chainLeftOut struct {
 }
 
 // A chainHoldings is the holdings check of the manifest (4.15 of the
-// design): each difference, and the labels of the accounts that it could not
-// check, for want of a snapshot.
+// design): each difference, for PP each difference of the cash check, and
+// the labels of the accounts that it could not check, for want of a
+// snapshot. Cash is nil for Ghostfolio, whose cash is the balances'.
 type chainHoldings struct {
-	Differences []chainHolding `json:"differences"`
-	NotChecked  []string       `json:"not_checked"`
+	Differences []chainHolding      `json:"differences"`
+	Cash        *[]chainCashHolding `json:"cash,omitempty"`
+	NotChecked  []string            `json:"not_checked"`
+}
+
+// A chainCashHolding is a difference of PP's cash check (toolCash): the
+// account, the market date of the snapshot, its cash and what the records
+// leave of it in PP, and, with -since, whether the export it goes on from
+// listed the same account with the same difference (before): an opening
+// deposit booked in PP changes nothing in the store, so its difference
+// comes back in every export.
+type chainCashHolding struct {
+	Account      string      `json:"account"`
+	Snapshot     nytime.Date `json:"snapshot"`
+	SnapshotCash json.Number `json:"snapshot_cash"`
+	WrittenCash  json.Number `json:"written_cash"`
+	Before       bool        `json:"before,omitempty"`
 }
 
 // A chainHolding is a difference of the holdings check (toolHolding), its
@@ -558,6 +574,8 @@ type chainResult struct {
 	leftOut   []chainLeftOut
 	holdings  []chainHolding
 	unchecked []toolAccount
+	// cash are, for PP, the differences of the cash check.
+	cash []chainCashHolding
 	// securities are every security that the chain has written, with its
 	// identifiers as written last; symbolsChanged those of this export whose
 	// symbol a tool that holds them under an earlier one needs telling of,
@@ -858,6 +876,7 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 	c.nextGiven(records)
 	c.compareLeftOut()
 	c.compareHoldings(events)
+	c.compareCash(events)
 	c.compareSecurities()
 	return c
 }
@@ -1046,6 +1065,31 @@ func (c *chainResult) compareHoldings(events []toolEvent) {
 	}
 }
 
+// compareCash runs PP's cash check over the records of every row written
+// or given, events, and marks before each difference that the earlier
+// export listed for the same account with the same difference, the
+// snapshot's cash less the records'.
+func (c *chainResult) compareCash(events []toolEvent) {
+	if c.in.tool != toolPP {
+		return
+	}
+	before := map[string]bool{}
+	if c.since != nil && c.since.Holdings.Cash != nil {
+		for _, h := range *c.since.Holdings.Cash {
+			d := new(big.Rat).Sub(chainRat(h.SnapshotCash), chainRat(h.WrittenCash))
+			before[h.Account+"\x1f"+d.RatString()] = true
+		}
+	}
+	for _, d := range cashCheck(c.in, events) {
+		h := chainCashHolding{
+			Account: d.account.label(), Snapshot: d.snapshot,
+			SnapshotCash: json.Number(formatCents(d.snapshotCash)), WrittenCash: json.Number(formatCents(d.writtenCash)),
+		}
+		h.Before = before[h.Account+"\x1f"+big.NewRat(d.snapshotCash-d.writtenCash, 100).RatString()]
+		c.cash = append(c.cash, h)
+	}
+}
+
 // chainHoldingKey names a difference of the holdings check: its account,
 // its security (by its key, or by its symbol for one without), and the
 // snapshot's shares less the written ones.
@@ -1218,6 +1262,10 @@ func chainJSON(c *chainResult, exportedAt string, unused []string) chainManifest
 	}
 	if m.Holdings.Differences == nil {
 		m.Holdings.Differences = []chainHolding{}
+	}
+	if c.in.tool == toolPP {
+		cash := append([]chainCashHolding{}, c.cash...)
+		m.Holdings.Cash = &cash
 	}
 	return m
 }

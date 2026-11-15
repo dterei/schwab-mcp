@@ -1865,6 +1865,94 @@ func TestToolMapping(t *testing.T) {
 		}
 	})
 
+	t.Run("cash", func(t *testing.T) {
+		t.Parallel()
+		// Every kind of record that PP gets, in two accounts, against
+		// snapshots after the last row: the check's cash of each account is
+		// what PP's model holds once the export is imported, and a snapshot
+		// of other cash is a difference.
+		in := ppCheckerInput()
+		in.snapshots = []toolSnapshot{rcSnapshot(1, "2025-06-30", 0), rcSnapshot(2, "2025-06-30", 123)}
+		c := toolCase{name: "every record", in: in}
+		_, events, _ := mapCase(c, toolPP)
+		diffs := cashCheck(&in, events)
+		s := chainStepFrom(t, caseExport(t, c, toolPP), t.TempDir())
+		m := newPPModel()
+		ppApply(t, m, s)
+		if len(diffs) != 2 {
+			t.Fatalf("differences %+v", diffs)
+		}
+		for i, d := range diffs {
+			if d.account.id != int64(i+1) || d.snapshot != "2025-06-30" || d.snapshotCash != in.snapshots[i].cash.Int64 || d.writtenCash != m.cash(d.account.name()) {
+				t.Errorf("%+v: PP holds %s", d, formatCents(m.cash(d.account.name())))
+			}
+		}
+		in.snapshots[0].cash = centsOf(m.cash("Schwab A1 ...135"))
+		if diffs := cashCheck(&in, events); len(diffs) != 1 || diffs[0].account.id != 2 {
+			t.Errorf("A1's cash as PP holds it: differences %+v", diffs)
+		}
+
+		// An account that held cash before the store's first row. Its
+		// snapshot is the latest taken by the end of -to that holds its
+		// cash, not one without, nor one of -to's session taken the next
+		// morning, which may hold rows dated after -to; and its rows are
+		// those posted before that snapshot was taken: an API row up to
+		// that instant, not after; a file row posted before its day, and so
+		// not one of that day. A transfer's other side, which PP makes from
+		// the paying side although its own row is dated after -to, is not
+		// the snapshot's yet. An account whose snapshot matches, and one
+		// without, say nothing; neither does Ghostfolio, whose cash is the
+		// balances'.
+		opening := tcInput(toolInput{
+			to: "2026-06-30",
+			rows: []toolRow{
+				rcTrade("T7c000001", 1, "2026-03-02 10:00:00", "buy", keyEFGH, "EFGH", 100_000_000, 30, -300_000, 0),
+				rcCash("T7c000002", 1, "2026-06-29 18:05:00", "ACH_RECEIPT", "ACH Credit", "deposit", 1_000),
+				rcCash("T7c000003", 1, "2026-06-29 18:05:01", "ACH_RECEIPT", "ACH Credit", "deposit", 2_000),
+				rcFile("C7c0a0000.1", 1, "2026-06-29", "Bank Interest", "interest", "", "", sql.NullInt64{}, 0, 3_000),
+				rcFile("C7c0a0000.2", 1, "2026-06-28", "Bank Interest", "interest", "", "", sql.NullInt64{}, 0, 4_000),
+				rcJournal("T7c000004", 1, "2026-06-29 10:00:00", "JOURNAL TO ...398", -50_000, "T7c000101", 2),
+				rcCash("T7c000102", 2, "2026-06-01 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 10_000),
+				rcCash("T7c000201", 3, "2026-06-01 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 10_000),
+			},
+			snapshots: []toolSnapshot{
+				rcSnapshot(1, "2026-06-29", 700_000), rcSnapshot(1, "2026-07-01", 999_999),
+				{account: 1, marketDate: "2026-06-30", fetchedAt: tcNY("2026-06-30 18:05:00")},
+				{account: 1, marketDate: "2026-06-30", fetchedAt: tcNY("2026-07-01 07:00:00"), cash: centsOf(888_888)},
+				rcSnapshot(2, "2026-06-29", 10_000),
+			},
+			positions: []toolPosition{rcPosition("2026-06-29", keyEFGH, 100_000_000, 3100)},
+		})
+		// The journal's other side, of A2, is dated after -to.
+		opening.rows[5].partner = toolPartner{day: "2026-07-01", time: tcNY("2026-07-01 09:30:00"), amount: centsOf(50_000), counted: true, category: "journal", kind: "JOURNAL", description: "JOURNAL FRM ...135"}
+		for _, tool := range []string{toolPP, toolGF} {
+			o := toolCase{name: "opening cash", in: opening}
+			in, events, _ := mapCase(o, tool)
+			e := caseExport(t, o, tool)
+			if tool == toolGF {
+				if e.Cash != 0 {
+					t.Errorf("Ghostfolio counts %d accounts' cash", e.Cash)
+				}
+				continue
+			}
+			want := []toolCash{{account: in.accountOf(1), snapshot: "2026-06-29", snapshotCash: 700_000, writtenCash: -300_000 + 1_000 + 4_000 - 50_000}}
+			if got := cashCheck(in, events); !reflect.DeepEqual(got, want) {
+				t.Errorf("the opening cash: differences %+v, want %+v", got, want)
+			}
+			if e.Cash != 1 {
+				t.Errorf("stderr counts %d accounts' cash", e.Cash)
+			}
+			// An export of A1 checks A1's cash alone, whatever other
+			// account's snapshot it is given.
+			only := onlyAccount(*in, 1)
+			only.snapshots = append(only.snapshots, rcSnapshot(2, "2026-06-29", 1))
+			events, _ = toolEvents(&only)
+			if got := cashCheck(&only, events); !reflect.DeepEqual(got, want) {
+				t.Errorf("the opening cash of A1 alone: differences %+v, want %+v", got, want)
+			}
+		}
+	})
+
 	t.Run("PP's securities", func(t *testing.T) {
 		t.Parallel()
 		// The securities that PP takes for one, met in their order from a PP

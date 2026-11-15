@@ -176,6 +176,14 @@
         "written_shares": 1
       }
     ],
+    "cash": [
+      {
+        "account": "A1 ...135",
+        "snapshot": "2026-11-10",
+        "snapshot_cash": 10.00,
+        "written_cash": -145.00
+      }
+    ],
     "not_checked": []
   },
   "symbols_changed": [],

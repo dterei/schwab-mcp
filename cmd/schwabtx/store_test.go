@@ -991,7 +991,8 @@ func TestDecodeToolManifest(t *testing.T) {
 // What an export for a tool says on stderr (8.2 of the tool exports'
 // design), from what it wrote, in full and going on from another: what it
 // wrote, the coverage, what it left out, wrote with a caveat, found changed
-// in symbol or in the holdings, flagged or did not write for want of a
+// in symbol, in the holdings or, for PP, in the cash, flagged or did not
+// write for want of a
 // decision, and for Ghostfolio the cash rows that the balances carry, the
 // -manual symbols that nothing uses, said back masked, and the symbols
 // Yahoo may no longer know; what to delete in the tool; for PP, the
@@ -1040,7 +1041,7 @@ func TestToolSummary(t *testing.T) {
 				},
 				LeftOut:    []history.ToolCount{{Code: "other", Count: 1}},
 				CaveatRows: 1, Caveats: []history.ToolCount{{Code: "assumed_multiplier", Count: 1}},
-				SymbolsChanged: 1, Holdings: 2, Flagged: 1, Waiting: 1,
+				SymbolsChanged: 1, Holdings: 2, Cash: 2, Flagged: 1, Waiting: 1,
 				Accounts: []history.ToolAccount{newly(a1), newly(a2)},
 				Tick:     []history.ToolTick{{File: "account-transactions-A2-398.csv", Ref: "T73508261958", Account: "A2 ...398", As: "account 2026-03-02 Withdrawal 1000.00"}},
 			},
@@ -1051,6 +1052,7 @@ left out 1 row (pp-2026-11-13/manifest.json lists each, with what to do): other 
 wrote 1 row with a caveat (pp-2026-11-13/manifest.json): assumed_multiplier 1
 1 security has changed symbol (pp-2026-11-13/manifest.json): if Portfolio Performance holds it under an earlier ticker, give it the new one; once delisted, no price feed (docs/tools.md)
 2 holdings differ from the latest snapshot (pp-2026-11-13/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+2 accounts' cash in Portfolio Performance differs from their latest snapshots' (pp-2026-11-13/manifest.json): cash held before the store's first row of each, or rows left out; book each difference as an opening deposit or withdrawal (docs/tools.md)
 1 row of this export carries a flag that needs you (schwabtx status -review); if you uncount it, the next -since export lists what to delete
 1 file transaction waits for you to resolve it (schwabtx status -review) and is not in this export
 in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
@@ -1111,7 +1113,7 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 				Files:      []history.ToolFile{{Name: "securities.csv", Kind: "securities", Rows: 1}, {Name: "portfolio-transactions-A3-777.csv", Kind: "portfolio", Account: "A3 ...777", Rows: 1}},
 				Securities: 1, Prices: 1, CaveatRows: 2, Caveats: []history.ToolCount{{Code: "value_unknown", Count: 2}, {Code: "cash_not_written", Count: 1}},
 				LeftOut:        []history.ToolCount{{Code: "split", Count: 1}, {Code: "no_quantity", Count: 2}},
-				SymbolsChanged: 2, Holdings: 1, Flagged: 2, Waiting: 2,
+				SymbolsChanged: 2, Holdings: 1, Cash: 1, Flagged: 2, Waiting: 2,
 				Unsure: []history.ToolUnsure{
 					{Key: "x:66000017", Tickers: []string{"JKLM"}, TakenFor: "i:1000013", Securities: []history.ToolUnsureSecurity{{Key: "i:1000013", CUSIP: "ZZJ12K106"}, {Key: "i:1000213", CUSIP: "ZZJ12K205"}}},
 					{
@@ -1143,6 +1145,7 @@ wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_n
   i:1000303 (TKRY), on its own, each of the others having had its ticker at another time: schwabtx edit K:i:1000303 -same K:x:66000303
   x:66000501 (GRPZ), written as c:ZZS50B109, the others having had its ticker at other times: schwabtx edit K:x:66000501 -same K:i:1000501 (ZZR50A102) or -same K:c:ZZS50B109 (ZZS50B109)
 1 holding differs from the latest snapshot (pp-2026-12-15/manifest.json): a position opened before the store's rows, or a split left out; add it by hand (docs/tools.md)
+1 account's cash in Portfolio Performance differs from its latest snapshot's (pp-2026-12-15/manifest.json): cash held before the store's first row of the account, or rows left out; book the difference as an opening deposit or withdrawal (docs/tools.md)
 2 rows of this export carry a flag that needs you (schwabtx status -review); if you uncount one, the next -since export lists what to delete
 2 file transactions wait for you to resolve them (schwabtx status -review) and are not in this export
 in Portfolio Performance, make a USD deposit account and a securities account for each account, named:

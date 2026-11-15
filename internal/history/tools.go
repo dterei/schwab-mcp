@@ -114,8 +114,10 @@ type ToolExport struct {
 	// securities of an account whose shares differ from its latest
 	// snapshot's, but those that the export it goes on from listed alike;
 	// SymbolsChanged the securities, as the tool holds them, that a tool
-	// holding them under an earlier symbol needs telling of.
-	Flagged, Waiting, Holdings, SymbolsChanged int
+	// holding them under an earlier symbol needs telling of; and, for PP,
+	// Cash the accounts whose cash differs from their latest snapshot's, but
+	// those that the export it goes on from listed alike.
+	Flagged, Waiting, Holdings, SymbolsChanged, Cash int
 	// Unsure are the keys of the store that know no CUSIP and had a ticker
 	// that other securities have had too, of other CUSIPs or at another
 	// time, which the export writes as one of them, or on their own, and
@@ -561,6 +563,11 @@ func (e *ToolExport) count() {
 	for _, h := range e.res.holdings {
 		if !h.Before {
 			e.Holdings++
+		}
+	}
+	for _, c := range e.res.cash {
+		if !c.Before {
+			e.Cash++
 		}
 	}
 	for _, c := range e.res.changed {

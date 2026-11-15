@@ -130,6 +130,14 @@
         "written_shares": 1
       }
     ],
+    "cash": [
+      {
+        "account": "A1 ...135",
+        "snapshot": "2026-01-08",
+        "snapshot_cash": 1000.00,
+        "written_cash": -40.00
+      }
+    ],
     "not_checked": [
       "A3 ...783"
     ]

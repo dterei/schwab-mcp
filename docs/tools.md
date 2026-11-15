@@ -85,6 +85,7 @@ and the types' names, whatever PP's language and locale.
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
    11 holdings differ from the latest snapshot (pp-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+   2 accounts' cash in Portfolio Performance differs from their latest snapshots' (pp-1/manifest.json): cash held before the store's first row of each, or rows left out; book each difference as an opening deposit or withdrawal (docs/tools.md)
    in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
      A1 ...135: Schwab A1 ...135
      A2 ...398: Schwab A2 ...398
@@ -141,6 +142,19 @@ and the types' names, whatever PP's language and locale.
    add the opening position in PP, a Delivery (Inbound) dated before its
    first row. A later export marks `before` a difference that the one
    before it listed alike, and does not count it again.
+
+   **Opening cash.** PP's deposit account holds the sum of its records, from
+   the account's first row in the store, so it lacks the cash that the
+   account held before, and what a row left out moved: stderr says that an
+   account's cash differs from its latest snapshot's, and the manifest's
+   `holdings.cash` lists each, with the snapshot's cash and what the records
+   leave of the rows posted before it was taken. Import the History files
+   that go back to the account's first deposit, and the next export writes
+   the rows they add; or book the difference in PP as a Deposit, or a
+   Withdrawal when the records leave more, dated before the account's first
+   row. A later export marks `before` a difference that the one before it
+   listed alike; a new one is a row that moved cash and that the export left
+   out (`left_out`) or the store lacks.
 5. **What the manifest asks of you**: the rows left out, each with its
    reason and what to do, and the rows written with a caveat
    ([below](#what-the-manifest-asks-of-you)). A row that PP refuses for its
@@ -190,10 +204,10 @@ and the types' names, whatever PP's language and locale.
    exported comes back under gone, to delete, and so does one that a
    revision dates after `-to`, which an export up to its new day writes
    again; a file row that waits for you comes in a later export once you
-   decide it; and the left-out rows and holdings that an earlier export
-   listed are marked `before`, so that you are not asked twice. Never name
-   an export that you have not imported: the next one would take for
-   granted what it gave PP.
+   decide it; and the left-out rows, holdings and cash that an earlier
+   export listed are marked `before`, so that you are not asked twice.
+   Never name an export that you have not imported: the next one would
+   take for granted what it gave PP.
 
    A second full export of days that PP holds already is not safe: PP takes
    every changed row for a new one beside the old, and marks new rows equal

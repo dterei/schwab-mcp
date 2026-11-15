@@ -792,6 +792,22 @@
         "before": true
       }
     ],
+    "cash": [
+      {
+        "account": "A1 ...135",
+        "snapshot": "2026-11-10",
+        "snapshot_cash": 1532.17,
+        "written_cash": 12628.75,
+        "before": true
+      },
+      {
+        "account": "A2 ...398",
+        "snapshot": "2026-11-10",
+        "snapshot_cash": -12.34,
+        "written_cash": -1145.16,
+        "before": true
+      }
+    ],
     "not_checked": [
       "A3 ...398"
     ]

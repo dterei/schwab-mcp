@@ -2406,6 +2406,43 @@ func TestToolReimport(t *testing.T) {
 		}
 	})
 
+	t.Run("5c the cash of an account before its first row", func(t *testing.T) {
+		t.Parallel()
+		// PP's cash check lists A1's difference from its snapshot in the
+		// first export, and marks it before in the next, which an opening
+		// deposit booked in PP leaves as it was: its rows and its snapshots
+		// move alike. A row left out that moves cash makes another.
+		rows := []toolRow{rcTrade("T7c100001", 1, "2026-03-02 10:00:00", "buy", keyEFGH, "EFGH", 1_000_000, 30, -3_000, 0)}
+		first := tcInput(toolInput{to: "2026-03-31", rows: slices.Clone(rows), snapshots: []toolSnapshot{rcSnapshot(1, "2026-03-31", 7_000)}})
+		later := tcInput(toolInput{
+			to:        "2026-04-30",
+			rows:      append(slices.Clone(rows), rcCash("T7c100002", 1, "2026-04-01 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000)),
+			snapshots: []toolSnapshot{rcSnapshot(1, "2026-03-31", 7_000), rcSnapshot(1, "2026-04-30", 8_000)},
+		})
+		third := later
+		third.to = "2026-05-29"
+		third.rows = append(slices.Clone(later.rows), rcCash("T7c100003", 1, "2026-05-01 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 0))
+		third.rows[len(third.rows)-1].amount = sql.NullInt64{}
+		third.snapshots = append(slices.Clone(later.snapshots), rcSnapshot(1, "2026-05-29", 8_500))
+		third = tcInput(third)
+		e1 := chainStepOf(t, first, toolPP, nil, rcAt1)
+		e2 := chainStepOf(t, later, toolPP, e1, rcAt2)
+		e3 := chainStepOf(t, third, toolPP, e2, rcAt3)
+		for _, c := range []struct {
+			s     *chainStep
+			want  []chainCashHolding
+			count int
+		}{
+			{e1, []chainCashHolding{{Account: "A1 ...135", Snapshot: "2026-03-31", SnapshotCash: "70.00", WrittenCash: "-30.00"}}, 1},
+			{e2, []chainCashHolding{{Account: "A1 ...135", Snapshot: "2026-04-30", SnapshotCash: "80.00", WrittenCash: "-20.00", Before: true}}, 0},
+			{e3, []chainCashHolding{{Account: "A1 ...135", Snapshot: "2026-05-29", SnapshotCash: "85.00", WrittenCash: "-20.00"}}, 1},
+		} {
+			if !slices.Equal(c.s.res.cash, c.want) || c.s.e.Cash != c.count {
+				t.Errorf("%s: cash %+v, counted %d", c.s.e.At.Format(time.RFC3339), c.s.res.cash, c.s.e.Cash)
+			}
+		}
+	})
+
 	t.Run("6 an account of the same masked number joins", func(t *testing.T) {
 		t.Parallel()
 		rows := []toolRow{
