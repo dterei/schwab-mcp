@@ -240,13 +240,15 @@ and the types' names, whatever PP's language and locale.
    The export writes what changed whatever its day: a row that came late or
    that you decided since, a journal paired once its other side arrived, a
    revision, a ref that changed. A row that you uncount after it was
-   exported comes back under gone, to delete, and so does one that a
-   revision dates after `-to`, which an export up to its new day writes
-   again; a file row that waits for you comes in a later export once you
-   decide it; the left-out rows that an earlier export listed are marked
-   `before`, so that you are not asked twice, and so are its differences
-   from the snapshots that stayed as they were, while those that changed or
-   went are listed with their change (step 4).
+   exported comes back under gone, to delete, and so does one that the
+   store no longer holds or that a revision dates after `-to`, which an
+   export up to its new day writes again: both are "not in this export",
+   as the export reads no row after `-to` to tell them apart; a file row
+   that waits for you comes in a later export once you decide it; the
+   left-out rows that an earlier export listed are marked `before`, so
+   that you are not asked twice, and so are its differences from the
+   snapshots that stayed as they were, while those that changed or went
+   are listed with their change (step 4).
    Never name an export that you have not imported: the next one would
    take for granted what it gave PP.
 

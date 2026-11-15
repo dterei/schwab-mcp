@@ -994,6 +994,7 @@ func TestToolChain(t *testing.T) {
 				rcTrade("T74400107", 1, "2025-06-02 16:00:00", "buy", keyXYZ, "XYZ", 1_000_000, 50, -5004, 0),
 				rcCash("T74400108", 1, "2025-06-03 10:00:00", "JOURNAL", "SERVICE FEE", "fee", -250),
 				rcTrade("T74400109", 1, "2025-06-06 10:00:00", "buy", keyXYZ, "XYZ", 1_000_000, 50, -5005, 0),
+				rcTrade("T74400110", 3, "2025-06-02 17:00:00", "buy", keyXYZ, "XYZ", 1_000_000, 50, -5006, 0),
 				shares,
 			},
 			snapshots: []toolSnapshot{rcSnapshot(1, "2025-06-06", 100_000)},
@@ -1007,8 +1008,10 @@ func TestToolChain(t *testing.T) {
 		later.rows[4].category = "deposit"       // now cash
 		later.rows[5].day = ""                   // no_day
 		later.rows = slices.DeleteFunc(later.rows, func(r toolRow) bool {
-			return r.ref == "T74400101" || r.ref == "T74400102" || r.ref == "T74400104" || r.ref == "T74400108" || r.ref == "T74400109"
+			return r.ref == "T74400101" || r.ref == "T74400102" || r.ref == "T74400104" || r.ref == "T74400108" || r.ref == "T74400109" ||
+				r.account == 3
 		})
+		later.accounts = slices.DeleteFunc(slices.Clone(first.accounts), func(a toolAccount) bool { return a.id == 3 })
 		later.rows[len(later.rows)-1].category = "other"
 		later.rows = append(later.rows, tcInput(toolInput{rows: []toolRow{cash}}).rows[0])
 		later.uncounted = []toolUncounted{
@@ -1016,9 +1019,10 @@ func TestToolChain(t *testing.T) {
 			{ref: "T74400102", account: 1, why: "linked", matchedWith: "C7440000.1,C7440000.2"},
 			{ref: "T74400108", account: 1, why: "user"},
 		}
-		// A revision dated T74400109 after -to: an export up to that day
-		// writes it again.
-		later.later = []toolLaterRow{{ref: "T74400109", account: 1, day: "2026-11-13"}}
+		// T74400104 left the store, and a revision dated T74400109 after
+		// -to, which an export up to its new day writes again: the export
+		// reads neither, and tells neither from the other. Nor does it read
+		// T74400110, whose label names no account of the store now.
 		for _, c := range []struct {
 			tool string
 			want []string
@@ -1026,23 +1030,25 @@ func TestToolChain(t *testing.T) {
 			{toolPP, []string{
 				"T74400102 linked to C7440000.1, C7440000.2: portfolio 2025-06-02 Buy 50.01",
 				"T74400103 left out: no_quantity: portfolio 2025-06-02 Buy 50.02",
-				"T74400104 no longer in the store: portfolio 2025-06-02 Buy 50.03",
+				"T74400104 not in this export: no longer in the store, or dated after -to: portfolio 2025-06-02 Buy 50.03",
 				"T74400106 left out: no_day: account 2025-06-02 Dividend 4.00",
 				"T74400108 uncounted: user: account 2025-06-03 Fees 2.50",
 				"C7440000.3 combined with C7440000.4: portfolio 2025-06-04 Sell 0.00",
 				"T74400101 uncounted: user: portfolio 2025-06-05 Buy 50.00",
-				"T74400109 dated after -to: 2026-11-13: portfolio 2025-06-06 Buy 50.05",
+				"T74400109 not in this export: no longer in the store, or dated after -to: portfolio 2025-06-06 Buy 50.05",
+				"T74400110 not in this export: no longer in the store, or dated after -to: portfolio 2025-06-02 Buy 50.06",
 			}},
 			{toolGF, []string{
 				"T74400102 linked to C7440000.1, C7440000.2: 2025-06-02 BUY 50.01",
 				"T74400103 left out: no_quantity: 2025-06-02 BUY 50.02",
-				"T74400104 no longer in the store: 2025-06-02 BUY 50.03",
+				"T74400104 not in this export: no longer in the store, or dated after -to: 2025-06-02 BUY 50.03",
 				"T74400105 now cash, in the balances: 2025-06-02 DIVIDEND 3.00",
 				"T74400106 left out: no_day: 2025-06-02 DIVIDEND 4.00",
 				"T74400108 uncounted: user: 2025-06-03 FEE 2.50",
 				"C7440000.3 combined with C7440000.4: 2025-06-04 SELL 0.00",
 				"T74400101 uncounted: user: 2025-06-05 BUY 50.00",
-				"T74400109 dated after -to: 2026-11-13: 2025-06-06 BUY 50.05",
+				"T74400109 not in this export: no longer in the store, or dated after -to: 2025-06-06 BUY 50.05",
+				"T74400110 not in this export: no longer in the store, or dated after -to: 2025-06-02 BUY 50.06",
 			}},
 		} {
 			e1 := chainStepOf(t, first, c.tool, nil, rcAt1)

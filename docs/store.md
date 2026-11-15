@@ -1722,10 +1722,11 @@ whatever its day:
   transfer;
 - a row given that this export neither writes nor gives is listed under
   `gone`, with why: uncounted (and the store's reason), linked to another
-  ref, dated after `-to` (and its day now: a revision moved it, and an
-  export up to that day writes it again), no longer in the store, combined
-  with another row's sale, left out (and the reason), or, in Ghostfolio,
-  now cash in the balances. In PP, a gone row alike in everything PP keeps
+  ref, combined with another row's sale, left out (and the reason), in
+  Ghostfolio now cash in the balances, or else not in this export: no
+  longer in the store, or dated after `-to` by a revision, which an export
+  up to its new day writes again (the export reads no row after `-to` to
+  tell the two apart). In PP, a gone row alike in everything PP keeps
   to a row written under a new ref (a file row now linked to its API row)
   is `same_as`: nothing to delete or tick, and the new row's entry keeps,
   as `note_ref`, the ref that the Note PP holds names. A row of an entry

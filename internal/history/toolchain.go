@@ -368,9 +368,9 @@ type chainChanged struct {
 // writes nor gives (3.8 of the design): delete it in the tool. NoteRef and
 // Transfer are as a chainChanged's. Why says what became of it: uncounted
 // with the store's counted_why, linked to the row that the store counts in
-// its place, dated after -to with its day now, no longer in the store,
-// left out with its reason, or, for Ghostfolio, now cash, which its
-// balances carry.
+// its place, left out with its reason, combined with another row, or, for
+// Ghostfolio, now cash, which its balances carry; else not in this export
+// (notInExport).
 type chainGone struct {
 	Ref      string `json:"ref"`
 	Account  string `json:"account"`
@@ -834,7 +834,7 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 	}
 	for _, o := range unknown {
 		gone = append(gone, o)
-		why[[2]string{o.label, o.ref}] = "no longer in the store"
+		why[[2]string{o.label, o.ref}] = notInExport
 	}
 	slices.SortFunc(gone, func(a, b chainOld) int {
 		return cmp.Or(cmp.Compare(c.labelOrder(a.label), c.labelOrder(b.label)), cmp.Compare(a.given.Day, b.given.Day), cmp.Compare(a.ref, b.ref))
@@ -1019,11 +1019,18 @@ func (c *chainResult) labelOrder(label string) int64 {
 	return math.MaxInt64
 }
 
+// notInExport is why a row went that the earlier export gave and that
+// this export neither selects nor reads as uncounted, or whose account the
+// store does not hold: the store no longer holds it, or a revision dates
+// it after -to, and an export up to its new day writes it again. The
+// export reads no row after -to to tell which: the tool's row is to delete
+// either way.
+const notInExport = "not in this export: no longer in the store, or dated after -to"
+
 // whyGone returns why the row k, which the earlier export gave and which
 // this export does not select, went: uncounted, with the store's
 // counted_why, or linked to the rows that the store counts in its place
-// (Q10); dated after -to, with its day now, which an export up to that day
-// writes again (Q11); or no longer in the store.
+// (Q10); else notInExport.
 func (c *chainResult) whyGone(k rowKey) string {
 	for _, u := range c.in.uncounted {
 		if u.account != k.account || u.ref != k.ref {
@@ -1034,12 +1041,7 @@ func (c *chainResult) whyGone(k rowKey) string {
 		}
 		return "uncounted: " + u.why
 	}
-	for _, l := range c.in.later {
-		if l.account == k.account && l.ref == k.ref {
-			return "dated after -to: " + string(l.day)
-		}
-	}
-	return "no longer in the store"
+	return notInExport
 }
 
 // nextGiven makes the next given: the earlier export's entry of each row

@@ -1091,7 +1091,7 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 					},
 					{Ref: "T73508261944", Account: "A2 ...398", Was: "portfolio 2025-01-21 Buy 400.67", Why: "uncounted: user"},
 					{Ref: "T73508261948", Account: "A2 ...398", Was: "account 2025-02-03 Deposit 25.00", NoteRef: "Ca3b4c5d6.4", Why: "linked to T73508261949"},
-					{Ref: "C9e8d7c6b.2", Account: "A3 ...777", Was: "portfolio 2025-03-04 Sell 10.00; account 2025-03-04 Fees 15.00", Why: "no longer in the store"},
+					{Ref: "C9e8d7c6b.2", Account: "A3 ...777", Was: "portfolio 2025-03-04 Sell 10.00; account 2025-03-04 Fees 15.00", Why: "not in this export: no longer in the store, or dated after -to"},
 				},
 				Tick: []history.ToolTick{{File: "portfolio-transactions-A1-135.csv", Ref: "T73508261960", Account: "A1 ...135", As: "portfolio 2026-11-20 Buy 1001.25"}},
 			},
@@ -1105,7 +1105,7 @@ before importing, delete in Portfolio Performance what changed or went (pp-2026-
   Schwab A1 ...135: 2025-02-10 Transfer (Inbound) 500.00 (note schwabtx A2 ...398 T73508261952 to A1 ...135 T73508261953): gone, uncounted (user)
   Schwab A2 ...398: 2025-01-21 Buy 400.67 (note schwabtx A2 ...398 T73508261944): gone, uncounted (user)
   Schwab A2 ...398: 2025-02-03 Deposit 25.00 (note schwabtx A2 ...398 Ca3b4c5d6.4): gone, linked to T73508261949
-  A3 ...777: 2025-03-04 Sell 10.00; 2025-03-04 Fees 15.00 (note schwabtx A3 ...777 C9e8d7c6b.2): gone, no longer in the store
+  A3 ...777: 2025-03-04 Sell 10.00; 2025-03-04 Fees 15.00 (note schwabtx A3 ...777 C9e8d7c6b.2): gone, not in this export (no longer in the store, or dated after -to)
 import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv
 tick these rows, which Portfolio Performance will show as existing although they are new; leave every other such row unticked:
   portfolio-transactions-A1-135.csv: Schwab A1 ...135: 2026-11-20 Buy 1001.25 (T73508261960)

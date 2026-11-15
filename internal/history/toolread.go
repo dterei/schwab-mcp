@@ -10,11 +10,11 @@ import (
 )
 
 // This file reads what a tool export maps (2 of the design): its queries,
-// Q0 to Q12, run in one read transaction into a toolInput.
+// Q0 to Q10 and Q12, run in one read transaction into a toolInput.
 
 // A toolQuery is one of the reads of a tool export (2 of the design): its
-// name there, Q0 to Q12; its SQL and its arguments; and scan, which reads
-// the current row of rows, a row of the query, into in.
+// name there, Q0 to Q10 or Q12; its SQL and its arguments; and scan, which
+// reads the current row of rows, a row of the query, into in.
 type toolQuery struct {
 	name  string
 	query string
@@ -24,21 +24,20 @@ type toolQuery struct {
 
 // toolQueries returns the reads of a tool export that selects the account
 // of id account, 0 for every account, and the rows up to the day to, ""
-// for no bound (2 of the design): Q0 to Q12, in that order. The account
-// bounds the ledger rows, their legs, the snapshots, the rows that wait for
-// you, the coverage, the uncounted entries and the rows after to (Q2, Q3
-// and Q7 to Q11); to bounds the ledger rows, their legs, the positions and
-// the rows that wait for you (Q2, Q3, Q6 and Q8), and Q11 reads the rows
-// that the store counts after it, none for no bound. The accounts, the
-// securities, their names and the days of the rows under each of their
-// symbols (Q12) are the store's, and the positions every account's, since a
-// transfer names the other account, a price is the market's, and every
-// export takes a security for the same as every other, whatever it selects;
-// the snapshots and the uncounted entries go past to, since Ghostfolio takes
-// an account's balances only in the import that makes it and a row that a
-// tool holds may have stopped counting on any day, or be dated after to now
-// (Q11). Every query reads views, but Q0, which reads when the store was
-// made: no account number, raw JSON or file's content.
+// for no bound (2 of the design): Q0 to Q10 and Q12, in that order. The
+// account bounds the ledger rows, their legs, the snapshots, the rows that
+// wait for you, the coverage and the uncounted entries (Q2, Q3 and Q7 to
+// Q10); to bounds the ledger rows, their legs, the positions and the rows
+// that wait for you (Q2, Q3, Q6 and Q8). The accounts, the securities,
+// their names and the days of the rows under each of their symbols (Q12)
+// are the store's, and the positions every account's, since a transfer
+// names the other account, a price is the market's, and every export takes
+// a security for the same as every other, whatever it selects; the
+// snapshots and the uncounted entries go past to, since Ghostfolio takes an
+// account's balances only in the import that makes it and a row that a
+// tool holds may have stopped counting on any day. Every query reads views,
+// but Q0, which reads when the store was made: no account number, raw JSON
+// or file's content.
 func toolQueries(account int64, to nytime.Date) []toolQuery {
 	// bounds returns the WHERE clause of conds and of the selection's
 	// bounds: on the account column acct and by the condition day, which
@@ -69,10 +68,6 @@ func toolQueries(account int64, to nytime.Date) []toolQuery {
 	snapshots, snapshotsArgs := bounds("account_id", "", "in_session_date IS NULL", "market_date IS NOT NULL")
 	waiting, waitingArgs := bounds("account_id", "day <= ?", "source = 'file'", "counted_why IN ('held_out', 'uncertain')")
 	uncounted, uncountedArgs := bounds("account_id", "", "counted = 0")
-	later, laterArgs := " WHERE 0 = 1", []any(nil) // no row is after no bound
-	if to != "" {
-		later, laterArgs = bounds("account_id", "day > ?", "counted = 1")
-	}
 	coverage := sql.NullInt64{Int64: account, Valid: account != 0}
 	return []toolQuery{
 		{name: "Q0", query: "SELECT created_at FROM store WHERE id = 1", scan: scanToolStore},
@@ -142,13 +137,6 @@ func toolQueries(account int64, to nytime.Date) []toolQuery {
 			query: `SELECT ref, account_id, counted_why, matched_with FROM entries` + uncounted +
 				` ORDER BY account_id, ref`,
 			args: uncountedArgs, scan: scanToolUncounted,
-		},
-		{
-			name: "Q11",
-			// The rows that count but that a revision may have dated after
-			// to since an earlier export took them.
-			query: `SELECT ref, account_id, day FROM entries` + later + ` ORDER BY account_id, ref`,
-			args:  laterArgs, scan: scanToolLater,
 		},
 		{
 			name: "Q12",
@@ -382,19 +370,6 @@ func scanToolUncounted(rows *sql.Rows, in *toolInput) error {
 	}
 	u.matchedWith = matched.String
 	in.uncounted = append(in.uncounted, u)
-	return nil
-}
-
-// scanToolLater reads a row of Q11: a row that the store counts, dated
-// after the export's last day.
-func scanToolLater(rows *sql.Rows, in *toolInput) error {
-	var l toolLaterRow
-	var day string
-	if err := rows.Scan(&l.ref, &l.account, &day); err != nil {
-		return err
-	}
-	l.day = nytime.Date(day)
-	in.later = append(in.later, l)
 	return nil
 }
 
