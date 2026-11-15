@@ -112,6 +112,45 @@ func TestMaskerPath(t *testing.T) {
 	}
 }
 
+// A home folder that is a volume's root is none, so that a path outside a
+// user's folder shows by its base name and a log line keeps its
+// separators; and a log line's home is the home only where it starts a
+// path, not inside a longer folder's name or under another folder.
+func TestMaskerHomeBounds(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	root := filepath.VolumeName(dir) + string(filepath.Separator)
+	m := newMasker(root, "", "")
+	if len(m.homes) != 0 {
+		t.Errorf("a home of %s is kept: %q", root, m.homes)
+	}
+	if got := m.path(filepath.Join(root, "etc", "schwabtx", "config.json")); got != "config.json" {
+		t.Errorf("with a home of %s, path = %q, want config.json", root, got)
+	}
+	line := "open " + filepath.Join(root, "var", "lib", "schwabtx", "history.db") + ": permission denied"
+	if got := m.logString(line, true); got != line {
+		t.Errorf("with a home of %s, the log line %q became %q", root, line, got)
+	}
+
+	home := filepath.Join(dir, "al")
+	m = newMasker(home, "", "")
+	sep := string(filepath.Separator)
+	for _, tc := range []struct{ in, want string }{
+		{"open " + filepath.Join(home, "x", "token.json"), "open ~" + sep + filepath.Join("x", "token.json")},
+		{"open " + filepath.Join(dir, "alice", "x", "token.json"), "open " + filepath.Join(dir, "alice", "x", "token.json")},
+		{"open " + filepath.Join(dir, "mnt") + home, "open " + filepath.Join(dir, "mnt") + home},
+		{"home is " + strings.ToUpper(home), "home is ~"},
+		{`file="` + home + `"`, `file="~"`},
+	} {
+		if got := m.logString(tc.in, false); got != tc.want {
+			t.Errorf("logString(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	if got := m.path(filepath.Join(dir, "alice", "token.json")); got != "token.json" {
+		t.Errorf("path of a folder whose name begins with the home's = %q", got)
+	}
+}
+
 // compose writes the server's own words with pieces already safe as they
 // are, identifiers and dates whole, and masks any string it is given as
 // free text; it never masks the text whole.

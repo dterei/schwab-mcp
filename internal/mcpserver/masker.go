@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -37,7 +38,10 @@ type masker struct {
 }
 
 // newMasker returns a masker that knows home, the user's home directory
-// ("" for none), and the app's key and secret ("" when not set).
+// ("" for none), and the app's key and secret ("" when not set). A home
+// that is the root of a volume, as / is for some service accounts, is none:
+// every path would be under it, and every separator of a log line would be
+// taken for it.
 func newMasker(home, appKey, appSecret string) *masker {
 	m := &masker{known: &mask.Known{}}
 	for _, s := range [][2]string{{appKey, "[app key]"}, {appSecret, "[app secret]"}} {
@@ -48,15 +52,19 @@ func newMasker(home, appKey, appSecret string) *masker {
 	slices.SortStableFunc(m.secrets, func(x, y [2]string) int { return len(y[0]) - len(x[0]) })
 	if home != "" {
 		home = filepath.Clean(home)
-		m.homes = append(m.homes, home)
+		forms := []string{home}
 		if resolved, err := filepath.EvalSymlinks(home); err == nil {
-			m.homes = append(m.homes, filepath.Clean(resolved))
+			forms = append(forms, filepath.Clean(resolved))
 		}
 		if short := shortPath(home); short != "" {
-			m.homes = append(m.homes, filepath.Clean(short))
+			forms = append(forms, filepath.Clean(short))
+		}
+		for _, h := range forms {
+			if filepath.Dir(h) != h && !slices.Contains(m.homes, h) {
+				m.homes = append(m.homes, h)
+			}
 		}
 		slices.SortStableFunc(m.homes, func(x, y string) int { return len(y) - len(x) })
-		m.homes = slices.Compact(m.homes)
 	}
 	return m
 }
@@ -365,7 +373,7 @@ func (m *masker) logValue(v slog.Value) slog.Value {
 func (m *masker) logString(s string, outside bool) string {
 	s = m.hide(s)
 	for _, home := range m.homes {
-		s = replaceFold(s, home, "~")
+		s = replaceHome(s, home, "~")
 	}
 	if outside {
 		s = mask.Text(s)
@@ -373,34 +381,50 @@ func (m *masker) logString(s string, outside bool) string {
 	return m.known.Text(s)
 }
 
-// replaceFold returns s with every instance of old, matched without regard
-// to case, replaced by repl.
-func replaceFold(s, old, repl string) string {
-	if old == "" {
+// replaceHome returns s with every instance of home, matched without regard
+// to case, replaced by repl where it starts a path: where neither a
+// separator nor a character of a file's name comes before it, and no
+// character of a file's name but a separator comes after it. So a folder
+// whose name begins with the home's, /home/alice beside /home/al, and a
+// folder of the same name inside another, /mnt/home/al, are left whole.
+func replaceHome(s, home, repl string) string {
+	if home == "" {
 		return s
 	}
-	lower, lowerOld := strings.ToLower(s), strings.ToLower(old)
-	if len(lower) != len(s) || len(lowerOld) != len(old) {
+	hay, needle := strings.ToLower(s), strings.ToLower(home)
+	if len(hay) != len(s) || len(needle) != len(home) {
 		// A change of case that changes a length cannot be mapped back to
 		// s; match exactly instead.
-		return strings.ReplaceAll(s, old, repl)
+		hay, needle = s, home
 	}
 	var b strings.Builder
-	done := 0
+	done, from := 0, 0
 	for {
-		i := strings.Index(lower[done:], lowerOld)
+		i := strings.Index(hay[from:], needle)
 		if i < 0 {
 			break
 		}
-		b.WriteString(s[done : done+i])
+		start, end := from+i, from+i+len(home)
+		from = start + 1
+		if start > 0 && inName(s[start-1]) || end < len(s) && inName(s[end]) && !os.IsPathSeparator(s[end]) {
+			continue
+		}
+		b.WriteString(s[done:start])
 		b.WriteString(repl)
-		done += i + len(old)
+		done, from = end, end
 	}
 	if done == 0 {
 		return s
 	}
 	b.WriteString(s[done:])
 	return b.String()
+}
+
+// inName reports whether c can be part of a path before a home folder: a
+// separator, or a letter, digit, dot, dash or underscore of a file's name.
+func inName(c byte) bool {
+	return os.IsPathSeparator(c) || c == '.' || c == '-' || c == '_' || c >= utf8.RuneSelf ||
+		'0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
 }
 
 // logText is the log handler's rewriting of an attribute (log.go): its
