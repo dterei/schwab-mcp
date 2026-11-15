@@ -231,6 +231,15 @@ func TestMaskerJSON(t *testing.T) {
 	if got, _, _ := m.json([]byte(`{"description":"made-up"}`), schwab.TransactionKeyClass); string(got) != `{"description":"[token]"}` {
 		t.Errorf("json kept a secret: %s", got)
 	}
+	// A secret that holds a run of 8 digits is replaced before free text is
+	// masked by pattern, which would cut it so that it is no longer found.
+	m = newMasker("", "Key12345678abc", "Sec87654321xyz")
+	m.scrub = func(s string) string { return strings.ReplaceAll(s, "tok-99999999", "[token]") }
+	raw = `{"description":"app Key12345678abc secret Sec87654321xyz token tok-99999999","memo":"Key12345678abc"}`
+	got, _, err = m.json([]byte(raw), schwab.TransactionKeyClass)
+	if want := `{"description":"app [app key] secret [app secret] token [token]","memo":"[withheld]"}`; err != nil || string(got) != want {
+		t.Errorf("json of secrets with digits =\n%s, %v\nwant\n%s", got, err, want)
+	}
 }
 
 // The log handler masks every value as text: an error's by pattern too,

@@ -246,9 +246,15 @@ func (m *masker) schwabDetail(e *schwab.Error) FreeText {
 }
 
 // json rewrites raw, Schwab's JSON for a record, with mask.JSON and the
-// classes of classOf, and the known numbers; see mask.JSON.
+// classes of classOf, and the known numbers; see mask.JSON. The secrets are
+// replaced in raw first, as free does before it masks digits: mask.JSON
+// masks free text by pattern, which would cut a secret that holds a run of
+// 8 or more digits so that it is no longer found whole. The key, the secret
+// and Schwab's tokens hold no character that JSON escapes, so each is in
+// raw as it is; they are replaced again in what mask.JSON wrote, in case
+// Schwab escaped one that it needs not.
 func (m *masker) json(raw []byte, classOf func([]string) mask.Class) (json.RawMessage, mask.Report, error) {
-	out, report, err := mask.JSON(raw, classOf, m.known)
+	out, report, err := mask.JSON([]byte(m.hide(string(raw))), classOf, m.known)
 	if err != nil {
 		return nil, report, err
 	}
