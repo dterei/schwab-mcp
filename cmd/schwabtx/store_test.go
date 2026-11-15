@@ -892,6 +892,10 @@ func TestExportToolRefusals(t *testing.T) {
 		{[]string{"-format", "ghostfolio", "-dir", out, "-to", "2026-02-30"}, `-to "...230" is not a date: give YYYY-MM-DD or MM/DD/YYYY`},
 		{[]string{"-format", "pp", "-dir", filepath.Join(dir, "notes.txt")}, "-dir " + filepath.Join(dir, "notes.txt") + ": "},
 		{[]string{"-format", "pp", "-dir", out, "-since", third, "-account", "A1"}, "-since " + third + " goes on from the export in " + third + ", with its account: drop -account"},
+		{[]string{"-format", "pp", "-dir", out, "-since", third, "-redo", "A1"}, "-redo is for -format ghostfolio: a redo in Portfolio Performance deletes every account and imports a full export (docs/tools.md)"},
+		{[]string{"-redo", "A1"}, "-redo is for -format ghostfolio"},
+		{[]string{"-format", "ghostfolio", "-dir", out, "-since", gf, "-redo", " "}, "-redo needs an account: the one that you deleted in Ghostfolio, with its activities, to redo it"},
+		{[]string{"-format", "ghostfolio", "-dir", out, "-redo", "A1"}, "-redo goes on from the export that you imported last: give its folder with -since (a full export redoes every account, docs/tools.md)"},
 		// A folder that holds an export, by its manifest or a file of the
 		// format's names in any case; -since naming -dir is one.
 		{[]string{"-format", "pp", "-dir", first}, "-dir " + first + " holds an export already: write each export to a new folder, so that none is overwritten before it is imported"},
@@ -927,6 +931,7 @@ func TestExportToolRefusals(t *testing.T) {
 		// there.
 		{[]string{"-format", "pp", "-dir", out, "-since", third, "-what", "ledger"}, "no store at "},
 		{[]string{"-format", "ghostfolio", "-dir", out, "-since", gf, "-manual", "ABCD", "-to", "2026-10-31"}, "no store at "},
+		{[]string{"-format", "ghostfolio", "-dir", out, "-since", gf, "-redo", "...135"}, "no store at "},
 		{[]string{"-format", "pp", "-dir", noManifest, "-account", "A1"}, "no store at "},
 		{[]string{"-format", "pp", "-dir", other}, "no store at "},
 		{[]string{"-format", "ghostfolio", "-dir", perAccount}, "no store at "},
@@ -1273,7 +1278,7 @@ Ghostfolio takes an account's balances only in the import that makes the account
 set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
   Schwab A1 ...135: 10234.56 (2026-11-28)
   Schwab A2 ...398: -12.34 (2026-11-28)
-a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -store STORE -format ghostfolio -manual BND,efgh -dir <a new folder>
+a redo of every account (docs/tools.md) imports a full export of this chain's selection: schwabtx export -store STORE -format ghostfolio -manual BND,efgh -dir <a new folder>
 next time: schwabtx export -store STORE -format ghostfolio -since gf-2026-12-01 -dir <a new folder>
 `,
 		},
@@ -1293,6 +1298,26 @@ set each account's cash in Ghostfolio to its latest snapshot, which imports do n
   Schwab A3 ...777: 40.00 (2026-12-30)
 this file holds no activity: Ghostfolio's import dialog cannot import it; its accounts and balances come with the next export that has one, or by POST /api/v1/import
 next time: schwabtx export -format ghostfolio -since gf-2026-12-31 -dir <a new folder>
+`,
+		},
+		{
+			// A redo of A1, written whole, going on from the chain for A2.
+			name: "ghostfolio, a redo of one account", dir: "gf-2027-01-05", since: "gf-2026-12-31",
+			e: history.ToolExport{
+				Tool: "ghostfolio", To: "2027-01-04", Since: "2026-12-31T12:00:00Z", SinceTo: "2026-12-30", Redo: "A1 ...135", Written: 9, Holdings: 1,
+				Files:    []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio", Rows: 9}},
+				Accounts: []history.ToolAccount{withCash(a1, 12, "10234.56", "2027-01-04"), withCash(a2, 10, "-12.34", "2027-01-04")},
+				Profiles: 2, Yahoo: 1,
+			},
+			want: `wrote 9 activities for Ghostfolio to gf-2027-01-05, since gf-2026-12-31, up to 2027-01-04: 2 accounts with 22 balances, 2 manual assets, 1 symbol for Yahoo
+  this assumes Ghostfolio holds gf-2026-12-31 and every export before it, each imported once, with what it listed deleted
+  but not A1 ...135, which you deleted with its activities to redo it: this export writes it whole, with every balance, and lists anew what to do for it by hand
+1 holding differs from the latest snapshot (gf-2027-01-05/manifest.json): a position opened before the store's rows, or a split left out; add it by hand, less the rows left out that you book by hand (docs/tools.md)
+Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
+set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
+  Schwab A1 ...135: 10234.56 (2027-01-04)
+  Schwab A2 ...398: -12.34 (2027-01-04)
+next time: schwabtx export -format ghostfolio -since gf-2027-01-05 -dir <a new folder>
 `,
 		},
 	} {

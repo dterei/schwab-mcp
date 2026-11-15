@@ -2362,9 +2362,9 @@ func TestToolReimport(t *testing.T) {
 		}
 		ppReconcile(t, m, redo.in, redo.events, redo.outcomes)
 
-		// Ghostfolio: an account brought up to date, deleted with its
-		// activities, and made again by a full export made at once, with
-		// every balance, while the other accounts' activities are skipped.
+		// Ghostfolio: an account deleted with its activities, and made again
+		// by the next -since export, which -redo has write it whole, with
+		// every balance, while the other accounts go on from the chain.
 		f1, l1 := rcSequence1()
 		g1 := chainStepOf(t, f1, toolGF, nil, rcAt1)
 		g2 := chainStepOf(t, l1, toolGF, g1, rcAt2)
@@ -2374,39 +2374,49 @@ func TestToolReimport(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		full := chainStepOf(t, l1, toolGF, nil, rcAt3)
+		of := func(id int64) toolInput {
+			in := l1
+			in.redo = id
+			return in
+		}
+		redo1 := chainStepOf(t, of(1), toolGF, g2, rcAt3)
 		gfDeleteAccount(t, g, "Schwab A1 ...135")
-		if n, err := gfImport(g, full.file); err != nil || n != len(full.gf.file.Activities) {
-			t.Errorf("the redo of A1 imports %d of %d activities, %v", n, len(full.gf.file.Activities), err)
+		if n, err := gfImport(g, redo1.file); err != nil || n != len(redo1.gf.file.Activities) || n == 0 {
+			t.Errorf("the redo of A1 imports %d of %d activities, %v", n, len(redo1.gf.file.Activities), err)
 		}
 		if cash, ok := g.cash("Schwab A1 ...135"); !ok || cash.FloatString(2) != "10289.34" {
 			t.Errorf("A1's cash in Ghostfolio is %v", cash)
 		}
-		gfReconcile(t, full.in, full.events, full.outcomes, g)
-		// A2 has no activity: deleted, the full export has nothing new for
-		// the dialog, and a direct import makes it again.
+		gfReconcile(t, redo1.in, redo1.events, redo1.outcomes, g)
+		// A2 has no activity: deleted, its redo has nothing new for the
+		// dialog, and a direct import makes it again.
+		redo2 := chainStepOf(t, of(2), toolGF, redo1, rcAt4)
 		gfDeleteAccount(t, g, "Schwab A2 ...398")
-		if n, err := gfImport(g, full.file); err == nil {
+		if n, err := gfImport(g, redo2.file); err == nil {
 			t.Errorf("the dialog imports %d activities of a file with none new", n)
 		}
-		if n, err := gfImportDirect(g, full.file); err != nil || n != 0 {
+		if n, err := gfImportDirect(g, redo2.file); err != nil || n != 0 {
 			t.Errorf("the direct import: %d, %v", n, err)
 		}
 		i := slices.IndexFunc(g.accounts, func(a *gfmAccount) bool { return a.name == "Schwab A2 ...398" })
 		if cash, ok := g.cash("Schwab A2 ...398"); i < 0 || len(g.accounts[i].balances) != 2 || !ok || cash.FloatString(2) != "5300.00" {
 			t.Errorf("A2 in Ghostfolio: %v, cash %v", g.accounts, cash)
 		}
-		gfReconcile(t, full.in, full.events, full.outcomes, g)
+		gfReconcile(t, redo2.in, redo2.events, redo2.outcomes, g)
 	})
 
 	t.Run("5b a redo of a chain that names -manual or an account", func(t *testing.T) {
 		t.Parallel()
 		// Ghostfolio holds the chain's -manual security, which both accounts
-		// hold, as a MANUAL asset. A redo of A1 imports a full export of the
-		// chain's selection, which the -since export names (RedoManual): A1's
-		// buys come in again, and A2's is skipped as existing. Without the
-		// chain's -manual, the full export writes A2's buy for Yahoo, which
-		// Ghostfolio takes for new beside its MANUAL one.
+		// hold, as a MANUAL asset. A redo of A1 with -redo goes on from the
+		// chain, its -manual kept: A1's buys come in again, MANUAL, and A2's
+		// stays as Ghostfolio holds it. A redo of every account imports a
+		// full export of the chain's selection, which the -since export
+		// names (RedoManual): every buy comes in again, MANUAL. Without the
+		// chain's -manual, the full export writes them for Yahoo, which
+		// lacks the security (it is why -manual names it), and, imported
+		// over a Ghostfolio that still holds A2's, takes A2's buy for new
+		// beside its MANUAL one.
 		rows := []toolRow{
 			rcCash("T7d000100", 1, "2026-01-02 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000),
 			rcCash("T7d000200", 2, "2026-01-02 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000),
@@ -2432,12 +2442,21 @@ func TestToolReimport(t *testing.T) {
 		if !slices.ContainsFunc(plain.gf.file.Activities, func(a gfActivity) bool { return a.Comment == "schwabtx A2 ...398 T7d000201" && a.DataSource == "YAHOO" }) {
 			t.Errorf("a full export without the chain's -manual writes A2's buy as %+v", plain.gf.file.Activities)
 		}
-		redo := later
-		redo.manual = g2.e.RedoManual
-		full := chainStepOf(t, redo, toolGF, nil, rcAt3)
+		one := later
+		one.redo = 1
+		redo1 := chainStepOf(t, one, toolGF, g2, rcAt3)
 		gfDeleteAccount(t, g, "Schwab A1 ...135")
-		if n, err := gfImport(g, full.file); err != nil || n != 2 {
-			t.Errorf("the redo of A1 imports %d of %d activities, %v", n, len(full.gf.file.Activities), err)
+		if n, err := gfImport(g, redo1.file); err != nil || n != 2 || slices.ContainsFunc(redo1.gf.file.Activities, func(a gfActivity) bool { return a.DataSource == "YAHOO" }) {
+			t.Errorf("the redo of A1 imports %d of %+v, %v", n, redo1.gf.file.Activities, err)
+		}
+		gfReconcile(t, redo1.in, redo1.events, redo1.outcomes, g)
+		every := later
+		every.manual = g2.e.RedoManual
+		full := chainStepOf(t, every, toolGF, nil, rcAt4)
+		gfDeleteAccount(t, g, "Schwab A1 ...135")
+		gfDeleteAccount(t, g, "Schwab A2 ...398")
+		if n, err := gfImport(g, full.file); err != nil || n != 3 {
+			t.Errorf("the redo of every account imports %d of %d activities, %v", n, len(full.gf.file.Activities), err)
 		}
 		gfReconcile(t, full.in, full.events, full.outcomes, g)
 
@@ -3272,6 +3291,152 @@ func TestToolReimport(t *testing.T) {
 					t.Errorf("%s: beside the entry booked by hand, PP marks %v of the rows that it stood for, and the export ticks %v", c.name, marked, e2.e.Tick)
 				}
 			}
+		}
+	})
+
+	t.Run("5k a redo of one Ghostfolio account, with -redo", func(t *testing.T) {
+		t.Parallel()
+		// Both accounts opened positions before the store's rows, which
+		// begin with their sales: you add each opening BUY by hand, as the
+		// first export's differences say. A2's journaled shares are written
+		// at 0 (value_unknown), and you set their value in Ghostfolio. A1
+		// has a row booked other, left out. Then you redo A1: delete it in
+		// Ghostfolio with its activities, the BUY you added among them, and
+		// import the next -since export, which -redo has write A1 whole:
+		// every row of it, its difference counted anew and its row left out
+		// listed anew, none of them late, while A2 goes on from the chain,
+		// its rows given and its difference before. Ghostfolio makes A1
+		// again with every balance; you add its BUY again; A2's activities
+		// stay as you left them. A full export in its place, as the redo
+		// was before, writes A2's shares again, which Ghostfolio, holding
+		// them at the value you set, takes for new, and counts A2's
+		// difference too, for a second BUY.
+		rows := []toolRow{
+			rcTrade("T7c540101", 1, "2026-02-02 10:00:00", "sell", keyXYZ, "XYZ", -10_000_000, 50, 50_000, 0),
+			rcCash("T7c540102", 1, "2026-02-05 10:00:00", "RECEIVE_AND_DELIVER", "MISC CREDIT", "other", 1_000),
+			rcFile("C7c54000.1", 2, "2026-02-02", "Journaled Shares", "transfer_in", keyEFGH, "EFGH", centsOf(10_000_000), 0, 0),
+			rcTrade("T7c540201", 2, "2026-02-03 10:00:00", "sell", keyXYZ, "XYZ", -5_000_000, 50, 25_000, 0),
+		}
+		dividend := rcCash("T7c540202", 2, "2026-03-10 10:00:00", "DIVIDEND_OR_INTEREST", "EFGH DIVIDEND", "dividend", 200)
+		dividend.securityKey, dividend.symbol = keyEFGH, "EFGH"
+		efgh := func(day string) toolPosition {
+			p := rcPosition(day, keyEFGH, 10_000_000, 300)
+			p.account = 2
+			return p
+		}
+		first := tcInput(toolInput{
+			to: "2026-02-27", rows: rows, snapshots: []toolSnapshot{rcSnapshot(1, "2026-02-26", 50_000), rcSnapshot(2, "2026-02-26", 25_000)},
+			positions: []toolPosition{efgh("2026-02-26")},
+		})
+		later := tcInput(toolInput{
+			to: "2026-03-31", rows: append(slices.Clone(rows), dividend),
+			snapshots: []toolSnapshot{
+				rcSnapshot(1, "2026-02-26", 50_000), rcSnapshot(2, "2026-02-26", 25_000),
+				rcSnapshot(1, "2026-03-30", 51_000), rcSnapshot(2, "2026-03-30", 25_200),
+			},
+			positions: []toolPosition{efgh("2026-02-26"), efgh("2026-03-30")},
+		})
+		describe := func(s *chainStep) []string {
+			var out []string
+			for _, h := range s.res.holdings {
+				out = append(out, fmt.Sprintf("%s %s before=%v was=%s", h.Account, h.Symbol, h.Before, h.Was))
+			}
+			for _, l := range s.res.leftOut {
+				out = append(out, fmt.Sprintf("%s %s %s before=%v", l.Account, l.Ref, l.Reason, l.Before))
+			}
+			return out
+		}
+		const a1, a2 = "Schwab A1 ...135", "Schwab A2 ...398"
+		e1 := chainStepOf(t, first, toolGF, nil, rcAt1)
+		// Ghostfolio after the first export: the BUYs added by hand, and the
+		// value of A2's shares set.
+		start := func() *gfModel {
+			g := newGFModel()
+			if _, err := gfApply(t, g, e1); err != nil {
+				t.Fatal(err)
+			}
+			for _, h := range e1.res.holdings {
+				i := slices.IndexFunc(g.accounts, func(a *gfmAccount) bool { return a.name == "Schwab "+h.Account })
+				g.activities = append(g.activities, gfmActivity{
+					account: g.accounts[i].id, comment: "by hand", currency: "USD", source: h.Asset.DataSource, symbol: h.Asset.Symbol, typ: "BUY",
+					date: "2025-11-01T12:00:00.000Z", fee: new(big.Rat), quantity: chainRat(chainNumber(chainDifference(h.SnapshotShares, h.WrittenShares), false)), unitPrice: big.NewRat(30, 1),
+				})
+			}
+			i := slices.IndexFunc(g.activities, func(a gfmActivity) bool { return a.comment == "schwabtx A2 ...398 C7c54000.1" })
+			if i < 0 {
+				t.Fatalf("Ghostfolio holds no activity of A2's shares: %v", g.activities)
+			}
+			g.activities[i].unitPrice = big.NewRat(30, 1)
+			return g
+		}
+		if got := describe(e1); !slices.Equal(got, []string{
+			"A1 ...135 XYZ before=false was=", "A2 ...398 XYZ before=false was=", "A1 ...135 T7c540102 other before=false",
+		}) || e1.e.Holdings != 2 {
+			t.Errorf("the first export: %q, %d holdings counted", got, e1.e.Holdings)
+		}
+
+		redo := later
+		redo.redo = 1
+		e2 := chainStepOf(t, redo, toolGF, e1, rcAt2)
+		if got := describe(e2); !slices.Equal(got, []string{
+			"A1 ...135 XYZ before=false was=", "A2 ...398 XYZ before=true was=", "A1 ...135 T7c540102 other before=false",
+		}) || e2.e.Holdings != 1 || e2.e.Late != 0 || e2.e.Redo != "A1 ...135" || len(e2.e.LeftOut) != 1 {
+			t.Errorf("the redo of A1: %q, %d holdings counted, %d late, redo %q, left out %v", got, e2.e.Holdings, e2.e.Late, e2.e.Redo, e2.e.LeftOut)
+		}
+		if got, want := e2.refs(outcomeWritten), []string{"T7c540101", "T7c540202"}; !slices.Equal(got, want) {
+			t.Errorf("the redo of A1 writes %q, want %q", got, want)
+		}
+		if changed, gone := rcChanged(e2); len(changed)+len(gone) > 0 {
+			t.Errorf("the redo of A1 lists %q and %q", changed, gone)
+		}
+		g := start()
+		gfDeleteAccount(t, g, a1)
+		if n, err := gfApply(t, g, e2); err != nil || n != 2 {
+			t.Fatalf("the redo of A1 imports %d activities, %v", n, err)
+		}
+		// The BUY of A1, added again, as its difference is counted anew.
+		i := slices.IndexFunc(g.accounts, func(a *gfmAccount) bool { return a.name == a1 })
+		h := e2.res.holdings[0]
+		g.activities = append(g.activities, gfmActivity{
+			account: g.accounts[i].id, comment: "by hand", currency: "USD", source: h.Asset.DataSource, symbol: h.Asset.Symbol, typ: "BUY",
+			date: "2025-11-01T12:00:00.000Z", fee: new(big.Rat), quantity: big.NewRat(10, 1), unitPrice: big.NewRat(30, 1),
+		})
+		shares := func(g *gfModel) []string {
+			var out []string
+			for k, q := range g.holdings() {
+				for _, a := range g.accounts {
+					if a.id == k.account {
+						out = append(out, fmt.Sprintf("%s %s %s", a.name, k.symbol, q.FloatString(0)))
+					}
+				}
+			}
+			slices.Sort(out)
+			return out
+		}
+		valued := func(g *gfModel) int {
+			return len(slices.DeleteFunc(slices.Clone(g.activities), func(a gfmActivity) bool { return a.comment != "schwabtx A2 ...398 C7c54000.1" }))
+		}
+		if cash, ok := g.cash(a1); !slices.Equal(shares(g), []string{a2 + " EFGH 10"}) || valued(g) != 1 || !ok || cash.FloatString(2) != "510.00" {
+			t.Errorf("after the redo, Ghostfolio holds %q, %d activities of A2's shares, A1's cash %v", shares(g), valued(g), cash)
+		}
+
+		// The export after the redo goes on as ever.
+		e3 := chainStepOf(t, later, toolGF, e2, rcAt3)
+		if got := describe(e3); !slices.Equal(got, []string{
+			"A1 ...135 XYZ before=true was=", "A2 ...398 XYZ before=true was=", "A1 ...135 T7c540102 other before=true",
+		}) || len(e3.res.written) > 0 || e3.e.Holdings != 0 || e3.e.Redo != "" {
+			t.Errorf("the export after the redo: %q, writes %d records, %d holdings counted, redo %q", got, len(e3.res.written), e3.e.Holdings, e3.e.Redo)
+		}
+
+		// A full export in the redo's place.
+		g = start()
+		gfDeleteAccount(t, g, a1)
+		full := chainStepOf(t, later, toolGF, nil, rcAt2)
+		if _, err := gfImport(g, full.file); err != nil {
+			t.Fatal(err)
+		}
+		if full.e.Holdings != 2 || valued(g) != 2 {
+			t.Errorf("a full export in the redo's place counts %d holdings, and Ghostfolio holds %d activities of A2's shares", full.e.Holdings, valued(g))
 		}
 	})
 

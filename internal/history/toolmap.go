@@ -285,6 +285,9 @@ type toolInput struct {
 	// manual are the symbols that -manual names for Ghostfolio, with those
 	// that the chain's earlier exports named, each as given.
 	manual []string
+	// redo is, for Ghostfolio going on from another export, the account
+	// that a redo writes whole (-redo), by its id; 0 for none.
+	redo int64
 	// store is when the store was made (Q0), as an instant in the store's
 	// form: a chain of exports stays in one store.
 	store string

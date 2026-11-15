@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/dterei/schwab-mcp/internal/mask"
@@ -50,6 +51,14 @@ type ToolOptions struct {
 	// earlier ones did not give the tool, and lists what changed or went.
 	Since    []byte
 	SinceDir string
+	// Redo selects, for Ghostfolio going on from another export (Since), an
+	// account as Account does: one that you deleted in Ghostfolio, with its
+	// activities, to redo it. The export writes every row of it, as a full
+	// export would, and lists its rows left out and its differences from
+	// the snapshots anew, all that you did by hand for it having gone with
+	// it, while it goes on from Since for the other accounts, whose
+	// activities Ghostfolio keeps as it holds them. "" redoes none.
+	Redo string
 }
 
 // A ToolExport is an export for a tool, held in memory until WriteDir
@@ -63,9 +72,12 @@ type ToolExport struct {
 	To      nytime.Date
 	Account string
 	// Since is the exported_at of the export that it goes on from, and
-	// SinceTo that export's last day; each "" for a full export.
+	// SinceTo that export's last day; each "" for a full export. Redo is,
+	// for Ghostfolio, the account that it writes whole for a redo (-redo),
+	// as "A2 ...398"; "" for none.
 	Since   string
 	SinceTo nytime.Date
+	Redo    string
 	// Files are the files to import, in the order to import them: for PP,
 	// securities.csv and then, for each account, its account file and its
 	// portfolio file; for Ghostfolio, ghostfolio.json. WriteDir writes PP's
@@ -85,8 +97,9 @@ type ToolExport struct {
 	// cash events that a sale written carries; and InBalances, for
 	// Ghostfolio, the cash rows that the accounts' balances carry. Late
 	// counts the rows written that the earlier export did not give and
-	// that are dated on or before its last day: they came late, were
-	// decided, paired or took a new ref since.
+	// that are dated on or before its last day, but those of the account
+	// redone (Redo): they came late, were decided, paired or took a new ref
+	// since.
 	Written, Given, Combined, InBalances, Late int
 	// Changed are the rows that the tool holds in another form than the
 	// export writes, and Gone those that it holds and that the export
@@ -368,7 +381,8 @@ type ToolCount struct {
 // manifest (5, 6 and 8.1). Nothing is written until WriteDir. It refuses
 // options that do not go together; a Since that is not the manifest of an
 // export of its tool, made from this store, whose last day is no later than
-// To; and a Manual symbol that no security in the store has.
+// To; a Manual symbol that no security in the store has; and a Redo that
+// names no one account of the store, or another than the chain selects.
 func (s *Store) ExportTool(ctx context.Context, o ToolOptions) (*ToolExport, error) {
 	o, since, err := o.check(s.o.Now())
 	if err != nil {
@@ -384,7 +398,12 @@ func (s *Store) ExportTool(ctx context.Context, o ToolOptions) (*ToolExport, err
 		if v, err = readVersions(r.ctx, r.tx); err != nil {
 			return err
 		}
-		var account int64
+		var account, redo int64
+		if o.Redo != "" {
+			if redo, err = selectAccountOf(reader(r), o.Redo, false, "-redo"); err != nil {
+				return err
+			}
+		}
 		switch {
 		case since != nil:
 			// The chain's account, by its ref, whatever its nickname is now
@@ -397,7 +416,9 @@ func (s *Store) ExportTool(ctx context.Context, o ToolOptions) (*ToolExport, err
 				return err
 			}
 		}
-		in, err = readToolInput(r, account, o.To)
+		if in, err = readToolInput(r, account, o.To); err == nil {
+			in.redo = redo
+		}
 		return err
 	})
 	if err != nil {
@@ -410,6 +431,8 @@ func (s *Store) ExportTool(ctx context.Context, o ToolOptions) (*ToolExport, err
 // To set, now being the store's clock, and the export that they go on
 // from, parsed, nil for none.
 func (o ToolOptions) check(now time.Time) (ToolOptions, *toolChain, error) {
+	// A Redo of spaces alone names no account, as -redo refuses it.
+	o.Redo = strings.TrimSpace(o.Redo)
 	switch {
 	case o.Tool != toolPP && o.Tool != toolGF:
 		return o, nil, fmt.Errorf("a tool export is for pp or ghostfolio, not %q", mask.Text(o.Tool))
@@ -419,6 +442,10 @@ func (o ToolOptions) check(now time.Time) (ToolOptions, *toolChain, error) {
 		return o, nil, errors.New("-manual is for -format ghostfolio")
 	case o.Since != nil && o.Account != "":
 		return o, nil, fmt.Errorf("-since %s goes on from the export in %s, with its account: drop -account", o.SinceDir, o.SinceDir)
+	case o.Redo != "" && o.Tool != toolGF:
+		return o, nil, errors.New("-redo is for -format ghostfolio: a redo in Portfolio Performance deletes every account and imports a full export (docs/tools.md)")
+	case o.Redo != "" && o.Since == nil:
+		return o, nil, errors.New("-redo goes on from the export that you imported last: give its folder with -since (a full export redoes every account, docs/tools.md)")
 	}
 	if o.To == "" {
 		o.To = addDays(nytime.DateOf(now), -1)
@@ -450,6 +477,9 @@ func exportTool(in *toolInput, o ToolOptions, since *toolChain, at time.Time, v 
 		if in.account != 0 && !slices.ContainsFunc(in.accounts, func(a toolAccount) bool { return a.id == in.account }) {
 			return nil, fmt.Errorf("-since %s: its chain selects A%d, which the store does not hold", o.SinceDir, in.account)
 		}
+		if in.redo != 0 && in.account != 0 && in.redo != in.account {
+			return nil, fmt.Errorf("-redo %s: the chain of -since %s selects %s alone", in.accountOf(in.redo).label(), o.SinceDir, in.accountOf(in.account).label())
+		}
 	}
 	in.manual = since.manual(o.Manual)
 	events, outcomes := toolEvents(in)
@@ -465,6 +495,9 @@ func exportTool(in *toolInput, o ToolOptions, since *toolChain, at time.Time, v 
 	}
 	if in.account != 0 {
 		e.Account = in.accountOf(in.account).label()
+	}
+	if in.redo != 0 {
+		e.Redo = in.accountOf(in.redo).label()
 	}
 	if since != nil {
 		e.Since, e.SinceTo = since.ExportedAt, since.Chain.To
@@ -720,13 +753,15 @@ func (e *ToolExport) WriteDir(dir string) error {
 type (
 	// toolFilters are what the export selects: its account, by its label,
 	// null for every account; its last day; the symbols that its -manual
-	// names, masked, the chain's aside; and the exported_at of the export
-	// that it goes on from, null for none.
+	// names, masked, the chain's aside; the exported_at of the export that
+	// it goes on from, null for none; and the account that it writes whole
+	// for a redo (-redo), by its label, null for none.
 	toolFilters struct {
 		Account *string     `json:"account"`
 		To      nytime.Date `json:"to"`
 		Manual  []string    `json:"manual"`
 		Since   *string     `json:"since"`
+		Redo    *string     `json:"redo"`
 	}
 	// A toolFileEntry is a file of the manifest's files (ToolFile); tick is
 	// for PP only.
@@ -910,6 +945,9 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 	}
 	if e.Since != "" {
 		m.Filters.Since = &e.Since
+	}
+	if e.Redo != "" {
+		m.Filters.Redo = &e.Redo
 	}
 	for _, f := range e.Files {
 		entry := toolFileEntry{File: f.Name, Kind: f.Kind, Configuration: f.Configuration, Account: f.Account, Rows: f.Rows}

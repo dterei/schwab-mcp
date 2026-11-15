@@ -656,6 +656,10 @@ type chainResult struct {
 	in    *toolInput
 	ix    *toolIndex
 	since *toolChain
+	// redo is the label of the account that the export writes whole for a
+	// redo (toolInput.redo), "" for none: of the earlier export, the chain
+	// keeps nothing of it, as the tool holds nothing of it.
+	redo string
 	// outcomes are the rows' outcomes, in their order: the mapping's, but
 	// given for a row whose records the tool holds already.
 	outcomes []toolOutcome
@@ -669,7 +673,8 @@ type chainResult struct {
 	sameAs  []chainSameAs
 	// late counts the rows written that the earlier export did not give and
 	// that are dated on or before its last day, but those the same as a row
-	// gone: they came late, were decided or paired since.
+	// gone and those of the account redone: they came late, were decided or
+	// paired since.
 	late int
 	// given is the next given: what the tool holds once this export is
 	// imported.
@@ -741,11 +746,16 @@ func (o chainOld) tx() string {
 // hold under its own. A row given whose Note names such a row is changed,
 // so that each transaction that PP holds has a Note of its own row. The rows
 // left out and the holdings that differ are marked before when since listed
-// them alike.
+// them alike. Of the account that a redo writes whole, since is taken to
+// have given nothing and listed nothing: you deleted it in the tool, with
+// all that you did by hand for it.
 func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, since *toolChain) *chainResult {
 	c := &chainResult{
 		in: in, ix: newToolIndex(in), since: since, outcomes: slices.Clone(outcomes),
 		given: map[string]map[string]chainGiven{}, kept: map[rowKey]chainGiven{}, oldOf: map[rowKey]chainOld{}, start: map[string][]string{},
+	}
+	if in.redo != 0 {
+		c.redo = in.accountOf(in.redo).label()
 	}
 	records := map[int][]*toolEvent{}
 	for i := range events {
@@ -753,7 +763,8 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 	}
 
 	// The earlier export's given, by account and ref; an entry whose label
-	// names no account of the store is gone with its rows.
+	// names no account of the store is gone with its rows, and one of the
+	// account redone is none: the tool holds nothing of it.
 	labels := map[string]toolAccount{}
 	for _, a := range in.accounts {
 		labels[a.label()] = a
@@ -762,6 +773,9 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 	var unknown []chainOld
 	if since != nil {
 		for label, refs := range since.Given {
+			if label == c.redo {
+				continue
+			}
 			for ref, g := range refs {
 				if a, ok := labels[label]; ok {
 					old[rowKey{a.id, ref}] = chainOld{label, ref, g}
@@ -972,7 +986,7 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 		c.sameAs = append(c.sameAs, chainSameAs{Account: o.label, Gone: o.ref, New: r.ref})
 	}
 	for j, f := range news {
-		if since != nil && !paired[j] && in.rows[f.i].day <= since.Chain.To {
+		if since != nil && !paired[j] && in.rows[f.i].day <= since.Chain.To && in.rows[f.i].account != in.redo {
 			c.late++
 		}
 	}
@@ -1119,12 +1133,13 @@ func (c *chainResult) txOf(e *toolEvent) string {
 }
 
 // compareLeftOut lists the rows left out, each marked before when the
-// earlier export left it out for the same reason.
+// earlier export left it out for the same reason, but of the account that a
+// redo writes whole, whose rows you are to do by hand again.
 func (c *chainResult) compareLeftOut() {
 	before := map[[3]string]bool{}
 	if c.since != nil {
 		for _, l := range c.since.LeftOut {
-			before[[3]string{l.Account, l.Ref, l.Reason}] = true
+			before[[3]string{l.Account, l.Ref, l.Reason}] = l.Account != c.redo
 		}
 	}
 	for i, o := range c.outcomes {
@@ -1186,7 +1201,9 @@ func (c *chainResult) compareHoldings(events []toolEvent) {
 	c.unchecked = unchecked
 	var listed []chainHolding
 	if c.since != nil {
-		listed = c.since.Holdings.Differences
+		// Those of the account redone are none: what you added for them
+		// went with it.
+		listed = slices.DeleteFunc(slices.Clone(c.since.Holdings.Differences), func(l chainHolding) bool { return l.Account == c.redo })
 	}
 	taken := make([]bool, len(listed))
 	for _, d := range diffs {

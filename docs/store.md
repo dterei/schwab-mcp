@@ -1675,7 +1675,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `exported_at`, `schema`, `rules`, `calendar` | as the manifest of `-dir`: when, and the store's versions; `exported_at` also names the export to the next one |
 | `store` | when the store was made, which a `-since` export must match |
 | `format`, `layout` | `pp` or `ghostfolio`, and `1`, the layout of the files |
-| `filters` | `account` (its label, or null), `to`, `manual` (masked), and `since`, the `exported_at` of the export this one goes on from, or null |
+| `filters` | `account` (its label, or null), `to`, `manual` (masked), `since`, the `exported_at` of the export this one goes on from, or null, and `redo`, the label of the account that a Ghostfolio export writes whole for its redo (`-redo`), or null |
 | `chain` | `id`, the `exported_at` of the chain's first export; `account`, `A<id>` or null for every account; `manual`, each with `unused` when no security that the export writes or prices has had it, under any of its keys; and `to` |
 | `files` | the files to import, in order, each with its `kind`, its `configuration` for PP, its `account`, `rows`, and for PP how many rows to `tick` |
 | `accounts` | each account written or named, and each that the chain wrote or named before: `label`, `account`, `nickname`, `name`, `exported`, `last_day`, `new`, and for Ghostfolio its `ghostfolio_id`, its `balances` (how many, the first and last, or why none) and its latest `cash`. A PP transfer names the account of its other side, which may have no row up to `-to`; `new` says that the chain had not listed it, and stderr lists it to make |
@@ -1767,14 +1767,25 @@ DIR that holds no manifest of the format and layout, an export of another
 store, a `-to` before DIR's, and a DIR from which another export beside it
 has gone on already: naming an export older than the last would list its
 rows to tick again. A full export assumes the tool holds nothing of its
-accounts: a first import, or a redo after deleting them there (in
-[Portfolio Performance](tools.md#starting-over), in
+accounts: a first import, or a redo of every account after deleting them
+there (in [Portfolio Performance](tools.md#starting-over), in
 [Ghostfolio](tools.md#redoing-an-account)). A full export reads no chain,
 so a redo's must name the chain's account and, for Ghostfolio, every
 symbol of its `-manual` again, or it writes the other accounts' rows, or
 the activities of the MANUAL assets that Ghostfolio holds for Yahoo: a
 `-since` export of a chain that has either prints that full export's
-command.
+command. In Ghostfolio, which compares no account's activities apart from
+the others', one account is redone by a `-since` export with `-redo`
+naming it, once you deleted it there with its activities: the export takes
+DIR's chain to have given nothing of it and listed nothing of it, so that
+it writes every row of it, none counted as late, and lists its rows left
+out and its differences anew, while the other accounts go on from DIR. A
+full export imported over the other accounts would write their rows
+again: those whose activities you changed in Ghostfolio, as a value set by
+hand, would come in again beside them, and their differences would be
+counted anew. `-redo` names an account as `-account` does, one of the
+chain's when the chain has one; Portfolio Performance, which checks a
+transfer against the other account's side, has no `-redo`.
 
 ## Backup and restore
 

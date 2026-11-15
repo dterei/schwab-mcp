@@ -478,6 +478,12 @@ func accountsEnding(w *wtx, digits string) ([]int64, error) {
 // account, or several, is an error that lists them masked. A whole number
 // that the store does not know adds the account when add is set.
 func selectAccount(w *wtx, sel string, add bool) (int64, error) {
+	return selectAccountOf(w, sel, add, "-account")
+}
+
+// selectAccountOf is selectAccount for the selector that the flag named
+// flag gives, which its errors name.
+func selectAccountOf(w *wtx, sel string, add bool, flag string) (int64, error) {
 	sel = strings.TrimSpace(sel)
 	if id, err := strconv.ParseInt(strings.TrimPrefix(strings.TrimPrefix(sel, "A"), "a"), 10, 64); err == nil && (strings.HasPrefix(sel, "A") || strings.HasPrefix(sel, "a")) {
 		if ok, err := rowExists(w, "SELECT 1 FROM account WHERE account_id = ?", id); err != nil || !ok {
@@ -514,13 +520,13 @@ func selectAccount(w *wtx, sel string, add bool) (int64, error) {
 	case 1:
 		return ids[0], nil
 	case 0:
-		return 0, fmt.Errorf("no account in the store matches -account %q", mask.Text(sel))
+		return 0, fmt.Errorf("no account in the store matches %s %q", flag, mask.Text(sel))
 	}
 	labels, err := accountLabels(w, ids)
 	if err != nil {
 		return 0, err
 	}
-	return 0, fmt.Errorf("-account %q fits %s; say which with its ref, such as A%d", mask.Text(sel), joinAnd(labels), ids[0])
+	return 0, fmt.Errorf("%s %q fits %s; say which with its ref, such as A%d", flag, mask.Text(sel), joinAnd(labels), ids[0])
 }
 
 // accountLabel returns how messages name an account: its ref, its number
