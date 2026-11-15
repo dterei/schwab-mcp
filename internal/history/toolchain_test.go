@@ -2712,7 +2712,8 @@ func TestToolReimport(t *testing.T) {
 		// rather than book 100.00 beside it. Another brings the second
 		// deposit and the purchase: the third export lists both differences
 		// as gone, and you delete what you booked, which the rows written
-		// now stand for. The tool then holds the snapshot's cash and shares.
+		// now stand for: in PP before importing the export, in Ghostfolio
+		// after. The tool then holds the snapshot's cash and shares.
 		sale := rcTrade("T7c500101", 1, "2026-02-02 10:00:00", "sell", keyXYZ, "XYZ", -10_000_000, 50, 50_000, 0)
 		first := rcFile("C7c50001.1", 1, "2025-11-03", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 60_000)
 		rest := []toolRow{
@@ -2801,17 +2802,11 @@ func TestToolReimport(t *testing.T) {
 					return nil
 				}
 				for _, s := range []*chainStep{e2, e3} {
-					// The files first, as ppApply would, but beside what
-					// PP holds by hand, which the export's replay does not
-					// know of: no row is marked as existing.
-					for _, f := range s.pp {
-						if f.kind == ppConfiguration {
-							continue
-						}
-						if marked, refused := m.importFile(s.dir, f.name, f.account.name(), nil); len(refused)+len(marked) > 0 {
-							t.Errorf("%s: PP refuses %q, marks %v", f.name, refused, marked)
-						}
-					}
+					// What you booked by hand first, changed by each
+					// difference's change or deleted, before importing, as
+					// stderr says; then the files, as ppApply would, beside
+					// what PP holds by hand, which the export's replay does
+					// not know of: no row is marked as existing.
 					for _, d := range s.e.DifferencesChanged {
 						tx := byHand(d.Cash)
 						if tx == nil {
@@ -2830,6 +2825,14 @@ func TestToolReimport(t *testing.T) {
 							for _, o := range slices.Concat(m.accounts, m.portfolios) {
 								o.txs = slices.DeleteFunc(o.txs, func(x *ppTx) bool { return x == tx })
 							}
+						}
+					}
+					for _, f := range s.pp {
+						if f.kind == ppConfiguration {
+							continue
+						}
+						if marked, refused := m.importFile(s.dir, f.name, f.account.name(), nil); len(refused)+len(marked) > 0 {
+							t.Errorf("%s: PP refuses %q, marks %v", f.name, refused, marked)
 						}
 					}
 				}
@@ -3175,6 +3178,99 @@ func TestToolReimport(t *testing.T) {
 			}
 			if got := g.holdings(); moved && !maps.EqualFunc(got, want, func(a, b *big.Rat) bool { return a.Cmp(b) == 0 }) {
 				t.Errorf("%s: Ghostfolio holds %v, the latest snapshot %v", c.name, got, want)
+			}
+		}
+	})
+
+	t.Run("5j an opening position and opening cash booked in PP as they were, then the rows they stood for", func(t *testing.T) {
+		t.Parallel()
+		// As 5f, but you book the opening position and the opening cash in
+		// PP as they were: of the day, value and shares of the rows that
+		// the store lacked. A History file then brings those rows: the
+		// next export writes them and lists the difference as gone. PP
+		// marks a new row equal to one that it holds as existing, and the
+		// tick list knows nothing of what you booked by hand: deleted
+		// before importing, as stderr says, the hand entry leaves nothing
+		// to mark, and PP holds the store's cash and shares; deleted after,
+		// PP would have marked the row that it stood for, which then stays
+		// out.
+		const name = "Schwab A1 ...135"
+		position := func() (before, after toolInput, hand ppFolder) {
+			deposit := rcFile("C7c52001.1", 1, "2025-11-03", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 30_000)
+			buy := rcFile("C7c52001.2", 1, "2025-11-05", "Buy", "buy", keyXYZ, "XYZ", centsOf(10_000_000), 30, -30_000)
+			sale := rcTrade("T7c520101", 1, "2026-02-02 10:00:00", "sell", keyXYZ, "XYZ", -10_000_000, 50, 50_000, 0)
+			in := func(rows ...toolRow) toolInput {
+				return tcInput(toolInput{to: "2026-02-27", rows: rows, snapshots: []toolSnapshot{rcSnapshot(1, "2026-02-26", 50_000)}})
+			}
+			hand = ppFolderOf(toolInput{tool: toolPP})
+			hand["portfolio-transactions-A1-135.csv"] = ppMade(ppPortfolio, map[string]string{
+				"Date": "2025-11-05", "Type": "Delivery (Inbound)", "Value": "300.00", "Shares": "10",
+				"Ticker Symbol": "XYZ", "WKN": "98389B100", "Security Name": "XYZ CORP COMMON STOCK", "Securities Account": name, "Note": "by hand",
+			})
+			return in(sale), in(deposit, buy, sale), hand
+		}
+		cash := func() (before, after toolInput, hand ppFolder) {
+			deposit := rcFile("C7c52002.1", 1, "2025-11-03", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 100_000)
+			buy := rcTrade("T7c520201", 1, "2026-01-10 10:00:00", "buy", keyXYZ, "XYZ", 10_000_000, 30, -30_000, 0)
+			in := func(rows ...toolRow) toolInput {
+				return tcInput(toolInput{
+					to: "2026-02-27", rows: rows, snapshots: []toolSnapshot{rcSnapshot(1, "2026-02-26", 70_000)},
+					positions: []toolPosition{rcPosition("2026-02-26", keyXYZ, 10_000_000, 300)},
+				})
+			}
+			hand = ppFolderOf(toolInput{tool: toolPP})
+			hand["account-transactions-A1-135.csv"] = ppMade(ppAccount, map[string]string{"Date": "2025-11-03", "Type": "Deposit", "Value": "1000.00", "Cash Account": name, "Note": "by hand"})
+			return in(buy), in(deposit, buy), hand
+		}
+		for _, c := range []struct {
+			name string
+			of   func() (toolInput, toolInput, ppFolder)
+			gone ToolDifference
+		}{
+			{"position", position, ToolDifference{Account: "A1 ...135", Key: keyXYZ, Symbol: "XYZ", Was: "10", Change: "-10"}},
+			{"cash", cash, ToolDifference{Account: "A1 ...135", Cash: true, Was: "1000.00", Change: "-1000.00"}},
+		} {
+			for _, first := range []bool{true, false} {
+				before, after, hand := c.of()
+				e1 := chainStepOf(t, before, toolPP, nil, rcAt1)
+				m := newPPModel()
+				ppApply(t, m, e1)
+				dir := hand.write(t)
+				for _, file := range []string{"account-transactions-A1-135.csv", "portfolio-transactions-A1-135.csv"} {
+					if _, ok := hand[file]; !ok {
+						continue
+					}
+					if _, refused := m.importFile(dir, file, name, nil); len(refused) > 0 {
+						t.Fatal(refused)
+					}
+				}
+				e2 := chainStepOf(t, after, toolPP, e1, rcAt2)
+				if got := e2.e.DifferencesChanged; !reflect.DeepEqual(got, []ToolDifference{c.gone}) {
+					t.Errorf("%s: the second export lists %+v changed or gone", c.name, got)
+				}
+				byHand := func() {
+					for _, o := range slices.Concat(m.accounts, m.portfolios) {
+						o.txs = slices.DeleteFunc(o.txs, func(x *ppTx) bool { return x.note == "by hand" })
+					}
+				}
+				if first {
+					// As stderr says: then PP marks exactly what the
+					// replay says, and holds the store's cash and shares.
+					byHand()
+					ppApply(t, m, e2)
+					ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
+					continue
+				}
+				var marked []int
+				for _, f := range e2.pp {
+					if f.kind != ppConfiguration {
+						mk, _ := m.importFile(e2.dir, f.name, f.account.name(), nil)
+						marked = append(marked, mk...)
+					}
+				}
+				if len(marked) == 0 || len(e2.e.Tick) > 0 {
+					t.Errorf("%s: beside the entry booked by hand, PP marks %v of the rows that it stood for, and the export ticks %v", c.name, marked, e2.e.Tick)
+				}
 			}
 		}
 	})

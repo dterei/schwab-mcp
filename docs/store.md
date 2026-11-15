@@ -1753,9 +1753,10 @@ whatever its day:
   listed and this export does not find is listed under `holdings.gone`,
   or `holdings.cash_gone`, with `was`: stderr lists each with its change,
   by which to change what you booked by hand for it, or to delete it, as
-  the rows written now stand for it (in
-  [the how-to](tools.md#the-first-import), step 4), and in Ghostfolio to
-  move it to the asset that holds the security now ([step
+  the rows written now stand for it, in PP before importing, since PP
+  marks a new row equal to one that it holds as existing (in
+  [the how-to](tools.md#the-first-import), step 4), and in Ghostfolio
+  after, or to move it to the asset that holds the security now ([step
   6](tools.md#ghostfolio)). An account whose cash is not checked carries
   DIR's difference on, as the `was` of its `cash_not_checked` entry, for
   the export that checks it again.

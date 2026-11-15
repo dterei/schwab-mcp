@@ -137,7 +137,11 @@ and the types' names, whatever PP's language and locale.
      stderr counts and the manifest lists under `same_as` (a file row now
      linked to its API row). A row listed is new although PP takes it for
      one it holds: a withdrawal of the day and amount of a transfer's, or a
-     trade equal to one that PP holds.
+     trade equal to one that PP holds. What you booked by hand counts too:
+     no list knows of it, so a row that a later export brings, equal to an
+     entry that you booked for it, would be marked and left out. Change or
+     delete what you booked before you import the export that lists its
+     difference as changed or gone (step 4).
 4. **Negative shares.** After an import, PP opens a dialog that names each
    security whose shares fall below zero ("Security '...' in portfolio
    '...' has negative shares"). While a short position is open, a written
@@ -182,10 +186,13 @@ and the types' names, whatever PP's language and locale.
    uncounted or revised since, or one that the store lacked. stderr lists
    each that changed or went with its change, signed as the manifest's
    amounts are: change what you added or booked by hand for it by that
-   change, less the rows left out that you book by hand, or delete it. If
-   you booked nothing for it, take its difference as a new one. An account
-   whose cash is not checked keeps, as its `was`, the difference listed
-   before, for the export that checks it again.
+   change, less the rows left out that you book by hand, or delete it,
+   before you import the export, as PP marks a new row equal to one that it
+   holds as existing (step 3): an entry that you booked as the rows were,
+   their day, amount and shares, would otherwise keep out the rows that it
+   stood for. If you booked nothing for it, take its difference as a new
+   one. An account whose cash is not checked keeps, as its `was`, the
+   difference listed before, for the export that checks it again.
 5. **What the manifest asks of you**: the rows left out, each with its
    reason and what to do, and the rows written with a caveat
    ([below](#what-the-manifest-asks-of-you)). A row that PP refuses for its
@@ -197,15 +204,16 @@ and the types' names, whatever PP's language and locale.
 6. **With `-since`** naming the folder that you imported last, once you
    have imported it, and a new folder. Before importing, delete in PP what
    it lists as changed or gone, each transfer once: deleting either half of
-   a transfer in PP deletes both. Each is listed with how its note begins;
-   a transfer's note names its paying side first, in both accounts
-   (`schwabtx A2 ...398 T73600000101 to A1 ...135 T73600000102`), and once
-   you have paired transfers of one day again, perhaps another receiving
-   side than the row's: delete the transfer whose note is quoted. A row
-   listed as changed in the same form is one that PP holds under the note of
-   a row that has come back since, such as a file row counted again beside
-   the API row that took its place: delete it, and the export writes both,
-   each under its own note. Then import in the order printed, and tick
+   a transfer in PP deletes both; and change or delete what you booked by
+   hand for the differences that it lists (step 4). Each is listed with how
+   its note begins; a transfer's note names its paying side first, in both
+   accounts (`schwabtx A2 ...398 T73600000101 to A1 ...135 T73600000102`),
+   and once you have paired transfers of one day again, perhaps another
+   receiving side than the row's: delete the transfer whose note is quoted.
+   A row listed as changed in the same form is one that PP holds under the
+   note of a row that has come back since, such as a file row counted again
+   beside the API row that took its place: delete it, and the export writes
+   both, each under its own note. Then import in the order printed, and tick
    exactly the rows it lists to tick. Say that you book the interest
    adjustment of the walk-through as a fee:
 
@@ -403,20 +411,24 @@ with its description in its comment.
    to the purchase and export again. The two exclude each other, as in PP:
    once a later export writes the purchase, stderr lists the difference as
    gone, and you delete the BUY, or as changed, and you change its quantity
-   by the change. Ghostfolio ties the BUY to its asset, and does not follow
-   a change of symbol: once an export holds the security under another
+   by the change, once you have imported the export (Ghostfolio takes no
+   activity of an export for one added by hand, whose comment is not the
+   export's). Ghostfolio ties the BUY to its asset, and does not follow a
+   change of symbol: once an export holds the security under another
    asset, after a rename, a delisting or `-manual`, it lists the difference
    as changed even when it is the same, with the asset that it was under
    (`was_asset`), and stderr says to delete the BUY there and add it under
-   the new one, changed by the change, if any.
+   the new one, which the import makes when it is a new MANUAL asset,
+   changed by the change, if any.
 
 ### Later imports
 
 7. **With `-since`**, as for PP, each export imported before the next is
    made. Delete in Ghostfolio what it lists as changed or gone (the
    activities page filters by account and date, and each activity's comment
-   names its row), import the file, and set the cash it prints. Say you
-   withdraw the decision of PP's example:
+   names its row), import the file, change, move or delete what you added by
+   hand for the differences that it lists (step 6), and set the cash it
+   prints. Say you withdraw the decision of PP's example:
 
    ```
    $ schwabtx edit T73508261949 -category auto

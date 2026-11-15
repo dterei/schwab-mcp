@@ -1157,7 +1157,7 @@ wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_n
 1 account's cash in Portfolio Performance is not checked (pp-2026-12-15/manifest.json): the latest snapshot of A2 ...398, a margin account, reads its cash as 0 beside a margin or short balance, as Schwab can report a debit or short positions; compare its cash at Schwab with Portfolio Performance's by hand (docs/tools.md)
 2 rows of this export carry a flag that needs you (schwabtx status -review); if you uncount one, the next -since export lists what to delete
 2 file transactions wait for you to resolve them (schwabtx status -review) and are not in this export
-3 differences that pp-2026-12-01 listed have changed or gone (pp-2026-12-15/manifest.json lists each, with was): change what you added in Portfolio Performance by hand for each by its change, less the rows left out that you book by hand, or delete it (docs/tools.md):
+3 differences that pp-2026-12-01 listed have changed or gone (pp-2026-12-15/manifest.json lists each, with was): before importing, change what you added in Portfolio Performance by hand for each by its change, less the rows left out that you book by hand, or delete it: Portfolio Performance marks a new row equal to one that it holds as existing (docs/tools.md):
   Schwab A1 ...135: c:30303M102: 1, was 2: change by -1
   Schwab A1 ...135: XYZ: gone, was -5: delete
   Schwab A1 ...135: cash: 997.04, was 1295.65: change by -298.61
@@ -1265,7 +1265,7 @@ left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_ca
 before importing, delete in Ghostfolio what changed or went (gf-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 DIVIDEND 3.86 (comment schwabtx A1 ...135 T73508261950): changed; the new form is in this export
   Schwab A2 ...398: 2025-01-22 SELL 412.50 fee 0.65 (comment schwabtx A2 ...398 T73508261945): gone, left out (gf_cash)
-3 differences that gf-2026-11-13 listed have changed or gone (gf-2026-12-01/manifest.json lists each, with was): change what you added in Ghostfolio by hand for each by its change, less the rows left out that you book by hand, or move it to the asset that Ghostfolio holds the security under now, or delete it (docs/tools.md):
+3 differences that gf-2026-11-13 listed have changed or gone (gf-2026-12-01/manifest.json lists each, with was): after importing, change what you added in Ghostfolio by hand for each by its change, less the rows left out that you book by hand, or move it to the asset that Ghostfolio holds the security under now, or delete it (docs/tools.md):
   Schwab A2 ...398: Security (30303M102): 1, was 2: change by -1
   Schwab A1 ...135: Security (XYZ): 10, was 10 under XYZ: delete it under XYZ and add it under Security (XYZ)
   Schwab A2 ...398: ZZTB: 3, was 4 under ZZTA: delete it under ZZTA and add it under ZZTB, changed by -1

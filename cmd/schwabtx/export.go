@@ -857,21 +857,29 @@ func toolDeletions(w io.Writer, e *history.ToolExport, manifest string) {
 // that this one lists with another, or not at all (e.DifferencesChanged),
 // with its change: what you added or booked by hand in the tool for it is
 // to change by the change, less the rows left out that you book by hand,
-// or to delete, as the rows written stand for it now. In Ghostfolio a
-// security is the asset that holds it, as Ghostfolio shows it, and what you
-// added for one that Ghostfolio is to hold under another asset now is to
-// move there, as Ghostfolio does not follow a change of symbol.
+// or to delete, as the rows written stand for it now; in Ghostfolio, which
+// does not follow a change of symbol, it is to move to the asset that holds
+// the security now, when that is another, each named as Ghostfolio shows
+// it. In PP that comes before importing, since PP marks a new row equal to
+// one that it holds as existing, and the rows that a hand entry stood for,
+// arriving as it was booked, would stay out; in Ghostfolio after, since the
+// import makes the MANUAL asset to move to, and an activity that an export
+// writes, its comment its own, is never equal to one added by hand.
 func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string) {
 	n := len(e.DifferencesChanged)
 	if n == 0 {
 		return
 	}
-	move := ""
+	tool := toolFormats[e.Tool].name
+	move, when, why := "", "before", ": "+tool+" marks a new row equal to one that it holds as existing"
+	if e.Tool == "ghostfolio" {
+		when, why = "after", ""
+	}
 	if slices.ContainsFunc(e.DifferencesChanged, func(d history.ToolDifference) bool { return d.WasAsset != "" }) {
 		move = ", or move it to the asset that Ghostfolio holds the security under now"
 	}
-	fmt.Fprintf(w, "%d %s that %s listed %s changed or gone (%s lists each, with was): change what you added in %s by hand for %s by its change, less the rows left out that you book by hand%s, or delete it (docs/tools.md):\n",
-		n, pluralWord(n, "difference", "differences"), since, pluralWord(n, "has", "have"), manifest, toolFormats[e.Tool].name, pluralWord(n, "it", "each"), move)
+	fmt.Fprintf(w, "%d %s that %s listed %s changed or gone (%s lists each, with was): %s importing, change what you added in %s by hand for %s by its change, less the rows left out that you book by hand%s, or delete it%s (docs/tools.md):\n",
+		n, pluralWord(n, "difference", "differences"), since, pluralWord(n, "has", "have"), manifest, when, tool, pluralWord(n, "it", "each"), move, why)
 	for _, d := range e.DifferencesChanged {
 		what := "cash"
 		if !d.Cash {
