@@ -1603,9 +1603,12 @@ then started over.
   are written alike, without a time, on their "as of" days, with an
   option's multiplier assumed; the coverage lines say which days the files
   cover. An account with snapshots and no rows gets no PP file, but its
-  securities' prices, and in Ghostfolio an account with its balances, which
-  the import dialog takes only with an activity (see [the
-  how-to](tools.md#ghostfolio)).
+  securities' prices, and no PP account to make: PP's checks of shares and
+  cash pass it over, and the manifest lists it among the accounts not
+  checked, until an export writes or names it. In Ghostfolio it gets an
+  account with its balances, which the import dialog takes only with an
+  activity (see [the how-to](tools.md#ghostfolio)), and its shares are
+  checked.
 - **Futures** are left out, `future`: neither tool models a margined
   contract. **A delisted security** gets no PP ticker, so that PP finds it
   by its CUSIP and no feed fills its days with the prices of a company that
@@ -1631,8 +1634,11 @@ then started over.
   postings, one taken after midnight stands for the session before). A
   snapshot of `-to`'s session taken the next morning is passed over: it may
   hold rows dated after `-to`, which the export does not read. It lists
-  each difference under `holdings`, with the accounts that have no
-  snapshot to check, counted on stderr. A security is the tool's: one that
+  each difference under `holdings`, counted on stderr, with the accounts
+  that it does not check: those with rows and no snapshot to check against,
+  and, for PP, those that PP holds nothing of, as an account with
+  snapshots and no rows, which no export of the chain writes or names. A
+  security is the tool's: one that
   the tool holds as one under two of the store's keys (PP finds it by its
   ticker, WKN or name, and Ghostfolio by its symbol) is checked once, under
   the least of its keys, with every one of them in `security_keys`. Splits
@@ -1678,7 +1684,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `left_out`, `caveats`, `combined` | the rows left out, written with a caveat, and carried by a sale |
 | `in_balances` | Ghostfolio: per account, the cash rows that its balances carry |
 | `flagged`, `waiting` | the rows with a flag that needs you, with their flags, and the file rows that wait for you, each with the command that shows it |
-| `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several), with `before` when DIR listed it alike, or `was`, DIR's difference, the snapshot's shares less the written, when DIR listed it otherwise; `gone`: each that DIR listed and this export does not find, with `was`; and the accounts not checked; for PP, `cash`: each account whose cash that the records leave differs from its latest snapshot's, with the snapshot's day, `snapshot_cash`, `written_cash`, and `before` or `was` likewise; `cash_gone`: each account whose difference DIR listed and this export finds none of, with `was`; and `cash_not_checked`: each account whose latest snapshot is of a margin account that reads its cash as 0 beside a margin or short balance, with the snapshot's day, `why`, `margin`, and `was`, the difference listed before, carried on |
+| `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several), with `before` when DIR listed it alike, or `was`, DIR's difference, the snapshot's shares less the written, when DIR listed it otherwise; `gone`: each that DIR listed and this export does not find, with `was`; and `not_checked`, the accounts not checked: with rows and no snapshot, or, for PP, with snapshots and nothing that PP holds; for PP, `cash`: each account whose cash that the records leave differs from its latest snapshot's, with the snapshot's day, `snapshot_cash`, `written_cash`, and `before` or `was` likewise; `cash_gone`: each account whose difference DIR listed and this export finds none of, with `was`; and `cash_not_checked`: each account whose latest snapshot is of a margin account that reads its cash as 0 beside a margin or short balance, with the snapshot's day, `why`, `margin`, and `was`, the difference listed before, carried on |
 | `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`option`, `bond`, `no_ticker`, `delisted`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
 | `symbols_changed` | each security that a tool may hold under an earlier symbol, as the tool holds it: its key (the least, with `security_keys` when the store has several), how it is written now (`written_as`: its ticker, or `MANUAL` when the tool gets no price feed for it) and every ticker it has had (`symbols`) |
 | `keys_unsure` | each key of the store that knows no CUSIP and had a ticker that other securities have had too, of other CUSIPs or at other times, which the export writes or prices: its key (with `security_keys` when the export takes several for one), the `tickers` it shares with them, the key of the one it is written as (`taken_for`, null when it stays on its own), and each of those `securities`, by its key, with its `cusip` ("" for none), `apart` when the two had the ticker at times that do not meet, and the `command` that joins the key to it in the store |

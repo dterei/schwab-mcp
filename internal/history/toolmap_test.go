@@ -898,6 +898,61 @@ func TestToolMapping(t *testing.T) {
 		if diffs, _ := holdingsCheck(&held, nil); len(diffs) != 0 {
 			t.Errorf("an option of multiplier 2.5 held: %+v", diffs)
 		}
+
+		// A3 has snapshots, of 7 EFGH and 2500.00, and no row: PP's export
+		// writes and names nothing of it, and you make no PP account for it,
+		// so neither of PP's checks checks it, nor lists anything to add by
+		// hand; the manifest lists it as not checked. Once a row of it is
+		// written, PP holds it, and both checks check it. Ghostfolio's file
+		// makes the account, with its balances, and its holdings check
+		// checks it from the first export.
+		snapshotOnly := func(rows ...toolRow) toolInput {
+			p := rcPosition("2026-02-26", keyEFGH, 7_000_000, 210)
+			p.account = 3
+			return tcInput(toolInput{
+				to:        "2026-02-27",
+				rows:      append([]toolRow{rcTrade("T7c620101", 1, "2026-02-02 10:00:00", "buy", keyXYZ, "XYZ", 1_000_000, 50, -5_000, 0)}, rows...),
+				snapshots: []toolSnapshot{rcSnapshot(1, "2026-02-26", -5_000), rcSnapshot(3, "2026-02-26", 250_000)},
+				positions: []toolPosition{p, rcPosition("2026-02-26", keyXYZ, 1_000_000, 50)},
+			})
+		}
+		checked := func(s *chainStep) []string {
+			var out []string
+			for _, h := range s.res.holdings {
+				out = append(out, fmt.Sprintf("%s %s %s %s", h.Account, h.Symbol, h.SnapshotShares, h.WrittenShares))
+			}
+			for _, c := range s.res.cash {
+				out = append(out, fmt.Sprintf("%s cash %s %s", c.Account, c.SnapshotCash, c.WrittenCash))
+			}
+			for _, a := range s.res.unchecked {
+				out = append(out, a.label()+" not checked")
+			}
+			for _, a := range s.e.Accounts {
+				out = append(out, fmt.Sprintf("%s exported %v new %v", a.Label, a.Exported, a.New))
+			}
+			return append(out, fmt.Sprintf("counted %d %d", s.e.Holdings, s.e.Cash))
+		}
+		deposit := rcCash("T7c620301", 3, "2026-02-20 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 250_000)
+		e1 := chainStepOf(t, snapshotOnly(), toolPP, nil, rcAt1)
+		e2 := chainStepOf(t, snapshotOnly(deposit), toolPP, e1, rcAt2)
+		g1 := chainStepOf(t, snapshotOnly(), toolGF, nil, rcAt1)
+		for _, c := range []struct {
+			name string
+			s    *chainStep
+			want []string
+		}{
+			{"PP, A3 with snapshots alone", e1, []string{"A3 ...783 not checked", "A1 ...135 exported true new true", "counted 0 0"}},
+			{"PP, A3 with a row since", e2, []string{
+				"A3 ...783 EFGH 7 0", "A1 ...135 exported false new false", "A3 ...783 exported true new true", "counted 1 0",
+			}},
+			{"Ghostfolio, A3 with snapshots alone", g1, []string{
+				"A3 ...783 EFGH 7 0", "A1 ...135 exported true new true", "A3 ...783 exported true new true", "counted 1 0",
+			}},
+		} {
+			if got := checked(c.s); !slices.Equal(got, c.want) {
+				t.Errorf("%s: %q, want %q", c.name, got, c.want)
+			}
+		}
 	})
 
 	t.Run("prices", func(t *testing.T) {
@@ -2165,6 +2220,30 @@ func TestToolMapping(t *testing.T) {
 			events, _ = toolEvents(&only)
 			if got, _ := cashCheck(&only, events); !reflect.DeepEqual(got, want) {
 				t.Errorf("the opening cash of A1 alone: differences %+v, want %+v", got, want)
+			}
+			// A4's snapshot holds cash, and A5's is of a margin account that
+			// reads its cash as 0 beside a debit, but neither has a row: PP
+			// holds nothing of them, the export names no PP account for
+			// them, and their cash is not checked but listed as such, not as
+			// a margin account's to compare by hand; A3's row has no snapshot
+			// to check against.
+			snapshotOnly := *in
+			margin := rcSnapshot(5, "2026-06-29", 0)
+			margin.accountType, margin.margin, margin.short = "MARGIN", sql.NullFloat64{Float64: -2000, Valid: true}, sql.NullFloat64{Valid: true}
+			snapshotOnly.snapshots = append(slices.Clone(in.snapshots), rcSnapshot(4, "2026-06-29", 250_000), margin)
+			s := chainStepFrom(t, caseExport(t, toolCase{name: "a snapshot alone", in: snapshotOnly}, toolPP), t.TempDir())
+			var got []string
+			for _, c := range s.res.cash {
+				got = append(got, c.Account)
+			}
+			for _, u := range s.res.cashUnchecked {
+				got = append(got, u.Account+" margin")
+			}
+			for _, a := range s.res.unchecked {
+				got = append(got, a.label()+" not checked")
+			}
+			if !slices.Equal(got, []string{"A1 ...135", "A3 ...783 not checked", "A4 not checked", "A5 not checked"}) || s.e.Cash != 1 || len(s.e.CashNotChecked) != 0 {
+				t.Errorf("snapshots alone of A4 and A5: %q, counted %d, cash not checked %q", got, s.e.Cash, s.e.CashNotChecked)
 			}
 		}
 

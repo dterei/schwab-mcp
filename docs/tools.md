@@ -106,7 +106,10 @@ and the types' names, whatever PP's language and locale.
    find goes to the account that the review page shows under "transfer to",
    the first of that currency by name, even the transfer's own account,
    without a word: check it before you finish. A PP whose base currency is
-   not USD converts at its own rates.
+   not USD converts at its own rates. An account that the export does not
+   name, as one with snapshots and no rows (`A3 ...783` here), gets no PP
+   account, and step 4's checks pass it over, listed under
+   `holdings.not_checked`, until an export writes or names it.
 3. **Import**, through PP's CSV import:
    - Once, in the wizard's configuration menu, **Import configuration...**
      each of the three `pp-*.json`. PP keeps them among its user-specific

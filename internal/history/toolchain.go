@@ -212,9 +212,11 @@ type chainLeftOut struct {
 // design): each difference; with -since, each that the export it goes on
 // from listed and this one does not find (Gone); for PP each difference of
 // the cash check, those gone likewise, and each account whose cash it could
-// not check; and the labels of the accounts whose shares it could not
-// check, for want of a snapshot. Cash, CashGone and CashNotChecked are nil
-// for Ghostfolio, whose cash is the balances'.
+// not check; and the labels of the accounts that neither check checked: of
+// one with rows, for want of a snapshot, and, for PP, of one with a
+// snapshot, for want of a PP account to check (ppHolds), as no export of the
+// chain writes or names it. Cash, CashGone and CashNotChecked are nil for
+// Ghostfolio, whose cash is the balances'.
 type chainHoldings struct {
 	Differences    []chainHolding        `json:"differences"`
 	Gone           []chainHoldingGone    `json:"gone"`
@@ -632,8 +634,8 @@ type chainResult struct {
 	// imported.
 	given map[string]map[string]chainGiven
 	// leftOut, holdings and unchecked are the rows left out, the differences
-	// of the holdings check and the accounts it could not check, with what
-	// the earlier export listed of them.
+	// of the holdings check and the accounts that it did not check, with
+	// what the earlier export listed of them.
 	leftOut   []chainLeftOut
 	holdings  []chainHolding
 	unchecked []toolAccount
@@ -1118,9 +1120,24 @@ func (c *chainResult) compareLeftOut() {
 // otherwise keeps the difference listed (Was), by which the hand entry is
 // to change; and one listed that this export does not find, of an account
 // that it checks, is gone, for the hand entry to go too: the rows written
-// now stand for it.
+// now stand for it. For PP, an account that PP holds nothing of (ppHolds),
+// as one with snapshots and no row, is not checked: no account of PP's
+// would hold what you added for it by hand.
 func (c *chainResult) compareHoldings(events []toolEvent) {
 	diffs, unchecked := holdingsCheck(c.in, events)
+	if c.in.tool == toolPP {
+		// An account that PP holds nothing of has nothing in PP to check:
+		// it is not checked.
+		holds := c.ppHolds()
+		diffs = slices.DeleteFunc(diffs, func(d toolHolding) bool { return !holds[d.account.label()] })
+		for _, id := range snapshotAccounts(c.in) {
+			a := c.ix.account(id)
+			if _, ok := checkedSnapshot(c.in, id, func(toolSnapshot) bool { return true }); ok && !holds[a.label()] {
+				unchecked = append(unchecked, a)
+			}
+		}
+		slices.SortFunc(unchecked, func(a, b toolAccount) int { return cmp.Compare(a.id, b.id) })
+	}
 	c.unchecked = unchecked
 	var listed []chainHolding
 	if c.since != nil {
@@ -1169,7 +1186,8 @@ func (c *chainResult) compareHoldings(events []toolEvent) {
 // an account whose cash this export checks and finds alike is gone. A
 // margin account whose cash it cannot check carries the difference listed
 // on, for the export that checks it again: Schwab's cash reading of 0 does
-// not settle it.
+// not settle it. An account that PP holds nothing of (ppHolds) is not
+// checked.
 func (c *chainResult) compareCash(events []toolEvent) {
 	if c.in.tool != toolPP {
 		return
@@ -1192,7 +1210,12 @@ func (c *chainResult) compareCash(events []toolEvent) {
 			}
 		}
 	}
+	// An account that PP holds nothing of has no cash in PP to check:
+	// compareHoldings lists it as not checked.
+	holds := c.ppHolds()
 	diffs, unchecked := cashCheck(c.in, events)
+	diffs = slices.DeleteFunc(diffs, func(d toolCash) bool { return !holds[d.account.label()] })
+	unchecked = slices.DeleteFunc(unchecked, func(u toolCashUnchecked) bool { return !holds[u.account.label()] })
 	for _, u := range unchecked {
 		n := chainCashUnchecked{Account: u.account.label(), Snapshot: u.snapshot, Why: "margin"}
 		if was, ok := listed[n.Account]; ok {
@@ -1231,6 +1254,21 @@ func (c *chainResult) compareCash(events []toolEvent) {
 			delete(listed, a)
 		}
 	}
+}
+
+// ppHolds returns, by label, the accounts that PP holds once this export is
+// imported: those of the manifest (accounts), which this export writes or
+// names as a transfer's Offset Account, or an earlier export of its chain
+// wrote or named, and which you make in PP. PP holds nothing of any other
+// account that the export selects, as one with snapshots and no row, which
+// the export makes no PP account for: its positions and its cash are no
+// PP account's to check, and stderr names no account to add them to.
+func (c *chainResult) ppHolds() map[string]bool {
+	holds := map[string]bool{}
+	for _, a := range c.accounts() {
+		holds[a.Label] = true
+	}
+	return holds
 }
 
 // chainSameHolding reports whether the difference l, that an earlier export
