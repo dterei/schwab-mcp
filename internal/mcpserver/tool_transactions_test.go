@@ -1517,35 +1517,60 @@ func TestCappedWindow(t *testing.T) {
 }
 
 // A row that Schwab sends without an activity ID has a T~ ref, of its time
-// and digest, which get_transaction takes whether or not the local history
-// holds the row: one the store lacks is read from Schwab's days around its
-// time, and is the row whose ref is the one given, raw JSON included; one
-// of a time later than now names no row, and Schwab is not asked.
+// and digest, which get_transaction takes, in any case, whether or not the
+// local history holds the row: one the store lacks is read from Schwab's
+// days around its time, the day before and the day after its New York date
+// included, since the window keeps rows by their trade day, which may be
+// either (design 10.5): an evening's trade dated the next day, and a row
+// dated the day before, as Schwab dates some. The row is the one whose ref
+// is the one given, raw JSON included. A ref of a time later than now
+// names no row, and Schwab is not asked.
 func TestTildeRefsFromSchwab(t *testing.T) {
 	t.Parallel()
+	// noID returns a row of ...135 at at without an activity ID, of the
+	// trade day day, holding net.
+	noID := func(at time.Time, day nytime.Date, net float64) string {
+		row := strings.Replace(txnJSON(individual, 1, at, "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", net), `"activityId":1,`, "", 1)
+		return strings.Replace(row, `"tradeDate":"`+txnTime(midnight(nytime.DateOf(at)))+`"`, `"tradeDate":"`+txnTime(midnight(day))+`"`, 1)
+	}
 	at := time.Date(2025, time.March, 5, 15, 0, 0, 0, time.UTC)
-	row := strings.Replace(txnJSON(individual, 1, at, "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.04), `"activityId":1,`, "", 1)
+	rows := []string{
+		noID(at, "2025-03-05", 0.04),
+		noID(time.Date(2025, time.March, 5, 3, 0, 0, 0, time.UTC), "2025-03-05", 0.05),   // 22:00 on March 4
+		noID(time.Date(2025, time.March, 12, 14, 0, 0, 0, time.UTC), "2025-03-11", 0.06), // 10:00 on March 12
+	}
 	for _, name := range []string{"without a store", "with a store that lacks the row"} {
-		opts := []envOption{withTxnRows(individual, row)}
+		opts := []envOption{withTxnRows(individual, rows...)}
 		if name == "without a store" {
 			opts = append(opts, withoutStore())
 		}
 		e := newEnv(t, opts...)
 		list := e.call("get_transactions", `{"source":"schwab","account":"135","from":"2025-03-01","to":"2025-03-31"}`)
-		var ref string
+		refs := map[string]string{} // by the time a ref holds
 		for _, r := range txnRowsOf(list) {
-			if s, _ := r["ref"].(string); strings.HasPrefix(s, "T~20250305T150000.") {
-				ref = s
+			if s, _ := r["ref"].(string); strings.HasPrefix(s, "T~") {
+				refs[s[2:17]] = s
 			}
 		}
-		if ref == "" {
-			t.Fatalf("%s: no T~ ref among %v", name, txnRefsOf(txnRowsOf(list)))
+		ref, evening, asOf := refs["20250305T150000"], refs["20250305T030000"], refs["20250312T140000"]
+		if ref == "" || evening == "" || asOf == "" {
+			t.Fatalf("%s: T~ refs among %v", name, txnRefsOf(txnRowsOf(list)))
 		}
 		r := e.call("get_transaction", `{"id":"`+ref+`","account":"135","include_raw":true}`)
 		tx, _ := r.value["transaction"].(map[string]any)
 		if r.isError || tx["ref"] != ref || r.value["source"] != "schwab" || r.value["store"] != nil || r.value["raw"] == nil ||
 			tx["amount"] != 0.04 {
 			t.Errorf("%s: get_transaction of %s: %.600s", name, ref, r.text)
+		}
+		for _, tc := range []struct {
+			id, ref string
+			amount  float64
+		}{{evening, evening, 0.05}, {asOf, asOf, 0.06}, {strings.ToLower(evening), evening, 0.05}} {
+			r := e.call("get_transaction", `{"id":"`+tc.id+`","account":"135"}`)
+			tx, _ := r.value["transaction"].(map[string]any)
+			if r.isError || tx["ref"] != tc.ref || tx["amount"] != tc.amount {
+				t.Errorf("%s: get_transaction of %s: %.600s", name, tc.id, r.text)
+			}
 		}
 		if r := e.call("get_transaction", `{"id":"`+ref+`"}`); r.code() != "bad_argument" || !strings.Contains(r.text, "account is needed") {
 			t.Errorf("%s: no account given: %.300s", name, r.text)
