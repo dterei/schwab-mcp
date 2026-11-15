@@ -44,14 +44,18 @@ made up.
   security by a key of the file, which often knows no CUSIP. When securities
   of two CUSIPs have had its ticker (a company that took a ticker another
   gave up, or a security that kept its ticker under a new CUSIP), the export
-  writes its rows as the one that had the ticker first, since a file's rows
-  come before the API's, or, when its tickers are each of another, on their
-  own. stderr and the manifest's `keys_unsure` name each such key, with a
-  `schwabtx edit K:… -same K:…` for each security it may be. Run the one
-  that is right, and the store joins the two keys: if that is not how the
-  export wrote it, export again before you import, in a new folder (delete
-  the one not imported); once imported, the next `-since` export lists what
-  changed, to delete.
+  writes its rows as the one that had the ticker first, by the days of its
+  rows under it, since a file's rows come before the API's, or, when its
+  tickers are each of another, on their own. A key whose ticker another
+  security gave up before it had it, delisted, renamed or merged away by
+  the days of their rows, is not taken for that one, whatever CUSIPs they
+  know: two companies of one ticker at different times stay two. stderr
+  and the manifest's `keys_unsure` name each such key, with a `schwabtx edit
+  K:… -same K:…` for each security it may be (`apart` for one that had the
+  ticker at another time). Run the one that is right, and the store joins
+  the two keys: if that is not how the export wrote it, export again before
+  you import, in a new folder (delete the one not imported); once imported,
+  the next `-since` export lists what changed, to delete.
 
 ## Portfolio Performance
 

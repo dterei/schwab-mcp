@@ -231,7 +231,7 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	for _, u := range m.KeysUnsure {
 		k := ToolUnsure{Key: u.SecurityKey, Keys: u.SecurityKeys, Tickers: u.Tickers, TakenFor: deref(u.TakenFor)}
 		for _, s := range u.Securities {
-			k.Securities = append(k.Securities, ToolUnsureSecurity{Key: s.SecurityKey, CUSIP: s.CUSIP, Command: s.Command})
+			k.Securities = append(k.Securities, ToolUnsureSecurity{Key: s.SecurityKey, CUSIP: s.CUSIP, Command: s.Command, Apart: s.Apart})
 		}
 		unsure = append(unsure, k)
 	}

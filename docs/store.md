@@ -1425,14 +1425,24 @@ and the export after you decide one writes it.
   of any of them uses it. A ticker that securities of two CUSIPs have had,
   as when a company takes a ticker that another gave up, or a security
   keeps its ticker under a new CUSIP, joins neither to the other, each
-  known by its CUSIP. A key that knows no CUSIP, as a History file's often
-  does, and that such a ticker alone ties to them is written as the one
-  that had the ticker first, by when the store saw each, since a History
-  file's rows come before the API's; a key whose tickers are each of
-  another stays on its own, its rows perhaps of both. The export cannot be
-  sure of either: stderr and the manifest's `keys_unsure` list each, with
-  the command, `schwabtx edit K:… -same K:…`, that joins it in the store
-  itself to each security that it may be.
+  known by its CUSIP. Nor does a ticker join keys, of one CUSIP or none,
+  that had it at times that do not meet: one of them, delisted, renamed or
+  merged away since, had its new symbol before the other first had the
+  ticker, by the days of their rows (or, for a symbol that no row names,
+  when the store first saw it), so that a company that took the ticker
+  later, known by a History file's key or by an API key that no snapshot
+  held, never takes the other's identity, nor gives it its own; keys of
+  either that had the ticker while it did still join it. A key that knows
+  no CUSIP, as a History file's often does, and that such a ticker alone
+  ties to them is written as the one that had the ticker first, by the
+  days of its rows under it, else by when the store first saw it, since a
+  History file's rows come before the API's and a late import of old rows
+  dates its symbols late; a key whose tickers are each of another stays on
+  its own, its rows perhaps of both, and so does one whose ticker the
+  others had at other times. The export cannot be sure of any of these:
+  stderr and the manifest's `keys_unsure` list each, with the command,
+  `schwabtx edit K:… -same K:…`, that joins it in the store itself to each
+  security that it may be.
 - **Options.** In PP an option's ticker is its OCC symbol in compact form,
   `XYZ250221P00040000`, the form Yahoo uses, and a futures option's is its
   symbol; in Ghostfolio every option is a MANUAL asset, since Yahoo's search
@@ -1622,7 +1632,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several), and the accounts not checked |
 | `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`option`, `bond`, `no_ticker`, `delisted`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
 | `symbols_changed` | each security that a tool may hold under an earlier symbol, as the tool holds it: its key (the least, with `security_keys` when the store has several), how it is written now (`written_as`: its ticker, or `MANUAL` when the tool gets no price feed for it) and every ticker it has had (`symbols`) |
-| `keys_unsure` | each key of the store that knows no CUSIP and had a ticker that securities of other CUSIPs have had too, which the export writes or prices: its key (with `security_keys` when the export takes several for one), the `tickers` it shares with them, the key of the one it is written as (`taken_for`, null when it stays on its own), and each of those `securities`, by its key, with its `cusip` and the `command` that joins the key to it in the store |
+| `keys_unsure` | each key of the store that knows no CUSIP and had a ticker that other securities have had too, of other CUSIPs or at other times, which the export writes or prices: its key (with `security_keys` when the export takes several for one), the `tickers` it shares with them, the key of the one it is written as (`taken_for`, null when it stays on its own), and each of those `securities`, by its key, with its `cusip` ("" for none), `apart` when the two had the ticker at times that do not meet, and the `command` that joins the key to it in the store |
 | `coverage` | each account's coverage by source, as the manifest of `-dir` |
 
 ### Later exports

@@ -1462,10 +1462,10 @@ func TestToolMapping(t *testing.T) {
 			key  string
 			want toolUnsure
 		}{
-			{"x:66000102", toolUnsure{keys: []string{"x:66000102"}, tickers: []string{"GRPB", "GRPC"}, of: []toolUnsureOf{{"i:1000102", "ZZG10B101"}, {"i:1000103", "ZZG10C109"}}, taken: -1}},
-			{"x:66000105", toolUnsure{keys: []string{"i:1000105", "x:66000105"}, tickers: []string{"GRPE"}, of: []toolUnsureOf{{"i:1000106", "ZZG10E105"}, {"i:1000107", "ZZG10F102"}}, taken: 0}},
-			{"x:66000106", toolUnsure{keys: []string{"x:66000106"}, tickers: []string{"GRPH"}, of: []toolUnsureOf{{"i:1000108", "ZZG10H108"}, {"i:1000109", "ZZG10J104"}}, taken: 1}},
-			{"x:66000107", toolUnsure{keys: []string{"x:66000107"}, tickers: []string{"GRPK", "GRPL"}, of: []toolUnsureOf{{"i:1000110", "ZZG10K101"}, {"i:1000111", "ZZG10L109"}}, taken: -1}},
+			{"x:66000102", toolUnsure{keys: []string{"x:66000102"}, tickers: []string{"GRPB", "GRPC"}, of: []toolUnsureOf{{key: "i:1000102", cusip: "ZZG10B101"}, {key: "i:1000103", cusip: "ZZG10C109"}}, taken: -1}},
+			{"x:66000105", toolUnsure{keys: []string{"i:1000105", "x:66000105"}, tickers: []string{"GRPE"}, of: []toolUnsureOf{{key: "i:1000106", cusip: "ZZG10E105"}, {key: "i:1000107", cusip: "ZZG10F102"}}, taken: 0}},
+			{"x:66000106", toolUnsure{keys: []string{"x:66000106"}, tickers: []string{"GRPH"}, of: []toolUnsureOf{{key: "i:1000108", cusip: "ZZG10H108"}, {key: "i:1000109", cusip: "ZZG10J104"}}, taken: 1}},
+			{"x:66000107", toolUnsure{keys: []string{"x:66000107"}, tickers: []string{"GRPK", "GRPL"}, of: []toolUnsureOf{{key: "i:1000110", cusip: "ZZG10K101"}, {key: "i:1000111", cusip: "ZZG10L109"}}, taken: -1}},
 		} {
 			if u := ix.unsure[secRef{key: c.key}]; u == nil || !reflect.DeepEqual(*u, c.want) {
 				t.Errorf("%s: unsure %+v, want %+v", c.key, u, c.want)
@@ -1474,6 +1474,204 @@ func TestToolMapping(t *testing.T) {
 		for _, k := range []string{"x:66000101", "x:66000108", "i:1000106"} {
 			if u := ix.unsure[secRef{key: k}]; u != nil {
 				t.Errorf("%s: unsure %+v", k, *u)
+			}
+		}
+		// A ticker that a company gave up, delisted (B1, B2) or renamed
+		// (B3), and that another had after it, by the days of their rows,
+		// whatever the store read them: one CUSIP between them, or none (B5),
+		// does not join them, each written as itself, so that neither takes
+		// the other's identifiers, and the one that knows no CUSIP is listed
+		// with the other, apart; of two that know none, the one that holds the
+		// ticker now. B4 adds a History file's key of each, which
+		// had the ticker while its company did: each joins its own (the old
+		// one's file key, of a buy before the delisting, the old one), and
+		// the new company's two keys are listed once. F3: of two companies
+		// of a ticker still, a file key is taken for the one whose rows had
+		// it first, the old one's, which a late -json import of its rows
+		// dates after the other's snapshots.
+		apartIn := func(securities []toolSecurityRow, names []toolName, rows []toolRow, positions []toolPosition) toolInput {
+			base, baseNames := tcSecurities()
+			in := tcInput(toolInput{securities: append(base, securities...), names: append(baseNames, names...), rows: rows, positions: positions})
+			if len(positions) > 0 {
+				in.snapshots = []toolSnapshot{rcSnapshot(1, string(positions[0].marketDate), 100_000)}
+			}
+			return in
+		}
+		seen := func(key, kind, value, clock string) toolName {
+			return toolName{key: key, kind: kind, value: value, firstSeen: tcNY(clock), lastSeen: tcNY(clock)}
+		}
+		b1 := apartIn([]toolSecurityRow{
+			{key: "i:1000301", assetType: "EQUITY", symbol: "ZZM40A100"}, {key: "x:66000302", symbol: "TKRZ"},
+		}, []toolName{
+			seen("i:1000301", "symbol", "TKRZ", "2021-01-04 18:30:00"), seen("i:1000301", "symbol", "ZZM40A100", "2022-06-15 18:30:00"),
+			seen("i:1000301", "description", "TKRZ OLD CORP", "2021-01-04 18:30:00"),
+			seen("x:66000302", "symbol", "TKRZ", "2026-02-10 09:00:00"), seen("x:66000302", "description", "TKRZ NEW HOLDINGS", "2026-02-10 09:00:00"),
+		}, []toolRow{
+			rcTrade("T7f4a000101", 1, "2021-01-04 10:00:00", "buy", "i:1000301", "TKRZ", 10_000_000, 20, -20_000, 0),
+			rcTrade("T7f4a000102", 1, "2022-06-15 10:00:00", "sell", "i:1000301", "ZZM40A100", -10_000_000, 1, 1_000, 0),
+			rcFile("C7f4a5b6c.1", 3, "2025-04-01", "Buy", "buy", "x:66000302", "TKRZ", centsOf(5_000_000), 30, -15_000),
+		}, nil)
+		b2 := apartIn([]toolSecurityRow{
+			{key: "x:66000303", symbol: "ZZN40B107"}, {key: "i:1000303", assetType: "EQUITY", symbol: "TKRY"},
+		}, []toolName{
+			seen("x:66000303", "symbol", "TKRY", "2023-01-15 09:00:00"), seen("x:66000303", "symbol", "ZZN40B107", "2026-02-10 09:00:00"),
+			seen("x:66000303", "description", "TKRY OLD CORP", "2023-01-15 09:00:00"),
+			seen("i:1000303", "symbol", "TKRY", "2025-09-02 18:30:00"), seen("i:1000303", "description", "TKRY NEW INC", "2025-09-02 18:30:00"),
+		}, []toolRow{
+			rcFile("C7f4a5b6d.1", 1, "2019-05-01", "Buy", "buy", "x:66000303", "ZZN40B107", centsOf(5_000_000), 10, -5_000),
+			rcFile("C7f4a5b6d.2", 1, "2022-05-02", "Sell", "sell", "x:66000303", "ZZN40B107", centsOf(-5_000_000), 12, 6_000),
+			rcTrade("T7f4a000202", 1, "2025-03-03 10:00:00", "buy", "i:1000303", "TKRY", 3_000_000, 40, -12_000, 0),
+		}, []toolPosition{rcPosition("2026-11-10", "i:1000303", 3_000_000, 150)})
+		b3 := apartIn([]toolSecurityRow{
+			{key: "i:1000304", assetType: "EQUITY", symbol: "TKRV", cusip: "ZZP40C103"}, {key: "x:66000304", symbol: "TKRW"},
+		}, []toolName{
+			seen("i:1000304", "symbol", "TKRW", "2021-01-04 18:30:00"), seen("i:1000304", "symbol", "TKRV", "2024-02-01 18:30:00"),
+			seen("i:1000304", "description", "TKRW OLD CORP", "2021-01-04 18:30:00"),
+			seen("x:66000304", "symbol", "TKRW", "2026-02-10 09:00:00"), seen("x:66000304", "description", "TKRW NEW INC", "2026-02-10 09:00:00"),
+		}, []toolRow{
+			rcTrade("T7f4a000301", 1, "2021-01-04 10:00:00", "buy", "i:1000304", "TKRW", 10_000_000, 20, -20_000, 0),
+			rcTrade("T7f4a000302", 1, "2024-02-01 10:00:00", "sell", "i:1000304", "TKRV", -10_000_000, 25, 25_000, 0),
+			rcFile("C7f4a5b6e.1", 3, "2025-06-02", "Buy", "buy", "x:66000304", "TKRW", centsOf(5_000_000), 30, -15_000),
+		}, nil)
+		b5 := apartIn([]toolSecurityRow{{key: "x:66000306", symbol: "TKRT"}, {key: "x:66000307", symbol: "TKRU"}}, []toolName{
+			seen("x:66000306", "symbol", "TKRU", "2022-01-15 09:00:00"), seen("x:66000306", "symbol", "TKRT", "2026-02-10 09:00:00"),
+			seen("x:66000307", "symbol", "TKRU", "2026-02-10 09:00:00"),
+		}, []toolRow{
+			rcFile("C7f4a5b71.1", 1, "2021-06-01", "Buy", "buy", "x:66000306", "TKRU", centsOf(4_000_000), 10, -4_000),
+			rcFile("C7f4a5b71.2", 1, "2023-03-01", "Sell", "sell", "x:66000306", "TKRT", centsOf(-4_000_000), 11, 4_400),
+			rcFile("C7f4a5b72.1", 3, "2025-04-01", "Buy", "buy", "x:66000307", "TKRU", centsOf(2_000_000), 30, -6_000),
+		}, nil)
+		// B6: a file key of a ticker that an old company gave up and that a
+		// company of another CUSIP holds now: taken for the one that had it
+		// while the key did, the old one listed beside it, apart.
+		b6 := apartIn([]toolSecurityRow{
+			{key: "i:1000306", assetType: "EQUITY", symbol: "ZZT40D107"},
+			{key: "c:ZZU40E103", assetType: "EQUITY", symbol: "TKRX", cusip: "ZZU40E103"},
+			{key: "x:66000308", symbol: "TKRX"},
+		}, []toolName{
+			seen("i:1000306", "symbol", "TKRX", "2021-01-04 18:30:00"), seen("i:1000306", "symbol", "ZZT40D107", "2022-06-15 18:30:00"),
+			{key: "c:ZZU40E103", kind: "symbol", value: "TKRX", firstSeen: tcNY("2025-06-02 18:05:00"), lastSeen: tcNY("2026-11-10 18:05:00")},
+			seen("x:66000308", "symbol", "TKRX", "2026-02-10 09:00:00"),
+		}, []toolRow{
+			rcTrade("T7f4a000601", 1, "2021-01-04 10:00:00", "buy", "i:1000306", "TKRX", 1_000_000, 20, -2_000, 0),
+			rcTrade("T7f4a000602", 1, "2022-06-15 10:00:00", "sell", "i:1000306", "ZZT40D107", -1_000_000, 1, 100, 0),
+			rcFile("C7f4a5b73.1", 1, "2025-07-01", "Buy", "buy", "x:66000308", "TKRX", centsOf(2_000_000), 40, -8_000),
+		}, []toolPosition{rcPosition("2026-11-10", "c:ZZU40E103", 2_000_000, 82)})
+		b4 := b1
+		b4.securities = append(slices.Clone(b1.securities),
+			toolSecurityRow{key: "x:66000300", symbol: "TKRZ"}, toolSecurityRow{key: "i:1000302", assetType: "EQUITY", symbol: "TKRZ"})
+		b4.names = append(slices.Clone(b1.names),
+			seen("x:66000300", "symbol", "TKRZ", "2021-02-01 09:00:00"), seen("i:1000302", "symbol", "TKRZ", "2026-02-15 18:30:00"))
+		b4.rows = append(slices.Clone(b1.rows),
+			rcFile("C7f4a5b6f.1", 1, "2020-06-01", "Buy", "buy", "x:66000300", "TKRZ", centsOf(2_000_000), 15, -3_000),
+			rcTrade("T7f4a000401", 2, "2026-02-15 10:00:00", "buy", "i:1000302", "TKRZ", 1_000_000, 31, -3_100, 0))
+		b4 = tcInput(b4)
+		f3 := apartIn([]toolSecurityRow{
+			{key: "i:1000501", assetType: "EQUITY", symbol: "GRPZ", cusip: "ZZR50A102"},
+			{key: "c:ZZS50B109", assetType: "EQUITY", symbol: "GRPZ", cusip: "ZZS50B109"},
+			{key: "x:66000501", symbol: "GRPZ"},
+		}, []toolName{
+			seen("i:1000501", "symbol", "GRPZ", "2026-01-20 10:00:00"),
+			{key: "c:ZZS50B109", kind: "symbol", value: "GRPZ", firstSeen: tcNY("2025-06-02 18:05:00"), lastSeen: tcNY("2026-11-10 18:05:00")},
+			seen("x:66000501", "symbol", "GRPZ", "2026-02-10 09:00:00"),
+		}, []toolRow{
+			rcFile("C7f4a5b70.1", 1, "2019-05-01", "Buy", "buy", "x:66000501", "GRPZ", centsOf(5_000_000), 10, -5_000),
+			rcTrade("T7f4a000501", 1, "2021-03-01 10:00:00", "sell", "i:1000501", "GRPZ", -5_000_000, 12, 6_000, 0),
+		}, []toolPosition{rcPosition("2026-11-10", "c:ZZS50B109", 2_000_000, 80)})
+		for _, c := range []struct {
+			name       string
+			in         toolInput
+			identities map[string]string
+			same       [][2]string
+			unsure     map[string]toolUnsure
+		}{
+			{
+				"B1, delisted", b1,
+				map[string]string{"i:1000301": "ZZM40A100", "x:66000302": "x:66000302"},
+				nil,
+				map[string]toolUnsure{"x:66000302": {keys: []string{"x:66000302"}, tickers: []string{"TKRZ"}, of: []toolUnsureOf{{key: "i:1000301", cusip: "ZZM40A100", apart: true}}, taken: -1}},
+			},
+			{
+				"B2, delisted by a later file", b2,
+				map[string]string{"x:66000303": "ZZN40B107", "i:1000303": "i:1000303"},
+				nil,
+				map[string]toolUnsure{"i:1000303": {keys: []string{"i:1000303"}, tickers: []string{"TKRY"}, of: []toolUnsureOf{{key: "x:66000303", cusip: "ZZN40B107", apart: true}}, taken: -1}},
+			},
+			{
+				"B3, renamed", b3,
+				map[string]string{"i:1000304": "TKRV", "x:66000304": "x:66000304"},
+				nil,
+				map[string]toolUnsure{"x:66000304": {keys: []string{"x:66000304"}, tickers: []string{"TKRW"}, of: []toolUnsureOf{{key: "i:1000304", cusip: "ZZP40C103", apart: true}}, taken: -1}},
+			},
+			{
+				"B5, neither of a CUSIP", b5,
+				map[string]string{"x:66000306": "TKRT", "x:66000307": "x:66000307"},
+				nil,
+				map[string]toolUnsure{"x:66000307": {keys: []string{"x:66000307"}, tickers: []string{"TKRU"}, of: []toolUnsureOf{{key: "x:66000306", apart: true}}, taken: -1}},
+			},
+			{
+				"B6, one that had it while it did", b6,
+				map[string]string{"i:1000306": "ZZT40D107", "c:ZZU40E103": "ZZU40E103", "x:66000308": "ZZU40E103"},
+				[][2]string{{"c:ZZU40E103", "x:66000308"}},
+				map[string]toolUnsure{"x:66000308": {
+					keys: []string{"x:66000308"}, tickers: []string{"TKRX"},
+					of: []toolUnsureOf{{key: "i:1000306", cusip: "ZZT40D107", apart: true}, {key: "c:ZZU40E103", cusip: "ZZU40E103"}}, taken: 1,
+				}},
+			},
+			{
+				"B4, a file key of each", b4,
+				map[string]string{"i:1000301": "ZZM40A100", "x:66000300": "ZZM40A100", "i:1000302": "i:1000302", "x:66000302": "i:1000302"},
+				[][2]string{{"i:1000301", "x:66000300"}, {"i:1000302", "x:66000302"}},
+				map[string]toolUnsure{
+					"i:1000302":  {keys: []string{"i:1000302", "x:66000302"}, tickers: []string{"TKRZ"}, of: []toolUnsureOf{{key: "i:1000301", cusip: "ZZM40A100", apart: true}}, taken: -1},
+					"x:66000302": {keys: []string{"i:1000302", "x:66000302"}, tickers: []string{"TKRZ"}, of: []toolUnsureOf{{key: "i:1000301", cusip: "ZZM40A100", apart: true}}, taken: -1},
+				},
+			},
+			{
+				"F3, the first by its rows", f3,
+				map[string]string{"x:66000501": "ZZR50A102", "i:1000501": "ZZR50A102", "c:ZZS50B109": "ZZS50B109"},
+				[][2]string{{"i:1000501", "x:66000501"}},
+				map[string]toolUnsure{"x:66000501": {keys: []string{"x:66000501"}, tickers: []string{"GRPZ"}, of: []toolUnsureOf{{key: "i:1000501", cusip: "ZZR50A102"}, {key: "c:ZZS50B109", cusip: "ZZS50B109"}}, taken: 0}},
+			},
+		} {
+			ix := newToolIndex(&c.in)
+			ix.groupAll()
+			for k, want := range c.identities {
+				if got := ix.security(k, "").identity(); got != want {
+					t.Errorf("%s: %s is of %s, want %s", c.name, k, got, want)
+				}
+			}
+			for k := range c.identities {
+				for j := range c.identities {
+					one := ix.security(k, "").rep == ix.security(j, "").rep
+					if want := k == j || slices.Contains(c.same, [2]string{k, j}) || slices.Contains(c.same, [2]string{j, k}); one != want {
+						t.Errorf("%s: %s and %s one security %v", c.name, k, j, one)
+					}
+				}
+			}
+			for k := range c.identities {
+				want, listed := c.unsure[k]
+				if u := ix.unsure[secRef{key: k}]; listed != (u != nil) || listed && !reflect.DeepEqual(*u, want) {
+					t.Errorf("%s: %s unsure %+v, want %+v", c.name, k, u, want)
+				}
+			}
+			for _, tool := range []string{toolPP, toolGF} {
+				in, events, _ := mapCase(toolCase{name: c.name, in: c.in}, tool)
+				if diffs, _ := holdingsCheck(in, events); len(diffs) != 0 && c.name != "F3, the first by its rows" {
+					t.Errorf("%s %s: differences %+v", c.name, tool, diffs)
+				}
+				s := chainStepFrom(t, caseExport(t, toolCase{name: c.name, in: c.in}, tool), t.TempDir())
+				if tool == toolPP {
+					m := newPPModel()
+					ppApply(t, m, s)
+					ppReconcile(t, m, s.in, s.events, s.outcomes)
+					continue
+				}
+				m := newGFModel()
+				if _, err := gfApply(t, m, s); err != nil {
+					t.Fatal(err)
+				}
+				gfReconcile(t, s.in, s.events, s.outcomes, m)
 			}
 		}
 		// One contract's keys give it one multiplier: a row's contract

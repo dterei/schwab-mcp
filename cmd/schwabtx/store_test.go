@@ -1114,6 +1114,15 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 						Key: "s:FILE:GRPC FD@2025-01-02", Keys: []string{"s:FILE:GRPC FD@2025-01-02", "x:66000102"}, Tickers: []string{"GRPB", "GRPC-FD"},
 						Securities: []history.ToolUnsureSecurity{{Key: "i:1000102", CUSIP: "ZZG10B101"}, {CUSIP: "ZZG10D105"}, {Key: "i:1000103", CUSIP: "ZZG10C109"}},
 					},
+					// Keys whose ticker another security had at another time:
+					// on their own, beside one of a CUSIP or none, and taken for
+					// the one of two that had it while it did.
+					{Key: "x:66000302", Tickers: []string{"TKRZ"}, Securities: []history.ToolUnsureSecurity{{Key: "i:1000301", CUSIP: "ZZM40A100", Apart: true}}},
+					{Key: "i:1000303", Tickers: []string{"TKRY"}, Securities: []history.ToolUnsureSecurity{{Key: "x:66000303", Apart: true}}},
+					{
+						Key: "x:66000501", Tickers: []string{"GRPZ"}, TakenFor: "c:ZZS50B109",
+						Securities: []history.ToolUnsureSecurity{{Key: "i:1000501", CUSIP: "ZZR50A102", Apart: true}, {Key: "c:ZZS50B109", CUSIP: "ZZS50B109"}},
+					},
 				},
 				Accounts: []history.ToolAccount{newly(history.ToolAccount{Label: "A3 ...777", Account: "...777", Nickname: "Joint\u202eTrust", Name: "Schwab A3 ...777", Exported: true}), a1},
 			},
@@ -1123,9 +1132,12 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 left out 3 rows (pp-2026-12-15/manifest.json lists each, with what to do): split 1, no_quantity 2
 wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_not_written 1
 2 securities have changed symbol (pp-2026-12-15/manifest.json): if Portfolio Performance holds them under an earlier ticker, give them the new one; once delisted, no price feed (docs/tools.md)
-2 keys of the store with no CUSIP had tickers that securities of other CUSIPs have had too (pp-2026-12-15/manifest.json lists them): the export cannot tell which each is; say which in the store (docs/tools.md):
+5 keys of the store with no CUSIP had tickers that other securities have had too (pp-2026-12-15/manifest.json lists them): the export cannot tell which each is; say which in the store (docs/tools.md):
   x:66000017 (JKLM), written as i:1000013, which had it first: schwabtx edit K:x:66000017 -same K:i:1000013 (ZZJ12K106) or -same K:i:1000213 (ZZJ12K205)
   s:FILE:GRPC FD@2025-01-02 (GRPB, GRPC-FD), on its own, its tickers each of another: schwabtx edit QUOTED -same K:i:1000102 (ZZG10B101) or -same K:i:1000103 (ZZG10C109)
+  x:66000302 (TKRZ), on its own, each of the others having had its ticker at another time: schwabtx edit K:x:66000302 -same K:i:1000301 (ZZM40A100)
+  i:1000303 (TKRY), on its own, each of the others having had its ticker at another time: schwabtx edit K:i:1000303 -same K:x:66000303
+  x:66000501 (GRPZ), written as c:ZZS50B109, the others having had its ticker at other times: schwabtx edit K:x:66000501 -same K:i:1000501 (ZZR50A102) or -same K:c:ZZS50B109 (ZZS50B109)
 1 holding differs from the latest snapshot (pp-2026-12-15/manifest.json): a position opened before the store's rows, or a split left out; add it by hand (docs/tools.md)
 2 rows of this export carry a flag that needs you (schwabtx status -review); if you uncount one, the next -since export lists what to delete
 2 file transactions wait for you to resolve them (schwabtx status -review) and are not in this export
@@ -1215,7 +1227,7 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-13 -dir <a new f
 2 deposits, withdrawals and journals are not in the accounts' balances yet, posted after the latest snapshot was taken (A2 ...398: of 2026-11-28, taken 2026-11-28 18:05 in New York; A3 ...777: none), which a later one will carry
 left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_cash 2
 1 security has changed symbol (gf-2026-12-01/manifest.json): if Ghostfolio holds activities of it under an earlier symbol, delete them: it does not follow the change (docs/tools.md)
-1 key of the store with no CUSIP had a ticker that securities of other CUSIPs have had too (gf-2026-12-01/manifest.json lists it): the export cannot tell which it is; say which in the store (docs/tools.md):
+1 key of the store with no CUSIP had a ticker that other securities have had too (gf-2026-12-01/manifest.json lists it): the export cannot tell which it is; say which in the store (docs/tools.md):
   x:66000017 (JKLM), written as i:1000013, which had it first: schwabtx edit -store STORE K:x:66000017 -same K:i:1000013 (ZZJ12K106) or -same K:i:1000213 (ZZJ12K205)
 3 holdings differ from the latest snapshot (gf-2026-12-01/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
 1 row of this export carries a flag that needs you (schwabtx status -store STORE -review); if you uncount it, the next -since export lists what to delete

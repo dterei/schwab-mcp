@@ -117,8 +117,9 @@ type ToolExport struct {
 	// holding them under an earlier symbol needs telling of.
 	Flagged, Waiting, Holdings, SymbolsChanged int
 	// Unsure are the keys of the store that know no CUSIP and had a ticker
-	// that securities of other CUSIPs have had too, which the export writes
-	// as one of them, or on their own, and cannot be sure of.
+	// that other securities have had too, of other CUSIPs or at another
+	// time, which the export writes as one of them, or on their own, and
+	// cannot be sure of.
 	Unsure []ToolUnsure
 	// Unused are the symbols that the chain's -manual names and that
 	// nothing in the export uses, as given.
@@ -249,12 +250,14 @@ type ToolTick struct {
 }
 
 // A ToolUnsure is a key of the store that knows no CUSIP, as a History
-// file's key often does, and had a ticker that securities of other CUSIPs
-// have had too, as when the store holds a reorganized security's new CUSIP
-// or another company under that ticker (3.5 of the design): a tool export
-// cannot be sure which of them it is, and writes its rows as the one that
-// had its ticker first, or on their own when its tickers are each of
-// another. You say which it is in the store, with one of the commands.
+// file's key often does, and had a ticker that other securities have had
+// too: of other CUSIPs, as when the store holds a reorganized security's new
+// CUSIP or another company under that ticker, or at another time, as when
+// it had the ticker after another company gave it up (3.5 of the design). A
+// tool export cannot be sure which of them it is, and writes its rows as
+// the one that had its ticker first, or on their own when its tickers are
+// each of another or each had it at another time. You say which it is in
+// the store, with one of the commands.
 type ToolUnsure struct {
 	// Key is its key, and Keys every key of the store that the export takes
 	// for one security with it, when there are several; Tickers those of its
@@ -270,11 +273,15 @@ type ToolUnsure struct {
 }
 
 // A ToolUnsureSecurity is a security that a ToolUnsure may be: the first of
-// its keys, its CUSIP, and the command, naming no -store, that tells the
-// store that the ToolUnsure's key is of it; Key and Command are "" for a
-// security that the store holds under no key.
+// its keys, its CUSIP ("" for none), and the command, naming no -store,
+// that tells the store that the ToolUnsure's key is of it; Key and Command
+// are "" for a security that the store holds under no key. Apart says that
+// the two had the ticker at times that do not meet, by the days of their
+// rows: one gave it up, renamed, delisted or merged away, before the other
+// had it, so that the export does not take them for one.
 type ToolUnsureSecurity struct {
 	Key, CUSIP, Command string
+	Apart               bool
 }
 
 // toolUnsures returns the keys that the groups unsure stand for, as an
@@ -290,7 +297,7 @@ func toolUnsures(unsure []*toolUnsure) []ToolUnsure {
 			t.TakenFor = u.of[u.taken].key
 		}
 		for _, o := range u.of {
-			s := ToolUnsureSecurity{Key: o.key, CUSIP: o.cusip}
+			s := ToolUnsureSecurity{Key: o.key, CUSIP: o.cusip, Apart: o.apart}
 			if o.key != "" {
 				s.Command = "schwabtx edit " + shellQuote("K:"+t.Key) + " -same " + shellQuote("K:"+o.key)
 			}
@@ -771,10 +778,12 @@ type (
 		Securities   []toolUnsureSecurity `json:"securities"`
 	}
 	// A toolUnsureSecurity is a security that a toolUnsureEntry may be
-	// (ToolUnsureSecurity).
+	// (ToolUnsureSecurity): apart is set when the two had the ticker at
+	// times that do not meet.
 	toolUnsureSecurity struct {
 		SecurityKey string `json:"security_key"`
 		CUSIP       string `json:"cusip"`
+		Apart       bool   `json:"apart,omitempty"`
 		Command     string `json:"command"`
 	}
 )
@@ -931,7 +940,7 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 			entry.TakenFor = &u.TakenFor
 		}
 		for _, s := range u.Securities {
-			entry.Securities = append(entry.Securities, toolUnsureSecurity{SecurityKey: s.Key, CUSIP: s.CUSIP, Command: s.Command})
+			entry.Securities = append(entry.Securities, toolUnsureSecurity{SecurityKey: s.Key, CUSIP: s.CUSIP, Apart: s.Apart, Command: s.Command})
 		}
 		m.KeysUnsure = append(m.KeysUnsure, entry)
 	}
