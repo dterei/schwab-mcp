@@ -212,6 +212,7 @@
   "holdings": {
     "differences": [],
     "cash": [],
+    "cash_not_checked": [],
     "not_checked": [
       "A2 ...398"
     ]

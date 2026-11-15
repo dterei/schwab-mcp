@@ -118,8 +118,12 @@ func toolQueries(account int64, to nytime.Date) []toolQuery {
 		},
 		{
 			name: "Q7",
-			query: `SELECT account_id, market_date, fetched_at, cash_cents FROM snapshots` + snapshots +
-				` ORDER BY account_id, market_date, fetched_at DESC, snapshot_id`,
+			// A margin account's cash balance can read 0 with a debit or short
+			// positions, its cash in the margin and short balances, as sent.
+			query: `SELECT account_id, market_date, fetched_at, cash_cents, account_type,
+				(SELECT b.value_as_sent FROM balances b WHERE b.snapshot_id = s.snapshot_id AND b.balance_set = 'current' AND b.figure = 'marginBalance'),
+				(SELECT b.value_as_sent FROM balances b WHERE b.snapshot_id = s.snapshot_id AND b.balance_set = 'current' AND b.figure = 'shortBalance')
+				FROM snapshots s` + snapshots + ` ORDER BY account_id, market_date, fetched_at DESC, snapshot_id`,
 			args: snapshotsArgs, scan: scanToolSnapshot,
 		},
 		{
@@ -323,10 +327,11 @@ func scanToolPosition(rows *sql.Rows, in *toolInput) error {
 func scanToolSnapshot(rows *sql.Rows, in *toolInput) error {
 	var s toolSnapshot
 	var date string
-	var fetched sql.NullString
-	if err := rows.Scan(&s.account, &date, &fetched, &s.cash); err != nil {
+	var fetched, accountType sql.NullString
+	if err := rows.Scan(&s.account, &date, &fetched, &s.cash, &accountType, &s.margin, &s.short); err != nil {
 		return err
 	}
+	s.accountType = accountType.String
 	var err error
 	if s.fetchedAt, err = toolInstant(fetched, "when a snapshot of "+date+" was taken"); err != nil {
 		return err

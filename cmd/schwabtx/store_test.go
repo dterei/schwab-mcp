@@ -1068,6 +1068,7 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 			name: "pp going on", dir: "pp-2026-12-01", since: "pp-2026-11-13",
 			e: history.ToolExport{
 				Tool: "pp", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 3, Late: 2, SameAs: 1, RedoAccount: "A1",
+				CashNotChecked: []string{"A1 ...135", "A2 ...398"},
 				Files: []history.ToolFile{
 					{Name: "securities.csv", Kind: "securities", Rows: 22},
 					{Name: "account-transactions-A1-135.csv", Kind: "account", Account: "A1 ...135", Rows: 1},
@@ -1093,6 +1094,7 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
   this assumes Portfolio Performance holds pp-2026-11-13 and every export before it, each imported once, with what it listed deleted and ticked
   2 of them are dated on or before 2026-11-12, the end of pp-2026-11-13: they came late or were decided since
   1 of them is a row that Portfolio Performance holds under another ref (pp-2026-12-01/manifest.json lists it under same_as): it shows it as existing; leave it unticked
+2 accounts' cash in Portfolio Performance is not checked (pp-2026-12-01/manifest.json): the latest snapshots of Schwab A1 ...135 and Schwab A2 ...398, margin accounts, read their cash as 0 beside a margin or short balance, as Schwab can report a debit or short positions; compare each one's cash at Schwab with Portfolio Performance's by hand (docs/tools.md)
 before importing, delete in Portfolio Performance what changed or went (pp-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 Dividend 3.86 (note schwabtx A1 ...135 T73508261950): changed; the new form is in this export
   Schwab A1 ...135: 2025-02-10 Transfer (Inbound) 500.00 (note schwabtx A2 ...398 T73508261952 to A1 ...135 T73508261953): gone, uncounted (user)
@@ -1113,7 +1115,7 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 				Files:      []history.ToolFile{{Name: "securities.csv", Kind: "securities", Rows: 1}, {Name: "portfolio-transactions-A3-777.csv", Kind: "portfolio", Account: "A3 ...777", Rows: 1}},
 				Securities: 1, Prices: 1, CaveatRows: 2, Caveats: []history.ToolCount{{Code: "value_unknown", Count: 2}, {Code: "cash_not_written", Count: 1}},
 				LeftOut:        []history.ToolCount{{Code: "split", Count: 1}, {Code: "no_quantity", Count: 2}},
-				SymbolsChanged: 2, Holdings: 1, Cash: 1, Flagged: 2, Waiting: 2,
+				SymbolsChanged: 2, Holdings: 1, Cash: 1, CashNotChecked: []string{"A2 ...398"}, Flagged: 2, Waiting: 2,
 				Unsure: []history.ToolUnsure{
 					{Key: "x:66000017", Tickers: []string{"JKLM"}, TakenFor: "i:1000013", Securities: []history.ToolUnsureSecurity{{Key: "i:1000013", CUSIP: "ZZJ12K106"}, {Key: "i:1000213", CUSIP: "ZZJ12K205"}}},
 					{
@@ -1146,6 +1148,7 @@ wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_n
   x:66000501 (GRPZ), written as c:ZZS50B109, the others having had its ticker at other times: schwabtx edit K:x:66000501 -same K:i:1000501 (ZZR50A102) or -same K:c:ZZS50B109 (ZZS50B109)
 1 holding differs from the latest snapshot (pp-2026-12-15/manifest.json): a position opened before the store's rows, or a split left out; add it by hand (docs/tools.md)
 1 account's cash in Portfolio Performance differs from its latest snapshot's (pp-2026-12-15/manifest.json): cash held before the store's first row of the account, or rows left out; book the difference as an opening deposit or withdrawal (docs/tools.md)
+1 account's cash in Portfolio Performance is not checked (pp-2026-12-15/manifest.json): the latest snapshot of A2 ...398, a margin account, reads its cash as 0 beside a margin or short balance, as Schwab can report a debit or short positions; compare its cash at Schwab with Portfolio Performance's by hand (docs/tools.md)
 2 rows of this export carry a flag that needs you (schwabtx status -review); if you uncount one, the next -since export lists what to delete
 2 file transactions wait for you to resolve them (schwabtx status -review) and are not in this export
 in Portfolio Performance, make a USD deposit account and a securities account for each account, named:

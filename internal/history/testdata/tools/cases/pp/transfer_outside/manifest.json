@@ -100,6 +100,7 @@
         "written_cash": 1000.00
       }
     ],
+    "cash_not_checked": [],
     "not_checked": []
   },
   "symbols_changed": [],

@@ -155,13 +155,16 @@ and the types' names, whatever PP's language and locale.
    `holdings.cash` lists each, with the snapshot's cash and what the records
    leave of the rows that it holds: the API's rows by their time, a History
    file's by their posted date, which an evening snapshot of that day holds.
-   Import the History files
-   that go back to the account's first deposit, and the next export writes
-   the rows they add; or book the difference in PP as a Deposit, or a
-   Withdrawal when the records leave more, dated before the account's first
-   row. A later export marks `before` a difference that the one before it
-   listed alike; a new one is a row that moved cash and that the export left
-   out (`left_out`) or the store lacks.
+   Import the History files that go back to the account's first deposit, and
+   the next export writes the rows they add; or book the difference in PP as
+   a Deposit, or a Withdrawal when the records leave more, dated before the
+   account's first row. Schwab can report a margin account's cash as 0 with
+   a debit or short positions, its cash then in other figures: such an
+   account's cash is not checked, and stderr names it
+   (`holdings.cash_not_checked`), for you to compare its cash at Schwab with
+   PP's by hand. A later export marks `before` a difference that the one
+   before it listed alike; a new one is a row that moved cash and that the
+   export left out (`left_out`) or the store lacks.
 5. **What the manifest asks of you**: the rows left out, each with its
    reason and what to do, and the rows written with a caveat
    ([below](#what-the-manifest-asks-of-you)). A row that PP refuses for its

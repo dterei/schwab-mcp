@@ -99,8 +99,9 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 		Flagged    []struct{ Ref string } `json:"flagged"`
 		Waiting    []struct{ Ref string } `json:"waiting"`
 		Holdings   struct {
-			Differences []struct{ Before bool }
-			Cash        *[]struct{ Before bool }
+			Differences    []struct{ Before bool }
+			Cash           *[]struct{ Before bool }
+			CashNotChecked *[]struct{ Account string } `json:"cash_not_checked"`
 		} `json:"holdings"`
 		Ghostfolio *struct {
 			Yahoo     []string
@@ -257,6 +258,16 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 		}
 	}
 	check("accounts whose cash differs", e.Cash, cash)
+	if (m.Holdings.CashNotChecked != nil) != (e.Tool == toolPP) {
+		t.Errorf("the %s manifest's holdings list accounts whose cash is not checked: %v", e.Tool, m.Holdings.CashNotChecked != nil)
+	}
+	var notChecked []string
+	if m.Holdings.CashNotChecked != nil {
+		for _, a := range *m.Holdings.CashNotChecked {
+			notChecked = append(notChecked, a.Account)
+		}
+	}
+	check("accounts whose cash is not checked", e.CashNotChecked, notChecked)
 	check("securities whose symbol changed", e.SymbolsChanged, len(m.SymbolsChanged))
 	var unsure []ToolUnsure
 	for _, u := range m.KeysUnsure {

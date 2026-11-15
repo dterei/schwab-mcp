@@ -2091,7 +2091,7 @@ func TestToolMapping(t *testing.T) {
 		in.snapshots = []toolSnapshot{rcSnapshot(1, "2025-06-30", 0), rcSnapshot(2, "2025-06-30", 123)}
 		c := toolCase{name: "every record", in: in}
 		_, events, _ := mapCase(c, toolPP)
-		diffs := cashCheck(&in, events)
+		diffs, _ := cashCheck(&in, events)
 		s := chainStepFrom(t, caseExport(t, c, toolPP), t.TempDir())
 		m := newPPModel()
 		ppApply(t, m, s)
@@ -2104,7 +2104,7 @@ func TestToolMapping(t *testing.T) {
 			}
 		}
 		in.snapshots[0].cash = centsOf(m.cash("Schwab A1 ...135"))
-		if diffs := cashCheck(&in, events); len(diffs) != 1 || diffs[0].account.id != 2 {
+		if diffs, _ := cashCheck(&in, events); len(diffs) != 1 || diffs[0].account.id != 2 {
 			t.Errorf("A1's cash as PP holds it: differences %+v", diffs)
 		}
 
@@ -2152,7 +2152,7 @@ func TestToolMapping(t *testing.T) {
 				continue
 			}
 			want := []toolCash{{account: in.accountOf(1), snapshot: "2026-06-29", snapshotCash: 700_000, writtenCash: -300_000 + 1_000 + 3_000 + 4_000 - 50_000}}
-			if got := cashCheck(in, events); !reflect.DeepEqual(got, want) {
+			if got, _ := cashCheck(in, events); !reflect.DeepEqual(got, want) {
 				t.Errorf("the opening cash: differences %+v, want %+v", got, want)
 			}
 			if e.Cash != 1 {
@@ -2163,8 +2163,61 @@ func TestToolMapping(t *testing.T) {
 			only := onlyAccount(*in, 1)
 			only.snapshots = append(only.snapshots, rcSnapshot(2, "2026-06-29", 1))
 			events, _ = toolEvents(&only)
-			if got := cashCheck(&only, events); !reflect.DeepEqual(got, want) {
+			if got, _ := cashCheck(&only, events); !reflect.DeepEqual(got, want) {
 				t.Errorf("the opening cash of A1 alone: differences %+v, want %+v", got, want)
+			}
+		}
+
+		// A margin account whose cash balance reads 0 beside a margin
+		// balance, as Schwab can report a debit, or beside a short balance,
+		// of short proceeds, is not checked, and is listed apart; one whose
+		// debit reads as negative cash, one whose cash, margin and short
+		// balances all read 0, and a cash account are checked as any other.
+		margin := func(cash int64, typ string, marginBalance, short float64) toolInput {
+			snap := rcSnapshot(2, "2026-01-30", cash)
+			snap.accountType = typ
+			snap.margin, snap.short = sql.NullFloat64{Float64: marginBalance, Valid: true}, sql.NullFloat64{Float64: short, Valid: true}
+			return tcInput(toolInput{
+				to: "2026-01-30",
+				rows: []toolRow{
+					rcCash("T7c600201", 2, "2026-01-02 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 100_000),
+					rcTrade("T7c600202", 2, "2026-01-05 10:00:00", "buy", keyEFGH, "EFGH", 100_000_000, 30, -300_000, 0),
+				},
+				snapshots: []toolSnapshot{snap},
+			})
+		}
+		for _, c := range []struct {
+			name      string
+			in        toolInput
+			diffs     int
+			unchecked bool
+		}{
+			{"a debit read as 0", margin(0, "MARGIN", -2000, 0), 0, true},
+			{"short proceeds read as 0", margin(0, "MARGIN", 0, 5000), 0, true},
+			{"a debit read as negative cash", margin(-200_000, "MARGIN", -2000, 0), 0, false},
+			{"a margin account of no cash nor balances", margin(0, "MARGIN", 0, 0), 1, false},
+			{"a cash account", margin(0, "CASH", -2000, 0), 1, false},
+		} {
+			mc := toolCase{name: c.name, in: c.in}
+			in, events, _ := mapCase(mc, toolPP)
+			diffs, unchecked := cashCheck(in, events)
+			if len(diffs) != c.diffs || (len(unchecked) == 1) != c.unchecked || len(unchecked) > 1 {
+				t.Errorf("%s: differences %+v, unchecked %+v", c.name, diffs, unchecked)
+			}
+			// The manifest and stderr say so too (checkToolSummary).
+			e := chainStepFrom(t, caseExport(t, mc, toolPP), t.TempDir()).e
+			var m struct {
+				Holdings chainHoldings `json:"holdings"`
+			}
+			if err := json.Unmarshal(e.manifest, &m); err != nil {
+				t.Fatal(err)
+			}
+			var want []chainCashUnchecked
+			if c.unchecked {
+				want = []chainCashUnchecked{{Account: "A2 ...398", Snapshot: "2026-01-30", Why: "margin"}}
+			}
+			if got := *m.Holdings.CashNotChecked; !slices.Equal(got, want) && len(got)+len(want) > 0 || e.Cash != c.diffs {
+				t.Errorf("%s: stderr counts %d, the manifest lists %+v as not checked", c.name, e.Cash, got)
 			}
 		}
 	})
@@ -2259,7 +2312,8 @@ func TestToolMapping(t *testing.T) {
 				for _, d := range diffs {
 					holdings = append(holdings, fmt.Sprintf("%s %s %s %s", d.account.label(), d.symbol, formatMicros(d.snapshotShares), formatMicros(d.writtenShares)))
 				}
-				for _, d := range cashCheck(in, events) {
+				cashDiffs, _ := cashCheck(in, events)
+				for _, d := range cashDiffs {
 					cash = append(cash, fmt.Sprintf("%s %s %s", d.account.label(), formatCents(d.snapshotCash), formatCents(d.writtenCash)))
 				}
 				if !slices.Equal(holdings, c.holdings) || tool == toolPP && !slices.Equal(cash, c.cash) {

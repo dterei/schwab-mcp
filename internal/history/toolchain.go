@@ -197,13 +197,26 @@ type chainLeftOut struct {
 }
 
 // A chainHoldings is the holdings check of the manifest (4.15 of the
-// design): each difference, for PP each difference of the cash check, and
-// the labels of the accounts that it could not check, for want of a
-// snapshot. Cash is nil for Ghostfolio, whose cash is the balances'.
+// design): each difference, for PP each difference of the cash check and
+// each account whose cash it could not check, and the labels of the
+// accounts whose shares it could not check, for want of a snapshot. Cash
+// and CashNotChecked are nil for Ghostfolio, whose cash is the balances'.
 type chainHoldings struct {
-	Differences []chainHolding      `json:"differences"`
-	Cash        *[]chainCashHolding `json:"cash,omitempty"`
-	NotChecked  []string            `json:"not_checked"`
+	Differences    []chainHolding        `json:"differences"`
+	Cash           *[]chainCashHolding   `json:"cash,omitempty"`
+	CashNotChecked *[]chainCashUnchecked `json:"cash_not_checked,omitempty"`
+	NotChecked     []string              `json:"not_checked"`
+}
+
+// A chainCashUnchecked is an account whose cash PP's cash check could not
+// check (toolCashUnchecked): its label, the market date of its snapshot, and
+// why, "margin": the snapshot is of a margin account whose cash balance
+// reads 0 beside a margin or a short balance, as Schwab can report a debit
+// or short positions (docs/schwab-api.md).
+type chainCashUnchecked struct {
+	Account  string      `json:"account"`
+	Snapshot nytime.Date `json:"snapshot"`
+	Why      string      `json:"why"`
 }
 
 // A chainCashHolding is a difference of PP's cash check (toolCash): the
@@ -574,8 +587,10 @@ type chainResult struct {
 	leftOut   []chainLeftOut
 	holdings  []chainHolding
 	unchecked []toolAccount
-	// cash are, for PP, the differences of the cash check.
-	cash []chainCashHolding
+	// cash are, for PP, the differences of the cash check, and
+	// cashUnchecked the accounts whose cash it could not check.
+	cash          []chainCashHolding
+	cashUnchecked []toolCashUnchecked
 	// securities are every security that the chain has written, with its
 	// identifiers as written last; symbolsChanged those of this export whose
 	// symbol a tool that holds them under an earlier one needs telling of,
@@ -1080,7 +1095,9 @@ func (c *chainResult) compareCash(events []toolEvent) {
 			before[h.Account+"\x1f"+d.RatString()] = true
 		}
 	}
-	for _, d := range cashCheck(c.in, events) {
+	diffs, unchecked := cashCheck(c.in, events)
+	c.cashUnchecked = unchecked
+	for _, d := range diffs {
 		h := chainCashHolding{
 			Account: d.account.label(), Snapshot: d.snapshot,
 			SnapshotCash: json.Number(formatCents(d.snapshotCash)), WrittenCash: json.Number(formatCents(d.writtenCash)),
@@ -1291,7 +1308,11 @@ func chainJSON(c *chainResult, exportedAt string, unused []string) chainManifest
 	}
 	if c.in.tool == toolPP {
 		cash := append([]chainCashHolding{}, c.cash...)
-		m.Holdings.Cash = &cash
+		notChecked := []chainCashUnchecked{}
+		for _, u := range c.cashUnchecked {
+			notChecked = append(notChecked, chainCashUnchecked{Account: u.account.label(), Snapshot: u.snapshot, Why: "margin"})
+		}
+		m.Holdings.Cash, m.Holdings.CashNotChecked = &cash, &notChecked
 	}
 	return m
 }

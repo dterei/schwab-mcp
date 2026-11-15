@@ -353,7 +353,8 @@ func toolLines(in *toolInput) map[string][]string {
 			int("long", p.long).int("short", p.short).float("value", p.marketValue))
 	}
 	for _, s := range in.snapshots {
-		add("snapshots", new(toolLine).word(account(s.account)).word(string(s.marketDate)).time("fetched", s.fetchedAt).int("cash", s.cash))
+		add("snapshots", new(toolLine).word(account(s.account)).word(string(s.marketDate)).time("fetched", s.fetchedAt).int("cash", s.cash).
+			text("type", s.accountType).float("margin", s.margin).float("short", s.short))
 	}
 	for _, w := range in.waiting {
 		add("waiting", new(toolLine).word(w.ref).word(account(w.account)).word(string(w.day)).word(w.kind).int("amount", w.amount).word(w.why))
@@ -597,12 +598,12 @@ var toolStoreLines = map[string][]string{
 		`i:1973757747 A1 2026-11-10 fetched=2026-11-10T23:05:00Z long=2178800 short=0 value=495.7`,
 	},
 	"snapshots": {
-		`A1 2026-11-09 fetched=2026-11-09T23:05:00Z cash=153217`,
-		`A1 2026-11-10 fetched=2026-11-10T23:05:00Z cash=153217`,
-		`A2 2026-11-09 fetched=2026-11-09T23:05:00Z cash=521044`,
-		`A2 2026-11-10 fetched=2026-11-10T23:05:00Z cash=-1234`,
-		`A4 2026-11-09 fetched=2026-11-09T23:05:00Z`,
-		`A4 2026-11-10 fetched=2026-11-10T23:05:00Z`,
+		`A1 2026-11-09 fetched=2026-11-09T23:05:00Z cash=153217 type=CASH`,
+		`A1 2026-11-10 fetched=2026-11-10T23:05:00Z cash=153217 type=CASH`,
+		`A2 2026-11-09 fetched=2026-11-09T23:05:00Z cash=521044 type=MARGIN margin=0 short=0`,
+		`A2 2026-11-10 fetched=2026-11-10T23:05:00Z cash=-1234 type=MARGIN margin=0 short=0`,
+		`A4 2026-11-09 fetched=2026-11-09T23:05:00Z type=MARGIN margin=0 short=0`,
+		`A4 2026-11-10 fetched=2026-11-10T23:05:00Z type=MARGIN margin=0 short=0`,
 	},
 	"waiting": {
 		`M.2 A1 2024-05-31 "Bank Interest" amount=37 held_out`,
@@ -910,5 +911,38 @@ func TestToolReadRenameRestated(t *testing.T) {
 		if u := keysUnsure(&e, events); len(u) != 0 {
 			t.Errorf("%s: unsure %+v", tool, *u[0])
 		}
+	}
+}
+
+// TestToolReadMarginBalances reads, from a real store, a margin account's
+// snapshot whose cash balance reads 0 beside a margin balance in its
+// current balances, as Schwab can report a debit, and none in its initial
+// ones: Q7 reads the current ones, and PP's cash check passes the account
+// over, listed.
+func TestToolReadMarginBalances(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	at := time.Date(2026, time.November, 10, 23, 5, 0, 0, time.UTC)
+	importFile(t, s, "snapshots.jsonl", snapshotLine(t, at, json.RawMessage(`{"securitiesAccount": {"accountNumber": "29470135", "type": "MARGIN",
+		"initialBalances": {"cashBalance": 0, "marginBalance": 0, "shortBalance": 0},
+		"currentBalances": {"cashBalance": 0, "marginBalance": -2000.0, "shortBalance": 0}}}`)))
+	var in *toolInput
+	if err := s.withRead(t.Context(), func(r *rtx) error {
+		var err error
+		in, err = readToolInput(r, 0, "2026-11-12")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(in.snapshots) != 1 {
+		t.Fatalf("snapshots %+v", in.snapshots)
+	}
+	if snap := in.snapshots[0]; snap.accountType != "MARGIN" || snap.cash != centsOf(0) || snap.margin != (sql.NullFloat64{Float64: -2000, Valid: true}) || snap.short != (sql.NullFloat64{Valid: true}) {
+		t.Errorf("the snapshot %+v", snap)
+	}
+	in.tool = toolPP
+	events, _ := toolEvents(in)
+	if diffs, unchecked := cashCheck(in, events); len(diffs) != 0 || len(unchecked) != 1 || unchecked[0].snapshot != "2026-11-10" {
+		t.Errorf("differences %+v, unchecked %+v", diffs, unchecked)
 	}
 }

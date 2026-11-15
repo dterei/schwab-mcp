@@ -118,6 +118,11 @@ type ToolExport struct {
 	// Cash the accounts whose cash differs from their latest snapshot's, but
 	// those that the export it goes on from listed alike.
 	Flagged, Waiting, Holdings, SymbolsChanged, Cash int
+	// CashNotChecked are, for PP, the labels of the accounts whose cash the
+	// cash check could not check: the latest snapshot of each is of a
+	// margin account whose cash balance reads 0 beside a margin or a short
+	// balance, as Schwab can report a debit or short positions.
+	CashNotChecked []string
 	// Unsure are the keys of the store that know no CUSIP and had a ticker
 	// that other securities have had too, of other CUSIPs or at another
 	// time, which the export writes as one of them, or on their own, and
@@ -570,6 +575,9 @@ func (e *ToolExport) count() {
 		if !c.Before {
 			e.Cash++
 		}
+	}
+	for _, u := range e.res.cashUnchecked {
+		e.CashNotChecked = append(e.CashNotChecked, u.account.label())
 	}
 	for _, c := range e.res.changed {
 		e.Changed = append(e.Changed, ToolChange{Ref: c.Ref, Account: c.Account, Was: c.Was, NoteRef: c.NoteRef, Transfer: c.Transfer, Now: c.Now})

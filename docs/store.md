@@ -1637,8 +1637,15 @@ then started over.
   that hold the account's cash: what the records leave of the rows that it
   holds, against its cash, listed under `holdings.cash` and counted on
   stderr. A difference is cash held before the store's first row of the
-  account, or moved by a row left out or one that the store lacks;
-  Ghostfolio's cash is the snapshots' balances, with nothing to check. The walk-through's store shows 11 holdings, and 2 accounts' cash,
+  account, or moved by a row left out or one that the store lacks. A
+  margin account's cash balance can read 0 with a debit or short
+  positions, its cash then in its margin and short balances, whose sum no
+  sample settles ([the API
+  notes](schwab-api.md#positions-and-balances)): an account whose latest
+  snapshot reads so is not checked, but listed under
+  `holdings.cash_not_checked` and named on stderr, for you to compare by
+  hand. Ghostfolio's cash is the snapshots' balances, with nothing to
+  check. The walk-through's store shows 11 holdings, and 2 accounts' cash,
   since its made-up snapshots and rows were not made to agree.
 
 ### The manifest
@@ -1666,7 +1673,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `left_out`, `caveats`, `combined` | the rows left out, written with a caveat, and carried by a sale |
 | `in_balances` | Ghostfolio: per account, the cash rows that its balances carry |
 | `flagged`, `waiting` | the rows with a flag that needs you, with their flags, and the file rows that wait for you, each with the command that shows it |
-| `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several), and the accounts not checked; for PP, `cash`: each account whose cash that the records leave differs from its latest snapshot's, with the snapshot's day, `snapshot_cash` and `written_cash` |
+| `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several), and the accounts not checked; for PP, `cash`: each account whose cash that the records leave differs from its latest snapshot's, with the snapshot's day, `snapshot_cash` and `written_cash`; and `cash_not_checked`: each account whose latest snapshot is of a margin account that reads its cash as 0 beside a margin or short balance, with the snapshot's day and `why`, `margin` |
 | `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`option`, `bond`, `no_ticker`, `delisted`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
 | `symbols_changed` | each security that a tool may hold under an earlier symbol, as the tool holds it: its key (the least, with `security_keys` when the store has several), how it is written now (`written_as`: its ticker, or `MANUAL` when the tool gets no price feed for it) and every ticker it has had (`symbols`) |
 | `keys_unsure` | each key of the store that knows no CUSIP and had a ticker that other securities have had too, of other CUSIPs or at other times, which the export writes or prices: its key (with `security_keys` when the export takes several for one), the `tickers` it shares with them, the key of the one it is written as (`taken_for`, null when it stays on its own), and each of those `securities`, by its key, with its `cusip` ("" for none), `apart` when the two had the ticker at times that do not meet, and the `command` that joins the key to it in the store |

@@ -531,6 +531,23 @@ type toolSnapshot struct {
 	// cash is the account's cash balance (currentBalances.cashBalance), in
 	// cents, signed; NULL when Schwab sent none or one off the grid.
 	cash sql.NullInt64
+	// accountType is Schwab's type of the account, CASH or MARGIN, "" for
+	// none; margin and short are its current margin and short balances as
+	// Schwab sent them, NULL for none: with a debit or short positions, a
+	// margin account's cash balance can read 0, its cash in those
+	// (docs/schwab-api.md).
+	accountType   string
+	margin, short sql.NullFloat64
+}
+
+// marginZero reports whether s is of a margin account whose cash balance
+// reads 0 beside a margin or a short balance that does not: what the account
+// holds of cash is then not its cash balance, and the cited reading of it as
+// their sum is not one that the samples settle (docs/schwab-api.md), so PP's
+// cash is not checked against it.
+func (s toolSnapshot) marginZero() bool {
+	off := func(v sql.NullFloat64) bool { return v.Valid && v.Float64 != 0 }
+	return s.accountType == "MARGIN" && s.cash.Valid && s.cash.Int64 == 0 && (off(s.margin) || off(s.short))
 }
 
 // A toolWaiting is a file row that waits for you to resolve it (Q8): held
@@ -3247,6 +3264,13 @@ func (e *toolEvent) inSnapshot(in *toolInput, s toolSnapshot) bool {
 	return inSnapshot(&in.rows[e.row], s)
 }
 
+// A toolCashUnchecked is an account whose cash the cash check cannot
+// check: its snapshot (marginZero), by its market date.
+type toolCashUnchecked struct {
+	account  toolAccount
+	snapshot nytime.Date
+}
+
 // A toolCash is a difference of the cash check, PP's beside the holdings
 // check (4.15 of the design): what an account's latest snapshot taken on or
 // before the export's last day holds of cash, against what PP holds of it
@@ -3286,12 +3310,19 @@ func ppCash(e toolEvent) int64 {
 // export makes from this one, its own row dated after the export's last day,
 // is in a later snapshot, so an account's own rows alone count. It returns
 // the differences, by account; an account without such a snapshot of its
-// cash has none. Ghostfolio's cash is the balances', so it has nothing to
+// cash has none, and one whose snapshot is of a margin account that reads
+// its cash as 0 beside a margin or a short balance (marginZero) is returned
+// apart, unchecked. Ghostfolio's cash is the balances', so it has nothing to
 // check.
-func cashCheck(in *toolInput, events []toolEvent) []toolCash {
+func cashCheck(in *toolInput, events []toolEvent) ([]toolCash, []toolCashUnchecked) {
 	latest := map[int64]toolSnapshot{}
+	var unchecked []toolCashUnchecked
 	for _, id := range snapshotAccounts(in) {
-		if snap, ok := checkedSnapshot(in, id, func(s toolSnapshot) bool { return s.cash.Valid }); ok {
+		snap, ok := checkedSnapshot(in, id, func(s toolSnapshot) bool { return s.cash.Valid })
+		switch {
+		case ok && snap.marginZero():
+			unchecked = append(unchecked, toolCashUnchecked{account: in.accountOf(id), snapshot: snap.marketDate})
+		case ok:
 			latest[id] = snap
 		}
 	}
@@ -3307,7 +3338,7 @@ func cashCheck(in *toolInput, events []toolEvent) []toolCash {
 			diffs = append(diffs, toolCash{account: in.accountOf(id), snapshot: s.marketDate, snapshotCash: s.cash.Int64, writtenCash: written[id]})
 		}
 	}
-	return diffs
+	return diffs, unchecked
 }
 
 // A toolIdle is a symbol that Ghostfolio's import asks Yahoo about that
