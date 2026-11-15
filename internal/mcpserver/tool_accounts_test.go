@@ -538,6 +538,43 @@ func TestAccountsNewSinceTheDirectory(t *testing.T) {
 	}
 }
 
+// The directory keeps Schwab's part for 5 minutes, and reads the store's
+// accounts at every call (design 12.4): a store that appears after the
+// directory was read, as the first schwabtx import while a client runs
+// makes it, is read by the next call. source store and auto read the
+// accounts it holds, get_transaction finds a ref that only it holds, and
+// list_accounts names each account's store ref; a kind that the user
+// gives an account since shows at the next call.
+func TestStoreFoundAfterTheDirectory(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, withoutStore())
+	if r := e.call("list_accounts", `{}`); r.isError || accountsOf(t, r)["...398"]["store_ref"] != nil {
+		t.Fatalf("before the store: %s", r.text)
+	}
+	copyFile(t, sharedStore(t), e.storePath)
+	before := len(e.fake.Requests())
+	r := e.call("get_transactions", `{"from":"2025-01-01","to":"2025-12-31","source":"store"}`)
+	if r.isError || txnCoverageOf(r, "...135")["read_from"] != "store" || txnCoverageOf(r, "...398")["read_from"] != "store" ||
+		len(r.value["totals"].([]any)) == 0 {
+		t.Errorf("source store, after the store appeared: %.600s", r.text)
+	}
+	r = e.call("get_transactions", `{"from":"2025-01-01","to":"2025-12-31"}`)
+	if r.isError || txnCoverageOf(r, "...398")["read_from"] != "store" || txnCoverageOf(r, "...135")["read_from"] != "schwab" {
+		t.Errorf("auto, after the store appeared: %.600s", r.text)
+	}
+	if r := e.call("get_transaction", `{"id":"C2cdf9679.3"}`); r.isError || r.value["source"] != "store" {
+		t.Errorf("a ref that only the store holds: %.300s", r.text)
+	}
+	exec(t, rawStore(t, e.storePath), "UPDATE account SET kind = 'taxable' WHERE account_id = 2")
+	as := accountsOf(t, e.call("list_accounts", `{}`))
+	if as["...135"]["store_ref"] != "A1" || as["...398"]["kind"] != "taxable" {
+		t.Errorf("list_accounts, after the store appeared and a kind was given: %v and %v", as["...135"], as["...398"])
+	}
+	if n := strings.Count(strings.Join(apiRoutes(e.fake, before), " "), string(schwabtest.AccountNumbersRoute)); n != 0 {
+		t.Errorf("Schwab's part of the directory was read %d times again, want none", n)
+	}
+}
+
 // list_accounts lists at most 50 accounts. The first and the last of 51
 // stand for every one in the check of what the server sent, as each goes
 // the same way.

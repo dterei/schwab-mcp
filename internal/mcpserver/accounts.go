@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -102,50 +103,73 @@ func (v *dirView) shared() []dirAccount {
 	return out
 }
 
-// dirTTL is how long a load of the directory serves.
+// dirTTL is how long a read of Schwab's part of the directory serves.
 const dirTTL = 5 * time.Minute
 
-// directory is the server's account directory, read again every 5 minutes,
-// and at once when Schwab refuses a hash. It is safe for concurrent use.
+// directory is the server's account directory. Schwab's part, its account
+// numbers and the preferences, is read again every 5 minutes, and at once
+// when Schwab refuses a hash; the store's part at every load, since the
+// store can be made, or gain an account or a kind, while the server runs,
+// and a store made later is to be found by the next call (design 12.4). It
+// is safe for concurrent use.
 type directory struct {
-	// lock is held, one load at a time, by whoever loads the directory; a
+	// lock is held, one read at a time, by whoever reads Schwab's part; a
 	// call that waits for it gives up when its context ends.
 	lock chan struct{}
-	// view is the last whole load, and readAt when it was read, by the
-	// system clock; nil when there is none to serve.
-	view   *dirView
+	// schwab is the last read of Schwab's part in which both reads worked,
+	// and readAt when it was read, by the system clock; nil when there is
+	// none to serve. Its accounts never change once it is kept: each load
+	// joins a copy of them with the store's.
+	schwab *dirView
 	readAt time.Time
 }
 
 func newDirectory() *directory { return &directory{lock: make(chan struct{}, 1)} }
 
-// load returns the directory: a cached load younger than 5 minutes, or a
-// new one. A load is cached only when each of its reads worked. It fails
-// only when ctx ends; what could not be read is in the view.
+// load returns the directory: Schwab's part as a read younger than 5
+// minutes has it, or as read now, joined with the store's accounts as the
+// store holds them now. It fails only when ctx ends; what could not be read
+// is in the view.
 func (d *directory) load(ctx context.Context, c *call) (*dirView, error) {
+	sv, err := d.schwabPart(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	v := &dirView{accounts: slices.Clone(sv.accounts), schwabErr: sv.schwabErr, prefsErr: sv.prefsErr, prefsProblems: sv.prefsProblems}
+	joinStore(ctx, c, v)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// schwabPart returns Schwab's part of the directory: the kept read when it
+// is younger than 5 minutes, or a new one, which is kept when both its
+// reads worked.
+func (d *directory) schwabPart(ctx context.Context, c *call) (*dirView, error) {
 	select {
 	case d.lock <- struct{}{}:
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 	defer func() { <-d.lock }()
-	if d.view != nil && time.Since(d.readAt) < dirTTL {
-		return d.view, nil
+	if d.schwab != nil && time.Since(d.readAt) < dirTTL {
+		return d.schwab, nil
 	}
-	v := d.read(ctx, c)
+	v := readSchwab(ctx, c)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	d.view = nil
-	if v.schwabErr == nil && v.prefsErr == nil && v.storeErr == nil {
-		d.view, d.readAt = v, time.Now()
+	d.schwab = nil
+	if v.schwabErr == nil && v.prefsErr == nil {
+		d.schwab, d.readAt = v, time.Now()
 	}
 	return v, nil
 }
 
-// read reads the directory: Schwab's account numbers, then its
-// preferences, then the store's accounts, which it joins by number.
-func (d *directory) read(ctx context.Context, c *call) *dirView {
+// readSchwab reads Schwab's part of the directory: its account numbers,
+// then its preferences.
+func readSchwab(ctx context.Context, c *call) *dirView {
 	v := &dirView{}
 	byNumber := map[string]int{}
 	numbers, err := ask(ctx, c, func(cl *schwab.Client) ([]schwab.AccountNumber, error) { return cl.AccountNumbers(ctx) })
@@ -186,10 +210,23 @@ func (d *directory) read(ctx context.Context, c *call) *dirView {
 			}
 		}
 	}
+	return v
+}
+
+// joinStore joins the store's accounts to v, Schwab's part of the
+// directory, by number: an account that Schwab lists gains the store's id,
+// ref, kind and type, and those that only the store knows come after
+// Schwab's. A store that cannot be read is v's storeErr; no store is no
+// failure.
+func joinStore(ctx context.Context, c *call, v *dirView) {
+	byNumber := map[string]int{}
+	for i, a := range v.accounts {
+		byNumber[a.number] = i
+	}
 	numbered, views, err := c.store.accounts(ctx)
 	if err != nil && !errors.Is(err, history.ErrNoStore) && !errors.Is(err, errNoStorePath) {
 		v.storeErr = err
-		return v
+		return
 	}
 	viewOf := map[int64]history.ReaderAccount{}
 	for _, a := range views {
@@ -207,7 +244,6 @@ func (d *directory) read(ctx context.Context, c *call) *dirView {
 		a := &v.accounts[i]
 		a.storeID, a.storeRef, a.kind, a.storeType, a.notSharedSince = n.ID, sv.Ref, sv.Kind, sv.Type, sv.NotSharedSince
 	}
-	return v
 }
 
 // refreshed reads the directory again, as after Schwab refused a hash it
@@ -219,7 +255,7 @@ func (d *directory) refreshed(ctx context.Context, c *call, number string) (dirA
 	case <-ctx.Done():
 		return dirAccount{}, false, ctx.Err()
 	}
-	d.view = nil
+	d.schwab = nil
 	<-d.lock
 	v, err := d.load(ctx, c)
 	if err != nil {
