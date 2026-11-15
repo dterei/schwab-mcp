@@ -471,6 +471,28 @@ func plantTransactions(t *testing.T, w *leakWorld) {
 		"Invalid account number ...135", "Client not authorized")
 	w.forbidden = append(w.forbidden, "jdoe", "Jane", "Doe")
 	w.checks = append(w.checks, checkCursorDigests)
+	w.sides = append(w.sides, leakSide{
+		// A gateway's fault and an OAuth error, each holding numbers that no
+		// account the server knows has, in its code too; preferences that
+		// cannot be read; and an account that only the store knows.
+		name: "Schwab refuses the transactions",
+		opts: func(string) []envOption {
+			return []envOption{withFake(func(f *schwabtest.Server) {
+				f.Override(schwabtest.TransactionsRoute, schwabtest.Answer(http.StatusBadGateway,
+					`{"fault":{"faultstring":"Bad `+unknownLong+`","detail":{"errorcode":"acct.`+unknownLong+`"}}}`))
+				f.Override(schwabtest.TransactionRoute, schwabtest.Answer(http.StatusForbidden,
+					`{"error":"Account `+unknownLong+` is restricted for `+unknownShort+`"}`))
+				f.Override(schwabtest.UserPreferenceRoute, schwabtest.Answer(http.StatusInternalServerError,
+					`{"message":"no preferences for `+unknownLong+`"}`))
+				f.RemoveAccount(schwabtest.HashFor(empty))
+			})}
+		},
+		calls: []leakCall{
+			{tool: "get_transactions", args: `{"source":"schwab","account":"135","from":"2026-10-01","to":"2026-10-31"}`},
+			{tool: "get_transaction", args: `{"id":"73508269999","account":"135"}`},
+			{tool: "get_transaction", args: `{"id":"73508269999","account":"783"}`},
+		},
+	})
 }
 
 // txnImport imports a History export of June 2025 of the account numbered
@@ -503,6 +525,8 @@ var transactionLeakCalls = []leakCall{
 	{tool: "get_transaction", args: `{"id":"73508261950"}`},
 	{tool: "get_transaction", args: `{"id":"73508263001","account":"29470135","include_raw":true}`},
 	{tool: "get_transaction", args: `{"id":"29470135","account":"135"}`},
+	{tool: "get_transactions", args: `{"account":29470135}`},
+	{tool: "get_transactions", args: `{"cursor":"29470135"}`},
 }
 
 // checkCursorDigests fails when a cursor that the server sent holds the
@@ -1139,6 +1163,8 @@ func TestOlderWindows(t *testing.T) {
 		}
 	}
 
+	// The empty older window's days are not whole: empty_not_proof says
+	// they may be missing.
 	e = newEnv(t, withoutStore())
 	r = e.call("get_transactions", `{"source":"schwab","account":"135","from":"2024-07-01","to":"2025-06-30"}`)
 	if !slices.Contains(r.warnings(), "empty_not_proof") || !strings.Contains(r.text, "Schwab sent no transactions of ...135 from 2024-07-01 to 2024-12-29") {

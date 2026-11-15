@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dterei/schwab-mcp/internal/config"
 	"github.com/dterei/schwab-mcp/internal/history"
 	"github.com/dterei/schwab-mcp/internal/lookup"
 	"github.com/dterei/schwab-mcp/internal/schwab"
@@ -633,7 +634,41 @@ var accountPlantings = []func(t *testing.T, w *leakWorld){func(_ *testing.T, w *
 	}))
 	w.masked = append(w.masked, "TRANSFER FROM ...398 FOR ...321", `...135\", which is not a time`)
 	w.checks = append(w.checks, positionCursorsHoldNoNumber, accountReadsHoldNoNumber)
+	w.sides = append(w.sides, accountSides...)
 }}
+
+// accountSides are the account tools' worlds beside the leak world, whose
+// bodies from Schwab hold numbers that no account the server knows has:
+// Schwab limiting the app, with a rate file whose name holds a number, and
+// alone in its world, since the pause it asks for holds back every later
+// request; and Schwab's edge refusing an account, its Whitelabel page for
+// another, a gateway's refusal of an answer too big, and two accounts of
+// one nickname.
+var accountSides = []leakSide{
+	{name: "Schwab limits the app", opts: func(home string) []envOption {
+		return []envOption{
+			withConfig(func(c *config.Config) { c.RateFile.Value = filepath.Join(home, ".cache", "rate-"+unknownShort) }),
+			withFake(func(f *schwabtest.Server) {
+				f.Override(schwabtest.AccountsRoute, schwabtest.Answer(http.StatusTooManyRequests,
+					`{"message":"Too many requests for `+unknownLong+`"}`, "Retry-After", "3600"))
+			}),
+		}
+	}, calls: []leakCall{{tool: "get_balances", args: `{}`}}},
+	{name: "Schwab refuses the accounts", opts: func(string) []envOption {
+		return []envOption{withFake(func(f *schwabtest.Server) {
+			f.Queue(schwabtest.AccountRoute, schwabtest.Answer(http.StatusForbidden, `<html><head><title>Access Denied for `+unknownLong+
+				`</title></head><body>Reference #18.6a2f1c17.1700000000.1a2b3c4d</body></html>`), schwabtest.Whitelabel, schwabtest.Whitelabel)
+			f.Override(schwabtest.AccountsRoute, schwabtest.TooBigBody)
+			f.SetUserPreference(`{"accounts":[{"accountNumber":"` + nineDigits + `","nickName":"Kids ` + sevenDigits + `"},` +
+				`{"accountNumber":"` + sevenDigits + `","nickName":"Kids ` + sevenDigits + `"}]}`)
+		})}
+	}, calls: []leakCall{
+		{tool: "get_balances", args: `{"account":"135"}`},
+		{tool: "get_balances", args: `{"account":"398"}`},
+		{tool: "get_positions", args: `{}`},
+		{tool: "get_balances", args: `{"account":"Kids ` + sevenDigits + `"}`},
+	}},
+}
 
 // accountLeakCalls are the account tools' calls of TestNoAccountNumberLeaks,
 // with each detail: every account in full, one by its full number, and one

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/dterei/schwab-mcp/internal/schwab/schwabtest"
@@ -130,6 +132,12 @@ type leakWorld struct {
 	store string
 	// opts set up the env, after the world's own.
 	opts []envOption
+	// base returns the options that the world's sides take too, for a world
+	// whose home folder is home: the world's paths, under home, and its
+	// accounts, but not what a tool's planting makes Schwab answer. The
+	// core's planting sets it, and puts its options for the world's own
+	// home in opts.
+	base func(t *testing.T, home string) []envOption
 	// planted are the numbers planted beyond the fixtures'.
 	planted []string
 	// masked are texts that the answers must hold, so that a test that
@@ -141,7 +149,38 @@ type leakWorld struct {
 	// checks run once the calls are done, for what a tool's own leak test
 	// must look at in the env, such as the digests of its cursors.
 	checks []func(t *testing.T, e *env)
+	// sides are worlds beside this one, made from it, whose calls answer
+	// the error codes that its own cannot.
+	sides []leakSide
 }
+
+// A leakSide is a world beside TestNoAccountNumberLeaks' own, made from its
+// base, under a home folder of its own, with opts after it, for error codes
+// that its own world cannot give: a server without its app key or a login,
+// a config with problems, a store that cannot be read, Schwab refusing in
+// each of its ways. Its calls are made in turn, or run makes them, for
+// what calls in turn cannot do, and returns their results.
+type leakSide struct {
+	name string
+	// opts, when not nil, returns the side's options; home is its home
+	// folder, which holds a planted number.
+	opts  func(home string) []envOption
+	calls []leakCall
+	run   func(t *testing.T, e *env) []result
+}
+
+// leakCodes are the error codes that TestNoAccountNumberLeaks' calls must
+// answer, or quote in a warning, in its worlds: every code but internal,
+// which only a bug of the server's gives, and token_refused, which
+// schwab.Client.Get never returns, since it answers a token that Schwab
+// refuses as soon as it was issued with Schwab's own 401, a schwab_refused.
+var leakCodes = slices.DeleteFunc(slices.Clone(errorCodes), func(c errorCode) bool {
+	return c == codeInternal || c == codeTokenRefused
+})
+
+// codeMention is an error code in a result's text: the error's own, or one
+// that a warning quotes.
+var codeMention = regexp.MustCompile(`\[([a-z_]+)\] `)
 
 // plant adds numbers to those that must never appear.
 func (w *leakWorld) plant(numbers ...string) { w.planted = append(w.planted, numbers...) }
@@ -173,7 +212,12 @@ func addLeaks(plantings []func(t *testing.T, w *leakWorld), calls ...leakCall) b
 // secret, or a text a planting forbids; the masked forms are there; each
 // planting's own checks hold; and the fake granted no authorization code
 // while the server ran. With the backstop off, the same holds: each layer
-// above holds on its own.
+// above holds on its own. And with it off, the worlds beside it (leakSide)
+// are held to the same, each at once, and the calls of all of them answer,
+// or quote in a warning, every code of leakCodes. They run once, with the
+// backstop off, where each layer above must hold on its own: on, the hook
+// would fail on a value the backstop found, and the scan finds the rest,
+// so a second run would find nothing more.
 func TestNoAccountNumberLeaks(t *testing.T) {
 	t.Parallel()
 	for _, off := range []bool{false, true} {
@@ -197,8 +241,16 @@ func TestNoAccountNumberLeaks(t *testing.T) {
 			e := newEnv(t, opts...)
 			e.plant(w.planted...)
 			grants, _ := e.fake.Grants()
+			codes := map[string]bool{}
+			note := func(rs ...result) {
+				for _, r := range rs {
+					for _, m := range codeMention.FindAllStringSubmatch(r.text, -1) {
+						codes[m[1]] = true
+					}
+				}
+			}
 			for _, c := range leakCalls {
-				e.call(c.tool, c.args)
+				note(e.call(c.tool, c.args))
 			}
 			e.assertClean()
 			sent := strings.Join(e.sent(), "\n")
@@ -220,6 +272,46 @@ func TestNoAccountNumberLeaks(t *testing.T) {
 			}
 			if strings.Contains(sent, schwabtest.AppSecret) {
 				t.Error("the app secret was sent")
+			}
+			if !off {
+				return
+			}
+			var mu sync.Mutex
+			t.Run("sides", func(t *testing.T) {
+				for _, side := range w.sides {
+					t.Run(side.name, func(t *testing.T) {
+						t.Parallel()
+						home := filepath.Join(t.TempDir(), "home-"+empty)
+						opts := append([]envOption{withHome(home), withOptions(func(o *Options) { o.backstopOff = true })}, w.base(t, home)...)
+						if side.opts != nil {
+							opts = append(opts, side.opts(home)...)
+						}
+						e := newEnv(t, opts...)
+						e.plant(w.planted...)
+						var rs []result
+						if side.run != nil {
+							rs = side.run(t, e)
+						}
+						for _, c := range side.calls {
+							rs = append(rs, e.call(c.tool, c.args))
+						}
+						e.assertClean()
+						sent := strings.Join(e.sent(), "\n")
+						for _, f := range w.forbidden {
+							if strings.Contains(sent, f) {
+								t.Errorf("an answer or a log line holds %q", f)
+							}
+						}
+						mu.Lock()
+						note(rs...)
+						mu.Unlock()
+					})
+				}
+			})
+			for _, code := range leakCodes {
+				if !codes[string(code)] {
+					t.Errorf("no call of the leak worlds answered %s or quoted it in a warning", code)
+				}
 			}
 		})
 	}
