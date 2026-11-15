@@ -1617,21 +1617,28 @@ then started over.
   sets the portfolio's dividend yield to 0. The export does not invent
   opening rows, whose day and cost the store does not hold. It checks
   instead each account's shares of each security that its written, given
-  and combined rows leave, up to its latest snapshot on or before `-to`,
-  against that snapshot's position, and lists each difference under
-  `holdings`, with the accounts that have no snapshot to check, counted on
-  stderr. A security is the tool's: one that the tool holds as one under
-  two of the store's keys (PP finds it by its ticker, WKN or name, and
-  Ghostfolio by its symbol) is checked once, under the least of its keys,
-  with every one of them in `security_keys`. Splits and corporate actions
-  left out, and trades left out, show there too. For PP, whose deposit
-  account holds the sum of its records, it checks each account's cash as
-  well: what the records leave of the rows posted before its latest
-  snapshot taken on or before `-to` was taken, against that snapshot's
-  cash, listed under `holdings.cash` and counted on stderr. A difference is
-  cash held before the store's first row of the account, or moved by a row
-  left out; Ghostfolio's cash is the snapshots' balances, with nothing to
-  check. The walk-through's store shows 11 holdings, and 2 accounts' cash,
+  and combined rows leave against its latest snapshot taken by the end of
+  `-to` in New York, of the rows that the snapshot holds: an API row by
+  its time, at or before the snapshot was taken, so that an extended-hours
+  fill after an evening snapshot is not; a row without one, as a History
+  file's, by its posted date, on or before the session that the snapshot
+  stands for, its market date (an evening snapshot follows the day's
+  postings, one taken after midnight stands for the session before). A
+  snapshot of `-to`'s session taken the next morning is passed over: it may
+  hold rows dated after `-to`, which the export does not read. It lists
+  each difference under `holdings`, with the accounts that have no
+  snapshot to check, counted on stderr. A security is the tool's: one that
+  the tool holds as one under two of the store's keys (PP finds it by its
+  ticker, WKN or name, and Ghostfolio by its symbol) is checked once, under
+  the least of its keys, with every one of them in `security_keys`. Splits
+  and corporate actions left out, and trades left out, show there too. For
+  PP, whose deposit account holds the sum of its records, it checks each
+  account's cash as well, against the same snapshot, the latest of those
+  that hold the account's cash: what the records leave of the rows that it
+  holds, against its cash, listed under `holdings.cash` and counted on
+  stderr. A difference is cash held before the store's first row of the
+  account, or moved by a row left out or one that the store lacks;
+  Ghostfolio's cash is the snapshots' balances, with nothing to check. The walk-through's store shows 11 holdings, and 2 accounts' cash,
   since its made-up snapshots and rows were not made to agree.
 
 ### The manifest

@@ -2112,13 +2112,13 @@ func TestToolMapping(t *testing.T) {
 		// snapshot is the latest taken by the end of -to that holds its
 		// cash, not one without, nor one of -to's session taken the next
 		// morning, which may hold rows dated after -to; and its rows are
-		// those posted before that snapshot was taken: an API row up to
-		// that instant, not after; a file row posted before its day, and so
-		// not one of that day. A transfer's other side, which PP makes from
-		// the paying side although its own row is dated after -to, is not
-		// the snapshot's yet. An account whose snapshot matches, and one
-		// without, say nothing; neither does Ghostfolio, whose cash is the
-		// balances'.
+		// those that the snapshot holds: an API row up to the instant that
+		// it was taken, not after; a file row posted on or before its
+		// market date, the evening's snapshot following the day's postings.
+		// A transfer's other side, which PP makes from the paying side
+		// although its own row is dated after -to, is not the snapshot's
+		// yet. An account whose snapshot matches, and one without, say
+		// nothing; neither does Ghostfolio, whose cash is the balances'.
 		opening := tcInput(toolInput{
 			to: "2026-06-30",
 			rows: []toolRow{
@@ -2151,7 +2151,7 @@ func TestToolMapping(t *testing.T) {
 				}
 				continue
 			}
-			want := []toolCash{{account: in.accountOf(1), snapshot: "2026-06-29", snapshotCash: 700_000, writtenCash: -300_000 + 1_000 + 4_000 - 50_000}}
+			want := []toolCash{{account: in.accountOf(1), snapshot: "2026-06-29", snapshotCash: 700_000, writtenCash: -300_000 + 1_000 + 3_000 + 4_000 - 50_000}}
 			if got := cashCheck(in, events); !reflect.DeepEqual(got, want) {
 				t.Errorf("the opening cash: differences %+v, want %+v", got, want)
 			}
@@ -2165,6 +2165,106 @@ func TestToolMapping(t *testing.T) {
 			events, _ = toolEvents(&only)
 			if got := cashCheck(&only, events); !reflect.DeepEqual(got, want) {
 				t.Errorf("the opening cash of A1 alone: differences %+v, want %+v", got, want)
+			}
+		}
+	})
+
+	t.Run("in the snapshot", func(t *testing.T) {
+		t.Parallel()
+		// What the holdings and the cash checks take a snapshot to hold: the
+		// rows of History files posted on or before its market date, as an
+		// evening snapshot holds the day's postings, which have no time; an
+		// API row filled after it was taken, in the evening of its market
+		// date, not; and of a snapshot taken after midnight, which stands for
+		// the session before, not the new day's postings. A snapshot of
+		// -to's session taken the morning after -to is not the one checked:
+		// it may hold rows dated after -to, as an overnight fill.
+		file := func(ref, posted, action, category, key, symbol string, quantity sql.NullInt64, price float64, amount int64) toolRow {
+			return rcFile(ref, 3, nytime.Date(posted), action, category, key, symbol, quantity, price, amount)
+		}
+		snapshot := func(account int64, day, clock string, cash int64) toolSnapshot {
+			return toolSnapshot{account: account, marketDate: nytime.Date(day), fetchedAt: tcNY(clock), cash: centsOf(cash)}
+		}
+		position := func(account int64, day, clock, key string, long int64, value float64) toolPosition {
+			p := rcPosition(day, key, long, value)
+			p.account, p.fetchedAt = account, tcNY(clock)
+			return p
+		}
+		for _, c := range []struct {
+			name     string
+			in       toolInput
+			holdings []string
+			cash     []string
+		}{
+			{"a file's buy posted on the evening snapshot's day", toolInput{
+				to: "2026-03-02",
+				rows: []toolRow{
+					file("C7c5a0001.1", "2026-03-01", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 100_000),
+					file("C7c5a0001.2", "2026-03-02", "Buy", "buy", keyXYZ, "XYZ", centsOf(10_000_000), 50, -50_000),
+				},
+				snapshots: []toolSnapshot{snapshot(3, "2026-03-02", "2026-03-02 18:05:00", 50_000)},
+				positions: []toolPosition{position(3, "2026-03-02", "2026-03-02 18:05:00", keyXYZ, 10_000_000, 505)},
+			}, nil, nil},
+			{"file rows posted on the days of the evening's snapshots", toolInput{
+				to: "2026-03-03",
+				rows: []toolRow{
+					file("C7c5a0002.1", "2026-03-02", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 100_000),
+					file("C7c5a0002.2", "2026-03-03", "Qualified Dividend", "dividend", keyXYZ, "XYZ", sql.NullInt64{}, 0, 1_234),
+				},
+				snapshots: []toolSnapshot{snapshot(3, "2026-03-02", "2026-03-02 18:05:00", 100_000), snapshot(3, "2026-03-03", "2026-03-03 18:05:00", 101_234)},
+			}, nil, nil},
+			{"a file row of the new day, after a snapshot taken after midnight", toolInput{
+				to: "2026-03-03",
+				rows: []toolRow{
+					file("C7c5a0003.1", "2026-03-02", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 100_000),
+					file("C7c5a0003.2", "2026-03-03", "Buy", "buy", keyXYZ, "XYZ", centsOf(10_000_000), 50, -50_000),
+				},
+				snapshots: []toolSnapshot{snapshot(3, "2026-03-02", "2026-03-03 00:05:00", 100_000)},
+			}, nil, nil},
+			{"a sale filled after the evening snapshot of its day", toolInput{
+				to: "2026-03-02",
+				rows: []toolRow{
+					rcCash("T7c500300", 1, "2026-03-02 09:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 50_000),
+					rcTrade("T7c500301", 1, "2026-03-02 10:00:00", "buy", keyXYZ, "XYZ", 10_000_000, 50, -50_000, 0),
+					rcTrade("T7c500302", 1, "2026-03-02 18:30:00", "sell", keyXYZ, "XYZ", -10_000_000, 51, 51_000, 0),
+				},
+				snapshots: []toolSnapshot{snapshot(1, "2026-03-02", "2026-03-02 18:05:00", 0)},
+				positions: []toolPosition{position(1, "2026-03-02", "2026-03-02 18:05:00", keyXYZ, 10_000_000, 505)},
+			}, nil, nil},
+			{"a snapshot of -to's session taken the morning after, past an overnight sale", toolInput{
+				to: "2026-03-02",
+				rows: []toolRow{
+					rcCash("T7c500400", 1, "2026-03-02 09:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 50_000),
+					rcTrade("T7c500401", 1, "2026-03-02 10:00:00", "buy", keyXYZ, "XYZ", 10_000_000, 50, -50_000, 0),
+				},
+				snapshots: []toolSnapshot{snapshot(1, "2026-03-02", "2026-03-02 18:05:00", 0), snapshot(1, "2026-03-02", "2026-03-03 00:05:00", 51_000)},
+				positions: []toolPosition{position(1, "2026-03-02", "2026-03-02 18:05:00", keyXYZ, 10_000_000, 505)},
+			}, nil, nil},
+			// The checks still see what the rows leave out: here an evening
+			// snapshot of a day before the buy's.
+			{"a file's buy posted the day after the snapshot", toolInput{
+				to: "2026-03-03",
+				rows: []toolRow{
+					file("C7c5a0005.1", "2026-03-01", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 100_000),
+					file("C7c5a0005.2", "2026-03-03", "Buy", "buy", keyXYZ, "XYZ", centsOf(10_000_000), 50, -50_000),
+				},
+				snapshots: []toolSnapshot{snapshot(3, "2026-03-02", "2026-03-02 18:05:00", 50_000)},
+				positions: []toolPosition{position(3, "2026-03-02", "2026-03-02 18:05:00", keyXYZ, 10_000_000, 505)},
+			}, []string{"A3 ...783 XYZ 10 0"}, []string{"A3 ...783 500.00 1000.00"}},
+		} {
+			for _, tool := range []string{toolPP, toolGF} {
+				in, events, _ := mapCase(toolCase{name: c.name, in: tcInput(c.in)}, tool)
+				diffs, _ := holdingsCheck(in, events)
+				var holdings, cash []string
+				for _, d := range diffs {
+					holdings = append(holdings, fmt.Sprintf("%s %s %s %s", d.account.label(), d.symbol, formatMicros(d.snapshotShares), formatMicros(d.writtenShares)))
+				}
+				for _, d := range cashCheck(in, events) {
+					cash = append(cash, fmt.Sprintf("%s %s %s", d.account.label(), formatCents(d.snapshotCash), formatCents(d.writtenCash)))
+				}
+				if !slices.Equal(holdings, c.holdings) || tool == toolPP && !slices.Equal(cash, c.cash) {
+					t.Errorf("%s %s: holdings %q, cash %q", c.name, tool, holdings, cash)
+				}
 			}
 		}
 	})

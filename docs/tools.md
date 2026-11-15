@@ -153,7 +153,9 @@ and the types' names, whatever PP's language and locale.
    account held before, and what a row left out moved: stderr says that an
    account's cash differs from its latest snapshot's, and the manifest's
    `holdings.cash` lists each, with the snapshot's cash and what the records
-   leave of the rows posted before it was taken. Import the History files
+   leave of the rows that it holds: the API's rows by their time, a History
+   file's by their posted date, which an evening snapshot of that day holds.
+   Import the History files
    that go back to the account's first deposit, and the next export writes
    the rows they add; or book the difference in PP as a Deposit, or a
    Withdrawal when the records leave more, dated before the account's first

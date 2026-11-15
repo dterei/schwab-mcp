@@ -2980,6 +2980,63 @@ func postedBefore(r *toolRow, taken time.Time) bool {
 	return day != "" && day < on
 }
 
+// inSnapshot reports whether snapshot s holds what row r did, as the
+// holdings and the cash checks count it (4.15 of the design): an API row by
+// its time, at or before s was taken; a row without one, a History file's
+// or an API row's of no time, by its posted date, else its day, on or before
+// the session that s stands for, its market date. A closed-phase snapshot
+// taken in the evening follows the day's postings, which have no time to
+// place them by, and one taken after midnight stands for the session before,
+// so the new day's rows stay out of it. (Ghostfolio's balances take such a
+// row only from the day after, postedBefore: a later balance carries it.)
+func inSnapshot(r *toolRow, s toolSnapshot) bool {
+	if !r.time.IsZero() {
+		return !r.time.After(s.fetchedAt)
+	}
+	day := r.day
+	if r.source == "file" && r.posted != "" {
+		day = r.posted
+	}
+	return day != "" && day <= s.marketDate
+}
+
+// checkedSnapshot returns the account's snapshot that the holdings and the
+// cash checks compare with, of in.snapshots (Q7) as with is true of them: its
+// latest closed-phase snapshot taken by the end of the export's last day, in
+// New York, whatever session it stands for. A snapshot of that day's session
+// taken the next morning, as a scheduler's run after midnight takes one, may
+// hold what rows dated after that day did (a fill of the overnight session,
+// a dividend posted overnight), which the export does not read; the one
+// before stands for the rows that it reads.
+func checkedSnapshot(in *toolInput, account int64, with func(toolSnapshot) bool) (toolSnapshot, bool) {
+	var latest toolSnapshot
+	found := false
+	for _, s := range in.snapshots {
+		if s.account != account || s.marketDate == "" || !with(s) {
+			continue
+		}
+		if taken, _ := nyClock(s.fetchedAt); in.to != "" && taken > in.to {
+			continue
+		}
+		if !found || s.fetchedAt.After(latest.fetchedAt) {
+			latest, found = s, true
+		}
+	}
+	return latest, found
+}
+
+// snapshotAccounts returns the ids of the selected accounts that in's
+// snapshots are of (Q7), in their order.
+func snapshotAccounts(in *toolInput) []int64 {
+	ids := map[int64]bool{}
+	for _, s := range in.snapshots {
+		if in.selected(s.account) {
+			ids[s.account] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(ids))
+}
+
 // lastBalance returns the account's last balance in Ghostfolio
 // (toolBalances), and false when it has none.
 func (m *toolMapper) lastBalance(account int64) (toolBalance, bool) {
@@ -3090,14 +3147,16 @@ type toolHolding struct {
 }
 
 // holdingsCheck compares, for each selected account with a row or a
-// snapshot, the shares that the records events leave of each security up
-// to the day of its latest closed-phase snapshot on or before the export's
-// last day with that snapshot's positions (4.15 of the design): a sale of a
-// position opened before the store's rows, a split left out or a trade left
-// out shows as a difference. A security is the tool's (sameSecurity): the
-// store's securities that it holds as one, under two keys, are one. It
-// returns the differences, by account and then security, and the accounts
-// with rows that have no snapshot to check against.
+// snapshot, the shares that the records events leave of each security, of
+// the rows that its latest closed-phase snapshot taken by the end of the
+// export's last day holds (checkedSnapshot, inSnapshot), with that
+// snapshot's positions (4.15 of the design): a sale of a position opened
+// before the store's rows, a split left out or a trade left out shows as a
+// difference, and a fill after the snapshot was taken, of its market date,
+// does not. A security is the tool's (sameSecurity): the store's securities
+// that it holds as one, under two keys, are one. It returns the differences,
+// by account and then security, and the accounts with rows that have no
+// snapshot to check against.
 func holdingsCheck(in *toolInput, events []toolEvent) ([]toolHolding, []toolAccount) {
 	ix := newToolIndex(in)
 	accounts := map[int64]bool{}
@@ -3107,13 +3166,10 @@ func holdingsCheck(in *toolInput, events []toolEvent) ([]toolHolding, []toolAcco
 		}
 	}
 	latest := map[int64]toolSnapshot{}
-	for _, s := range in.snapshots {
-		if !in.selected(s.account) || s.marketDate == "" || in.to != "" && s.marketDate > in.to {
-			continue
-		}
-		accounts[s.account] = true
-		if l, ok := latest[s.account]; !ok || s.marketDate > l.marketDate || s.marketDate == l.marketDate && s.fetchedAt.After(l.fetchedAt) {
-			latest[s.account] = s
+	for _, id := range snapshotAccounts(in) {
+		if snap, ok := checkedSnapshot(in, id, func(toolSnapshot) bool { return true }); ok {
+			accounts[id] = true
+			latest[id] = snap
 		}
 	}
 	var diffs []toolHolding
@@ -3141,7 +3197,7 @@ func holdingsCheck(in *toolInput, events []toolEvent) ([]toolHolding, []toolAcco
 			secs[s.ref()] = s
 		}
 		for _, e := range events {
-			if e.account.id != id || e.security == nil || e.kind.shareSign() == 0 || e.day > snap.marketDate {
+			if e.account.id != id || e.security == nil || e.kind.shareSign() == 0 || !e.inSnapshot(in, snap) {
 				continue
 			}
 			wrote[e.security.ref()] += e.kind.shareSign() * e.shares
@@ -3181,6 +3237,16 @@ func holdingsCheck(in *toolInput, events []toolEvent) ([]toolHolding, []toolAcco
 	return diffs, unchecked
 }
 
+// inSnapshot reports whether snapshot s holds what the row of record e did
+// (inSnapshot); a record of no row of in, by its day, on or before s's
+// market date.
+func (e *toolEvent) inSnapshot(in *toolInput, s toolSnapshot) bool {
+	if e.row < 0 || e.row >= len(in.rows) {
+		return e.day != "" && e.day <= s.marketDate
+	}
+	return inSnapshot(&in.rows[e.row], s)
+}
+
 // A toolCash is a difference of the cash check, PP's beside the holdings
 // check (4.15 of the design): what an account's latest snapshot taken on or
 // before the export's last day holds of cash, against what PP holds of it
@@ -3211,34 +3277,27 @@ func ppCash(e toolEvent) int64 {
 }
 
 // cashCheck compares, for PP, the cash of each selected account's latest
-// closed-phase snapshot taken on or before the export's last day with the
-// cash that the records events leave in PP's deposit account, of the rows
-// posted before that snapshot was taken (postedBefore): PP's cash is the
-// sum of the records, from the account's first row in the store, so cash
-// that the account held before its rows begin, or that a row left out
-// moved, shows as a difference. A snapshot taken later may hold rows dated
-// after that day, which the export does not read; and a transfer's other
-// side that the export makes from this one, its own row dated after that
-// day, is in a later snapshot, so an account's own rows alone count. It
-// returns the differences, by account; an account without such a snapshot
-// of its cash has none. Ghostfolio's cash is the balances', so it has
-// nothing to check.
+// closed-phase snapshot taken by the end of the export's last day that holds
+// its cash (checkedSnapshot) with the cash that the records events leave in
+// PP's deposit account, of the rows that the snapshot holds (inSnapshot):
+// PP's cash is the sum of the records, from the account's first row in the
+// store, so cash that the account held before its rows begin, or that a row
+// left out moved, shows as a difference. A transfer's other side that the
+// export makes from this one, its own row dated after the export's last day,
+// is in a later snapshot, so an account's own rows alone count. It returns
+// the differences, by account; an account without such a snapshot of its
+// cash has none. Ghostfolio's cash is the balances', so it has nothing to
+// check.
 func cashCheck(in *toolInput, events []toolEvent) []toolCash {
 	latest := map[int64]toolSnapshot{}
-	for _, s := range in.snapshots {
-		if !in.selected(s.account) || s.marketDate == "" || !s.cash.Valid {
-			continue
-		}
-		if taken, _ := nyClock(s.fetchedAt); in.to != "" && taken > in.to {
-			continue
-		}
-		if l, ok := latest[s.account]; !ok || s.fetchedAt.After(l.fetchedAt) {
-			latest[s.account] = s
+	for _, id := range snapshotAccounts(in) {
+		if snap, ok := checkedSnapshot(in, id, func(s toolSnapshot) bool { return s.cash.Valid }); ok {
+			latest[id] = snap
 		}
 	}
 	written := map[int64]int64{}
 	for _, e := range events {
-		if s, ok := latest[e.account.id]; ok && e.row >= 0 && e.row < len(in.rows) && postedBefore(&in.rows[e.row], s.fetchedAt) {
+		if s, ok := latest[e.account.id]; ok && e.inSnapshot(in, s) {
 			written[e.account.id] += ppCash(e)
 		}
 	}
