@@ -2904,76 +2904,21 @@ func TestToolReimport(t *testing.T) {
 		}
 	})
 
-	t.Run("5g a cash difference carried while a margin account's cash reads 0", func(t *testing.T) {
+	t.Run("5g a cash difference carried while an account's cash is not checked", func(t *testing.T) {
 		t.Parallel()
 		// A2's opening cash, 1000.00, shows in the first export. In the
 		// second, a buy leaves the margin account with a debit, which its
-		// snapshot reads as cash of 0 beside a margin balance: its cash is
-		// not checked, and the difference listed is carried on. A deposit
-		// then repays the debit: the third export checks the account again,
-		// against the difference carried, alike, so it counts nothing new;
-		// a fourth, of another snapshot cash, lists the change from it.
-		rows := []toolRow{
-			rcCash("T7c700001", 2, "2026-01-02 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 100_000),
-			rcTrade("T7c700002", 2, "2026-01-05 10:00:00", "buy", keyEFGH, "EFGH", 10_000_000, 30, -30_000, 0),
-		}
-		snapshot := func(day string, cash int64, debit float64) toolSnapshot {
-			s := rcSnapshot(2, day, cash)
-			s.accountType = "MARGIN"
-			s.margin, s.short = sql.NullFloat64{Float64: debit, Valid: true}, sql.NullFloat64{Valid: true}
-			return s
-		}
-		// The snapshots hold the shares that the rows leave.
-		position := func(day string, long int64) toolPosition {
-			p := rcPosition(day, keyEFGH, long, float64(long)/1e6*30)
-			p.account = 2
-			return p
-		}
-		snapshots := []toolSnapshot{snapshot("2026-01-30", 170_000, 0)}
-		positions := []toolPosition{position("2026-01-30", 10_000_000)}
-		s1 := tcInput(toolInput{to: "2026-01-30", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots), positions: slices.Clone(positions)})
-		rows = append(rows, rcTrade("T7c700003", 2, "2026-02-02 10:00:00", "buy", keyEFGH, "EFGH", 90_000_000, 30, -270_000, 0))
-		snapshots = append(snapshots, snapshot("2026-02-27", 0, -1000))
-		positions = append(positions, position("2026-02-27", 100_000_000))
-		s2 := tcInput(toolInput{to: "2026-02-27", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots), positions: slices.Clone(positions)})
-		rows = append(rows, rcCash("T7c700004", 2, "2026-03-02 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 150_000))
-		snapshots = append(snapshots, snapshot("2026-03-30", 50_000, 0))
-		positions = append(positions, position("2026-03-30", 100_000_000))
-		s3 := tcInput(toolInput{to: "2026-03-31", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots), positions: slices.Clone(positions)})
-		snapshots = append(snapshots, snapshot("2026-04-29", 52_500, 0))
-		positions = append(positions, position("2026-04-29", 100_000_000))
-		s4 := tcInput(toolInput{to: "2026-04-30", rows: rows, snapshots: snapshots, positions: positions})
-		e1 := chainStepOf(t, s1, toolPP, nil, rcAt1)
-		e2 := chainStepOf(t, s2, toolPP, e1, rcAt2)
-		e3 := chainStepOf(t, s3, toolPP, e2, rcAt3)
-		e4 := chainStepOf(t, s4, toolPP, e3, rcAt4)
-		describe := func(s *chainStep) []string {
-			var out []string
-			for _, c := range s.res.cash {
-				out = append(out, fmt.Sprintf("%s %s %s before=%v was=%s", c.Account, c.SnapshotCash, c.WrittenCash, c.Before, c.Was))
-			}
-			for _, u := range s.res.cashUnchecked {
-				out = append(out, fmt.Sprintf("%s not checked %s was=%s", u.Account, u.Snapshot, u.Was))
-			}
-			for _, g := range s.res.cashGone {
-				out = append(out, fmt.Sprintf("%s gone was=%s", g.Account, g.Was))
-			}
-			return out
-		}
-		for i, c := range []struct {
-			s           *chainStep
-			want        []string
-			counted     int
-			differences []ToolDifference
-		}{
-			{e1, []string{"A2 ...398 1700.00 700.00 before=false was="}, 1, nil},
-			{e2, []string{"A2 ...398 not checked 2026-02-27 was=1000.00"}, 0, nil},
-			{e3, []string{"A2 ...398 500.00 -500.00 before=true was="}, 0, nil},
-			{e4, []string{"A2 ...398 525.00 -500.00 before=false was=1000.00"}, 0, []ToolDifference{{Account: "A2 ...398", Cash: true, Was: "1000.00", Now: "1025.00", Change: "25.00"}}},
-		} {
-			if got := describe(c.s); !slices.Equal(got, c.want) || c.s.e.Cash != c.counted || !reflect.DeepEqual(c.s.e.DifferencesChanged, c.differences) {
-				t.Errorf("export %d: %q, %d new, changed %+v", i+1, got, c.s.e.Cash, c.s.e.DifferencesChanged)
-			}
+		// snapshot reads as cash of 0 beside a margin balance, or the
+		// snapshot holds no cash figure: its cash is not checked, and the
+		// difference listed is carried on. A deposit then repays the debit:
+		// the third export checks the account again, against the difference
+		// carried, alike, so it counts nothing new; a fourth, of another
+		// snapshot cash, lists the change from it.
+		for _, why := range []string{"margin", "no_cash"} {
+			t.Run(why, func(t *testing.T) {
+				t.Parallel()
+				fiveG(t, why)
+			})
 		}
 	})
 
@@ -3773,4 +3718,80 @@ func TestToolReimport(t *testing.T) {
 			}
 		}
 	})
+}
+
+// fiveG runs TestToolReimport's 5g with A2's cash not checked in the second
+// export for why: "margin", its snapshot of a margin account reads cash of
+// 0 beside a debit; "no_cash", its snapshot holds no cash figure.
+func fiveG(t *testing.T, why string) {
+	rows := []toolRow{
+		rcCash("T7c700001", 2, "2026-01-02 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 100_000),
+		rcTrade("T7c700002", 2, "2026-01-05 10:00:00", "buy", keyEFGH, "EFGH", 10_000_000, 30, -30_000, 0),
+	}
+	snapshot := func(day string, cash int64, debit float64) toolSnapshot {
+		s := rcSnapshot(2, day, cash)
+		s.accountType = "MARGIN"
+		s.margin, s.short = sql.NullFloat64{Float64: debit, Valid: true}, sql.NullFloat64{Valid: true}
+		return s
+	}
+	// The snapshots hold the shares that the rows leave.
+	position := func(day string, long int64) toolPosition {
+		p := rcPosition(day, keyEFGH, long, float64(long)/1e6*30)
+		p.account = 2
+		return p
+	}
+	snapshots := []toolSnapshot{snapshot("2026-01-30", 170_000, 0)}
+	positions := []toolPosition{position("2026-01-30", 10_000_000)}
+	s1 := tcInput(toolInput{to: "2026-01-30", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots), positions: slices.Clone(positions)})
+	rows = append(rows, rcTrade("T7c700003", 2, "2026-02-02 10:00:00", "buy", keyEFGH, "EFGH", 90_000_000, 30, -270_000, 0))
+	unchecked := snapshot("2026-02-27", 0, -1000)
+	if why == "no_cash" {
+		unchecked = snapshot("2026-02-27", 0, 0)
+		unchecked.cash = sql.NullInt64{}
+	}
+	snapshots = append(snapshots, unchecked)
+	positions = append(positions, position("2026-02-27", 100_000_000))
+	s2 := tcInput(toolInput{to: "2026-02-27", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots), positions: slices.Clone(positions)})
+	rows = append(rows, rcCash("T7c700004", 2, "2026-03-02 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 150_000))
+	snapshots = append(snapshots, snapshot("2026-03-30", 50_000, 0))
+	positions = append(positions, position("2026-03-30", 100_000_000))
+	s3 := tcInput(toolInput{to: "2026-03-31", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots), positions: slices.Clone(positions)})
+	snapshots = append(snapshots, snapshot("2026-04-29", 52_500, 0))
+	positions = append(positions, position("2026-04-29", 100_000_000))
+	s4 := tcInput(toolInput{to: "2026-04-30", rows: rows, snapshots: snapshots, positions: positions})
+	e1 := chainStepOf(t, s1, toolPP, nil, rcAt1)
+	e2 := chainStepOf(t, s2, toolPP, e1, rcAt2)
+	e3 := chainStepOf(t, s3, toolPP, e2, rcAt3)
+	e4 := chainStepOf(t, s4, toolPP, e3, rcAt4)
+	describe := func(s *chainStep) []string {
+		var out []string
+		for _, c := range s.res.cash {
+			out = append(out, fmt.Sprintf("%s %s %s before=%v was=%s", c.Account, c.SnapshotCash, c.WrittenCash, c.Before, c.Was))
+		}
+		for _, u := range s.res.cashUnchecked {
+			out = append(out, fmt.Sprintf("%s not checked %s why=%s was=%s", u.Account, u.Snapshot, u.Why, u.Was))
+		}
+		for _, g := range s.res.cashGone {
+			out = append(out, fmt.Sprintf("%s gone was=%s", g.Account, g.Was))
+		}
+		return out
+	}
+	for i, c := range []struct {
+		s           *chainStep
+		want        []string
+		counted     int
+		differences []ToolDifference
+	}{
+		{e1, []string{"A2 ...398 1700.00 700.00 before=false was="}, 1, nil},
+		{e2, []string{"A2 ...398 not checked 2026-02-27 why=" + why + " was=1000.00"}, 0, nil},
+		{e3, []string{"A2 ...398 500.00 -500.00 before=true was="}, 0, nil},
+		{e4, []string{"A2 ...398 525.00 -500.00 before=false was=1000.00"}, 0, []ToolDifference{{Account: "A2 ...398", Cash: true, Was: "1000.00", Now: "1025.00", Change: "25.00"}}},
+	} {
+		if got := describe(c.s); !slices.Equal(got, c.want) || c.s.e.Cash != c.counted || !reflect.DeepEqual(c.s.e.DifferencesChanged, c.differences) {
+			t.Errorf("export %d: %q, %d new, changed %+v", i+1, got, c.s.e.Cash, c.s.e.DifferencesChanged)
+		}
+	}
+	if want := []ToolCashUnchecked{{Account: "A2 ...398", Why: why}}; !slices.Equal(e2.e.CashNotChecked, want) {
+		t.Errorf("export 2 names %q as not checked, want %q", e2.e.CashNotChecked, want)
+	}
 }

@@ -871,6 +871,10 @@ func TestToolMapping(t *testing.T) {
 			if len(unchecked) != 1 || unchecked[0].label() != "A3 ...783" {
 				t.Errorf("%s: unchecked %v", tool, unchecked)
 			}
+			// stderr names A3 as an account with rows and no snapshot.
+			if e := caseExport(t, toolCaseNamed("holdings"), tool); !slices.Equal(e.NoSnapshot, []string{"A3 ...783"}) || len(e.NotInTool) != 0 {
+				t.Errorf("%s: no snapshot %q, nothing in the tool %q", tool, e.NoSnapshot, e.NotInTool)
+			}
 		}
 		// A security that the snapshot does not hold, that the rows do,
 		// is a difference too; an export of one account checks it alone.
@@ -927,6 +931,12 @@ func TestToolMapping(t *testing.T) {
 			for _, a := range s.res.unchecked {
 				out = append(out, a.label()+" not checked")
 			}
+			for _, a := range s.e.NoSnapshot {
+				out = append(out, a+" no snapshot")
+			}
+			for _, a := range s.e.NotInTool {
+				out = append(out, a+" nothing in the tool")
+			}
 			for _, a := range s.e.Accounts {
 				out = append(out, fmt.Sprintf("%s exported %v new %v", a.Label, a.Exported, a.New))
 			}
@@ -941,7 +951,7 @@ func TestToolMapping(t *testing.T) {
 			s    *chainStep
 			want []string
 		}{
-			{"PP, A3 with snapshots alone", e1, []string{"A3 ...783 not checked", "A1 ...135 exported true new true", "counted 0 0"}},
+			{"PP, A3 with snapshots alone", e1, []string{"A3 ...783 not checked", "A3 ...783 nothing in the tool", "A1 ...135 exported true new true", "counted 0 0"}},
 			{"PP, A3 with a row since", e2, []string{
 				"A3 ...783 EFGH 7 0", "A1 ...135 exported false new false", "A3 ...783 exported true new true", "counted 1 0",
 			}},
@@ -2240,16 +2250,17 @@ func TestToolMapping(t *testing.T) {
 		}
 
 		// An account that held cash before the store's first row. Its
-		// snapshot is the latest taken by the end of -to that holds its
-		// cash, not one without, nor one of -to's session taken the next
-		// morning, which may hold rows dated after -to; and its rows are
-		// those that the snapshot holds: an API row up to the instant that
-		// it was taken, not after; a file row posted on or before its
-		// market date, the evening's snapshot following the day's postings.
-		// A transfer's other side, which PP makes from the paying side
-		// although its own row is dated after -to, is not the snapshot's
-		// yet. An account whose snapshot matches, and one without, say
-		// nothing; neither does Ghostfolio, whose cash is the balances'.
+		// snapshot is the latest taken by the end of -to, the one that the
+		// holdings check compares with too, not one of -to's session taken
+		// the next morning, which may hold rows dated after -to; and its
+		// rows are those that the snapshot holds: an API row up to the
+		// instant that it was taken, not after; a file row posted on or
+		// before its market date, the evening's snapshot following the
+		// day's postings. A transfer's other side, which PP makes from the
+		// paying side although its own row is dated after -to, is not the
+		// snapshot's yet. An account whose snapshot matches, and one
+		// without, say nothing; neither does Ghostfolio, whose cash is the
+		// balances'.
 		opening := tcInput(toolInput{
 			to: "2026-06-30",
 			rows: []toolRow{
@@ -2264,7 +2275,6 @@ func TestToolMapping(t *testing.T) {
 			},
 			snapshots: []toolSnapshot{
 				rcSnapshot(1, "2026-06-29", 700_000), rcSnapshot(1, "2026-07-01", 999_999),
-				{account: 1, marketDate: "2026-06-30", fetchedAt: tcNY("2026-06-30 18:05:00")},
 				{account: 1, marketDate: "2026-06-30", fetchedAt: tcNY("2026-07-01 07:00:00"), cash: centsOf(888_888)},
 				rcSnapshot(2, "2026-06-29", 10_000),
 			},
@@ -2318,16 +2328,32 @@ func TestToolMapping(t *testing.T) {
 			for _, a := range s.res.unchecked {
 				got = append(got, a.label()+" not checked")
 			}
-			if !slices.Equal(got, []string{"A1 ...135", "A3 ...783 not checked", "A4 not checked", "A5 not checked"}) || s.e.Cash != 1 || len(s.e.CashNotChecked) != 0 {
-				t.Errorf("snapshots alone of A4 and A5: %q, counted %d, cash not checked %q", got, s.e.Cash, s.e.CashNotChecked)
+			if !slices.Equal(got, []string{"A1 ...135", "A3 ...783 not checked", "A4 not checked", "A5 not checked"}) || s.e.Cash != 1 || len(s.e.CashNotChecked) != 0 ||
+				!slices.Equal(s.e.NoSnapshot, []string{"A3 ...783"}) || !slices.Equal(s.e.NotInTool, []string{"A4", "A5"}) {
+				t.Errorf("snapshots alone of A4 and A5: %q, counted %d, cash not checked %q, no snapshot %q, nothing in PP %q", got, s.e.Cash, s.e.CashNotChecked, s.e.NoSnapshot, s.e.NotInTool)
+			}
+			// A later snapshot of A1 by -to holds no cash figure: one
+			// snapshot serves both checks, so A1's cash is not checked,
+			// against no earlier snapshot, and is listed with why.
+			noCash := *in
+			noCash.snapshots = append(slices.Clone(in.snapshots), toolSnapshot{account: 1, marketDate: "2026-06-30", fetchedAt: tcNY("2026-06-30 18:05:00")})
+			events, _ = toolEvents(&noCash)
+			if diffs, unchecked := cashCheck(&noCash, events); len(diffs) != 0 ||
+				!reflect.DeepEqual(unchecked, []toolCashUnchecked{{account: in.accountOf(1), snapshot: "2026-06-30", why: "no_cash"}}) {
+				t.Errorf("a later snapshot without cash: differences %+v, unchecked %+v", diffs, unchecked)
+			}
+			s = chainStepFrom(t, caseExport(t, toolCase{name: "a later snapshot without cash", in: noCash}, toolPP), t.TempDir())
+			if s.e.Cash != 0 || !slices.Equal(s.e.CashNotChecked, []ToolCashUnchecked{{Account: "A1 ...135", Why: "no_cash"}}) {
+				t.Errorf("a later snapshot without cash: counted %d, cash not checked %q", s.e.Cash, s.e.CashNotChecked)
 			}
 		}
 
-		// A margin account whose cash balance reads 0 beside a margin
-		// balance, as Schwab can report a debit, or beside a short balance,
-		// of short proceeds, is not checked, and is listed apart; one whose
-		// debit reads as negative cash, one whose cash, margin and short
-		// balances all read 0, and a cash account are checked as any other.
+		// A margin account with a margin balance, as of a debit, or a short
+		// balance, of short proceeds, is not checked, whatever its cash
+		// balance reads, and is listed apart, why margin; so is an account
+		// whose snapshot holds no cash figure, why no_cash, but margin for
+		// a margin account in use. A margin account whose margin and short
+		// balances read 0, and a cash account, are checked as any other.
 		margin := func(cash int64, typ string, marginBalance, short float64) toolInput {
 			snap := rcSnapshot(2, "2026-01-30", cash)
 			snap.accountType = typ
@@ -2341,22 +2367,34 @@ func TestToolMapping(t *testing.T) {
 				snapshots: []toolSnapshot{snap},
 			})
 		}
+		noFigure := func(in toolInput) toolInput {
+			in.snapshots[0].cash = sql.NullInt64{}
+			return in
+		}
 		for _, c := range []struct {
-			name      string
-			in        toolInput
-			diffs     int
-			unchecked bool
+			name  string
+			in    toolInput
+			diffs int
+			// why is why the cash is not checked, "" when it is.
+			why string
 		}{
-			{"a debit read as 0", margin(0, "MARGIN", -2000, 0), 0, true},
-			{"short proceeds read as 0", margin(0, "MARGIN", 0, 5000), 0, true},
-			{"a debit read as negative cash", margin(-200_000, "MARGIN", -2000, 0), 0, false},
-			{"a margin account of no cash nor balances", margin(0, "MARGIN", 0, 0), 1, false},
-			{"a cash account", margin(0, "CASH", -2000, 0), 1, false},
+			{"a debit read as 0", margin(0, "MARGIN", -2000, 0), 0, "margin"},
+			{"short proceeds read as 0", margin(0, "MARGIN", 0, 5000), 0, "margin"},
+			{"a debit read as negative cash", margin(-200_000, "MARGIN", -2000, 0), 0, "margin"},
+			{"cash beside a short balance", margin(50_000, "MARGIN", 0, 5000), 0, "margin"},
+			{"a margin account of no cash nor balances", margin(0, "MARGIN", 0, 0), 1, ""},
+			{"a cash account", margin(0, "CASH", -2000, 0), 1, ""},
+			{"no cash figure", noFigure(margin(0, "CASH", 0, 0)), 0, "no_cash"},
+			{"no cash figure beside a debit", noFigure(margin(0, "MARGIN", -2000, 0)), 0, "margin"},
 		} {
 			mc := toolCase{name: c.name, in: c.in}
 			in, events, _ := mapCase(mc, toolPP)
 			diffs, unchecked := cashCheck(in, events)
-			if len(diffs) != c.diffs || (len(unchecked) == 1) != c.unchecked || len(unchecked) > 1 {
+			why := ""
+			if len(unchecked) == 1 {
+				why = unchecked[0].why
+			}
+			if len(diffs) != c.diffs || why != c.why || len(unchecked) > 1 {
 				t.Errorf("%s: differences %+v, unchecked %+v", c.name, diffs, unchecked)
 			}
 			// The manifest and stderr say so too (checkToolSummary).
@@ -2368,8 +2406,8 @@ func TestToolMapping(t *testing.T) {
 				t.Fatal(err)
 			}
 			var want []chainCashUnchecked
-			if c.unchecked {
-				want = []chainCashUnchecked{{Account: "A2 ...398", Snapshot: "2026-01-30", Why: "margin"}}
+			if c.why != "" {
+				want = []chainCashUnchecked{{Account: "A2 ...398", Snapshot: "2026-01-30", Why: c.why}}
 			}
 			if got := *m.Holdings.CashNotChecked; !slices.Equal(got, want) && len(got)+len(want) > 0 || e.Cash != c.diffs {
 				t.Errorf("%s: stderr counts %d, the manifest lists %+v as not checked", c.name, e.Cash, got)

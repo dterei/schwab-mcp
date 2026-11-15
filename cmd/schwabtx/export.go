@@ -685,10 +685,12 @@ func toolAccountName(e *history.ToolExport, label string) string {
 // for Ghostfolio, the cash rows that the balances carry or not yet; the
 // rows left out and those written with a caveat, by code; the securities
 // whose symbol changed; the holdings that differ from the latest snapshot;
-// the rows flagged; the file transactions that wait for you; and for
-// Ghostfolio, the -manual symbols that nothing uses, masked, and the
-// symbols that Yahoo may no longer know. Going on from another export, it
-// counts no row or holding that that one listed alike.
+// for PP, the accounts whose cash differs from it; the accounts that the
+// checks do not check (notCheckedLines); the rows flagged; the file
+// transactions that wait for you; and for Ghostfolio, the -manual symbols
+// that nothing uses, masked, and the symbols that Yahoo may no longer
+// know. Going on from another export, it counts no row or holding that
+// that one listed alike.
 func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest string) {
 	tool, gf := toolFormats[e.Tool].name, e.Tool == "ghostfolio"
 	if gf {
@@ -742,18 +744,7 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 	case n > 1:
 		fmt.Fprintf(w, "%d accounts' cash in %s differs from their latest snapshots' (%s): cash held before the store's first row of each, or rows left out; book each difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)\n", n, tool, manifest)
 	}
-	switch n := len(e.CashNotChecked); {
-	case n == 1:
-		fmt.Fprintf(w, "1 account's cash in %s is not checked (%s): the latest snapshot of %s, a margin account, reads its cash as 0 beside a margin or short balance, as Schwab can report a debit or short positions; compare its cash at Schwab with %s's by hand (docs/tools.md)\n",
-			tool, manifest, toolAccountName(e, e.CashNotChecked[0]), tool)
-	case n > 1:
-		var names []string
-		for _, a := range e.CashNotChecked {
-			names = append(names, toolAccountName(e, a))
-		}
-		fmt.Fprintf(w, "%d accounts' cash in %s is not checked (%s): the latest snapshots of %s, margin accounts, read their cash as 0 beside a margin or short balance, as Schwab can report a debit or short positions; compare each one's cash at Schwab with %s's by hand (docs/tools.md)\n",
-			n, tool, manifest, strings.Join(names, " and "), tool)
-	}
+	notCheckedLines(w, e, manifest)
 	// The rows flagged are written, given, combined or, for Ghostfolio, in
 	// the balances, which no export lists to delete: a balance is Schwab's.
 	if n := e.Flagged; n > 0 {
@@ -778,6 +769,44 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 	case n > 1:
 		fmt.Fprintf(w, "%d symbols for Yahoo have no row since %s and are not held (%s lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual\n",
 			n, e.IdleSince, manifest)
+	}
+}
+
+// notCheckedLines says on w, of the export e for a tool, whose manifest is
+// manifest, each kind of account that its checks of the snapshots do not
+// check, with the step that checks it or what to do instead: for PP, the
+// accounts whose cash is not checked, each with why; the accounts with rows
+// and no snapshot to check against; and, for PP, those with snapshots that
+// PP holds nothing of.
+func notCheckedLines(w io.Writer, e *history.ToolExport, manifest string) {
+	tool := toolFormats[e.Tool].name
+	names := func(labels []string) string {
+		var out []string
+		for _, l := range labels {
+			out = append(out, toolAccountName(e, l))
+		}
+		return strings.Join(out, " and ")
+	}
+	if n := len(e.CashNotChecked); n > 0 {
+		var why []string
+		for _, u := range e.CashNotChecked {
+			if u.Why == "margin" {
+				why = append(why, toolAccountName(e, u.Account)+", a margin account with a margin or short balance at its latest snapshot")
+			} else {
+				why = append(why, toolAccountName(e, u.Account)+", whose latest snapshot holds no cash figure (take another with schwabtx snapshot)")
+			}
+		}
+		fmt.Fprintf(w, "%s cash in %s is not checked (%s lists %s under holdings.cash_not_checked): %s: compare the cash that Schwab shows for %s with the balance of its deposit account in %s, and book the difference as step 4 says (docs/tools.md step 4)\n",
+			pluralWord(n, "1 account's", fmt.Sprintf("%d accounts'", n)), tool, manifest, pluralWord(n, "it", "them"), strings.Join(why, ", and "), pluralWord(n, "it", "each"), tool)
+	}
+	if n := len(e.NoSnapshot); n > 0 {
+		fmt.Fprintf(w, "%s rows and no snapshot to check against (%s lists %s under holdings.not_checked): %s: %s with schwabtx snapshot (an account that Schwab has closed has none)\n",
+			pluralWord(n, "1 account has", fmt.Sprintf("%d accounts have", n)), manifest, pluralWord(n, "it", "them"), names(e.NoSnapshot), pluralWord(n, "take one", "take one of each"))
+	}
+	if n := len(e.NotInTool); n > 0 {
+		fmt.Fprintf(w, "%s snapshots and nothing in %s (%s lists %s under holdings.not_checked): %s %s no row that this export or its chain writes or names; import %s History files (docs/store.md) to have %s there\n",
+			pluralWord(n, "1 account has", fmt.Sprintf("%d accounts have", n)), tool, manifest, pluralWord(n, "it", "them"), names(e.NotInTool),
+			pluralWord(n, "has", "have"), pluralWord(n, "its", "their"), pluralWord(n, "it", "them"))
 	}
 }
 

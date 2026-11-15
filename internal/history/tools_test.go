@@ -106,6 +106,7 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 			Cash           *[]chainCashHolding
 			CashGone       *[]chainCashGone      `json:"cash_gone"`
 			CashNotChecked *[]chainCashUnchecked `json:"cash_not_checked"`
+			NotChecked     []string              `json:"not_checked"`
 		} `json:"holdings"`
 		Ghostfolio *struct {
 			Yahoo     []string
@@ -309,13 +310,35 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	if (m.Holdings.CashNotChecked != nil) != (e.Tool == toolPP) {
 		t.Errorf("the %s manifest's holdings list accounts whose cash is not checked: %v", e.Tool, m.Holdings.CashNotChecked != nil)
 	}
-	var notChecked []string
+	var notChecked []ToolCashUnchecked
 	if m.Holdings.CashNotChecked != nil {
 		for _, a := range *m.Holdings.CashNotChecked {
-			notChecked = append(notChecked, a.Account)
+			if a.Why != "margin" && a.Why != "no_cash" {
+				t.Errorf("the manifest lists %s's cash as not checked, why %q", a.Account, a.Why)
+			}
+			notChecked = append(notChecked, ToolCashUnchecked{Account: a.Account, Why: a.Why})
 		}
 	}
 	check("accounts whose cash is not checked", e.CashNotChecked, notChecked)
+	// The accounts that neither check checks, which stderr names by kind:
+	// with rows and no snapshot to check against, and, for PP, with
+	// snapshots and nothing in PP, of which no export of the chain writes
+	// or names anything, so that none is among the manifest's accounts.
+	var noSnapshot, notInTool []string
+	for _, l := range m.Holdings.NotChecked {
+		if slices.Contains(e.NotInTool, l) {
+			notInTool = append(notInTool, l)
+		} else {
+			noSnapshot = append(noSnapshot, l)
+		}
+	}
+	check("accounts with no snapshot to check against", e.NoSnapshot, noSnapshot)
+	check("accounts that the tool holds nothing of", e.NotInTool, notInTool)
+	for _, l := range e.NotInTool {
+		if e.Tool != toolPP || slices.ContainsFunc(accounts, func(a ToolAccount) bool { return a.Label == l }) {
+			t.Errorf("the %s export names %s as an account that it holds nothing of, among its accounts %+v", e.Tool, l, accounts)
+		}
+	}
 	check("securities whose symbol changed", e.SymbolsChanged, len(m.SymbolsChanged))
 	var unsure []ToolUnsure
 	for _, u := range m.KeysUnsure {

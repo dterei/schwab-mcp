@@ -112,20 +112,6 @@
       "command": "schwabtx snapshot"
     },
     {
-      "ref": "Ca2b3c4d5.2",
-      "account": "A1 ...135",
-      "day": "2026-11-10",
-      "category": "deposit",
-      "kind": "MoneyLink Deposit",
-      "description": "Tfr EXAMPLE BANK",
-      "symbol": "",
-      "quantity": null,
-      "amount": 40.00,
-      "reason": "gf_cash",
-      "advice": "set_cash",
-      "command": "schwabtx snapshot"
-    },
-    {
       "ref": "T61002302",
       "account": "A1 ...135",
       "day": "2026-11-10",
@@ -159,7 +145,7 @@
   "in_balances": [
     {
       "account": "A1 ...135",
-      "rows": 4
+      "rows": 5
     },
     {
       "account": "A2 ...398",

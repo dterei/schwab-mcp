@@ -226,14 +226,14 @@ type chainHoldings struct {
 	NotChecked     []string              `json:"not_checked"`
 }
 
-// A chainCashUnchecked is an account whose cash PP's cash check could not
+// A chainCashUnchecked is an account whose cash PP's cash check does not
 // check (toolCashUnchecked): its label, the market date of its snapshot, and
-// why, "margin": the snapshot is of a margin account whose cash balance
-// reads 0 beside a margin or a short balance, as Schwab can report a debit
-// or short positions (docs/schwab-api.md). Was is, with -since, the
-// difference that the export it goes on from listed for the account, or
-// carried as this one does, "" for none: the export that checks the account
-// again compares its difference with it.
+// why: "margin", the snapshot is of a margin account with a margin or a
+// short balance, whose cash Schwab's figures do not settle
+// (docs/schwab-api.md); "no_cash", the snapshot holds no cash figure. Was
+// is, with -since, the difference that the export it goes on from listed for
+// the account, or carried as this one does, "" for none: the export that
+// checks the account again compares its difference with it.
 type chainCashUnchecked struct {
 	Account  string      `json:"account"`
 	Snapshot nytime.Date `json:"snapshot"`
@@ -681,10 +681,13 @@ type chainResult struct {
 	given map[string]map[string]chainGiven
 	// leftOut, holdings and unchecked are the rows left out, the differences
 	// of the holdings check and the accounts that it did not check, with
-	// what the earlier export listed of them.
+	// what the earlier export listed of them; notHeld are, for PP, those of
+	// unchecked that have a snapshot and that PP holds nothing of (ppHolds),
+	// the others having rows and no snapshot to check against.
 	leftOut   []chainLeftOut
 	holdings  []chainHolding
 	unchecked []toolAccount
+	notHeld   []toolAccount
 	// holdingsGone are the differences that the earlier export listed and
 	// that the holdings check no longer finds; cash, cashGone and
 	// cashUnchecked are, for PP, the cash check's differences, those gone,
@@ -1194,10 +1197,11 @@ func (c *chainResult) compareHoldings(events []toolEvent) {
 		diffs = slices.DeleteFunc(diffs, func(d toolHolding) bool { return !holds[d.account.label()] })
 		for _, id := range snapshotAccounts(c.in) {
 			a := c.ix.account(id)
-			if _, ok := checkedSnapshot(c.in, id, func(toolSnapshot) bool { return true }); ok && !holds[a.label()] {
-				unchecked = append(unchecked, a)
+			if _, ok := checkedSnapshot(c.in, id); ok && !holds[a.label()] {
+				c.notHeld = append(c.notHeld, a)
 			}
 		}
+		unchecked = append(unchecked, c.notHeld...)
 		slices.SortFunc(unchecked, func(a, b toolAccount) int { return cmp.Compare(a.id, b.id) })
 	}
 	c.unchecked = unchecked
@@ -1254,11 +1258,11 @@ func (c *chainResult) compareHoldings(events []toolEvent) {
 // it, or carried for an account that it could not check
 // (chainCashUnchecked.Was), as compareHoldings does: alike, it is marked
 // before; otherwise it keeps the difference listed (Was); and one listed of
-// an account whose cash this export checks and finds alike is gone. A
-// margin account whose cash it cannot check carries the difference listed
-// on, for the export that checks it again: Schwab's cash reading of 0 does
-// not settle it. An account that PP holds nothing of (ppHolds) is not
-// checked.
+// an account whose cash this export checks and finds alike is gone. An
+// account whose cash it does not check, a margin account in use or one
+// whose snapshot holds no cash figure, carries the difference listed on,
+// for the export that checks it again. An account that PP holds nothing of
+// (ppHolds) is not checked.
 func (c *chainResult) compareCash(events []toolEvent) {
 	if c.in.tool != toolPP {
 		return
@@ -1288,7 +1292,7 @@ func (c *chainResult) compareCash(events []toolEvent) {
 	diffs = slices.DeleteFunc(diffs, func(d toolCash) bool { return !holds[d.account.label()] })
 	unchecked = slices.DeleteFunc(unchecked, func(u toolCashUnchecked) bool { return !holds[u.account.label()] })
 	for _, u := range unchecked {
-		n := chainCashUnchecked{Account: u.account.label(), Snapshot: u.snapshot, Why: "margin"}
+		n := chainCashUnchecked{Account: u.account.label(), Snapshot: u.snapshot, Why: u.why}
 		if was, ok := listed[n.Account]; ok {
 			n.Was = chainNumber(was, true)
 			delete(listed, n.Account)
@@ -1310,12 +1314,12 @@ func (c *chainResult) compareCash(events []toolEvent) {
 		}
 		c.cash = append(c.cash, h)
 	}
-	// An account with no snapshot of its cash to check, as in a store
-	// restored from an older backup, has nothing gone: this export cannot
-	// tell.
+	// An account with no snapshot to check against, as in a store restored
+	// from an older backup, has nothing gone: this export cannot tell. One
+	// whose cash it does not check carries what was listed (above).
 	checked := map[string]bool{}
 	for _, id := range snapshotAccounts(c.in) {
-		if _, ok := cashSnapshot(c.in, id); ok {
+		if _, ok := checkedSnapshot(c.in, id); ok {
 			checked[c.in.accountOf(id).label()] = true
 		}
 	}

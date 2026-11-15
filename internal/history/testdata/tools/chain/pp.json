@@ -140,7 +140,13 @@
       }
     ],
     "cash_gone": [],
-    "cash_not_checked": [],
+    "cash_not_checked": [
+      {
+        "account": "A2 ...398",
+        "snapshot": "2026-01-08",
+        "why": "no_cash"
+      }
+    ],
     "not_checked": [
       "A3 ...783"
     ]

@@ -996,9 +996,9 @@ func TestDecodeToolManifest(t *testing.T) {
 // What an export for a tool says on stderr (8.2 of the tool exports'
 // design), from what it wrote, in full and going on from another: what it
 // wrote, the coverage, what it left out, wrote with a caveat, found changed
-// in symbol, in the holdings or, for PP, in the cash, flagged or did not
-// write for want of a
-// decision, and for Ghostfolio the cash rows that the balances carry, the
+// in symbol, in the holdings or, for PP, in the cash, could not check, by
+// kind and why, flagged or did not write for want of a decision, and for
+// Ghostfolio the cash rows that the balances carry, the
 // -manual symbols that nothing uses, said back masked, and the symbols
 // Yahoo may no longer know; what to delete in the tool; for PP, the
 // accounts to make, the order of the files and the rows to tick; for
@@ -1047,8 +1047,10 @@ func TestToolSummary(t *testing.T) {
 				LeftOut:    []history.ToolCount{{Code: "other", Count: 1}},
 				CaveatRows: 1, Caveats: []history.ToolCount{{Code: "assumed_multiplier", Count: 1}},
 				SymbolsChanged: 1, Holdings: 2, Cash: 2, Flagged: 1, Waiting: 1,
-				Accounts: []history.ToolAccount{newly(a1), newly(a2)},
-				Tick:     []history.ToolTick{{File: "account-transactions-A2-398.csv", Ref: "T73508261958", Account: "A2 ...398", As: "account 2026-03-02 Withdrawal 1000.00"}},
+				// An account with snapshots alone, as the walk-through's third.
+				NotInTool: []string{"A3 ...783"},
+				Accounts:  []history.ToolAccount{newly(a1), newly(a2)},
+				Tick:      []history.ToolTick{{File: "account-transactions-A2-398.csv", Ref: "T73508261958", Account: "A2 ...398", As: "account 2026-03-02 Withdrawal 1000.00"}},
 			},
 			want: `wrote 17 rows for Portfolio Performance to pp-2026-11-13, up to 2026-11-12: 2 account files, 2 portfolio files, 9 securities, 14 prices
   A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
@@ -1058,6 +1060,7 @@ wrote 1 row with a caveat (pp-2026-11-13/manifest.json): assumed_multiplier 1
 1 security has changed symbol (pp-2026-11-13/manifest.json): if Portfolio Performance holds it under an earlier ticker, give it the new one; once delisted, no price feed (docs/tools.md)
 2 holdings differ from the latest snapshot (pp-2026-11-13/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
 2 accounts' cash in Portfolio Performance differs from their latest snapshots' (pp-2026-11-13/manifest.json): cash held before the store's first row of each, or rows left out; book each difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)
+1 account has snapshots and nothing in Portfolio Performance (pp-2026-11-13/manifest.json lists it under holdings.not_checked): A3 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
 1 row of this export carries a flag that needs you (schwabtx status -review); if you uncount it, the next -since export lists what to delete
 1 file transaction waits for you to resolve it (schwabtx status -review) and is not in this export
 in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
@@ -1073,7 +1076,11 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 			name: "pp going on", dir: "pp-2026-12-01", since: "pp-2026-11-13",
 			e: history.ToolExport{
 				Tool: "pp", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 3, Late: 2, SameAs: 1, RedoAccount: "A1",
-				CashNotChecked: []string{"A1 ...135", "A2 ...398"},
+				// Each kind of account not checked, two of each, and both whys
+				// of the cash check's.
+				CashNotChecked: []history.ToolCashUnchecked{{Account: "A1 ...135", Why: "no_cash"}, {Account: "A2 ...398", Why: "margin"}},
+				NoSnapshot:     []string{"A4 ...783", "A5 ...678"},
+				NotInTool:      []string{"A6 ...246", "A7 ...579"},
 				Files: []history.ToolFile{
 					{Name: "securities.csv", Kind: "securities", Rows: 22},
 					{Name: "account-transactions-A1-135.csv", Kind: "account", Account: "A1 ...135", Rows: 1},
@@ -1099,7 +1106,9 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
   this assumes Portfolio Performance holds pp-2026-11-13 and every export before it, each imported once, with what it listed deleted and ticked
   2 of them are dated on or before 2026-11-12, the end of pp-2026-11-13: they came late or were decided since
   1 of them is a row that Portfolio Performance holds under another ref (pp-2026-12-01/manifest.json lists it under same_as): it shows it as existing; leave it unticked
-2 accounts' cash in Portfolio Performance is not checked (pp-2026-12-01/manifest.json): the latest snapshots of Schwab A1 ...135 and Schwab A2 ...398, margin accounts, read their cash as 0 beside a margin or short balance, as Schwab can report a debit or short positions; compare each one's cash at Schwab with Portfolio Performance's by hand (docs/tools.md)
+2 accounts' cash in Portfolio Performance is not checked (pp-2026-12-01/manifest.json lists them under holdings.cash_not_checked): Schwab A1 ...135, whose latest snapshot holds no cash figure (take another with schwabtx snapshot), and Schwab A2 ...398, a margin account with a margin or short balance at its latest snapshot: compare the cash that Schwab shows for each with the balance of its deposit account in Portfolio Performance, and book the difference as step 4 says (docs/tools.md step 4)
+2 accounts have rows and no snapshot to check against (pp-2026-12-01/manifest.json lists them under holdings.not_checked): A4 ...783 and A5 ...678: take one of each with schwabtx snapshot (an account that Schwab has closed has none)
+2 accounts have snapshots and nothing in Portfolio Performance (pp-2026-12-01/manifest.json lists them under holdings.not_checked): A6 ...246 and A7 ...579 have no row that this export or its chain writes or names; import their History files (docs/store.md) to have them there
 before importing, delete in Portfolio Performance what changed or went (pp-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 Dividend 3.86 (note schwabtx A1 ...135 T73508261950): changed; the new form is in this export
   Schwab A1 ...135: 2025-02-10 Transfer (Inbound) 500.00 (note schwabtx A2 ...398 T73508261952 to A1 ...135 T73508261953): gone, uncounted (user)
@@ -1120,7 +1129,9 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 				Files:      []history.ToolFile{{Name: "securities.csv", Kind: "securities", Rows: 1}, {Name: "portfolio-transactions-A3-777.csv", Kind: "portfolio", Account: "A3 ...777", Rows: 1}},
 				Securities: 1, Prices: 1, CaveatRows: 2, Caveats: []history.ToolCount{{Code: "value_unknown", Count: 2}, {Code: "cash_not_written", Count: 1}},
 				LeftOut:        []history.ToolCount{{Code: "split", Count: 1}, {Code: "no_quantity", Count: 2}},
-				SymbolsChanged: 2, Holdings: 1, Cash: 1, CashNotChecked: []string{"A2 ...398"}, Flagged: 2, Waiting: 2,
+				SymbolsChanged: 2, Holdings: 1, Cash: 1, CashNotChecked: []history.ToolCashUnchecked{{Account: "A2 ...398", Why: "margin"}}, Flagged: 2, Waiting: 2,
+				// A3, new, has rows and no snapshot; A4 snapshots alone.
+				NoSnapshot: []string{"A3 ...777"}, NotInTool: []string{"A4 ...783"},
 				// A security with no symbol is named by its key.
 				DifferencesChanged: []history.ToolDifference{
 					{Account: "A1 ...135", Key: "c:30303M102", Was: "2", Now: "1", Change: "-1"},
@@ -1159,7 +1170,9 @@ wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_n
   x:66000501 (GRPZ), written as c:ZZS50B109, the others having had its ticker at other times: schwabtx edit K:x:66000501 -same K:i:1000501 (ZZR50A102) or -same K:c:ZZS50B109 (ZZS50B109)
 1 holding differs from the latest snapshot (pp-2026-12-15/manifest.json): a position opened before the store's rows, or a split left out; add it by hand, less the rows left out that you book by hand (docs/tools.md)
 1 account's cash in Portfolio Performance differs from its latest snapshot's (pp-2026-12-15/manifest.json): cash held before the store's first row of the account, or rows left out; book the difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)
-1 account's cash in Portfolio Performance is not checked (pp-2026-12-15/manifest.json): the latest snapshot of A2 ...398, a margin account, reads its cash as 0 beside a margin or short balance, as Schwab can report a debit or short positions; compare its cash at Schwab with Portfolio Performance's by hand (docs/tools.md)
+1 account's cash in Portfolio Performance is not checked (pp-2026-12-15/manifest.json lists it under holdings.cash_not_checked): A2 ...398, a margin account with a margin or short balance at its latest snapshot: compare the cash that Schwab shows for it with the balance of its deposit account in Portfolio Performance, and book the difference as step 4 says (docs/tools.md step 4)
+1 account has rows and no snapshot to check against (pp-2026-12-15/manifest.json lists it under holdings.not_checked): Schwab A3 ...777: take one with schwabtx snapshot (an account that Schwab has closed has none)
+1 account has snapshots and nothing in Portfolio Performance (pp-2026-12-15/manifest.json lists it under holdings.not_checked): A4 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
 2 rows of this export carry a flag that needs you (schwabtx status -review); if you uncount one, the next -since export lists what to delete
 2 file transactions wait for you to resolve them (schwabtx status -review) and are not in this export
 3 differences that pp-2026-12-01 listed have changed or gone (pp-2026-12-15/manifest.json lists each, with was): before importing, change what you added in Portfolio Performance by hand for each by its change, less the rows left out that you book by hand, or delete it: Portfolio Performance marks a new row equal to one that it holds as existing (docs/tools.md):
@@ -1199,12 +1212,14 @@ next time: schwabtx export -format pp -since pp-2026-12-20 -dir <a new folder>
 			name: "pp going on, nothing new", dir: "pp-2026-12-31", since: "pp-2026-12-15",
 			e: history.ToolExport{
 				Tool: "pp", To: "2026-12-30", Since: "2026-12-15T12:00:00Z", SinceTo: "2026-12-14", Given: 21,
-				Files:    []history.ToolFile{{Name: "securities.csv", Kind: "securities"}},
-				Accounts: []history.ToolAccount{a1},
-				Gone:     []history.ToolChange{{Ref: "T73508261961", Account: "A1 ...135", Was: "2026-12-01 Fees 1.00", Why: "uncounted: user"}},
+				Files:          []history.ToolFile{{Name: "securities.csv", Kind: "securities"}},
+				Accounts:       []history.ToolAccount{a1},
+				CashNotChecked: []history.ToolCashUnchecked{{Account: "A1 ...135", Why: "no_cash"}},
+				Gone:           []history.ToolChange{{Ref: "T73508261961", Account: "A1 ...135", Was: "2026-12-01 Fees 1.00", Why: "uncounted: user"}},
 			},
 			want: `wrote 0 rows for Portfolio Performance to pp-2026-12-31, since pp-2026-12-15, up to 2026-12-30
   this assumes Portfolio Performance holds pp-2026-12-15 and every export before it, each imported once, with what it listed deleted and ticked
+1 account's cash in Portfolio Performance is not checked (pp-2026-12-31/manifest.json lists it under holdings.cash_not_checked): Schwab A1 ...135, whose latest snapshot holds no cash figure (take another with schwabtx snapshot): compare the cash that Schwab shows for it with the balance of its deposit account in Portfolio Performance, and book the difference as step 4 says (docs/tools.md step 4)
 before importing, delete in Portfolio Performance what changed or went (pp-2026-12-31/manifest.json lists each):
   Schwab A1 ...135: 2026-12-01 Fees 1.00 (note schwabtx A1 ...135 T73508261961): gone, uncounted (user)
 import in this order: securities.csv
@@ -1241,6 +1256,9 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-13 -dir <a new f
 				NotInBalances:  []history.ToolCashRows{{Account: "A2 ...398", Rows: 1, Snapshot: "2026-11-28", Taken: evening.AddDate(0, 0, 18)}, {Account: "A3 ...777", Rows: 1}},
 				LeftOut:        []history.ToolCount{{Code: "gf_cash", Count: 2}},
 				SymbolsChanged: 1, Holdings: 3, Flagged: 1, YahooIdle: 1, IdleSince: "2025-11-30",
+				// A3's cash row has no snapshot to be carried by, nor its
+				// holdings to be checked against.
+				NoSnapshot: []string{"A3 ...777"},
 				Unsure: []history.ToolUnsure{
 					{Key: "x:66000017", Tickers: []string{"JKLM"}, TakenFor: "i:1000013", Securities: []history.ToolUnsureSecurity{{Key: "i:1000013", CUSIP: "ZZJ12K106"}, {Key: "i:1000213", CUSIP: "ZZJ12K205"}}},
 				},
@@ -1265,6 +1283,7 @@ left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_ca
 1 key of the store with no CUSIP had a ticker that other securities have had too (gf-2026-12-01/manifest.json lists it): the export cannot tell which it is; say which in the store (docs/tools.md):
   x:66000017 (JKLM), written as i:1000013, which had it first: schwabtx edit -store STORE K:x:66000017 -same K:i:1000013 (ZZJ12K106) or -same K:i:1000213 (ZZJ12K205)
 3 holdings differ from the latest snapshot (gf-2026-12-01/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
+1 account has rows and no snapshot to check against (gf-2026-12-01/manifest.json lists it under holdings.not_checked): Schwab A3 ...777: take one with schwabtx snapshot (an account that Schwab has closed has none)
 1 row of this export carries a flag that needs you (schwabtx status -store STORE -review); if you uncount it, the next -since export lists what to delete
 1 symbol for Yahoo has no row since 2025-11-30 and is not held (gf-2026-12-01/manifest.json lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual
 before importing, delete in Ghostfolio what changed or went (gf-2026-12-01/manifest.json lists each):

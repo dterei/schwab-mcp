@@ -118,7 +118,7 @@ var toolReasons = []toolReason{
 	{"multiplier", "an option whose multiplier is not a whole number from 1 to 10000, or whose keys in the store give two", "`by_hand`"},
 	{"bond_unit", "a bond whose rows or prices do not follow face value and prices per 100", "`check`: the probe run settles the API's unit"},
 	{
-		"gf_cash", "Ghostfolio: a cash row posted after the account's latest snapshot was taken (one with only a date: on or after the day it was taken), or of an account with no snapshot, which no balance carries yet",
+		"gf_cash", "Ghostfolio: a cash row that the snapshot of the account's last balance does not hold (one with a time: after it was taken; one with only a date: posted after the session that it stands for), or of an account with no snapshot, which no balance carries yet",
 		"`set_cash`: a later snapshot carries it; set the account's cash in Ghostfolio to that snapshot's, or take snapshots (`schwabtx snapshot`) of an account that has none",
 	},
 }
@@ -561,14 +561,13 @@ type toolSnapshot struct {
 	margin, short sql.NullFloat64
 }
 
-// marginZero reports whether s is of a margin account whose cash balance
-// reads 0 beside a margin or a short balance that does not: what the account
-// holds of cash is then not its cash balance, and the cited reading of it as
-// their sum is not one that the samples settle (docs/schwab-api.md), so PP's
-// cash is not checked against it.
-func (s toolSnapshot) marginZero() bool {
+// marginInUse reports whether s is of a margin account with a margin or a
+// short balance other than 0: what the account holds of cash is then in
+// figures whose sum no sample settles, whatever its cash balance reads
+// (docs/schwab-api.md), so PP's cash is not checked against it.
+func (s toolSnapshot) marginInUse() bool {
 	off := func(v sql.NullFloat64) bool { return v.Valid && v.Float64 != 0 }
-	return s.accountType == "MARGIN" && s.cash.Valid && s.cash.Int64 == 0 && (off(s.margin) || off(s.short))
+	return s.accountType == "MARGIN" && (off(s.margin) || off(s.short))
 }
 
 // A toolWaiting is a file row that waits for you to resolve it (Q8): held
@@ -3006,16 +3005,14 @@ func (m *toolMapper) cash(i int, caveats []string) {
 }
 
 // gfCash gives row i, a cash row, its outcome for Ghostfolio (6.3 of the
-// design): in the balances when the account's last balance carries it,
-// having been posted before the snapshot whose cash it is was taken (an API
-// row by its time; a file row by its posted date and an API row without a
-// time by its day, before the New York date that the snapshot was taken);
-// else left out, gf_cash, until a later snapshot carries it.
+// design): in the balances when the snapshot of the account's last balance
+// holds it, as the checks count it (inSnapshot); else left out, gf_cash,
+// until a later snapshot carries it.
 func (m *toolMapper) gfCash(i int) {
 	r := &m.in.rows[i]
 	carried := false
-	if snap, ok := m.lastBalance(r.account); ok {
-		carried = postedBefore(r, snap.fetchedAt)
+	if b, ok := m.lastBalance(r.account); ok {
+		carried = inSnapshot(r, toolSnapshot{account: r.account, marketDate: b.date, fetchedAt: b.fetchedAt})
 	}
 	if !carried {
 		m.leftOut(i, "gf_cash")
@@ -3024,31 +3021,15 @@ func (m *toolMapper) gfCash(i int) {
 	m.outcomes[i] = toolOutcome{ref: r.ref, account: m.ix.account(r.account), outcome: outcomeInBalances}
 }
 
-// postedBefore reports whether row r was posted before the instant taken,
-// when a snapshot was taken, so that its cash is in the snapshot's (6.3 of
-// the design): an API row by its time; a file row by its posted date and an
-// API row without a time by its day, before the New York date of taken.
-func postedBefore(r *toolRow, taken time.Time) bool {
-	if !r.time.IsZero() {
-		return !r.time.After(taken)
-	}
-	day := r.day
-	if r.source == "file" && r.posted != "" {
-		day = r.posted
-	}
-	on, _ := nyClock(taken)
-	return day != "" && day < on
-}
-
 // inSnapshot reports whether snapshot s holds what row r did, as the
-// holdings and the cash checks count it (4.15 of the design): an API row by
-// its time, at or before s was taken; a row without one, a History file's
-// or an API row's of no time, by its posted date, else its day, on or before
-// the session that s stands for, its market date. A closed-phase snapshot
-// taken in the evening follows the day's postings, which have no time to
-// place them by, and one taken after midnight stands for the session before,
-// so the new day's rows stay out of it. (Ghostfolio's balances take such a
-// row only from the day after, postedBefore: a later balance carries it.)
+// holdings and the cash checks count it (4.15 of the design), and as
+// Ghostfolio's balances carry a cash row: an API row by its time, at or
+// before s was taken; a row without one, a History file's or an API row's of
+// no time, by its posted date, else its day, on or before the session that s
+// stands for, its market date. A closed-phase snapshot taken in the evening
+// follows the day's postings, which have no time to place them by, and one
+// taken after midnight stands for the session before, so the new day's rows
+// stay out of it.
 func inSnapshot(r *toolRow, s toolSnapshot) bool {
 	if !r.time.IsZero() {
 		return !r.time.After(s.fetchedAt)
@@ -3061,18 +3042,18 @@ func inSnapshot(r *toolRow, s toolSnapshot) bool {
 }
 
 // checkedSnapshot returns the account's snapshot that the holdings and the
-// cash checks compare with, of in.snapshots (Q7) as with is true of them: its
-// latest closed-phase snapshot taken by the end of the export's last day, in
-// New York, whatever session it stands for. A snapshot of that day's session
-// taken the next morning, as a scheduler's run after midnight takes one, may
-// hold what rows dated after that day did (a fill of the overnight session,
-// a dividend posted overnight), which the export does not read; the one
-// before stands for the rows that it reads.
-func checkedSnapshot(in *toolInput, account int64, with func(toolSnapshot) bool) (toolSnapshot, bool) {
+// cash checks compare with, of in.snapshots (Q7), one for both: its latest
+// closed-phase snapshot taken by the end of the export's last day, in New
+// York, whatever session it stands for, and ok false for none. A snapshot
+// of that day's session taken the next morning, as a scheduler's run after
+// midnight takes one, may hold what rows dated after that day did (a fill
+// of the overnight session, a dividend posted overnight), which the export
+// does not read; the one before stands for the rows that it reads.
+func checkedSnapshot(in *toolInput, account int64) (toolSnapshot, bool) {
 	var latest toolSnapshot
 	found := false
 	for _, s := range in.snapshots {
-		if s.account != account || s.marketDate == "" || !with(s) {
+		if s.account != account || s.marketDate == "" {
 			continue
 		}
 		if taken, _ := nyClock(s.fetchedAt); in.to != "" && taken > in.to {
@@ -3229,7 +3210,7 @@ func holdingsCheck(in *toolInput, events []toolEvent) ([]toolHolding, []toolAcco
 	}
 	latest := map[int64]toolSnapshot{}
 	for _, id := range snapshotAccounts(in) {
-		if snap, ok := checkedSnapshot(in, id, func(toolSnapshot) bool { return true }); ok {
+		if snap, ok := checkedSnapshot(in, id); ok {
 			accounts[id] = true
 			latest[id] = snap
 		}
@@ -3300,34 +3281,26 @@ func holdingsCheck(in *toolInput, events []toolEvent) ([]toolHolding, []toolAcco
 }
 
 // inSnapshot reports whether snapshot s holds what the row of record e did
-// (inSnapshot); a record of no row of in, by its day, on or before s's
-// market date.
+// (inSnapshot): every record is of a row of in.
 func (e *toolEvent) inSnapshot(in *toolInput, s toolSnapshot) bool {
-	if e.row < 0 || e.row >= len(in.rows) {
-		return e.day != "" && e.day <= s.marketDate
-	}
 	return inSnapshot(&in.rows[e.row], s)
 }
 
-// cashSnapshot returns the snapshot that the cash check checks account
-// against: its latest closed-phase snapshot of its cash taken by the end of
-// the export's last day (checkedSnapshot), ok false for none.
-func cashSnapshot(in *toolInput, account int64) (toolSnapshot, bool) {
-	return checkedSnapshot(in, account, func(s toolSnapshot) bool { return s.cash.Valid })
-}
-
-// A toolCashUnchecked is an account whose cash the cash check cannot
-// check: its snapshot (marginZero), by its market date.
+// A toolCashUnchecked is an account whose cash the cash check does not
+// check against its snapshot (checkedSnapshot), by the snapshot's market
+// date, and why: "margin", the snapshot is of a margin account with a
+// margin or a short balance (marginInUse); "no_cash", it holds no cash
+// figure.
 type toolCashUnchecked struct {
 	account  toolAccount
 	snapshot nytime.Date
+	why      string
 }
 
 // A toolCash is a difference of the cash check, PP's beside the holdings
-// check (4.15 of the design): what an account's latest snapshot taken on or
-// before the export's last day holds of cash, against what PP holds of it
-// once the records are imported, of the rows posted before that snapshot
-// was taken.
+// check (4.15 of the design): what an account's latest snapshot taken by
+// the end of the export's last day holds of cash, against what PP holds of
+// it once the records are imported, of the rows that the snapshot holds.
 type toolCash struct {
 	account toolAccount
 	// snapshot is the market date of the snapshot.
@@ -3353,28 +3326,32 @@ func ppCash(e toolEvent) int64 {
 }
 
 // cashCheck compares, for PP, the cash of each selected account's latest
-// closed-phase snapshot taken by the end of the export's last day that holds
-// its cash (checkedSnapshot) with the cash that the records events leave in
-// PP's deposit account, of the rows that the snapshot holds (inSnapshot):
-// PP's cash is the sum of the records, from the account's first row in the
-// store, so cash that the account held before its rows begin, or that a row
-// left out moved, shows as a difference. A transfer's other side that the
-// export makes from this one, its own row dated after the export's last day,
-// is in a later snapshot, so an account's own rows alone count. It returns
-// the differences, by account; an account without such a snapshot of its
-// cash has none, and one whose snapshot is of a margin account that reads
-// its cash as 0 beside a margin or a short balance (marginZero) is returned
-// apart, unchecked. Ghostfolio's cash is the balances', so it has nothing to
-// check.
+// closed-phase snapshot taken by the end of the export's last day, the one
+// that the holdings check compares with too (checkedSnapshot), with the cash
+// that the records events leave in PP's deposit account, of the rows that
+// the snapshot holds (inSnapshot): PP's cash is the sum of the records, from
+// the account's first row in the store, so cash that the account held before
+// its rows begin, or that a row left out moved, shows as a difference. A
+// transfer's other side that the export makes from this one, its own row
+// dated after the export's last day, is in a later snapshot, so an
+// account's own rows alone count. It returns the differences, by account;
+// an account without such a snapshot has none, and one whose snapshot is of
+// a margin account with a margin or a short balance (marginInUse), or holds
+// no cash figure, is returned apart, unchecked, with why: it has no figure
+// to compare with that is certain. Ghostfolio's cash is the balances', so it
+// has nothing to check.
 func cashCheck(in *toolInput, events []toolEvent) ([]toolCash, []toolCashUnchecked) {
 	latest := map[int64]toolSnapshot{}
 	var unchecked []toolCashUnchecked
 	for _, id := range snapshotAccounts(in) {
-		snap, ok := cashSnapshot(in, id)
+		snap, ok := checkedSnapshot(in, id)
 		switch {
-		case ok && snap.marginZero():
-			unchecked = append(unchecked, toolCashUnchecked{account: in.accountOf(id), snapshot: snap.marketDate})
-		case ok:
+		case !ok:
+		case snap.marginInUse():
+			unchecked = append(unchecked, toolCashUnchecked{account: in.accountOf(id), snapshot: snap.marketDate, why: "margin"})
+		case !snap.cash.Valid:
+			unchecked = append(unchecked, toolCashUnchecked{account: in.accountOf(id), snapshot: snap.marketDate, why: "no_cash"})
+		default:
 			latest[id] = snap
 		}
 	}

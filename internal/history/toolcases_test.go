@@ -1226,8 +1226,11 @@ func toolCaseFlags() toolCase {
 
 // toolCaseGFCash holds cash rows around the accounts' latest snapshots: one
 // taken the evening of its market date, with an earlier one of that date
-// and a later one with no cash, a row timed the instant it was taken; one
-// taken after midnight; and an account with none.
+// and a later one with no cash, a row timed the instant it was taken and a
+// History row posted that day, which it holds as the checks count it; one
+// taken after midnight; and an account with none. For PP, the latest
+// snapshot by -to of the first account holds no cash: its cash is not
+// checked.
 func toolCaseGFCash() toolCase {
 	api := func(ref string, account int64, clock string, amount int64) toolRow {
 		return toolRow{
@@ -1275,7 +1278,7 @@ func toolCaseGFCash() toolCase {
 			{"Ca2b3c4d5.3", "Deposit 50.00", "left_out gf_cash"},
 			{"Ca2b3c4d5.1", "Deposit 30.00", "in_balances"},
 			{"T61002305", "Deposit 90.00", "in_balances"},
-			{"Ca2b3c4d5.2", "Deposit 40.00", "left_out gf_cash"},
+			{"Ca2b3c4d5.2", "Deposit 40.00", "in_balances"},
 			{"Ca2b3c4d5.4", "Deposit 70.00", "in_balances"},
 			{"T61002301", "Deposit 10.00", "in_balances"},
 			{"T61002306", "Deposit 11.00", "in_balances"},

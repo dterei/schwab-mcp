@@ -199,12 +199,6 @@
     "gone": [],
     "cash": [
       {
-        "account": "A1 ...135",
-        "snapshot": "2026-11-10",
-        "snapshot_cash": 1200.00,
-        "written_cash": 181.00
-      },
-      {
         "account": "A2 ...398",
         "snapshot": "2026-11-10",
         "snapshot_cash": -12.34,
@@ -212,7 +206,13 @@
       }
     ],
     "cash_gone": [],
-    "cash_not_checked": [],
+    "cash_not_checked": [
+      {
+        "account": "A1 ...135",
+        "snapshot": "2026-11-11",
+        "why": "no_cash"
+      }
+    ],
     "not_checked": [
       "A3 ...783"
     ]

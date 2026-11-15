@@ -138,11 +138,16 @@ type ToolExport struct {
 	// all: what you added or booked by hand in the tool for one is to
 	// change by its change, or to delete.
 	DifferencesChanged []ToolDifference
-	// CashNotChecked are, for PP, the labels of the accounts whose cash the
-	// cash check could not check: the latest snapshot of each is of a
-	// margin account whose cash balance reads 0 beside a margin or a short
-	// balance, as Schwab can report a debit or short positions.
-	CashNotChecked []string
+	// CashNotChecked are, for PP, the accounts whose cash the cash check
+	// does not check, each with why (the manifest's
+	// holdings.cash_not_checked).
+	CashNotChecked []ToolCashUnchecked
+	// NoSnapshot are the labels of the accounts with rows and no snapshot
+	// to check against, which neither check checks; and NotInTool, for PP,
+	// those with snapshots that PP holds nothing of, as no export of the
+	// chain writes or names them: together, the manifest's
+	// holdings.not_checked.
+	NoSnapshot, NotInTool []string
 	// Unsure are the keys of the store that know no CUSIP and had a ticker
 	// that other securities have had too, of other CUSIPs or at another
 	// time, which the export writes as one of them, or on their own, and
@@ -273,6 +278,15 @@ type ToolDifference struct {
 	Cash                 bool
 	Asset, WasAsset      string
 	Was, Now, Change     string
+}
+
+// A ToolCashUnchecked is, for PP, an account whose cash the cash check does
+// not check: its label, and why: "margin", its latest snapshot is of a
+// margin account with a margin or a short balance, whose cash Schwab's
+// figures do not settle; "no_cash", its latest snapshot holds no cash
+// figure.
+type ToolCashUnchecked struct {
+	Account, Why string
 }
 
 // A ToolChange is a row that the tool holds and that a tool export changes
@@ -638,7 +652,14 @@ func (e *ToolExport) count() {
 		}
 	}
 	for _, u := range e.res.cashUnchecked {
-		e.CashNotChecked = append(e.CashNotChecked, u.Account)
+		e.CashNotChecked = append(e.CashNotChecked, ToolCashUnchecked{Account: u.Account, Why: u.Why})
+	}
+	for _, a := range e.res.unchecked {
+		if slices.ContainsFunc(e.res.notHeld, func(n toolAccount) bool { return n.id == a.id }) {
+			e.NotInTool = append(e.NotInTool, a.label())
+		} else {
+			e.NoSnapshot = append(e.NoSnapshot, a.label())
+		}
 	}
 	e.DifferencesChanged = e.res.differencesChanged()
 	for _, c := range e.res.changed {

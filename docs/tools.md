@@ -92,6 +92,7 @@ and the types' names, whatever PP's language and locale.
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
    11 holdings differ from the latest snapshot (pp-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
    2 accounts' cash in Portfolio Performance differs from their latest snapshots' (pp-1/manifest.json): cash held before the store's first row of each, or rows left out; book each difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)
+   1 account has snapshots and nothing in Portfolio Performance (pp-1/manifest.json lists it under holdings.not_checked): A3 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
    in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
      A1 ...135: Schwab A1 ...135
      A2 ...398: Schwab A2 ...398
@@ -109,8 +110,10 @@ and the types' names, whatever PP's language and locale.
    without a word: check it before you finish. A PP whose base currency is
    not USD converts at its own rates. An account that the export does not
    name, as one with snapshots and no rows (`A3 ...783` here), gets no PP
-   account, and step 4's checks pass it over, listed under
-   `holdings.not_checked`, until an export writes or names it.
+   account, and step 4's checks pass it over until an export writes or
+   names it: stderr names it, and the manifest lists it under
+   `holdings.not_checked`. Import its History files (`schwabtx import`) to
+   have it in PP.
 3. **Import**, through PP's CSV import:
    - Once, in the wizard's configuration menu, **Import configuration...**
      each of the three `pp-*.json`. PP keeps them among its user-specific
@@ -168,11 +171,18 @@ and the types' names, whatever PP's language and locale.
    the next export writes the rows they add; or book the difference in PP as
    a Deposit, or a Withdrawal when the records leave more, dated before the
    account's first row, less the rows left out that you book by hand (step
-   5), whose cash it holds too. Schwab can report a margin account's cash as
-   0 with a debit or short positions, its cash then in other figures: such
-   an account's cash is not checked, and stderr names it
-   (`holdings.cash_not_checked`), for you to compare its cash at Schwab with
-   PP's by hand.
+   5), whose cash it holds too. The cash check compares with the snapshot
+   that the holdings check does, and does not check an account whose
+   latest snapshot holds no cash figure (`no_cash`: take another), nor a
+   margin account with a margin or short balance at its latest snapshot
+   (`margin`), as Schwab can report its cash as 0 with a debit or short
+   positions, its cash then in other figures: stderr names each, with why,
+   and the manifest lists it under `holdings.cash_not_checked`. Compare the
+   cash that Schwab shows for it with the balance of its PP deposit
+   account, and book the difference as above. An account with rows and no
+   snapshot is checked by neither check: stderr names it, and the manifest
+   lists it under `holdings.not_checked`; take one with `schwabtx
+   snapshot`.
 
    **Later exports.** The two ways exclude each other: what you add or book
    by hand stands for rows that the store lacks, and once a later export
@@ -227,6 +237,7 @@ and the types' names, whatever PP's language and locale.
      A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
+   1 account has snapshots and nothing in Portfolio Performance (pp-2/manifest.json lists it under holdings.not_checked): A3 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
    before importing, delete in Portfolio Performance what changed or went (pp-2/manifest.json lists each):
      Schwab A1 ...135: 2024-04-30 Interest 0.42 (note schwabtx A1 ...135 T73508261949): changed; the new form is in this export
    import in this order: securities.csv, account-transactions-A1-135.csv

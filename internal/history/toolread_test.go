@@ -1014,7 +1014,7 @@ func TestToolReadMarginBalances(t *testing.T) {
 	}
 	in.tool = toolPP
 	events, _ := toolEvents(in)
-	if diffs, unchecked := cashCheck(in, events); len(diffs) != 0 || len(unchecked) != 1 || unchecked[0].snapshot != "2026-11-10" {
+	if diffs, unchecked := cashCheck(in, events); len(diffs) != 0 || len(unchecked) != 1 || unchecked[0].snapshot != "2026-11-10" || unchecked[0].why != "margin" {
 		t.Errorf("differences %+v, unchecked %+v", diffs, unchecked)
 	}
 }
