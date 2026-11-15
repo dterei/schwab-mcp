@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"regexp"
@@ -127,7 +128,13 @@ func New(o Options) (*Server, error) {
 	s.store = newStoreHandle(s, o.Config.StoreFile.Value, o.StoreLockWait, o.StoreBusy)
 	if err := s.login(); err != nil {
 		s.authErr = err
-		s.log.Warn("the API's address cannot be used", "error", err)
+		// NewAuth's error quotes the whole address, which may hold a user
+		// and password; the log names its host alone, as the start line does.
+		if why := addressRefusal(o.Config.BaseURL.Value); why != "" {
+			s.log.Warn("the API's address cannot be used: "+why, "host", s.apiHost())
+		} else {
+			s.log.Warn("the token file's path cannot be resolved", "error", err)
+		}
 	}
 	s.mcp = mcp.NewServer(&mcp.Implementation{Name: "schwab-mcp", Title: "Schwab (read-only)", Version: o.Version}, &mcp.ServerOptions{
 		Instructions: instructions,
@@ -199,7 +206,7 @@ func (s *Server) login() error {
 	auth, err := schwab.NewAuth(schwab.Config{
 		AppKey: cfg.AppKey.Value, AppSecret: cfg.AppSecret.Value, BaseURL: cfg.BaseURL.Value, TokenFile: cfg.TokenFile.Value,
 		HTTPClient: s.o.HTTPClient, Now: s.o.Now,
-		Warn: func(msg string) { s.log.Warn(msg, "component", "schwab") },
+		Warn: s.warnOutside("schwab"),
 	})
 	if err != nil {
 		return err
@@ -222,6 +229,38 @@ func (s *Server) apiHost() string {
 	return u.Host
 }
 
+// addressRefusal says, in the server's own words, why schwab.NewAuth
+// refuses base, the API's address, or returns "" for an address it takes:
+// one that is not https or http to a host, holds a user, a query or a
+// fragment, or is plain http to another computer than this one.
+func addressRefusal(base string) string {
+	if base == "" {
+		return "" // Schwab's own
+	}
+	u, err := url.Parse(strings.TrimRight(base, "/"))
+	switch {
+	case err != nil || u.Scheme != "https" && u.Scheme != "http" || u.Host == "":
+		return "it is not an https or http address"
+	case u.User != nil:
+		return "it holds a user name"
+	case strings.ContainsAny(base, "?#"):
+		return "it holds a query or a fragment"
+	case u.Scheme == "http" && !loopback(u.Hostname()):
+		return "it is plain http to another computer"
+	}
+	return ""
+}
+
+// loopback reports whether host names this computer, as schwab.NewAuth
+// takes it for plain http.
+func loopback(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
+}
+
 // schwabHost is the host of Schwab's own API.
 var schwabHost = strings.TrimPrefix(schwab.DefaultBaseURL, "https://")
 
@@ -234,7 +273,7 @@ var schwabHost = strings.TrimPrefix(schwab.DefaultBaseURL, "https://")
 func (s *Server) Run(ctx context.Context, t mcp.Transport) error {
 	stop := context.AfterFunc(ctx, s.cancelRoot)
 	defer stop()
-	s.log.Info("starting", "version", s.o.Version, "config", s.o.Config)
+	s.log.Info("starting", "version", s.o.Version, "config", configLog{s})
 	if host := s.apiHost(); host != "" && host != schwabHost {
 		s.log.Warn("the API's address is not Schwab's", "host", host)
 	}
@@ -263,6 +302,51 @@ func (s *Server) Run(ctx context.Context, t mcp.Transport) error {
 		}
 		return nil
 	}
+}
+
+// warnOutside returns the function that logs, at warn, what the schwab or
+// the history package warns of, component naming which: its text is
+// outside text, masked by pattern, since it quotes the token file's or the
+// store's path, whose names may hold a number the server has not seen yet.
+func (s *Server) warnOutside(component string) func(string) {
+	return func(msg string) { s.log.Warn(s.mask.logString(msg, true), "component", component) }
+}
+
+// configLog is what the start line shows of the config: where the app key
+// and secret came from, the API's host, each path and where it came from,
+// and the problems, each path as masker.path shows it. config.Config's own
+// LogValue writes the paths whole, and a folder's name may hold an account
+// number.
+type configLog struct{ s *Server }
+
+func (l configLog) LogValue() slog.Value {
+	c, m := l.s.o.Config, l.s.mask
+	source := func(st config.Setting) string {
+		if st.From == "" {
+			return "unset"
+		}
+		return string(st.From)
+	}
+	path := func(name string, st config.Setting) slog.Attr {
+		return slog.Group(name, slog.String("path", string(m.path(st.Value))), slog.String("from", source(st)))
+	}
+	attrs := []slog.Attr{
+		slog.String("file", string(m.path(c.File))),
+		slog.String("app_key", source(c.AppKey)),
+		slog.String("app_secret", source(c.AppSecret)),
+		slog.Group("api", slog.String("host", l.s.apiHost()), slog.String("from", source(c.BaseURL))),
+		path("token_file", c.TokenFile),
+		path("store_file", c.StoreFile),
+		path("rate_file", c.RateFile),
+	}
+	if len(c.Problems) > 0 {
+		ps := make([]string, len(c.Problems))
+		for i, p := range c.Problems {
+			ps[i] = string(l.s.problemText(p))
+		}
+		attrs = append(attrs, slog.String("problems", strings.Join(ps, "; ")))
+	}
+	return slog.GroupValue(attrs...)
 }
 
 // MCP returns the SDK's server, for tests' in-memory transports; the root

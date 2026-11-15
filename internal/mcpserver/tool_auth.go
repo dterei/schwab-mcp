@@ -177,7 +177,7 @@ func (s *Server) loginStatus() (schwab.Status, error) {
 	if s.o.Config.TokenFile.Value == "" {
 		return schwab.Status{}, nil
 	}
-	return schwab.StatusOf(s.o.Config.TokenFile.Value, func(msg string) { s.log.Warn(msg, "component", "schwab") })
+	return schwab.StatusOf(s.o.Config.TokenFile.Value, s.warnOutside("schwab"))
 }
 
 // problemText words p for auth_status: the setting, what its code means,

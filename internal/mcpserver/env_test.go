@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"os"
@@ -779,6 +780,69 @@ func plantedPattern(n string) *regexp.Regexp {
 
 // plant adds numbers to those that must never appear.
 func (e *env) plant(numbers ...string) { e.planted = append(e.planted, numbers...) }
+
+// runOnce runs the server through Run over pipes, as a client over stdio
+// would: it sends lines, waits for the answer to each request among them,
+// then closes the server's input, so that Run logs its start line and the
+// config's problems, answers, and returns. It returns the lines that the
+// server wrote, which the wire's record holds as the client's reads, for
+// assertClean.
+func (e *env) runOnce(lines ...string) []string {
+	t := e.t
+	t.Helper()
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	ran := make(chan error, 1)
+	go func() {
+		ran <- e.srv.Run(t.Context(), &mcp.IOTransport{Reader: inR, Writer: outW})
+		outW.Close()
+	}()
+	got := make(chan string)
+	go func() {
+		defer close(got)
+		sc := bufio.NewScanner(outR)
+		sc.Buffer(nil, 4<<20)
+		for sc.Scan() {
+			got <- sc.Text()
+		}
+	}()
+	requests := 0
+	for _, line := range lines {
+		if _, err := io.WriteString(inW, line+"\n"); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(line, `"id":`) {
+			requests++
+		}
+	}
+	var out []string
+	timeout := time.After(time.Minute)
+	for answered := 0; answered < requests; {
+		select {
+		case line, ok := <-got:
+			if !ok {
+				t.Fatalf("the server stopped after %d of %d answers", answered, requests)
+			}
+			out = append(out, line)
+			fmt.Fprintln(e.wire, "read: "+line)
+			if strings.Contains(line, `"id":`) {
+				answered++
+			}
+		case <-timeout:
+			t.Fatalf("%d of %d requests were answered in a minute", answered, requests)
+		}
+	}
+	inW.Close()
+	select {
+	case err := <-ran:
+		if err != nil {
+			t.Fatal("Run:", err)
+		}
+	case <-timeout:
+		t.Fatal("Run did not return in a minute")
+	}
+	return out
+}
 
 // readResource reads the resource uri.
 func (e *env) readResource(uri string) (*mcp.ReadResourceResult, error) {

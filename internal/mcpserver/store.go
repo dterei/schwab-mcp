@@ -52,7 +52,7 @@ func newStoreHandle(s *Server, path string, lockWait, busy time.Duration) *store
 		s: s, path: path, open: make(chan struct{}, 1),
 		opts: history.ReaderOptions{
 			Path: path, LockWait: lockWait, BusyTimeout: busy,
-			Warn: func(msg string) { s.log.Warn(msg, "component", "store") },
+			Warn: s.warnOutside("store"),
 		},
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -1047,6 +1048,93 @@ func TestLoginErrors(t *testing.T) {
 	}
 	if n := e.fake.TokenRequests() + e.fake.APICalls(); n != requests {
 		t.Errorf("a login refused before made %d more requests", n-requests)
+	}
+}
+
+// A path in a log line shows as masker.path shows it, or masked by pattern
+// as outside text, even before the server has seen the numbers its names
+// hold: the start line's config and problems, and the warnings of a token
+// file and a store that others can read, which the schwab and history
+// packages word with the whole path. Run comes first, and auth_status reads
+// the token file and opens the store before the directory has read
+// Schwab's accounts.
+func TestLogsMaskPaths(t *testing.T) {
+	t.Parallel()
+	home := filepath.Join(t.TempDir(), "home")
+	token := filepath.Join(home, "Schwab-"+individual, "token-"+options+".json")
+	store := filepath.Join(home, "Schwab", empty, "history.db")
+	copyFile(t, sharedStore(t), store)
+	const rate = "443322110099"
+	e := newEnv(t, withHome(home), withTokenFile(token), withStore(store),
+		withConfigFile(filepath.Join(home, "Schwab-"+individual, "config.json")),
+		withConfig(func(c *config.Config) {
+			c.RateFile.Value = filepath.Join(home, ".cache", "rate-"+rate)
+			c.Problems = append(c.Problems, config.Problem{Code: config.CodeMadePrivate, Setting: "config_file", Path: c.File},
+				config.Problem{Code: config.CodeRelativePath, Setting: "SCHWAB_STORE_FILE", Path: filepath.Join("acct-"+individual, "history.db")})
+		}))
+	e.plant(rate)
+	loose := runtime.GOOS != "windows"
+	if loose {
+		for _, f := range []string{token, store} {
+			if err := os.Chmod(f, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	e.runOnce()
+	if r := e.call("auth_status", `{}`); r.isError {
+		t.Fatal(r.text)
+	}
+	logs := e.logs.String()
+	want := []string{
+		"config.file=~/Schwab-...135/config.json", "config.token_file.path=~/Schwab-...135/token-...398.json",
+		"config.store_file.path=~/Schwab/...783/history.db", "config.rate_file.path=~/.cache/rate-...099",
+		"config_file: others could read it; it is now readable only by you (~/Schwab-...135/config.json)",
+		"SCHWAB_STORE_FILE: its path is not absolute (history.db)",
+	}
+	if loose {
+		want = append(want, `msg="~/Schwab-...135/token-...398.json could be read by others; it is now readable only by you" component=schwab`,
+			`msg="~/Schwab/...783/history.db can be read by others;`)
+	}
+	for _, w := range want {
+		if !strings.Contains(logs, w) {
+			t.Errorf("the log lacks %s:\n%s", w, logs)
+		}
+	}
+}
+
+// An address of the API that the server refuses is logged by its host and
+// why, in the server's words: schwab.NewAuth's error quotes the whole
+// address, which may hold a user and a password.
+func TestRefusedAddressIsLoggedByItsHost(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ base, want string }{
+		{"https://jdoe:pass29470135word@127.0.0.1:1", "the API's address cannot be used: it holds a user name\" host=127.0.0.1:1"},
+		{"http://example.com/x?user=jdoe", "the API's address cannot be used: it holds a query or a fragment\" host=example.com"},
+		{"http://example.com", "the API's address cannot be used: it is plain http to another computer\" host=example.com"},
+		{"ftp://jdoe@example.com", "the API's address cannot be used: it is not an https or http address\" host=example.com"},
+	} {
+		e := newEnv(t, withoutStore(), withPick(), withConfig(func(c *config.Config) {
+			c.BaseURL = config.Setting{Value: tc.base, From: config.FromFile}
+		}))
+		if r := e.call("pick", `{}`); r.code() != "config_unreadable" {
+			t.Errorf("%s: %s", tc.base, r.text)
+		}
+		logs := e.logs.String()
+		if !strings.Contains(logs, tc.want) || strings.Contains(logs, "jdoe") || strings.Contains(logs, "pass") {
+			t.Errorf("%s: the log lacks %q, or holds the address's user:\n%s", tc.base, tc.want, logs)
+		}
+	}
+	// addressRefusal refuses what NewAuth refuses, and takes what it takes.
+	token := filepath.Join(t.TempDir(), "token.json")
+	for _, base := range []string{
+		"", schwab.DefaultBaseURL, "http://127.0.0.1:8080", "http://localhost", "http://[::1]:1",
+		"https://jdoe@example.com", "http://example.com", "https://example.com/#x", "ftp://example.com", "https://",
+	} {
+		_, err := schwab.NewAuth(schwab.Config{AppKey: "k", AppSecret: "s", BaseURL: base, TokenFile: token})
+		if why := addressRefusal(base); (why != "") != (err != nil) {
+			t.Errorf("addressRefusal(%q) = %q, and schwab.NewAuth: %v", base, why, err)
+		}
 	}
 }
 
