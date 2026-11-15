@@ -2309,7 +2309,9 @@ func TestTransactionsWithoutLogin(t *testing.T) {
 // for longer ranges than a walk of Schwab's too. When Schwab answers 503,
 // each account fails in turn, and is read from the store, and the accounts
 // that fail alike share one warning. The pages of such an answer hold the
-// store's rows once, as source store's do.
+// store's rows once, as source store's do; so too when an account whose
+// days the store holds whole is read from it at once, beside accounts that
+// fall back, whose rows, totals and coverage the answer adds to its own.
 func TestTransactionsFallBackToTheStore(t *testing.T) {
 	t.Parallel()
 	args := `{"account":"135","from":"2024-01-01","to":"2025-05-31"}`
@@ -2357,7 +2359,43 @@ func TestTransactionsFallBackToTheStore(t *testing.T) {
 		t.Errorf("with a login known to have ended, the server sent %d requests", n)
 	}
 
-	e = newEnv(t)
+	// The store holds, beside the shared store's rows, a read of ...135's
+	// days around its dividend of October 2025, which leaves ...135's 2025
+	// not whole there; and two rows of ...783 of March 2025 from a schwabtx
+	// transactions -json file, whose days between them are api_file, and one
+	// of a History export of April 2025 whose completeness no one gave,
+	// file_unknown: neither is whole history (design 2.3).
+	path := storeCopy(t)
+	s, err := history.Open(t.Context(), history.Options{Path: path, Now: func() time.Time { return testNow }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row schwab.Transaction
+	if err = json.Unmarshal([]byte(dividend135), &row); err == nil {
+		_, err = s.RecordTransactions(t.Context(), history.TransactionsRead{
+			Read:    history.Read{SentAt: ny(2025, time.October, 15, 9, 0), AnsweredAt: ny(2025, time.October, 15, 9, 0).Add(time.Second)},
+			Account: individual, Query: schwab.TransactionQuery{Start: ny(2025, time.September, 15, 0, 0), End: ny(2025, time.October, 15, 0, 0)},
+			Rows: []schwab.Transaction{row},
+		})
+	}
+	if err == nil {
+		output := "[" + txnJSON(empty, 73508266001, ny(2025, time.March, 3, 10, 0), "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.01) +
+			"," + txnJSON(empty, 73508266002, ny(2025, time.March, 28, 10, 0), "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.02) + "]"
+		_, err = s.Import(t.Context(), []history.FileInput{{Name: "transactions.json", Content: []byte(output)}}, history.ImportOptions{})
+	}
+	if err == nil {
+		csv := `"Date","Action","Symbol","Description","Quantity","Price","Fees & Comm","Amount"` + "\n" +
+			`"04/10/2025","Credit Interest","","SCHWAB1 INT 03/01-03/31","","","","$0.05"` + "\n"
+		_, err = s.Import(t.Context(), []history.FileInput{{Name: "Contributory_XXX783_Transactions_20250501-120000.csv", Content: []byte(csv)}},
+			history.ImportOptions{Account: empty, From: "2025-04-01", To: "2025-04-30"})
+	}
+	if cerr := s.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	e = newEnv(t, withStore(path))
 	if r := e.call("list_accounts", `{}`); r.isError {
 		t.Fatal(r.text)
 	}
@@ -2385,6 +2423,62 @@ func TestTransactionsFallBackToTheStore(t *testing.T) {
 	store := txnRefsOf(txnRowsOf(e.call("get_transactions", `{"account":"135","source":"store","from":"2024-01-01","to":"2025-05-31"}`)))
 	if len(store) < 3 || !slices.Equal(pages, store) {
 		t.Errorf("pages of 2, Schwab answering 503, hold %v; source store %v", pages, store)
+	}
+
+	// Every account over 2025: ...398's days are whole in the store, which
+	// reads them at once, with no request for them; ...135 and ...783 go to
+	// Schwab, fail, and fall back, each with rows of its own, ...783's days
+	// none of them whole. The rows, the totals and each account's coverage
+	// are those of both reads of the store, as source store has them, and
+	// the pages of one row hold the rows of source store, each once.
+	from := len(e.fake.Requests())
+	mixed := `{"from":"2025-01-01","to":"2025-12-31"}`
+	r = e.call("get_transactions", mixed)
+	for _, req := range e.fake.Requests()[from:] {
+		if strings.Contains(req.Path, schwabtest.HashFor(options)) {
+			t.Errorf("...398, whole in the store, was asked of Schwab: %s", req.Path)
+		}
+	}
+	if !strings.Contains(r.text, "Schwab could not be read for ...135 and ...783, so their rows come from the local history") ||
+		r.value["complete"] != true {
+		t.Errorf("...398 from the store at once, ...135 and ...783 falling back: %.800s", r.text)
+	}
+	if c := txnCoverageOf(r, "...398"); c["read_from"] != "store" || fmt.Sprint(c["whole"]) != "[map[from:2025-01-01 to:2025-12-31]]" {
+		t.Errorf("...398, whole in the store: %v", c)
+	}
+	want := []string{
+		"T73508262002@...398", "T73508262101@...135", "C8e002e44.1@...783", "T73508266002@...783", "T73508262001@...398",
+		"T73508266001@...783", "C2cdf9679.2@...398", "C2cdf9679.1@...398",
+	}
+	if got := txnRefsOf(txnRowsOf(r)); !slices.Equal(got, want) {
+		t.Errorf("the rows of both reads: %v, want %v", got, want)
+	}
+	totals, _ := json.Marshal(r.value["totals"])
+	if string(totals) != `[{"amount":-251.3,"category":"buy","count":2,"fees":1.3},{"amount":198.48,"category":"dividend","count":3,"fees":0},`+
+		`{"amount":0.08,"category":"interest","count":3,"fees":0}]` {
+		t.Errorf("the totals of both reads: %s", totals)
+	}
+	// ...783's days of api_file and file_unknown are none of them whole:
+	// coverage lists them as partial, by their source, and the warning
+	// store_coverage_partial names the account, here and under source store.
+	for _, m := range []result{r, e.call("get_transactions", `{"source":"store","account":"783","from":"2025-01-01","to":"2025-12-31"}`)} {
+		c := txnCoverageOf(m, "...783")
+		whole, _ := json.Marshal(c["whole"])
+		partial, _ := json.Marshal(c["partial"])
+		if string(whole) != "[]" || string(partial) != `[{"from":"2025-03-04","source":"api_file","to":"2025-03-27"},`+
+			`{"from":"2025-04-01","source":"file_unknown","to":"2025-04-30"}]` ||
+			!strings.Contains(m.text, "The local history does not hold every asked day of ...783 as whole history") {
+			t.Errorf("...783's days of files that are not whole history: %v; %.600s", c, m.text)
+		}
+	}
+	sameAsStore(t, e, "...398 from the store at once, ...135 and ...783 falling back", r, mixed, "...135", "...398", "...783")
+	pages = nil
+	for _, p := range e.txnPages("get_transactions", `{"from":"2025-01-01","to":"2025-12-31","limit":1}`, 20) {
+		pages = append(pages, txnRefsOf(txnRowsOf(p))...)
+	}
+	store = txnRefsOf(txnRowsOf(e.call("get_transactions", `{"source":"store","from":"2025-01-01","to":"2025-12-31"}`)))
+	if !slices.Equal(pages, store) || !slices.Equal(store, want) {
+		t.Errorf("pages of 1, ...398 from the store at once, ...135 and ...783 falling back, hold %v; source store %v", pages, store)
 	}
 
 	// Schwab sends ...135's newest window, whose part of one instant holds
@@ -2428,7 +2522,7 @@ func TestTransactionsFallBackToTheStore(t *testing.T) {
 // sameAsStore fails unless r, a call of get_transactions with args, holds
 // the totals of the same call with source store, and for each account
 // masked as one of masked the same coverage: its rows, waiting rows, last
-// read and whole days.
+// read, and whole and partial days.
 func sameAsStore(t *testing.T, e *env, name string, r result, args string, masked ...string) {
 	t.Helper()
 	var in map[string]any
@@ -2448,7 +2542,7 @@ func sameAsStore(t *testing.T, e *env, name string, r result, args string, maske
 	}
 	for _, m := range masked {
 		c, s := txnCoverageOf(r, m), txnCoverageOf(store, m)
-		for _, field := range []string{"rows", "waiting", "last_read", "whole"} {
+		for _, field := range []string{"rows", "waiting", "last_read", "whole", "partial"} {
 			if fmt.Sprint(c[field]) != fmt.Sprint(s[field]) {
 				t.Errorf("%s: %s's %s is %v; source store %v", name, m, field, c[field], s[field])
 			}
