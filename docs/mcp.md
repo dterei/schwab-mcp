@@ -287,7 +287,7 @@ coverage row, and the warning `account_failed` says why.
 | `store_unavailable` | The local history could not be read, so what the answer would take from it is left out, or read from Schwab; the reason follows. |
 | `store_newer_rules` | A newer `schwabtx` derived the local history: install `schwab-mcp` of the same version. |
 | `store_waiting` | Rows of the local history in these days wait for your decision in `schwabtx status`, and are not counted. |
-| `store_coverage_partial` | The local history does not hold every asked day of an account whole, so rows of those days may be missing. |
+| `store_coverage_partial` | The local history does not hold every asked day of an account whole, or does not know the account at all, so rows of those days may be missing. |
 | `store_covers_some` | An account was read from Schwab: the local history holds some of the asked days, but not every one whole. |
 | `before_decisions` | Rows read from Schwab carry the rules' category, before your decisions and the local history's pairing. |
 | `empty_not_proof` | Schwab refused an older window as too old, or sent nothing for it, which does not show that there is nothing older. |

@@ -1017,8 +1017,9 @@ func (w *txnWalk) wholeOf(runs []history.CoverageRun) []span {
 
 // warnings adds the warnings of the walk, whose coverage rows are
 // coverage: per account, what waits in the store, days that it does not
-// hold as whole history, a failure, and the end of a walk of Schwab's; then
-// what applies to every row.
+// hold as whole history, under store an account that it does not know, a
+// failure, and the end of a walk of Schwab's; then what applies to every
+// row.
 func (w *txnWalk) warnings(coverage []coverageRow) {
 	c, q := w.c, w.q
 	var problems [][]schwab.Problem
@@ -1066,6 +1067,15 @@ func (w *txnWalk) warnings(coverage []coverageRow) {
 						"so some may be missing; totals are null.", schwab.MaxTransactions, name,
 						Date(w.windows[j].first), Date(w.windows[j].last))
 				}
+			}
+		case fromNone:
+			// Under store, an account that the store knows is read whatever
+			// it covers, so one that is not, and did not fail, is one that
+			// the store does not know, such as an account opened since the
+			// last import.
+			if ta.err == nil && q.source == "store" {
+				c.warn("store_coverage_partial", "The local history does not know %s, so this answer holds none of its rows; "+
+					"source auto or schwab reads them from Schwab.", name)
 			}
 		}
 		if ta.err != nil && !isStoreCode(ta.err.code) {

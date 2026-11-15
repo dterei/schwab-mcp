@@ -1256,6 +1256,44 @@ func TestTransactionsStoreStates(t *testing.T) {
 	}
 }
 
+// With source store, an account that the local history does not know, as
+// one opened since the last import, holds none of the answer's rows, and
+// the warning store_coverage_partial says so, naming it; under auto it is
+// read from Schwab, with no such warning. Here the store knows ...135
+// alone.
+func TestStoreDoesNotKnowAnAccount(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "history.db")
+	s, err := history.Open(t.Context(), history.Options{Path: path, Now: func() time.Time { return testNow }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := history.Read{SentAt: testNow.Add(-time.Hour), AnsweredAt: testNow.Add(-time.Hour + time.Second)}
+	numbers := []schwab.AccountNumber{{AccountNumber: individual, HashValue: schwab.AccountHash(schwabtest.HashFor(individual))}}
+	if err := s.RecordAccountNumbers(t.Context(), read, numbers); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	e := newEnv(t, withStore(path))
+	r := e.call("get_transactions", `{"from":"2025-01-01","to":"2025-12-31","source":"store"}`)
+	for _, masked := range []string{"...398", "...783"} {
+		says := "The local history does not know " + masked + ", so this answer holds none of its rows; " +
+			"source auto or schwab reads them from Schwab."
+		if c := txnCoverageOf(r, masked); r.isError || c["read_from"] != "none" || c["error"] != nil || !strings.Contains(r.text, says) {
+			t.Errorf("source store, %s that the store does not know: %.600s", masked, r.text)
+		}
+	}
+	if strings.Contains(r.text, "does not know ...135") {
+		t.Errorf("source store, ...135, which the store knows: %.600s", r.text)
+	}
+	r = e.call("get_transactions", `{"from":"2025-01-01","to":"2025-12-31"}`)
+	if r.isError || txnCoverageOf(r, "...398")["read_from"] != "schwab" || strings.Contains(r.text, "does not know") {
+		t.Errorf("auto: %.600s", r.text)
+	}
+}
+
 // A read of the local history that still waits when the call's time runs
 // out ends the call, [timed_out]: the accounts do not go to Schwab as if
 // the store could not be read, with no time left to read them. The
