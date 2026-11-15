@@ -280,6 +280,13 @@ func (s *Server) Run(ctx context.Context, t mcp.Transport) error {
 	for _, p := range s.o.Config.Problems {
 		s.log.Warn("a setting cannot be used", "problem", s.problemText(p))
 	}
+	// Over stdio, every error response is worded by guardLine. Streamable
+	// HTTP (M7) will need its own guard.
+	if st, ok := t.(*mcp.IOTransport); ok {
+		guarded := *st
+		guarded.Writer = &guardWriter{w: st.Writer, s: s}
+		t = &guarded
+	}
 	// The SDK's own Run logs an error line for a session that ends with
 	// ctx, and another for one that fails; the server says it once.
 	ss, err := s.mcp.Connect(ctx, t, nil)

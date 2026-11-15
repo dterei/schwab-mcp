@@ -1051,6 +1051,61 @@ func TestLoginErrors(t *testing.T) {
 	}
 }
 
+// A protocol error that the SDK words before the middleware runs, for
+// params it cannot decode, quotes no part of the request: its message is
+// the method and the code's words. Any other keeps the SDK's words, with
+// the known numbers and the secrets replaced.
+func TestProtocolErrorsQuoteNoRequest(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, withoutStore())
+	const unknown = "5550001234"
+	e.plant(unknown)
+	out := e.runOnce(
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}`,
+		`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"prompts/get","params":{"name":"portfolio_review","arguments":{"account":`+unknown+`}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":`+unknown+`,"arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"schwab://accounts/`+individual+`/nothing"}}`,
+	)
+	for id, want := range map[string]string{
+		`"id":2`: `{"code":-32602,"message":"handling 'prompts/get': invalid params: they do not decode as the method's"}`,
+		`"id":3`: `{"code":-32602,"message":"handling 'tools/call': invalid params: they do not decode as the method's"}`,
+		`"id":4`: `{"code":-32602,"message":"resource not found"}`,
+	} {
+		if i := slices.IndexFunc(out, func(l string) bool { return strings.Contains(l, id+",") }); i < 0 || !strings.Contains(out[i], `"error":`+want) {
+			t.Errorf("the answer of %s: want the error %s, got\n%s", id, want, strings.Join(out, "\n"))
+		}
+	}
+	e.assertClean()
+
+	// guardLine words the errors of a batch too, keeps what is not an
+	// error byte for byte, and replaces the known numbers in the SDK's
+	// other errors, which a hit of the backstop's logs.
+	s, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	s.mask.known.Add(individual)
+	for _, tc := range []struct{ in, want string }{
+		{
+			`{"jsonrpc":"2.0","id":7,"error":{"code":-32601,"message":"\"29470135\" unsupported"}}`,
+			`{"jsonrpc":"2.0","id":7,"error":{"code":-32601,"message":"\"...135\" unsupported"}}`,
+		},
+		{
+			`[{"jsonrpc":"2.0","id":8,"error":{"code":-32602,"message":"handling 'prompts/get': invalid params: unmarshaling \"{\\\"account\\\":5550001234}\""}},` +
+				`{"jsonrpc":"2.0","id":9,"result":{}}]`,
+			`[{"jsonrpc":"2.0","id":8,"error":{"code":-32602,"message":"handling 'prompts/get': invalid params: they do not decode as the method's"}},` +
+				`{"jsonrpc":"2.0","id":9,"result":{}}]`,
+		},
+		{`{"jsonrpc":"2.0","id":10,"result":{"error":"29470135"}}`, `{"jsonrpc":"2.0","id":10,"result":{"error":"29470135"}}`},
+	} {
+		if got := string(s.guardLine([]byte(tc.in + "\n"))); got != tc.want+"\n" {
+			t.Errorf("guardLine(%s) =\n%s\nwant\n%s", tc.in, got, tc.want)
+		}
+	}
+}
+
 // A path in a log line shows as masker.path shows it, or masked by pattern
 // as outside text, even before the server has seen the numbers its names
 // hold: the start line's config and problems, and the warnings of a token

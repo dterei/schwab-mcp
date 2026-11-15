@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"runtime/debug"
 	"slices"
@@ -84,6 +85,98 @@ func (s *Server) sanitize(method string, err error) error {
 		s.backstopHit(method, 1)
 	}
 	return errors.New(msg)
+}
+
+// A guardWriter is the writer of a stdio transport's connection, which
+// words the error of each response the server writes, the SDK's own
+// included: the SDK answers a request whose params it cannot decode
+// before the receiving middleware runs, with an error that quotes the
+// params whole, and they may hold a full account number. Every write is
+// one line of one message, or of a batch's.
+type guardWriter struct {
+	w io.WriteCloser
+	s *Server
+}
+
+func (g *guardWriter) Write(p []byte) (int, error) {
+	if _, err := g.w.Write(g.s.guardLine(p)); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (g *guardWriter) Close() error { return g.w.Close() }
+
+// guardLine returns line, a message or a batch of them as the transport
+// writes it, with each response's error as wireError words it; any other
+// line as it is.
+func (s *Server) guardLine(line []byte) []byte {
+	trimmed := bytes.TrimSpace(line)
+	if !bytes.Contains(trimmed, []byte(`"error"`)) {
+		return line
+	}
+	var batch []json.RawMessage
+	if json.Unmarshal(trimmed, &batch) != nil {
+		batch = []json.RawMessage{trimmed}
+	}
+	changed := false
+	for i, raw := range batch {
+		msg, err := jsonrpc.DecodeMessage(raw)
+		r, ok := msg.(*jsonrpc.Response)
+		if err != nil || !ok || r.Error == nil {
+			continue
+		}
+		we, ok := errors.AsType[*jsonrpc.Error](r.Error)
+		if !ok {
+			continue
+		}
+		if msg := s.wireError(we.Code, we.Message); msg != we.Message {
+			r.Error = &jsonrpc.Error{Code: we.Code, Message: msg, Data: we.Data}
+			if b, err := jsonrpc.EncodeMessage(r); err == nil {
+				batch[i], changed = b, true
+			}
+		}
+	}
+	if !changed {
+		return line
+	}
+	out := batch[0]
+	if len(batch) > 1 || bytes.HasPrefix(trimmed, []byte("[")) {
+		b, err := encode(batch)
+		if err != nil {
+			return line
+		}
+		out = b
+	}
+	return append(out, '\n')
+}
+
+// sdkHandling is how the SDK starts the error for a request whose params
+// it could not decode: the method, then the decoder's error, which quotes
+// the params.
+var sdkHandling = regexp.MustCompile(`^handling '([a-z]+(?:/[a-zA-Z_]+)*)': `)
+
+// wireError returns msg, the message of a protocol error of code, as a
+// client may see it: the SDK's error for params it could not decode in
+// its own words, without the params, which are the client's request; any
+// other with the secrets and the known numbers replaced, as sanitize
+// replaces them in the errors that pass the middleware.
+func (s *Server) wireError(code int64, msg string) string {
+	if m := sdkHandling.FindStringSubmatch(msg); m != nil {
+		words := "the request could not be handled"
+		switch code {
+		case jsonrpc.CodeInvalidParams:
+			words = "invalid params: they do not decode as the method's"
+		case jsonrpc.CodeInvalidRequest:
+			words = "invalid request"
+		}
+		return "handling '" + m[1] + "': " + words
+	}
+	clean := s.mask.known.Text(s.mask.hide(msg))
+	if clean != msg {
+		s.backstopHit("a protocol error", 1)
+	}
+	return clean
 }
 
 // backstopResult runs the backstop over res, a result that leaves: every
