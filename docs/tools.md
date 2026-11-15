@@ -60,7 +60,7 @@ made up.
   (step 4); later `-since` exports do not count it again, a full export
   lists it again. Many keys at once, as when your History file was
   exported long before your first snapshot: export the History again from
-  Schwab and import it within a week of a snapshot
+  Schwab within a week of a snapshot, and import it
   ([docs/store.md](store.md#history-exports)), so that the store joins the
   keys of each security that you hold itself; then export again. Once
   imported, a `-same` still works: the next `-since` export lists the rows
@@ -339,10 +339,9 @@ and the types' names, whatever PP's language and locale.
    with every name that it has had and the source that named it (`names`).
    On a first import into empty accounts PP makes each from what is
    written, and only `named_by_cusip` asks anything, after importing. With
-   `-since`, and on a redo (PP keeps
-   its securities when you delete their transactions), set each that PP
-   holds before you import; PP does not hold one marked `new`, which no
-   export of the chain wrote:
+   `-since`, and on a redo (PP keeps its securities when you delete their
+   transactions), set each that PP holds before you import; PP does not
+   hold one marked `new`, which no export of the chain wrote:
 
    - `renamed`: it has had two tickers; the ticker written is the last
      that Schwab's API gave it (the newest History file's when the API
@@ -354,25 +353,26 @@ and the types' names, whatever PP's language and locale.
      security, the API last saw it before a rename: clear its feed, which
      values nothing that you hold, or set the ticker that Schwab shows for
      it now. A fresh `schwabtx transactions -json` names it by its current
-     symbol only while Schwab's API still serves one of its rows.
+     symbol only while Schwab's API still serves one of its rows ([how
+     long](schwab-api.md#transactions) is not documented).
    - `no_ticker`: written without the ticker that it has had, with its
-     CUSIP as WKN, `because`:
+     CUSIP as WKN, and priced from your snapshots, `because`:
      - `delisted`: its last name at Schwab is its CUSIP. Clear its ticker
-       and its feed, as its old ticker may be another company's now.
+       and its feed, as its old ticker may be another company's now. When
+       Schwab named it by its CUSIP and its ticker at once (its `names`
+       list both from `api` at one `last_seen_at`), it may still trade: you
+       may set its ticker by hand, as for `undecided`.
      - `reused`: another security of the store keeps the ticker (its key is
-       `reused_by`). Of the securities whose current symbol is one ticker,
-       one that an account holds at its latest snapshot keeps it, else one
-       that Schwab's API names by it, and of several such, the one that the
-       API named by it last; one that only History files name by it keeps
-       it from none. Clear this one's ticker, so that PP does not put that
-       one's rows on it.
-     - `undecided`: Schwab named it by two tickers at once (two History
-       files, when the API never named it), so that it has no current one;
-       or none keeps it: of those held, or, none held, of those that the
-       API names by it, the API named two by it last at one instant; or none
-       is held or named by the API. Each is priced from your snapshots. If you set the ticker by hand on one for a feed,
-       clear it again before you import a later export that lists another
-       security `changed`, written as that ticker.
+       `reused_by`), as an account holds that one, or Schwab's API named
+       that one by it later ([the rule](store.md#securities)). Clear this
+       one's ticker, so that PP does not put that one's rows on it.
+     - `undecided`: Schwab named it by two tickers at once (or, when the
+       API never named it, the newest History file did), or it shares its
+       ticker with another security and none keeps it ([the
+       rule](store.md#securities)). Set a ticker by hand if you want a
+       feed, and clear it again before you import a later export that lists
+       another security `changed`, written as that ticker, whose rows PP
+       would put on this one.
    - `named_by_cusip`: written with a ticker although a name of it is its
      CUSIP, as after a cash merger that only a History file shows, and no
      account holds it: if Yahoo lacks the ticker or shows another company
@@ -384,6 +384,14 @@ and the types' names, whatever PP's language and locale.
      alone: give the PP security the identifiers written in
      `securities.csv`. Beside a ticker or a WKN, a name changes nothing that
      PP finds a security by, and nothing is listed for it.
+
+   A security written on its own that you have since joined with `-same` is
+   never listed: the next `-since` export lists its rows to delete and
+   writes them under the joined security, so its PP security ends empty:
+   delete it. A security that you no longer hold, whose ticker Yahoo now
+   shows as another company's: clear its feed, as PP would value its past
+   holding at that company's prices; the export names such a one only when
+   a name of it is its CUSIP (`named_by_cusip`).
 
    An option's shares are its contracts times its multiplier, under its OCC
    symbol (`XYZ250221P00040000`); an option that expired, was assigned or
@@ -404,11 +412,11 @@ its name only from that version on; and the YAHOO data source enabled on
 the instance. Its accounts carry the balances of your snapshots, which are
 Ghostfolio's cash: deposits, withdrawals and journals are no activities
 there. A security with a plain ticker is a YAHOO asset, which Yahoo prices;
-options, bonds, securities without a ticker, delisted or whose ticker
-another security keeps, tickers that are not plain ones of Yahoo's, and
-those you name with `-manual` are MANUAL assets, priced from your
-snapshots, each named from what identifies it, with its description in its
-comment.
+options, bonds, securities written without a ticker (none, delisted, one
+whose ticker another security keeps or none does, a key written on its
+own), tickers that are not plain ones of Yahoo's, and those you name with
+`-manual` are MANUAL assets, priced from your snapshots, each named from
+what identifies it, with its description in its comment.
 
 ### The first import
 
@@ -510,12 +518,13 @@ comment.
    (VBR)`), which its rows share under every key that the export takes for
    it; an option's symbol (`XYZ 2025-02-21 40 put (XYZ250221P00040000)`);
    the CUSIP of a bond, of a delisted security, whose ticker another
-   company may have taken, and of one that does not keep its ticker,
-   which another security of the store keeps, or none does (PP's step 8
-   says when, under `reused` and `undecided`); else its key in the store
-   (`Security (i:205187341)`), as for a futures option or a key written on
-   its own ([above](#in-both-tools)). Its description is in its comment,
-   and every description of a key written on its own.
+   company may have taken, and of one written without its ticker because
+   another security of the store keeps it, or none does, or Schwab named it
+   by two at once (PP's step 8 says when, under `reused` and `undecided`);
+   else its key in the store (`Security (i:205187341)`), as for a futures
+   option or a key written on its own ([above](#in-both-tools)). Its
+   description is in its comment, and every description of a key written
+   on its own.
 5. **Fees and taxes** are FEE activities of the assets `Schwab fees` and
    `Schwab taxes`, which carry a price of 1 so that Ghostfolio takes them off
    net performance; their refunds are interest of the same asset, which
@@ -539,7 +548,10 @@ comment.
    Ghostfolio ties an activity to its asset, and does not follow a change
    of symbol: after a rename, a delisting or `-manual`, the export lists
    the old asset's difference as gone and the new asset's as new; the
-   import makes the new asset when it is a new MANUAL asset.
+   import makes the new asset when it is a new MANUAL asset. The rows left
+   out, each with what to do, and those written with a caveat are as for PP
+   ([What the manifest asks of you](#what-the-manifest-asks-of-you), its
+   Ghostfolio column).
 
 ### Later imports
 
