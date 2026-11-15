@@ -51,10 +51,11 @@ made up.
   not taken for that one, whatever CUSIPs they know: two companies of one
   ticker at different times stay two. The days of the API's rows say when
   a security went by a ticker, but a History file names every row by the
-  ticker of its export, an old row too, so a file's key goes by the exports
-  that named it: a security renamed or delisted between two of a file's
-  exports gave its ticker up at the later one, and another key that had
-  the ticker in between is taken for it, as one security. stderr
+  ticker of its export, an old row too, so a file's rows go by the exports
+  that named them, whatever key the store holds them under: a security
+  renamed or delisted between two of a file's exports, with no API row under
+  its new symbol, gave its ticker up at the later one, and another key that
+  had the ticker in between is taken for it, as one security. stderr
   and the manifest's `keys_unsure` name each such key, with a `schwabtx edit
   K:… -same K:…` for each security it may be (`apart` for one that had the
   ticker at another time). Run the one that is right, and the store joins

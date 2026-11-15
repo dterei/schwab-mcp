@@ -1385,15 +1385,16 @@ and the export after you decide one writes it.
   last row, under the CUSIP, makes the security delisted, as the
   `securities` view's symbol says, while a spin-off's purchases, under its
   ticker after its first row under its CUSIP, keep it trading. Of two whose
-  rows end on one day, or that no row names, the ticker. A History file's
-  key that has no ticker, as when the file's one row of a spin-off is its
-  receipt under its CUSIP, saw its CUSIP on the last day of its rows under
-  it, as of that day's start, not at the file's export: a file exported
-  after the snapshots that held the security under its ticker leaves it
-  trading, and a cash merger's row under the CUSIP after them delists it.
-  The export reads the days of every row of the store for this, counted or
-  not, whatever `-account` and `-to` select, so that every export takes a
-  security alike.
+  rows end on one day, or that no row names, the ticker. A History file
+  that names a security by no ticker, as when the file's one row of a
+  spin-off is its receipt under its CUSIP, saw its CUSIP on the last day of
+  its rows under it, as of that day's start, not at the file's export,
+  whether or not the store joined the file's key to another: a file
+  exported after the snapshots that held the security under its ticker
+  leaves it trading, and a cash merger's row under the CUSIP after them
+  delists it. The export reads the days of every row of the store for
+  this, counted or not, each source's apart, whatever `-account` and `-to`
+  select, so that every export takes a security alike.
   Class shares take Yahoo's form, which both tools' feeds use (`BRK.B`,
   `BRK/B` and `BRK B` are `BRK-B`).
 - **CUSIP**, written as PP's WKN, which is how PP's own importers of US
@@ -1440,26 +1441,30 @@ and the export after you decide one writes it.
   two otherwise at once, so that a company that took the ticker later,
   known by a History file's key or by an API key that no snapshot held,
   never takes the other's identity, nor gives it its own; keys of either
-  that had the ticker while it did still join it. An API key goes by the
-  days of its rows, which name it as of their day (and, with no row under
-  a symbol, as a position's key, by when the store saw it); a History
-  file's key by the exports that named it, not by its rows' days: a file
-  names every row by the ticker of its export, and a later export restates
-  an old row under a new ticker. So a security renamed or delisted between
-  two of a file's exports took up its new symbol at the later one, and a
-  key that had the ticker in between joins it: the store cannot say that
-  the change came first; so does a company that took a merged security's
-  ticker before the next export of that security's file. A key that knows
-  no CUSIP, as a History file's often does, and that such a ticker alone
-  ties to them is written as the one that had the ticker first, by the
-  days of its rows under it, else by when the store first saw it, since a
-  History file's rows come before the API's and a late import of old rows
-  dates its symbols late; a key whose tickers are each of another stays on
-  its own, its rows perhaps of both, and so does one whose ticker the
-  others had at other times. The export cannot be sure of any of these:
-  stderr and the manifest's `keys_unsure` list each, with the command,
-  `schwabtx edit K:… -same K:…`, that joins it in the store itself to each
-  security that it may be.
+  that had the ticker while it did still join it. The API's rows go by
+  their days, which name a security as of their day (and, with no row
+  under a symbol, as a position's key, by when the store saw it); a History
+  file's rows by the exports that named them, not by their days, whatever
+  key the store gives them, a file's own or the API's that the store joined
+  it to when their names met within days: a file names every row by the
+  ticker of its export, and a later export restates an old row under a new
+  ticker. (A file that knows a security by its CUSIP alone, as of a
+  spin-off's receipt or a cash merger, dates the CUSIP by its rows under
+  it.) So a security renamed or delisted between two of a file's exports,
+  with no row of the API's under its new symbol, took it up at the later
+  one, and a key that had the ticker in between joins it: the store cannot
+  say that the change came first; so does a company that took a merged
+  security's ticker before the next export of that security's file. A key
+  that knows no CUSIP, as a History file's often does, and that such a
+  ticker alone ties to them is written as the one that had the ticker
+  first, by the days of its rows under it, else by when the store first
+  saw it, since a History file's rows come before the API's and a late
+  import of old rows dates its symbols late; a key whose tickers are each
+  of another stays on its own, its rows perhaps of both, and so does one
+  whose ticker the others had at other times. The export cannot be sure of
+  any of these: stderr and the manifest's `keys_unsure` list each, with the
+  command, `schwabtx edit K:… -same K:…`, that joins it in the store itself
+  to each security that it may be.
 - **Options.** In PP an option's ticker is its OCC symbol in compact form,
   `XYZ250221P00040000`, the form Yahoo uses, and a futures option's is its
   symbol; in Ghostfolio every option is a MANUAL asset, since Yahoo's search

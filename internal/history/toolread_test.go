@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -346,7 +347,7 @@ func toolLines(in *toolInput) map[string][]string {
 			text("expiration", string(s.expiration)).float("multiplier", s.multiplier).text("underlying", s.underlying))
 	}
 	for _, n := range in.names {
-		add("names", new(toolLine).word(n.key).word(n.kind).word(n.value).time("first", n.firstSeen).time("last", n.lastSeen))
+		add("names", new(toolLine).word(n.key).word(n.kind).word(n.value).text("from", n.from).time("first", n.firstSeen).time("last", n.lastSeen))
 	}
 	for _, p := range in.positions {
 		add("positions", new(toolLine).word(p.key).word(account(p.account)).word(string(p.marketDate)).time("fetched", p.fetchedAt).
@@ -369,7 +370,7 @@ func toolLines(in *toolInput) map[string][]string {
 		add("later", new(toolLine).word(l.ref).word(account(l.account)).word(string(l.day)))
 	}
 	for _, d := range in.days {
-		add("days", new(toolLine).word(d.key).word(d.symbol).word(string(d.first)).word(string(d.last)))
+		add("days", new(toolLine).word(d.key).word(d.symbol).word(d.source).word(string(d.first)).word(string(d.last)))
 	}
 	return out
 }
@@ -560,8 +561,8 @@ var toolStoreLines = map[string][]string{
 		`i:1940083512 description "META PLATFORMS INC CLASS A" first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
 		`i:1940083512 symbol META first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
 		`i:1973757747 symbol AAPL first=2025-06-03T00:00:01Z last=2026-11-10T23:30:01Z`,
-		`i:1973757747 symbol AAPL first=2026-11-09T23:05:00Z last=2026-11-10T23:05:00Z`,
-		`i:1973757747 symbol AAPL first=2026-10-05T13:00:00Z last=2026-10-05T13:00:00Z`,
+		`i:1973757747 symbol AAPL from=c:037833100 first=2026-11-09T23:05:00Z last=2026-11-10T23:05:00Z`,
+		`i:1973757747 symbol AAPL from=s:FILE:AAPL@2026-10-05 first=2026-10-05T13:00:00Z last=2026-10-05T13:00:00Z`,
 		`i:205187341 description "E-MINI S&P 500 OPTIONS MAR 25 5050 PUT" first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
 		`i:205187341 symbol /ESH25_P5050:XCME first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
 		`i:219771034 description "XYZ 02/21/2025 40.00 P" first=2026-08-05T00:00:01Z last=2026-08-05T00:00:01Z`,
@@ -626,22 +627,23 @@ var toolStoreLines = map[string][]string{
 		`M.3 A1 linked matched_with=T73508261951`,
 	},
 	"days": {
-		`i:1854092 XYZ 2026-07-15 2026-07-15`,
-		`i:1940083512 META 2026-03-13 2026-03-13`,
-		`i:1973757747 AAPL 2025-06-02 2026-09-23`,
-		`i:205187341 /ESH25_P5050:XCME 2025-01-14 2025-01-14`,
-		`i:219771034 "XYZ   250221P00040000" 2025-01-21 2025-01-21`,
-		`i:219834765 "XYZ   260918C00050000" 2026-08-04 2026-08-04`,
-		`i:219950001 "XYZ   261016P00045000" 2026-09-15 2026-09-15`,
-		`i:219950002 "XYZ   261016P00040000" 2026-09-15 2026-09-15`,
-		`i:4417302 BND 2024-04-04 2024-04-04`,
-		`i:4417355 VBR 2024-03-15 2024-03-15`,
-		`s:FILE:9128ZZQ15@2026-07-20 9128ZZQ15 2026-04-01 2026-06-01`,
-		`s:FILE:ABCD@2026-07-20 ABCD 2026-03-09 2026-06-15`,
-		`s:FILE:EFGH@2026-07-20 EFGH 2026-02-10 2026-07-01`,
-		`s:FILE:MNOP@2026-07-20 MNOP 2026-02-24 2026-02-24`,
-		`s:FILE:QRST@2026-07-20 QRST 2026-02-17 2026-02-18`,
-		`"s:FILE:XYZ 05/15/2026 50.00 C@2026-07-20" "XYZ 05/15/2026 50.00 C" 2026-04-06 2026-05-18`,
+		`i:1854092 XYZ api 2026-07-15 2026-07-15`,
+		`i:1940083512 META api 2026-03-13 2026-03-13`,
+		`i:1973757747 AAPL api 2025-06-02 2026-09-23`,
+		`i:1973757747 AAPL file 2026-09-22 2026-09-22`,
+		`i:205187341 /ESH25_P5050:XCME api 2025-01-14 2025-01-14`,
+		`i:219771034 "XYZ   250221P00040000" api 2025-01-21 2025-01-21`,
+		`i:219834765 "XYZ   260918C00050000" api 2026-08-04 2026-08-04`,
+		`i:219950001 "XYZ   261016P00045000" api 2026-09-15 2026-09-15`,
+		`i:219950002 "XYZ   261016P00040000" api 2026-09-15 2026-09-15`,
+		`i:4417302 BND api 2024-04-04 2024-04-04`,
+		`i:4417355 VBR api 2024-03-15 2024-03-15`,
+		`s:FILE:9128ZZQ15@2026-07-20 9128ZZQ15 file 2026-04-01 2026-06-01`,
+		`s:FILE:ABCD@2026-07-20 ABCD file 2026-03-09 2026-06-15`,
+		`s:FILE:EFGH@2026-07-20 EFGH file 2026-02-10 2026-07-01`,
+		`s:FILE:MNOP@2026-07-20 MNOP file 2026-02-24 2026-02-24`,
+		`s:FILE:QRST@2026-07-20 QRST file 2026-02-17 2026-02-18`,
+		`"s:FILE:XYZ 05/15/2026 50.00 C@2026-07-20" "XYZ 05/15/2026 50.00 C" file 2026-04-06 2026-05-18`,
 	},
 }
 
@@ -695,10 +697,10 @@ func checkToolReadLater(t *testing.T, ts *toolStore, want map[string][]string) m
 		`L.2 A3 file day=2026-11-13 posted=2026-11-13 kind="Qualified Dividend" description="MNOP HOLDINGS INC" amount=360 fees=0 gross=360 as_of=2026-11-20 symbol=MNOP key=s:FILE:MNOP@2026-07-20 category=dividend flags=missing_from_later;near_duplicate`,
 		`R.1 A3 file day=2026-11-13 posted=2026-11-13 kind="Qualified Dividend" description="MNOP HOLDINGS INC" amount=306 fees=0 gross=306 as_of=2026-11-23 symbol=MNOP key=s:FILE:MNOP@2026-07-20 category=dividend flags=near_duplicate`)
 	want["names"] = toolInsert(t, want["names"], `s:FILE:ABCD@2026-07-20 symbol ABCD first=2026-07-20T13:00:00Z last=2026-07-20T13:00:00Z`,
-		`s:FILE:ABCD@2026-07-20 symbol ABCD first=2026-11-20T14:00:00Z last=2026-11-20T14:00:00Z`)
+		`s:FILE:ABCD@2026-07-20 symbol ABCD from=s:FILE:ABCD@2026-11-20 first=2026-11-20T14:00:00Z last=2026-11-20T14:00:00Z`)
 	want["names"] = toolInsert(t, want["names"], `s:FILE:MNOP@2026-07-20 symbol MNOP first=2026-07-20T13:00:00Z last=2026-07-20T13:00:00Z`,
-		`s:FILE:MNOP@2026-07-20 symbol MNOP first=2026-11-23T14:00:00Z last=2026-11-23T14:00:00Z`,
-		`s:FILE:MNOP@2026-07-20 symbol MNOP first=2026-11-20T14:00:00Z last=2026-11-20T14:00:00Z`)
+		`s:FILE:MNOP@2026-07-20 symbol MNOP from=s:FILE:MNOP@2026-11-23 first=2026-11-23T14:00:00Z last=2026-11-23T14:00:00Z`,
+		`s:FILE:MNOP@2026-07-20 symbol MNOP from=s:FILE:MNOP@2026-11-20 first=2026-11-20T14:00:00Z last=2026-11-20T14:00:00Z`)
 	want["coverage"] = toolInsert(t, want["coverage"], `A3 ...398 file_unknown 2026-02-10 2026-07-01`, `A3 ...398 file 2026-11-13 2026-11-16`)
 	want["days"] = slices.Clone(want["days"])
 	for i, l := range want["days"] {
@@ -910,6 +912,89 @@ func TestToolReadRenameRestated(t *testing.T) {
 		}
 		if u := keysUnsure(&e, events); len(u) != 0 {
 			t.Errorf("%s: unsure %+v", tool, *u[0])
+		}
+	}
+}
+
+// TestToolReadJoinedHistoryKey reads, from a real store, a security whose
+// History file's key and API key the store joined itself, their names
+// meeting within days (groupKeys' rule 2), so that its canonical key is the
+// API's: a History file exported on 2026-01-04 names it TKNB, its buy of
+// 2015 too, while the API's rows of a read of 2026-01-05 name it TKNA up to
+// May 2025 and TKNB from June, after its rename; and another company,
+// which no snapshot held and the store knows no CUSIP of, took TKNA in
+// October 2025, read at once. Q12 holds the API's rows apart from the
+// file's, and Q5 each name with the key that had it, when it is not the
+// security's own: the API's rows date the rename, the file's restated buy
+// nothing, and both tools keep the other company apart, as a key that they
+// cannot be sure of.
+func TestToolReadJoinedHistoryKey(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	ny := nytime.NewYork()
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20260104-090000", "json"), historyJSON("01/01/2015", "01/03/2026",
+		map[int]string{0: "66000800"}, csvRow{"03/02/2015", "Buy", "TKNB", "TKNB HOLDINGS INC", "10", "$10.00", "", "-$100.00"}))
+	trade := func(id, instrument int64, symbol string, at time.Time, quantity, net float64) schwab.Transaction {
+		return decodeRow(t, fmt.Sprintf(`{"activityId": %d, "time": %q, "accountNumber": %q, "type": "TRADE", "status": "VALID",
+			"subAccount": "CASH", "tradeDate": %q, "netAmount": %v, "transferItems": [{"instrument": {"assetType": "EQUITY",
+			"status": "ACTIVE", "symbol": %q, "instrumentId": %d, "closingPrice": 10.0}, "amount": %v, "cost": %v,
+			"price": 10.0, "positionEffect": "OPENING"}]}`,
+			id, schwabTime(at), individual, schwabTime(midnight(nytime.DateOf(at))), net, symbol, instrument, quantity, net))
+	}
+	read := time.Date(2026, time.January, 5, 23, 30, 0, 0, time.UTC)
+	record(t, s, listRead(individual, time.Date(2024, time.January, 1, 5, 0, 0, 0, time.UTC), read, read,
+		trade(73700000801, 1000800, "TKNA", time.Date(2024, time.March, 1, 10, 0, 0, 0, ny), 10, -100),
+		trade(73700000802, 1000800, "TKNA", time.Date(2025, time.May, 15, 10, 0, 0, 0, ny), -5, 60),
+		trade(73700000803, 1000800, "TKNB", time.Date(2025, time.June, 16, 10, 0, 0, 0, ny), 5, -70),
+		trade(73700000804, 1000800, "TKNB", time.Date(2026, time.January, 2, 10, 0, 0, 0, ny), 1, -15),
+		trade(73700000805, 1000801, "TKNA", time.Date(2025, time.October, 1, 10, 0, 0, 0, ny), 2, -80),
+		trade(73700000806, 1000801, "TKNA", time.Date(2025, time.November, 3, 10, 0, 0, 0, ny), -2, 82)))
+	importFile(t, s, "snapshots.jsonl", snapshotLine(t, time.Date(2026, time.March, 2, 23, 5, 0, 0, time.UTC), json.RawMessage(`{"securitiesAccount": {
+		"type": "CASH", "accountNumber": "`+individual+`", "roundTrips": 0,
+		"positions": [{"shortQuantity": 0.0, "averagePrice": 10.0, "longQuantity": 11.0, "marketValue": 165.0,
+			"instrument": {"assetType": "EQUITY", "cusip": "ZZQ80A107", "symbol": "TKNB", "instrumentId": 1000800}}],
+		"initialBalances": {"cashBalance": 1000.0, "liquidationValue": 1165.0},
+		"currentBalances": {"cashBalance": 1000.0, "liquidationValue": 1165.0}}}`)))
+	if got := storeStrings(t, s, "SELECT security_key FROM security_keys WHERE key IN ('x:66000800', 'i:1000800', 'i:1000801') ORDER BY key"); !slices.Equal(got, []string{"i:1000800", "i:1000801", "i:1000800"}) {
+		t.Fatalf("the store holds the keys as of the securities %q", got)
+	}
+	var in *toolInput
+	if err := s.withRead(t.Context(), func(r *rtx) error {
+		var err error
+		in, err = readToolInput(r, 0, "2026-11-12")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var days, from []string
+	for _, d := range in.days {
+		if d.key == "i:1000800" {
+			days = append(days, fmt.Sprintf("%s %s %s %s", d.symbol, d.source, d.first, d.last))
+		}
+	}
+	for _, n := range in.names {
+		if n.key == "i:1000800" && n.kind == "symbol" && n.from != "" {
+			from = append(from, n.value+" "+n.from)
+		}
+	}
+	if !slices.Equal(days, []string{"TKNA api 2024-03-01 2025-05-15", "TKNB api 2025-06-16 2026-01-02", "TKNB file 2015-03-02 2015-03-02"}) ||
+		!slices.Contains(from, "TKNB x:66000800") {
+		t.Fatalf("S's rows %q, its names of other keys %q", days, from)
+	}
+	for _, tool := range []string{toolPP, toolGF} {
+		e := *in
+		e.tool = tool
+		ix := newToolIndex(&e)
+		ix.groupAll()
+		if sa, qa := ix.security("i:1000800", ""), ix.security("i:1000801", ""); sa.rep == qa.rep || qa.identity() != "i:1000801" {
+			t.Errorf("%s: S is of %s, Q of %s, one security %v", tool, sa.identity(), qa.identity(), sa.rep == qa.rep)
+		}
+		events, _ := toolEvents(&e)
+		want := []ToolUnsure{{Key: "i:1000801", Tickers: []string{"TKNA"}, Securities: []ToolUnsureSecurity{{
+			Key: "i:1000800", CUSIP: "ZZQ80A107", Command: "schwabtx edit K:i:1000801 -same K:i:1000800", Apart: true,
+		}}}}
+		if got := toolUnsures(keysUnsure(&e, events)); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: unsure %+v", tool, got)
 		}
 	}
 }

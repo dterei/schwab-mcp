@@ -1741,6 +1741,61 @@ func TestToolMapping(t *testing.T) {
 			rcFile("C7f4a5b6f.1", 1, "2020-06-01", "Buy", "buy", "x:66000300", "TKRZ", centsOf(2_000_000), 15, -3_000),
 			rcTrade("T7f4a000401", 2, "2026-02-15 10:00:00", "buy", "i:1000302", "TKRZ", 1_000_000, 31, -3_100, 0))
 		b4 = tcInput(b4)
+		// J1: S's History file's key and its API key the store joined itself,
+		// their names meeting within days, so that S's canonical key is the
+		// API's and its entries keep it whatever their source: the file,
+		// exported in January 2026, names S by TKNB, the ticker that it took
+		// at its rename in June 2025, its buy of 2015 too; the API's rows
+		// name it TKNA up to May 2025 and TKNB from June. Q, which knows no
+		// CUSIP, took TKNA in October 2025, and no snapshot held it. The
+		// API's rows date S's rename, and the file's restated rows nothing:
+		// S gave TKNA up before Q had it, and the two stay apart, Q listed.
+		j1 := apartIn([]toolSecurityRow{
+			{key: "i:1000800", assetType: "EQUITY", symbol: "TKNB", cusip: "ZZQ80A107"}, {key: "i:1000801", assetType: "EQUITY", symbol: "TKNA"},
+		}, []toolName{
+			{key: "i:1000800", kind: "symbol", value: "TKNB", from: "x:66000800", firstSeen: tcNY("2026-01-04 09:00:00"), lastSeen: tcNY("2026-01-04 09:00:00")},
+			seen("i:1000800", "symbol", "TKNA", "2026-01-05 18:30:00"),
+			{key: "i:1000800", kind: "symbol", value: "TKNB", firstSeen: tcNY("2026-01-05 18:30:00"), lastSeen: tcNY("2026-03-02 18:05:00")},
+			seen("i:1000800", "description", "TKNB HOLDINGS INC", "2026-01-04 09:00:00"),
+			seen("i:1000801", "symbol", "TKNA", "2026-01-05 18:30:00"), seen("i:1000801", "description", "TKNA NEW CORP", "2026-01-05 18:30:00"),
+		}, []toolRow{
+			rcFile("C7f8a0001.1", 1, "2015-03-02", "Buy", "buy", "i:1000800", "TKNB", centsOf(10_000_000), 10, -10_000),
+			rcTrade("T7f8a000001", 1, "2025-10-01 10:00:00", "buy", "i:1000801", "TKNA", 2_000_000, 40, -8_000, 0),
+			rcTrade("T7f8a000002", 1, "2025-11-03 10:00:00", "sell", "i:1000801", "TKNA", -2_000_000, 41, 8_200, 0),
+		}, []toolPosition{rcPosition("2026-03-02", "i:1000800", 10_000_000, 300)})
+		// S's rows of the API are of another account's.
+		j1.days = append(j1.days,
+			toolSymbolDays{key: "i:1000800", symbol: "TKNA", source: "api", first: "2024-03-01", last: "2025-05-15"},
+			toolSymbolDays{key: "i:1000800", symbol: "TKNB", source: "api", first: "2025-06-16", last: "2026-02-17"})
+		// J3: J1 with R, which had TKNB from 2010 until it was renamed TKNR in
+		// 2020, before S took TKNB: the file's buy of 2015, which it names by
+		// TKNB, does not say that S had TKNB then, so R gave TKNB up before S
+		// had it, and the two stay apart, R listed too; TKNB, which both
+		// had, is no identity, and S is known by its CUSIP.
+		j3 := j1
+		j3.securities = append(slices.Clone(j1.securities), toolSecurityRow{key: "i:1000802", assetType: "EQUITY", symbol: "TKNR"})
+		j3.names = append(slices.Clone(j1.names), seen("i:1000802", "symbol", "TKNB", "2020-01-15 18:30:00"), seen("i:1000802", "symbol", "TKNR", "2020-03-02 18:30:00"))
+		j3.days = append(slices.Clone(j1.days),
+			toolSymbolDays{key: "i:1000802", symbol: "TKNB", source: "api", first: "2010-06-01", last: "2020-01-15"},
+			toolSymbolDays{key: "i:1000802", symbol: "TKNR", source: "api", first: "2020-03-02", last: "2020-03-02"})
+		// J2: B7 with the History file's key joined by the store to the
+		// positions' key, the file's rows and its name under the CUSIP now of
+		// c:69389C109: the file knows the security by no ticker, so its rows
+		// date the CUSIP as they would under the file's own key, and the
+		// merger's day, not the export's, keeps the later company apart.
+		joinedCash, joinedShares := mergerCash, mergerShares
+		joinedCash.securityKey, joinedShares.securityKey = "c:69389C109", "c:69389C109"
+		j2 := apartIn([]toolSecurityRow{
+			{key: "c:69389C109", assetType: "EQUITY", symbol: "69389C109", cusip: "69389C109"},
+			{key: "i:1000309", assetType: "EQUITY", symbol: "MRGR"},
+		}, []toolName{
+			{key: "c:69389C109", kind: "symbol", value: "69389C109", from: "x:66000309", firstSeen: tcNY("2026-01-15 09:00:00"), lastSeen: tcNY("2026-01-15 09:00:00")},
+			{key: "c:69389C109", kind: "symbol", value: "MRGR", firstSeen: tcNY("2025-06-30 18:05:00"), lastSeen: tcNY("2025-11-28 18:05:00")},
+			seen("i:1000309", "symbol", "MRGR", "2026-01-05 18:30:00"),
+		}, []toolRow{
+			joinedCash, joinedShares,
+			rcTrade("T7f4a000701", 1, "2026-01-05 10:00:00", "buy", "i:1000309", "MRGR", 2_000_000, 25, -5_000, 0),
+		}, nil)
 		f3 := apartIn([]toolSecurityRow{
 			{key: "i:1000501", assetType: "EQUITY", symbol: "GRPZ", cusip: "ZZR50A102"},
 			{key: "c:ZZS50B109", assetType: "EQUITY", symbol: "GRPZ", cusip: "ZZS50B109"},
@@ -1836,6 +1891,27 @@ func TestToolMapping(t *testing.T) {
 				"B7, a later company after a cash merger alone under the CUSIP", b7,
 				map[string]string{"c:69389C109": "69389C109", "x:66000309": "69389C109", "i:1000309": "i:1000309"},
 				[][2]string{{"c:69389C109", "x:66000309"}},
+				map[string]toolUnsure{"i:1000309": {keys: []string{"i:1000309"}, tickers: []string{"MRGR"}, of: []toolUnsureOf{{key: "c:69389C109", cusip: "69389C109", apart: true}}, taken: -1}},
+			},
+			{
+				"J1, renamed, its History file's key joined to its API key, its rows restated", j1,
+				map[string]string{"i:1000800": "TKNB", "i:1000801": "i:1000801"},
+				nil,
+				map[string]toolUnsure{"i:1000801": {keys: []string{"i:1000801"}, tickers: []string{"TKNA"}, of: []toolUnsureOf{{key: "i:1000800", cusip: "ZZQ80A107", apart: true}}, taken: -1}},
+			},
+			{
+				"J3, J1 beside an older company of S's new ticker", j3,
+				map[string]string{"i:1000800": "ZZQ80A107", "i:1000801": "i:1000801", "i:1000802": "TKNR"},
+				nil,
+				map[string]toolUnsure{
+					"i:1000801": {keys: []string{"i:1000801"}, tickers: []string{"TKNA"}, of: []toolUnsureOf{{key: "i:1000800", cusip: "ZZQ80A107", apart: true}}, taken: -1},
+					"i:1000802": {keys: []string{"i:1000802"}, tickers: []string{"TKNB"}, of: []toolUnsureOf{{key: "i:1000800", cusip: "ZZQ80A107", apart: true}}, taken: -1},
+				},
+			},
+			{
+				"J2, B7 with the History file's key joined to the positions' key", j2,
+				map[string]string{"c:69389C109": "69389C109", "i:1000309": "i:1000309"},
+				nil,
 				map[string]toolUnsure{"i:1000309": {keys: []string{"i:1000309"}, tickers: []string{"MRGR"}, of: []toolUnsureOf{{key: "c:69389C109", cusip: "69389C109", apart: true}}, taken: -1}},
 			},
 			{

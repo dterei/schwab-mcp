@@ -406,32 +406,34 @@ func tcInput(in toolInput) toolInput {
 }
 
 // tcDays returns what Q12 reads of a store whose rows and legs are rows and
-// legs: the first and the last day of the rows and legs under each symbol
-// of each key, "" for the rows of a symbol without one, in the order of
-// their key and symbol.
+// legs: the first and the last day of the rows and legs of each source
+// under each symbol of each key, "" for the rows of a symbol without one,
+// in the order of their key, symbol and source.
 func tcDays(rows []toolRow, legs []toolLeg) []toolSymbolDays {
 	days := map[rowKey]nytime.Date{}
-	of := map[[2]string]*toolSymbolDays{}
-	add := func(key, symbol string, day nytime.Date) {
+	of := map[[3]string]*toolSymbolDays{}
+	add := func(key, symbol, source string, day nytime.Date) {
 		if symbol == "" || day == "" {
 			return
 		}
-		d := of[[2]string{key, symbol}]
+		d := of[[3]string{key, symbol, source}]
 		if d == nil {
-			d = &toolSymbolDays{key: key, symbol: symbol, first: day, last: day}
-			of[[2]string{key, symbol}] = d
+			d = &toolSymbolDays{key: key, symbol: symbol, source: source, first: day, last: day}
+			of[[3]string{key, symbol, source}] = d
 		}
 		d.first, d.last = min(d.first, day), max(d.last, day)
 	}
 	for _, r := range rows {
 		days[rowKey{r.account, r.ref}] = r.day
-		add(r.securityKey, r.symbol, r.day)
+		add(r.securityKey, r.symbol, r.source, r.day)
 	}
 	for _, l := range legs {
-		add(l.securityKey, l.symbol, days[rowKey{l.account, l.ref}])
+		add(l.securityKey, l.symbol, "api", days[rowKey{l.account, l.ref}])
 	}
 	var out []toolSymbolDays
-	for _, k := range slices.SortedFunc(maps.Keys(of), func(a, b [2]string) int { return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1])) }) {
+	for _, k := range slices.SortedFunc(maps.Keys(of), func(a, b [3]string) int {
+		return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1]), cmp.Compare(a[2], b[2]))
+	}) {
 		out = append(out, *of[k])
 	}
 	return out

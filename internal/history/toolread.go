@@ -105,8 +105,10 @@ func toolQueries(account int64, to nytime.Date) []toolQuery {
 		},
 		{
 			name: "Q5",
-			// A name that two keys of a security had is a row of each.
-			query: `SELECT security_key, kind, value, first_seen_at, last_seen_at FROM security_names
+			// A name that two keys of a security had is a row of each, with
+			// the key that had it: a History file's, which the store dates by
+			// the file's export, or another.
+			query: `SELECT security_key, key, kind, value, first_seen_at, last_seen_at FROM security_names
 				WHERE kind IN ('symbol', 'description') ORDER BY security_key, kind, last_seen_at DESC, value, first_seen_at, key`,
 			scan: scanToolName,
 		},
@@ -152,15 +154,18 @@ func toolQueries(account int64, to nytime.Date) []toolQuery {
 			name: "Q12",
 			// The days of every entry, counted or not, and of every API leg of
 			// a security, under each symbol of each security, "" for a row of
-			// none: the store dates a name by the read or the file that brought
-			// it, which may hold years of rows, and the rows' days say which of
-			// two symbols of one read came last.
-			query: `SELECT coalesce(security_key, ''), symbol, min(day), max(day) FROM (
-				SELECT security_key, symbol, day FROM entries
+			// none, of each source: the store dates a name by the read or the
+			// file that brought it, which may hold years of rows; the API's
+			// rows' days say when a security went by a symbol, and which of two
+			// symbols of one read came last, while a History file names its
+			// rows by the ticker of its newest export, whatever key the store
+			// gives them.
+			query: `SELECT coalesce(security_key, ''), symbol, source, min(day), max(day) FROM (
+				SELECT security_key, symbol, source, day FROM entries
 				UNION ALL
-				SELECT security_key, symbol, day FROM legs WHERE source = 'api' AND asset_type IS NOT 'CURRENCY')
+				SELECT security_key, symbol, source, day FROM legs WHERE source = 'api' AND asset_type IS NOT 'CURRENCY')
 				WHERE symbol IS NOT NULL AND symbol <> '' AND day IS NOT NULL
-				GROUP BY 1, 2 ORDER BY 1, 2`,
+				GROUP BY 1, 2, 3 ORDER BY 1, 2, 3`,
 			scan: scanToolSymbolDays,
 		},
 	}
@@ -286,12 +291,16 @@ func scanToolSecurity(rows *sql.Rows, in *toolInput) error {
 	return nil
 }
 
-// scanToolName reads a row of Q5: a symbol or a description of a security.
+// scanToolName reads a row of Q5: a symbol or a description of a security,
+// and the key that had it, when it is not the security's own.
 func scanToolName(rows *sql.Rows, in *toolInput) error {
 	var n toolName
 	var first, last sql.NullString
-	if err := rows.Scan(&n.key, &n.kind, &n.value, &first, &last); err != nil {
+	if err := rows.Scan(&n.key, &n.from, &n.kind, &n.value, &first, &last); err != nil {
 		return err
+	}
+	if n.from == n.key {
+		n.from = ""
 	}
 	var err error
 	if n.firstSeen, err = toolInstant(first, "when "+n.key+" was first seen"); err != nil {
@@ -390,11 +399,12 @@ func scanToolLater(rows *sql.Rows, in *toolInput) error {
 }
 
 // scanToolSymbolDays reads a row of Q12: the first and the last day of the
-// store's rows and legs under a symbol of a security, of every account.
+// store's rows and legs of one source under a symbol of a security, of
+// every account.
 func scanToolSymbolDays(rows *sql.Rows, in *toolInput) error {
 	var d toolSymbolDays
 	var first, last string
-	if err := rows.Scan(&d.key, &d.symbol, &first, &last); err != nil {
+	if err := rows.Scan(&d.key, &d.symbol, &d.source, &first, &last); err != nil {
 		return err
 	}
 	d.first, d.last = nytime.Date(first), nytime.Date(last)
