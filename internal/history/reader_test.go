@@ -195,10 +195,11 @@ func exportedEntries(t *testing.T, s *Store, o ExportOptions, keys map[int64]str
 // Accounts returns each account as the accounts view shows it, by id: its
 // ref, its number masked, its nickname from the preferences, the kind that
 // your decision gives it, its type from its latest snapshot, its latest
-// hash, whether it is the primary account, since when Schwab has not shared
-// it, and whether the store holds anything of it. On a copy of readerStore,
-// ...398 is decided an IRA, ...783 is no longer shared, and an account of
-// which the store holds nothing is added.
+// hash, whether it is the primary account, which is not known of an
+// account that no read of the preferences named, since when Schwab has not
+// shared it, and whether the store holds anything of it. On a copy of
+// readerStore, ...398 is decided an IRA, ...783 is no longer shared, and an
+// account of which the store holds nothing is added.
 func TestReaderAccounts(t *testing.T) {
 	t.Parallel()
 	path := readerCopy(t)
@@ -217,15 +218,17 @@ func TestReaderAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ReaderAccount{
-		{ID: 1, Ref: "A1", Masked: "...135", Nickname: "Individual", Type: "CASH", Hash: schwabtest.HashFor(individual), Primary: true, Used: true},
-		{ID: 2, Ref: "A2", Masked: "...398", Nickname: "Options & Margin", Kind: "ira", Hash: schwabtest.HashFor(options), Used: true},
-		{ID: 3, Ref: "A3", Masked: "...783", Nickname: "Contributory", Hash: schwabtest.HashFor(empty), NotSharedSince: since, Used: true},
+		{ID: 1, Ref: "A1", Masked: "...135", Nickname: "Individual", Type: "CASH", Hash: schwabtest.HashFor(individual), Primary: new(true), Used: true},
+		{ID: 2, Ref: "A2", Masked: "...398", Nickname: "Options & Margin", Kind: "ira", Hash: schwabtest.HashFor(options), Primary: new(false), Used: true},
+		{ID: 3, Ref: "A3", Masked: "...783", Nickname: "Contributory", Hash: schwabtest.HashFor(empty), Primary: new(false), NotSharedSince: since, Used: true},
 		{ID: 4, Ref: "A4", Masked: "...678"},
 	}
 	if !slices.EqualFunc(got, want, func(a, b ReaderAccount) bool {
 		at, bt := a.NotSharedSince, b.NotSharedSince
+		ap, bp := a.Primary, b.Primary
 		a.NotSharedSince, b.NotSharedSince = time.Time{}, time.Time{}
-		return a == b && at.Equal(bt)
+		a.Primary, b.Primary = nil, nil
+		return a == b && at.Equal(bt) && (ap == nil) == (bp == nil) && (ap == nil || *ap == *bp)
 	}) {
 		t.Errorf("Accounts() =\n%+v\nwant\n%+v", got, want)
 	}

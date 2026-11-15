@@ -176,7 +176,7 @@ func (c *call) accountsFromStore(ctx context.Context, cause error) (listAccounts
 		}
 		r := accountRow{
 			accountRef: c.ref(dirAccount{number: number, nickname: a.Nickname, storeNickname: true}),
-			StoreRef:   identPtr(a.Ref), Type: identPtr(a.Type), Primary: new(a.Primary),
+			StoreRef:   identPtr(a.Ref), Type: identPtr(a.Type), Primary: a.Primary,
 		}
 		if a.Kind != "" {
 			r.Kind = new(c.mask.stored(a.Kind))

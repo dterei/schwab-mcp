@@ -381,8 +381,10 @@ var accountCases = []toolCase{
 // list_accounts answers from the store, without values, when Schwab cannot
 // be read for a reason of the login or the app's set-up: a lapsed login, or
 // the page Schwab answers until the app is ready, here for the accounts
-// after the directory read the account numbers. A failure of Schwab's own,
-// no accounts, or a store that does not open or knows no account, is the
+// after the directory read the account numbers. An account is the primary
+// one as the store's last read of the preferences says, and primary is
+// null for one that no read of them named. A failure of Schwab's own, no
+// accounts, or a store that does not open or knows no account, is the
 // call's error. The accounts endpoint's answers take turns on one server,
 // whose directory the first call read.
 func TestListAccountsFromTheStore(t *testing.T) {
@@ -411,6 +413,13 @@ func TestListAccountsFromTheStore(t *testing.T) {
 		check(tc.name, e.call("list_accounts", `{}`), tc.code, tc.fromStore)
 	}
 	check("lapsed", newEnv(t, withLoginAt(testNow.Add(-8*24*time.Hour))).call("list_accounts", `{}`), "login_expired", true)
+	unnamed := storeCopy(t)
+	exec(t, rawStore(t, unnamed), "UPDATE account SET primary_account = NULL WHERE account_id IN (1, 3)")
+	r := newEnv(t, withStore(unnamed), withLoginAt(testNow.Add(-8*24*time.Hour))).call("list_accounts", `{}`)
+	check("lapsed, beside a store that lacks the preferences", r, "login_expired", true)
+	if as := accountsOf(t, r); as["...135"]["primary"] != nil || as["...783"]["primary"] != nil || as["...398"]["primary"] != false {
+		t.Errorf("primary from the store: %v, %v and %v", as["...135"], as["...398"], as["...783"])
+	}
 	loggedOut := newEnv(t, withoutLogin(), withoutStore())
 	check("no store", loggedOut.call("list_accounts", `{}`), "not_logged_in", false)
 	// A store made since, by schwabtx, which knows no account yet: the

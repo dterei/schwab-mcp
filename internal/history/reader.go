@@ -247,8 +247,9 @@ type ReaderAccount struct {
 	// as its latest snapshot gives it, CASH or MARGIN; and Hash its hash
 	// seen last. Each is "" when there is none.
 	Nickname, Kind, Type, Hash string
-	// Primary says that the preferences call it the primary account.
-	Primary bool
+	// Primary says whether the preferences call it the primary account; nil
+	// when no read of the preferences that the store recorded named it.
+	Primary *bool
 	// NotSharedSince is when the login stopped sharing it, or the zero
 	// time while it shares it.
 	NotSharedSince time.Time
@@ -269,7 +270,10 @@ func (r *Reader) Accounts(ctx context.Context) ([]ReaderAccount, error) {
 			if err := rows.Scan(&a.ID, &a.Ref, &a.Masked, &nickname, &kind, &typ, &hash, &primary, &since, &a.Used); err != nil {
 				return err
 			}
-			a.Nickname, a.Kind, a.Type, a.Hash, a.Primary = nickname.String, kind.String, typ.String, hash.String, primary.Bool
+			a.Nickname, a.Kind, a.Type, a.Hash = nickname.String, kind.String, typ.String, hash.String
+			if primary.Valid {
+				a.Primary = new(primary.Bool)
+			}
 			var err error
 			a.NotSharedSince, err = parseNullInstant(since)
 			out = append(out, a)
