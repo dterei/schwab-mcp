@@ -553,6 +553,11 @@
         "account": "A1 ...135",
         "security_key": "c:00507V109",
         "symbol": "00507V109",
+        "ghostfolio_asset": {
+          "data_source": "MANUAL",
+          "symbol": "9d24a132-6a34-8292-a81a-43399f895132",
+          "name": "Security (00507V109)"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 10,
         "written_shares": 0,
@@ -562,6 +567,10 @@
         "account": "A1 ...135",
         "security_key": "c:808515779",
         "symbol": "SWVXX",
+        "ghostfolio_asset": {
+          "data_source": "YAHOO",
+          "symbol": "SWVXX"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 1220.89,
         "written_shares": 0,
@@ -571,6 +580,10 @@
         "account": "A1 ...135",
         "security_key": "c:922908769",
         "symbol": "VTI",
+        "ghostfolio_asset": {
+          "data_source": "YAHOO",
+          "symbol": "VTI"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 12,
         "written_shares": 0,
@@ -580,6 +593,10 @@
         "account": "A1 ...135",
         "security_key": "i:1973757747",
         "symbol": "AAPL",
+        "ghostfolio_asset": {
+          "data_source": "YAHOO",
+          "symbol": "AAPL"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 2.1788,
         "written_shares": 1,
@@ -589,6 +606,10 @@
         "account": "A1 ...135",
         "security_key": "i:4417302",
         "symbol": "BND",
+        "ghostfolio_asset": {
+          "data_source": "YAHOO",
+          "symbol": "BND"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 0.0378,
@@ -598,6 +619,10 @@
         "account": "A1 ...135",
         "security_key": "i:4417355",
         "symbol": "VBR",
+        "ghostfolio_asset": {
+          "data_source": "YAHOO",
+          "symbol": "VBR"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": -0.4513,
@@ -607,6 +632,11 @@
         "account": "A2 ...398",
         "security_key": "c:0XYZ..RI60045000",
         "symbol": "XYZ   260619P00045000",
+        "ghostfolio_asset": {
+          "data_source": "MANUAL",
+          "symbol": "aa464282-62a4-83b2-bf95-beb6f80fca79",
+          "name": "XYZ 2026-06-19 45 put (XYZ260619P00045000)"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": -200,
         "written_shares": 0,
@@ -620,6 +650,10 @@
           "i:1940083512"
         ],
         "symbol": "META",
+        "ghostfolio_asset": {
+          "data_source": "YAHOO",
+          "symbol": "META"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 1,
         "written_shares": -1,
@@ -629,6 +663,10 @@
         "account": "A2 ...398",
         "security_key": "i:1973757747",
         "symbol": "AAPL",
+        "ghostfolio_asset": {
+          "data_source": "YAHOO",
+          "symbol": "AAPL"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 2,
@@ -638,6 +676,11 @@
         "account": "A2 ...398",
         "security_key": "i:205187341",
         "symbol": "/ESH25_P5050:XCME",
+        "ghostfolio_asset": {
+          "data_source": "MANUAL",
+          "symbol": "6b351588-4738-85df-ad34-0adbaac4dcb5",
+          "name": "Security (i:205187341)"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 50,
@@ -647,6 +690,11 @@
         "account": "A2 ...398",
         "security_key": "i:219771034",
         "symbol": "XYZ   250221P00040000",
+        "ghostfolio_asset": {
+          "data_source": "MANUAL",
+          "symbol": "fc94e404-4c85-87f0-962e-bb88e7134119",
+          "name": "XYZ 2025-02-21 40 put (XYZ250221P00040000)"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 200,
@@ -656,6 +704,11 @@
         "account": "A2 ...398",
         "security_key": "i:219834765",
         "symbol": "XYZ   260918C00050000",
+        "ghostfolio_asset": {
+          "data_source": "MANUAL",
+          "symbol": "9e712930-c660-8164-bdf1-0ce397bc9e39",
+          "name": "XYZ 2026-09-18 50 call (XYZ260918C00050000)"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": -100,
@@ -665,6 +718,11 @@
         "account": "A2 ...398",
         "security_key": "i:219950001",
         "symbol": "XYZ   261016P00045000",
+        "ghostfolio_asset": {
+          "data_source": "MANUAL",
+          "symbol": "9369256f-b1a9-8dbd-b0ff-1ea1e3dd9448",
+          "name": "XYZ 2026-10-16 45 put (XYZ261016P00045000)"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 100,
@@ -674,6 +732,11 @@
         "account": "A2 ...398",
         "security_key": "i:219950002",
         "symbol": "XYZ   261016P00040000",
+        "ghostfolio_asset": {
+          "data_source": "MANUAL",
+          "symbol": "4ab26992-d318-8a82-99ed-a15eb81e469c",
+          "name": "XYZ 2026-10-16 40 put (XYZ261016P00040000)"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": -100,

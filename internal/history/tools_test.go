@@ -261,9 +261,15 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	}
 	holdings := 0
 	for _, h := range m.Holdings.Differences {
+		// Ghostfolio's differences name the asset that holds the security.
+		if (h.Asset != nil) != (e.Tool == toolGF) || h.WasAsset != nil && h.Was == "" {
+			t.Errorf("the %s manifest lists %s of %s under the asset %+v, was %+v", e.Tool, h.SecurityKey, h.Account, h.Asset, h.WasAsset)
+		}
 		switch {
 		case h.Was != "":
-			difference(ToolDifference{Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Was: string(h.Was)}, h.SnapshotShares, h.WrittenShares, false)
+			difference(ToolDifference{
+				Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Asset: h.Asset.shown(), WasAsset: h.WasAsset.shown(), Was: string(h.Was),
+			}, h.SnapshotShares, h.WrittenShares, false)
 		case !h.Before:
 			holdings++
 		}
@@ -272,7 +278,7 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 		t.Errorf("the %s manifest's holdings list no differences gone", e.Tool)
 	} else {
 		for _, g := range *m.Holdings.Gone {
-			difference(ToolDifference{Account: g.Account, Key: g.SecurityKey, Symbol: g.Symbol, Was: string(g.Was), Now: "gone"}, "", "", false)
+			difference(ToolDifference{Account: g.Account, Key: g.SecurityKey, Symbol: g.Symbol, Asset: g.Asset.shown(), Was: string(g.Was), Now: "gone"}, "", "", false)
 		}
 	}
 	check("holdings that differ", e.Holdings, holdings)

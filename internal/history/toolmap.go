@@ -3204,9 +3204,11 @@ type toolHolding struct {
 	// key is the security's key, "" for a row's security without one; and
 	// symbol its latest symbol. When the tool takes several of the store's
 	// securities for this one (sameSecurity), key is the least of their
-	// keys, and keys are every one of them, key first.
+	// keys, and keys are every one of them, key first. security is the
+	// first of them, as the tool holds them.
 	key, symbol string
 	keys        []string
+	security    *toolSecurity
 	// snapshot is the market date of the snapshot.
 	snapshot nytime.Date
 	// snapshotShares and writtenShares are the shares that the snapshot
@@ -3283,7 +3285,7 @@ func holdingsCheck(in *toolInput, events []toolEvent) ([]toolHolding, []toolAcco
 		for _, s := range list {
 			g := group[same[s.ref()]]
 			if g == nil {
-				g = &toolHolding{account: ix.account(id), symbol: s.symbol, snapshot: snap.marketDate}
+				g = &toolHolding{account: ix.account(id), symbol: s.symbol, snapshot: snap.marketDate, security: s}
 				group[same[s.ref()]] = g
 				order = append(order, same[s.ref()])
 			}

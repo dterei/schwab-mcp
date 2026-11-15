@@ -246,14 +246,19 @@ type ToolCashRows struct {
 // check, that the export that a tool export goes on from listed and that
 // this one lists with another, or not at all: its account's label; for
 // shares, the security's key (the least, when the tool holds it under
-// several) and symbol, both "" for cash (Cash); and the difference, the
-// snapshot's shares or cash less what the records leave, as listed then
-// (Was) and now (Now, "" when it is gone), with the change from one to the
-// other (Now less Was, or less Was alone when gone), each as the manifest
-// writes it, signed: shares, or dollars with two places.
+// several) and symbol, both "" for cash (Cash), and, for Ghostfolio, the
+// asset that holds it, as Ghostfolio shows it (a MANUAL asset's name, else
+// its symbol), and, when Ghostfolio is to hold it under another asset now,
+// the one that the export it goes on from listed it under (WasAsset); and
+// the difference, the snapshot's shares or cash less what the records
+// leave, as listed then (Was) and now (Now, "" when it is gone), with the
+// change from one to the other (Now less Was, or less Was alone when gone),
+// each as the manifest writes it, signed: shares, or dollars with two
+// places.
 type ToolDifference struct {
 	Account, Key, Symbol string
 	Cash                 bool
+	Asset, WasAsset      string
 	Was, Now, Change     string
 }
 

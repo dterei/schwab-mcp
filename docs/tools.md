@@ -397,11 +397,18 @@ with its description in its comment.
 6. **Positions opened before the store's rows**: as for PP (step 4); in
    Ghostfolio a later sale shows as a negative holding, and a dividend of it
    sets the portfolio's dividend yield to 0. Add the opening position as a
-   BUY dated before its first row, or import the History files back to the
-   purchase and export again. The two exclude each other, as in PP: once a
-   later export writes the purchase, stderr lists the difference as gone,
-   and you delete the BUY, or as changed, and you change its quantity by
-   the change.
+   BUY dated before its first row, of the asset that the manifest lists the
+   difference under (`ghostfolio_asset`, which Ghostfolio shows by its
+   symbol, or a MANUAL asset by its name), or import the History files back
+   to the purchase and export again. The two exclude each other, as in PP:
+   once a later export writes the purchase, stderr lists the difference as
+   gone, and you delete the BUY, or as changed, and you change its quantity
+   by the change. Ghostfolio ties the BUY to its asset, and does not follow
+   a change of symbol: once an export holds the security under another
+   asset, after a rename, a delisting or `-manual`, it lists the difference
+   as changed even when it is the same, with the asset that it was under
+   (`was_asset`), and stderr says to delete the BUY there and add it under
+   the new one, changed by the change, if any.
 
 ### Later imports
 
@@ -438,6 +445,12 @@ with its description in its comment.
    `gf-3`, and set each account's cash where Ghostfolio shows another. The
    line on `-manual` names the chain's symbols that nothing in this export
    uses, here BND, whose activities Ghostfolio holds already: nothing to do.
+   A security that stderr says has changed symbol is one that Ghostfolio
+   may hold under the earlier one: the export lists the activities that it
+   gave of it as changed, to delete, and writes them under the new one, and
+   lists each of its differences that the export before listed with the
+   asset that it was under, from which to move what you added for it by
+   hand (step 6).
    A full export imported again is safe for the rows that did not change,
    which Ghostfolio skips as existing, when it names the chain's `-account`
    and every symbol of its `-manual`: a full export reads no chain, and

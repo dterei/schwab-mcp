@@ -129,6 +129,10 @@
         "account": "A1 ...135",
         "security_key": "i:1000001",
         "symbol": "ABCD",
+        "ghostfolio_asset": {
+          "data_source": "YAHOO",
+          "symbol": "ABCD"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 1
@@ -137,6 +141,10 @@
         "account": "A1 ...135",
         "security_key": "i:1000002",
         "symbol": "EFGH",
+        "ghostfolio_asset": {
+          "data_source": "YAHOO",
+          "symbol": "EFGH"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 1
@@ -145,6 +153,11 @@
         "account": "A1 ...135",
         "security_key": "i:1000004",
         "symbol": "QRS.PRK",
+        "ghostfolio_asset": {
+          "data_source": "MANUAL",
+          "symbol": "c350a0be-2485-8df7-bb88-c7aa8d42752e",
+          "name": "Security (QRS.PRK)"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 1
@@ -153,6 +166,10 @@
         "account": "A1 ...135",
         "security_key": "i:1854092",
         "symbol": "XYZ",
+        "ghostfolio_asset": {
+          "data_source": "YAHOO",
+          "symbol": "XYZ"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 1

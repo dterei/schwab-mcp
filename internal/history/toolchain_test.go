@@ -2754,8 +2754,9 @@ func TestToolReimport(t *testing.T) {
 			changed := []ToolDifference{{Account: "A1 ...135", Cash: true, Was: "700.00", Now: "100.00", Change: "-600.00"}}
 			gone := []ToolDifference{{Account: "A1 ...135", Key: keyXYZ, Symbol: "XYZ", Was: "10", Change: "-10"}, {Account: "A1 ...135", Cash: true, Was: "100.00", Change: "-100.00"}}
 			if tool == toolGF {
+				// Ghostfolio's difference is of the asset that holds XYZ.
 				want = [][]string{want[0][:1], want[1][:1], want[2][:1]}
-				counted, changed, gone = []int{1, 0, 0}, nil, gone[:1]
+				counted, changed, gone = []int{1, 0, 0}, nil, []ToolDifference{{Account: "A1 ...135", Key: keyXYZ, Symbol: "XYZ", Asset: "XYZ", Was: "10", Change: "-10"}}
 			}
 			for i, c := range []struct {
 				s           *chainStep
@@ -2966,6 +2967,214 @@ func TestToolReimport(t *testing.T) {
 			}
 			if len(e2.res.holdings)+len(e2.res.holdingsGone)+len(e2.res.cash)+len(e2.res.cashGone) > 0 || len(e2.e.DifferencesChanged) > 0 || len(e2.res.unchecked) != 1 {
 				t.Errorf("%s: %+v, gone %+v, cash %+v, gone %+v, changed %+v, not checked %v", tool, e2.res.holdings, e2.res.holdingsGone, e2.res.cash, e2.res.cashGone, e2.e.DifferencesChanged, e2.res.unchecked)
+			}
+		}
+	})
+
+	t.Run("5i an opening position added by hand in Ghostfolio, then its security under another asset", func(t *testing.T) {
+		t.Parallel()
+		// A1 held 10 XYZ before the store's rows: the first export lists
+		// the difference of its shares from the snapshot's, under the
+		// asset that Ghostfolio holds XYZ under, YAHOO's XYZ, and you add a
+		// BUY of 10 there by hand. The next export holds XYZ under another
+		// asset: a MANUAL one once -manual names it, YAHOO's XYZN after a
+		// rename (with a History file that brings 3 of the 10), or a
+		// MANUAL one once a cash merger sells it under the CUSIP that
+		// Schwab sends once it is delisted. Ghostfolio ties the BUY to its
+		// asset and does not follow the change, so the difference is not
+		// before: stderr lists it with the asset that it was under, and
+		// you move the BUY to the new one, changed by the change. After
+		// -manual, a History file then brings the purchase: the difference
+		// is gone, under the new asset, where the BUY is to delete.
+		// Ghostfolio then holds the latest snapshot's shares. PP, which
+		// finds XYZ by its CUSIP whatever its ticker, keeps what you booked
+		// on the security: nothing moves.
+		manual := func() []toolInput {
+			sale := rcTrade("T7c510101", 1, "2026-02-02 10:00:00", "sell", keyXYZ, "XYZ", -6_000_000, 50, 30_000, 0)
+			buy := rcFile("C7c51001.1", 1, "2025-11-03", "Buy", "buy", keyXYZ, "XYZ", centsOf(10_000_000), 30, -30_000)
+			snapshots := []toolSnapshot{rcSnapshot(1, "2026-02-26", 120_000), rcSnapshot(1, "2026-03-30", 120_000)}
+			positions := []toolPosition{rcPosition("2026-02-26", keyXYZ, 4_000_000, 200), rcPosition("2026-03-30", keyXYZ, 4_000_000, 220)}
+			in := func(to nytime.Date, n int, manual []string, rows ...toolRow) toolInput {
+				in := tcInput(toolInput{to: to, rows: rows, snapshots: snapshots[:n], positions: positions[:n]})
+				in.manual = manual
+				return in
+			}
+			return []toolInput{in("2026-02-27", 1, nil, sale), in("2026-03-31", 2, []string{"XYZ"}, sale), in("2026-03-31", 2, nil, buy, sale)}
+		}
+		renamed := func() []toolInput {
+			sale := rcTrade("T7c510201", 1, "2026-02-02 10:00:00", "sell", keyXYZ, "XYZ", -10_000_000, 50, 50_000, 0)
+			buy := rcFile("C7c51002.1", 1, "2025-11-05", "Buy", "buy", keyXYZ, "XYZ", centsOf(3_000_000), 30, -9_000)
+			in1 := tcInput(toolInput{to: "2026-02-27", rows: []toolRow{sale}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-02-26", 50_000)}})
+			in2 := tcInput(toolInput{to: "2026-03-31", rows: []toolRow{buy, sale}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-02-26", 50_000), rcSnapshot(1, "2026-03-30", 41_000)}})
+			for i := range in2.securities {
+				if in2.securities[i].key == keyXYZ {
+					in2.securities[i].symbol = "XYZN"
+				}
+			}
+			in2.names = append(in2.names, toolName{key: keyXYZ, kind: "symbol", value: "XYZN", firstSeen: tcNY("2026-03-02 18:05:00"), lastSeen: tcNY("2026-03-30 18:05:00")})
+			return []toolInput{in1, in2}
+		}
+		delisted := func() []toolInput {
+			div := rcCash("T7c510301", 1, "2026-01-15 10:00:00", "DIVIDEND_OR_INTEREST", "XYZ CORP DIVIDEND", "dividend", 2_000)
+			div.securityKey, div.symbol = keyXYZ, "XYZ"
+			merger := rcTrade("T7c510302", 1, "2026-02-10 10:00:00", "sell", keyXYZ, "98389B100", -10_000_000, 55, 55_000, 0)
+			p := rcPosition("2026-01-30", keyXYZ, 10_000_000, 500)
+			in1 := tcInput(toolInput{to: "2026-01-30", rows: []toolRow{div}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-01-30", 2_000)}, positions: []toolPosition{p}})
+			in2 := tcInput(toolInput{
+				to: "2026-02-27", rows: []toolRow{div, merger},
+				snapshots: []toolSnapshot{rcSnapshot(1, "2026-01-30", 2_000), rcSnapshot(1, "2026-02-26", 57_000)}, positions: []toolPosition{p},
+			})
+			for i := range in2.securities {
+				if in2.securities[i].key == keyXYZ {
+					in2.securities[i].symbol = "98389B100"
+				}
+			}
+			in2.names = append(in2.names, toolName{key: keyXYZ, kind: "symbol", value: "98389B100", firstSeen: tcNY("2026-02-10 18:30:00"), lastSeen: tcNY("2026-02-26 18:30:00")})
+			return []toolInput{in1, in2}
+		}
+		// Each export's differences, with the assets of Ghostfolio's.
+		describe := func(s *chainStep) []string {
+			var out []string
+			for _, h := range s.res.holdings {
+				out = append(out, fmt.Sprintf("%s %s %s %s before=%v was=%s asset=%s was_asset=%s", h.Account, h.Symbol, h.SnapshotShares, h.WrittenShares, h.Before, h.Was, h.Asset.shown(), h.WasAsset.shown()))
+			}
+			for _, g := range s.res.holdingsGone {
+				out = append(out, fmt.Sprintf("%s %s gone was=%s asset=%s", g.Account, g.Symbol, g.Was, g.Asset.shown()))
+			}
+			return out
+		}
+		const a1 = "A1 ...135"
+		for _, c := range []struct {
+			name, tool  string
+			steps       []toolInput
+			want        [][]string
+			differences [][]ToolDifference
+			// heldAs is the asset that Ghostfolio is to hold XYZ under at
+			// the end, as it shows it, and shares what the latest snapshot
+			// holds of it.
+			heldAs string
+			shares int64
+		}{
+			{
+				name: "-manual", tool: toolGF, steps: manual(), heldAs: "Security (XYZ)", shares: 4,
+				want: [][]string{
+					{"A1 ...135 XYZ 4 -6 before=false was= asset=XYZ was_asset="},
+					{"A1 ...135 XYZ 4 -6 before=false was=10 asset=Security (XYZ) was_asset=XYZ"},
+					{"A1 ...135 XYZ gone was=10 asset=Security (XYZ)"},
+				},
+				differences: [][]ToolDifference{
+					nil,
+					{{Account: a1, Key: keyXYZ, Symbol: "XYZ", Asset: "Security (XYZ)", WasAsset: "XYZ", Was: "10", Now: "10", Change: "0"}},
+					{{Account: a1, Key: keyXYZ, Symbol: "XYZ", Asset: "Security (XYZ)", Was: "10", Change: "-10"}},
+				},
+			},
+			{
+				name: "a rename", tool: toolGF, steps: renamed(),
+				want: [][]string{
+					{"A1 ...135 XYZ 0 -10 before=false was= asset=XYZ was_asset="},
+					{"A1 ...135 XYZN 0 -7 before=false was=10 asset=XYZN was_asset=XYZ"},
+				},
+				differences: [][]ToolDifference{nil, {{Account: a1, Key: keyXYZ, Symbol: "XYZN", Asset: "XYZN", WasAsset: "XYZ", Was: "10", Now: "7", Change: "-3"}}},
+			},
+			{
+				name: "a delisting", tool: toolGF, steps: delisted(),
+				want: [][]string{
+					{"A1 ...135 XYZ 10 0 before=false was= asset=XYZ was_asset="},
+					{"A1 ...135 98389B100 0 -10 before=false was=10 asset=Security (98389B100) was_asset=XYZ"},
+				},
+				differences: [][]ToolDifference{nil, {{Account: a1, Key: keyXYZ, Symbol: "98389B100", Asset: "Security (98389B100)", WasAsset: "XYZ", Was: "10", Now: "10", Change: "0"}}},
+			},
+			{
+				name: "a rename", tool: toolPP, steps: renamed(),
+				want: [][]string{
+					{"A1 ...135 XYZ 0 -10 before=false was= asset= was_asset="},
+					{"A1 ...135 XYZN 0 -7 before=false was=10 asset= was_asset="},
+				},
+				differences: [][]ToolDifference{nil, {{Account: a1, Key: keyXYZ, Symbol: "XYZN", Was: "10", Now: "7", Change: "-3"}}},
+			},
+			{
+				name: "a delisting", tool: toolPP, steps: delisted(),
+				want: [][]string{
+					{"A1 ...135 XYZ 10 0 before=false was= asset= was_asset="},
+					{"A1 ...135 98389B100 0 -10 before=true was= asset= was_asset="},
+				},
+				differences: [][]ToolDifference{nil, nil},
+			},
+		} {
+			var steps []*chainStep
+			for i, in := range c.steps {
+				var prev *chainStep
+				if i > 0 {
+					prev = steps[i-1]
+				}
+				s := chainStepOf(t, in, c.tool, prev, []string{rcAt1, rcAt2, rcAt3}[i])
+				if got := describe(s); !slices.Equal(got, c.want[i]) || !reflect.DeepEqual(s.e.DifferencesChanged, c.differences[i]) {
+					t.Errorf("%s, %s, export %d: %q, changed %+v", c.tool, c.name, i+1, got, s.e.DifferencesChanged)
+				}
+				steps = append(steps, s)
+			}
+			if c.tool == toolPP {
+				continue
+			}
+
+			// In Ghostfolio, the BUY added by hand for the first export's
+			// difference, under the asset that it lists; then each export
+			// imported as the how-to says, and the BUY moved, changed or
+			// deleted as stderr says, under the assets as Ghostfolio shows
+			// them: a MANUAL one by its name, a YAHOO one by its symbol.
+			g := newGFModel()
+			if _, err := gfApply(t, g, steps[0]); err != nil {
+				t.Fatal(err)
+			}
+			first := steps[0].res.holdings[0].Asset
+			g.activities = append(g.activities, gfmActivity{
+				account: g.accounts[0].id, comment: "by hand", currency: "USD", source: first.DataSource, symbol: first.Symbol, typ: "BUY",
+				date: "2025-10-01T12:00:00.000Z", fee: new(big.Rat), quantity: big.NewRat(10, 1), unitPrice: big.NewRat(30, 1),
+			})
+			shown := func(a gfmActivity) string {
+				if i := slices.IndexFunc(g.profiles, func(p *gfmProfile) bool { return p.symbol == a.symbol }); a.source == "MANUAL" && i >= 0 {
+					return g.profiles[i].name
+				}
+				return a.symbol
+			}
+			asset := func(shown string) gfmHolding {
+				if i := slices.IndexFunc(g.profiles, func(p *gfmProfile) bool { return p.name == shown }); i >= 0 {
+					return gfmHolding{g.accounts[0].id, "MANUAL", g.profiles[i].symbol}
+				}
+				return gfmHolding{g.accounts[0].id, "YAHOO", shown}
+			}
+			moved := func() bool {
+				for _, s := range steps[1:] {
+					if _, err := gfApply(t, g, s); err != nil {
+						t.Fatal(err)
+					}
+					for _, d := range s.e.DifferencesChanged {
+						i := slices.IndexFunc(g.activities, func(a gfmActivity) bool { return a.comment == "by hand" && shown(a) == cmp.Or(d.WasAsset, d.Asset) })
+						if i < 0 {
+							t.Errorf("%s: Ghostfolio holds nothing added by hand under %s for %+v", c.name, cmp.Or(d.WasAsset, d.Asset), d)
+							return false
+						}
+						change, _ := new(big.Rat).SetString(d.Change)
+						g.activities[i].quantity = new(big.Rat).Add(g.activities[i].quantity, change)
+						switch {
+						case d.Now == "":
+							g.activities = slices.Delete(g.activities, i, i+1)
+						case d.WasAsset != "":
+							// Deleted under the asset that it was under, and
+							// added under the one that Ghostfolio shows now.
+							under := asset(d.Asset)
+							g.activities[i].source, g.activities[i].symbol = under.source, under.symbol
+						}
+					}
+				}
+				return true
+			}()
+			want := map[gfmHolding]*big.Rat{}
+			if c.shares != 0 {
+				want[asset(c.heldAs)] = big.NewRat(c.shares, 1)
+			}
+			if got := g.holdings(); moved && !maps.EqualFunc(got, want, func(a, b *big.Rat) bool { return a.Cmp(b) == 0 }) {
+				t.Errorf("%s: Ghostfolio holds %v, the latest snapshot %v", c.name, got, want)
 			}
 		}
 	})

@@ -1116,7 +1116,9 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 				Securities: 1, Prices: 1, CaveatRows: 2, Caveats: []history.ToolCount{{Code: "value_unknown", Count: 2}, {Code: "cash_not_written", Count: 1}},
 				LeftOut:        []history.ToolCount{{Code: "split", Count: 1}, {Code: "no_quantity", Count: 2}},
 				SymbolsChanged: 2, Holdings: 1, Cash: 1, CashNotChecked: []string{"A2 ...398"}, Flagged: 2, Waiting: 2,
+				// A security with no symbol is named by its key.
 				DifferencesChanged: []history.ToolDifference{
+					{Account: "A1 ...135", Key: "c:30303M102", Was: "2", Now: "1", Change: "-1"},
 					{Account: "A1 ...135", Key: "i:1854092", Symbol: "XYZ", Was: "-5", Change: "5"},
 					{Account: "A1 ...135", Cash: true, Was: "1295.65", Now: "997.04", Change: "-298.61"},
 				},
@@ -1155,7 +1157,8 @@ wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_n
 1 account's cash in Portfolio Performance is not checked (pp-2026-12-15/manifest.json): the latest snapshot of A2 ...398, a margin account, reads its cash as 0 beside a margin or short balance, as Schwab can report a debit or short positions; compare its cash at Schwab with Portfolio Performance's by hand (docs/tools.md)
 2 rows of this export carry a flag that needs you (schwabtx status -review); if you uncount one, the next -since export lists what to delete
 2 file transactions wait for you to resolve them (schwabtx status -review) and are not in this export
-2 differences that pp-2026-12-01 listed have changed or gone (pp-2026-12-15/manifest.json lists each, with was): change what you added in Portfolio Performance by hand for each by its change, less the rows left out that you book by hand, or delete it (docs/tools.md):
+3 differences that pp-2026-12-01 listed have changed or gone (pp-2026-12-15/manifest.json lists each, with was): change what you added in Portfolio Performance by hand for each by its change, less the rows left out that you book by hand, or delete it (docs/tools.md):
+  Schwab A1 ...135: c:30303M102: 1, was 2: change by -1
   Schwab A1 ...135: XYZ: gone, was -5: delete
   Schwab A1 ...135: cash: 997.04, was 1295.65: change by -298.61
 in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
@@ -1238,15 +1241,22 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-13 -dir <a new f
 				},
 				Changed: []history.ToolChange{{Ref: "T73508261950", Account: "A1 ...135", Was: "2024-04-04 DIVIDEND 3.86", Now: "2024-04-04 DIVIDEND 3.68"}},
 				Gone:    []history.ToolChange{{Ref: "T73508261945", Account: "A2 ...398", Was: "2025-01-22 SELL 412.50 fee 0.65", Why: "left out: gf_cash"}},
-				// A security with no symbol is named by its key.
-				DifferencesChanged: []history.ToolDifference{{Account: "A2 ...398", Key: "c:30303M102", Was: "2", Now: "1", Change: "-1"}},
+				// A security is named by its asset, as Ghostfolio shows it: a
+				// MANUAL asset by its name. One that Ghostfolio is to hold
+				// under another asset now, after -manual or a rename, is to
+				// move there, with its change.
+				DifferencesChanged: []history.ToolDifference{
+					{Account: "A2 ...398", Key: "c:30303M102", Asset: "Security (30303M102)", Was: "2", Now: "1", Change: "-1"},
+					{Account: "A1 ...135", Key: "i:1854092", Symbol: "XYZ", Asset: "Security (XYZ)", WasAsset: "XYZ", Was: "10", Now: "10", Change: "0"},
+					{Account: "A2 ...398", Key: "i:1000877", Symbol: "ZZTB", Asset: "ZZTB", WasAsset: "ZZTA", Was: "4", Now: "3", Change: "-1"},
+				},
 			},
 			want: `wrote 1 activity for Ghostfolio to gf-2026-12-01, since gf-2026-11-13, up to 2026-11-30: 2 accounts with 22 balances, 1 manual asset, 1 symbol for Yahoo
   this assumes Ghostfolio holds gf-2026-11-13 and every export before it, each imported once, with what it listed deleted
   1 of their rows is dated on or before 2026-11-12, the end of gf-2026-11-13: it came late or was decided since
 2 deposits, withdrawals and journals are not in the accounts' balances yet, posted after the latest snapshot was taken (A2 ...398: of 2026-11-28, taken 2026-11-28 18:05 in New York; A3 ...777: none), which a later one will carry
 left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_cash 2
-1 security has changed symbol (gf-2026-12-01/manifest.json): if Ghostfolio holds activities of it under an earlier symbol, delete them: it does not follow the change (docs/tools.md)
+1 security has changed symbol (gf-2026-12-01/manifest.json): if Ghostfolio holds activities of it under an earlier symbol, delete those that an export wrote, and move to the new one those that you added by hand: it does not follow the change (docs/tools.md)
 1 key of the store with no CUSIP had a ticker that other securities have had too (gf-2026-12-01/manifest.json lists it): the export cannot tell which it is; say which in the store (docs/tools.md):
   x:66000017 (JKLM), written as i:1000013, which had it first: schwabtx edit -store STORE K:x:66000017 -same K:i:1000013 (ZZJ12K106) or -same K:i:1000213 (ZZJ12K205)
 3 holdings differ from the latest snapshot (gf-2026-12-01/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
@@ -1255,8 +1265,10 @@ left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_ca
 before importing, delete in Ghostfolio what changed or went (gf-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 DIVIDEND 3.86 (comment schwabtx A1 ...135 T73508261950): changed; the new form is in this export
   Schwab A2 ...398: 2025-01-22 SELL 412.50 fee 0.65 (comment schwabtx A2 ...398 T73508261945): gone, left out (gf_cash)
-1 difference that gf-2026-11-13 listed has changed or gone (gf-2026-12-01/manifest.json lists each, with was): change what you added in Ghostfolio by hand for it by its change, less the rows left out that you book by hand, or delete it (docs/tools.md):
-  Schwab A2 ...398: c:30303M102: 1, was 2: change by -1
+3 differences that gf-2026-11-13 listed have changed or gone (gf-2026-12-01/manifest.json lists each, with was): change what you added in Ghostfolio by hand for each by its change, less the rows left out that you book by hand, or move it to the asset that Ghostfolio holds the security under now, or delete it (docs/tools.md):
+  Schwab A2 ...398: Security (30303M102): 1, was 2: change by -1
+  Schwab A1 ...135: Security (XYZ): 10, was 10 under XYZ: delete it under XYZ and add it under Security (XYZ)
+  Schwab A2 ...398: ZZTB: 3, was 4 under ZZTA: delete it under ZZTA and add it under ZZTB, changed by -1
 Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
 set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
   Schwab A1 ...135: 10234.56 (2026-11-28)

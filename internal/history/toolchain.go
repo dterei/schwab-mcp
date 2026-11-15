@@ -261,35 +261,76 @@ type chainCashHolding struct {
 // A chainHolding is a difference of the holdings check (toolHolding), its
 // shares signed, and, with -since, whether the export it goes on from listed
 // the same account and security (chainSameHolding) with the same
-// difference, the snapshot's shares less the written ones (before), or with
-// another, which Was is, "" for none: an opening position added by hand
-// changes nothing in the store, whose trades leave its difference as it
-// is, and one added for a difference that has changed since is to change by
-// the change. SecurityKeys are, for a security that the tool holds under
-// several of the store's keys, every one of them.
+// difference, the snapshot's shares less the written ones, under the same
+// Ghostfolio asset (before), or with another difference or under another
+// asset, which Was and WasAsset are, "" and nil for none: an opening
+// position added by hand changes nothing in the store, whose trades leave
+// its difference as it is, and one added for a difference that has changed
+// since is to change by the change, or to move to the asset that Ghostfolio
+// holds the security under now, which does not follow a change of symbol
+// or data source. SecurityKeys are, for a security that the tool holds
+// under several of the store's keys, every one of them; Asset is, for
+// Ghostfolio, the asset that it holds the security under, which a BUY added
+// by hand for the difference is of.
 type chainHolding struct {
 	Account        string      `json:"account"`
 	SecurityKey    string      `json:"security_key"`
 	SecurityKeys   []string    `json:"security_keys,omitempty"`
 	Symbol         string      `json:"symbol"`
+	Asset          *chainAsset `json:"ghostfolio_asset,omitempty"`
 	Snapshot       nytime.Date `json:"snapshot"`
 	SnapshotShares json.Number `json:"snapshot_shares"`
 	WrittenShares  json.Number `json:"written_shares"`
 	Before         bool        `json:"before,omitempty"`
 	Was            json.Number `json:"was,omitempty"`
+	WasAsset       *chainAsset `json:"was_asset,omitempty"`
+}
+
+// A chainAsset is a Ghostfolio asset: its data source and symbol, by which
+// Ghostfolio ties an activity to it, and, for a MANUAL asset, its name, by
+// which Ghostfolio shows it.
+type chainAsset struct {
+	DataSource string `json:"data_source"`
+	Symbol     string `json:"symbol"`
+	Name       string `json:"name,omitempty"`
+}
+
+// gfAssetOf returns the asset that Ghostfolio holds security s under.
+func gfAssetOf(s *toolSecurity) *chainAsset {
+	a := &chainAsset{DataSource: s.gfDataSource(), Symbol: s.gfSymbol()}
+	if s.manual != "" {
+		a.Name = s.gfName()
+	}
+	return a
+}
+
+// sameAsset reports whether a and b are one Ghostfolio asset, by their data
+// source and symbol; nil, as of a PP export, is any asset.
+func sameAsset(a, b *chainAsset) bool {
+	return a == nil || b == nil || a.DataSource == b.DataSource && a.Symbol == b.Symbol
+}
+
+// shown returns how Ghostfolio shows asset a: by its name when it is MANUAL,
+// else by its symbol; "" for none.
+func (a *chainAsset) shown() string {
+	if a == nil {
+		return ""
+	}
+	return cmp.Or(a.Name, a.Symbol)
 }
 
 // A chainHoldingGone is a difference of the holdings check that the export
 // it goes on from listed and that this one does not find: the records now
 // leave of the security what the account's latest snapshot holds. It is as
 // that export listed it, with its difference, the snapshot's shares less
-// the written ones, as Was: an opening position added by hand for it is to
-// delete, as the rows written now stand for it.
+// the written ones, as Was, and its Ghostfolio asset: an opening position
+// added by hand for it is to delete, as the rows written now stand for it.
 type chainHoldingGone struct {
 	Account      string      `json:"account"`
 	SecurityKey  string      `json:"security_key"`
 	SecurityKeys []string    `json:"security_keys,omitempty"`
 	Symbol       string      `json:"symbol"`
+	Asset        *chainAsset `json:"ghostfolio_asset,omitempty"`
 	Was          json.Number `json:"was"`
 }
 
@@ -1116,13 +1157,17 @@ func (c *chainResult) compareLeftOut() {
 // difference with those that the earlier export listed for the same account
 // and security (chainSameHolding), each taken once: an opening position
 // added by hand in the tool changes nothing in the store, so its difference
-// comes back in every export. One listed alike is marked before; one listed
-// otherwise keeps the difference listed (Was), by which the hand entry is
-// to change; and one listed that this export does not find, of an account
-// that it checks, is gone, for the hand entry to go too: the rows written
-// now stand for it. For PP, an account that PP holds nothing of (ppHolds),
-// as one with snapshots and no row, is not checked: no account of PP's
-// would hold what you added for it by hand.
+// comes back in every export. One listed alike, under the same Ghostfolio
+// asset, is marked before; one listed otherwise keeps the difference listed
+// (Was), by which the hand entry is to change, and, when Ghostfolio is to
+// hold the security under another asset now, as after a rename, a
+// delisting or -manual, that asset (WasAsset), from which the hand entry is
+// to move: Ghostfolio ties an activity to its symbol and data source, and
+// does not follow the change; and one listed that this export does not
+// find, of an account that it checks, is gone, for the hand entry to go
+// too: the rows written now stand for it. For PP, an account that PP holds
+// nothing of (ppHolds), as one with snapshots and no row, is not checked:
+// no account of PP's would hold what you added for it by hand.
 func (c *chainResult) compareHoldings(events []toolEvent) {
 	diffs, unchecked := holdingsCheck(c.in, events)
 	if c.in.tool == toolPP {
@@ -1149,18 +1194,25 @@ func (c *chainResult) compareHoldings(events []toolEvent) {
 			Account: d.account.label(), SecurityKey: d.key, SecurityKeys: d.keys, Symbol: d.symbol, Snapshot: d.snapshot,
 			SnapshotShares: json.Number(formatMicros(d.snapshotShares)), WrittenShares: json.Number(formatMicros(d.writtenShares)),
 		}
+		if c.in.tool == toolGF {
+			h.Asset = gfAssetOf(d.security)
+		}
 		was, found := new(big.Rat), false
+		var moved *chainAsset
 		for i, l := range listed {
 			if !taken[i] && chainSameHolding(l, h) {
 				taken[i], found = true, true
 				was.Add(was, chainDifference(l.SnapshotShares, l.WrittenShares))
+				if moved == nil && !sameAsset(l.Asset, h.Asset) {
+					moved = l.Asset
+				}
 			}
 		}
 		switch {
-		case found && was.Cmp(big.NewRat(d.snapshotShares-d.writtenShares, 1_000_000)) == 0:
+		case found && moved == nil && was.Cmp(big.NewRat(d.snapshotShares-d.writtenShares, 1_000_000)) == 0:
 			h.Before = true
 		case found:
-			h.Was = chainNumber(was, false)
+			h.Was, h.WasAsset = chainNumber(was, false), moved
 		}
 		c.holdings = append(c.holdings, h)
 	}
@@ -1170,7 +1222,7 @@ func (c *chainResult) compareHoldings(events []toolEvent) {
 	for i, l := range listed {
 		if !taken[i] && !slices.ContainsFunc(c.unchecked, func(a toolAccount) bool { return a.label() == l.Account }) {
 			c.holdingsGone = append(c.holdingsGone, chainHoldingGone{
-				Account: l.Account, SecurityKey: l.SecurityKey, SecurityKeys: l.SecurityKeys, Symbol: l.Symbol,
+				Account: l.Account, SecurityKey: l.SecurityKey, SecurityKeys: l.SecurityKeys, Symbol: l.Symbol, Asset: l.Asset,
 				Was: chainNumber(chainDifference(l.SnapshotShares, l.WrittenShares), false),
 			})
 		}
@@ -1327,11 +1379,13 @@ func (c *chainResult) differencesChanged() []ToolDifference {
 	}
 	for _, h := range c.holdings {
 		if h.Was != "" {
-			changed(ToolDifference{Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Was: string(h.Was)}, chainDifference(h.SnapshotShares, h.WrittenShares), false)
+			changed(ToolDifference{
+				Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Asset: h.Asset.shown(), WasAsset: h.WasAsset.shown(), Was: string(h.Was),
+			}, chainDifference(h.SnapshotShares, h.WrittenShares), false)
 		}
 	}
 	for _, g := range c.holdingsGone {
-		gone(ToolDifference{Account: g.Account, Key: g.SecurityKey, Symbol: g.Symbol, Was: string(g.Was)}, false)
+		gone(ToolDifference{Account: g.Account, Key: g.SecurityKey, Symbol: g.Symbol, Asset: g.Asset.shown(), Was: string(g.Was)}, false)
 	}
 	for _, h := range c.cash {
 		if h.Was != "" {

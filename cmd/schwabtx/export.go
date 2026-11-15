@@ -705,7 +705,7 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 		it := pluralWord(n, "it", "them")
 		advice := fmt.Sprintf("if %s holds %s under an earlier ticker, give %s the new one; once delisted, no price feed", tool, it, it)
 		if gf {
-			advice = fmt.Sprintf("if %s holds activities of %s under an earlier symbol, delete them: it does not follow the change", tool, it)
+			advice = fmt.Sprintf("if %s holds activities of %s under an earlier symbol, delete those that an export wrote, and move to the new one those that you added by hand: it does not follow the change", tool, it)
 		}
 		fmt.Fprintf(w, "%d %s changed symbol (%s): %s (docs/tools.md)\n", n, pluralWord(n, "security has", "securities have"), manifest, advice)
 	}
@@ -857,24 +857,40 @@ func toolDeletions(w io.Writer, e *history.ToolExport, manifest string) {
 // that this one lists with another, or not at all (e.DifferencesChanged),
 // with its change: what you added or booked by hand in the tool for it is
 // to change by the change, less the rows left out that you book by hand,
-// or to delete, as the rows written stand for it now.
+// or to delete, as the rows written stand for it now. In Ghostfolio a
+// security is the asset that holds it, as Ghostfolio shows it, and what you
+// added for one that Ghostfolio is to hold under another asset now is to
+// move there, as Ghostfolio does not follow a change of symbol.
 func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string) {
 	n := len(e.DifferencesChanged)
 	if n == 0 {
 		return
 	}
-	fmt.Fprintf(w, "%d %s that %s listed %s changed or gone (%s lists each, with was): change what you added in %s by hand for %s by its change, less the rows left out that you book by hand, or delete it (docs/tools.md):\n",
-		n, pluralWord(n, "difference", "differences"), since, pluralWord(n, "has", "have"), manifest, toolFormats[e.Tool].name, pluralWord(n, "it", "each"))
+	move := ""
+	if slices.ContainsFunc(e.DifferencesChanged, func(d history.ToolDifference) bool { return d.WasAsset != "" }) {
+		move = ", or move it to the asset that Ghostfolio holds the security under now"
+	}
+	fmt.Fprintf(w, "%d %s that %s listed %s changed or gone (%s lists each, with was): change what you added in %s by hand for %s by its change, less the rows left out that you book by hand%s, or delete it (docs/tools.md):\n",
+		n, pluralWord(n, "difference", "differences"), since, pluralWord(n, "has", "have"), manifest, toolFormats[e.Tool].name, pluralWord(n, "it", "each"), move)
 	for _, d := range e.DifferencesChanged {
 		what := "cash"
 		if !d.Cash {
-			what = plainCell(mask.Text(cmp.Or(d.Symbol, d.Key)))
+			what = plainCell(mask.Text(cmp.Or(d.Asset, d.Symbol, d.Key)))
 		}
-		if d.Now == "" {
+		switch {
+		case d.Now == "":
 			fmt.Fprintf(w, "  %s: %s: gone, was %s: delete\n", toolAccountName(e, d.Account), what, d.Was)
-			continue
+		case d.WasAsset != "":
+			was := plainCell(mask.Text(d.WasAsset))
+			change := ""
+			if d.Change != "0" {
+				change = ", changed by " + d.Change
+			}
+			fmt.Fprintf(w, "  %s: %s: %s, was %s under %s: delete it under %s and add it under %s%s\n",
+				toolAccountName(e, d.Account), what, d.Now, d.Was, was, was, what, change)
+		default:
+			fmt.Fprintf(w, "  %s: %s: %s, was %s: change by %s\n", toolAccountName(e, d.Account), what, d.Now, d.Was, d.Change)
 		}
-		fmt.Fprintf(w, "  %s: %s: %s, was %s: change by %s\n", toolAccountName(e, d.Account), what, d.Now, d.Was, d.Change)
 	}
 }
 

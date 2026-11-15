@@ -187,6 +187,10 @@
         "account": "A1 ...135",
         "security_key": "i:1854092",
         "symbol": "XYZ",
+        "ghostfolio_asset": {
+          "data_source": "YAHOO",
+          "symbol": "XYZ"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 2

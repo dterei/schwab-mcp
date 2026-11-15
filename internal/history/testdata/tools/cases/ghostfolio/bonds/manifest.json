@@ -168,6 +168,11 @@
         "account": "A1 ...135",
         "security_key": "s:FILE:ZZT10A109@2025-06-01",
         "symbol": "ZZT10A109",
+        "ghostfolio_asset": {
+          "data_source": "MANUAL",
+          "symbol": "4adbe4b6-fd46-8f26-883e-058c28044edc",
+          "name": "Bond (ZZT10A109)"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 10000,
         "written_shares": 0

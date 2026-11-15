@@ -1689,7 +1689,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `left_out`, `caveats`, `combined` | the rows left out, written with a caveat, and carried by a sale |
 | `in_balances` | Ghostfolio: per account, the cash rows that its balances carry |
 | `flagged`, `waiting` | the rows with a flag that needs you, with their flags, and the file rows that wait for you, each with the command that shows it |
-| `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several), with `before` when DIR listed it alike, or `was`, DIR's difference, the snapshot's shares less the written, when DIR listed it otherwise; `gone`: each that DIR listed and this export does not find, with `was`; and `not_checked`, the accounts not checked: with rows and no snapshot, or, for PP, with snapshots and nothing that PP holds; for PP, `cash`: each account whose cash that the records leave differs from its latest snapshot's, with the snapshot's day, `snapshot_cash`, `written_cash`, and `before` or `was` likewise; `cash_gone`: each account whose difference DIR listed and this export finds none of, with `was`; and `cash_not_checked`: each account whose latest snapshot is of a margin account that reads its cash as 0 beside a margin or short balance, with the snapshot's day, `why`, `margin`, and `was`, the difference listed before, carried on |
+| `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several, and for Ghostfolio the asset that holds it, `ghostfolio_asset`: its `data_source`, `symbol` and a MANUAL asset's `name`), with `before` when DIR listed it alike, or `was`, DIR's difference, the snapshot's shares less the written, when DIR listed it otherwise, and `was_asset`, DIR's asset, when DIR listed it under another; `gone`: each that DIR listed and this export does not find, with `was` and its asset; and `not_checked`, the accounts not checked: with rows and no snapshot, or, for PP, with snapshots and nothing that PP holds; for PP, `cash`: each account whose cash that the records leave differs from its latest snapshot's, with the snapshot's day, `snapshot_cash`, `written_cash`, and `before` or `was` likewise; `cash_gone`: each account whose difference DIR listed and this export finds none of, with `was`; and `cash_not_checked`: each account whose latest snapshot is of a margin account that reads its cash as 0 beside a margin or short balance, with the snapshot's day, `why`, `margin`, and `was`, the difference listed before, carried on |
 | `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`option`, `bond`, `no_ticker`, `delisted`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
 | `symbols_changed` | each security that a tool may hold under an earlier symbol, as the tool holds it: its key (the least, with `security_keys` when the store has several), how it is written now (`written_as`: its ticker, or `MANUAL` when the tool gets no price feed for it) and every ticker it has had (`symbols`) |
 | `keys_unsure` | each key of the store that knows no CUSIP and had a ticker that other securities have had too, of other CUSIPs or at other times, which the export writes or prices: its key (with `security_keys` when the export takes several for one), the `tickers` it shares with them, the key of the one it is written as (`taken_for`, null when it stays on its own), and each of those `securities`, by its key, with its `cusip` ("" for none), `apart` when the two had the ticker at times that do not meet, and the `command` that joins the key to it in the store |
@@ -1744,15 +1744,21 @@ whatever its day:
 - left-out rows that DIR listed alike are marked `before`, and stderr
   counts only the others; so are the differences of the holdings check
   and, for PP, of the cash check that DIR listed alike, of an account and
-  a security that shares a key with DIR's. One that DIR listed otherwise
-  keeps DIR's difference, the snapshot's less the records', as `was`, and
-  one that DIR listed and this export does not find is listed under
-  `holdings.gone`, or `holdings.cash_gone`, with `was`: stderr lists each
-  with its change, by which to change what you booked by hand for it, or
-  to delete it, as the rows written now stand for it (in
-  [the how-to](tools.md#the-first-import), step 4). An account whose cash
-  is not checked carries DIR's difference on, as the `was` of its
-  `cash_not_checked` entry, for the export that checks it again.
+  a security that shares a key with DIR's, and for Ghostfolio under the
+  same asset. One that DIR listed otherwise keeps DIR's difference, the
+  snapshot's less the records', as `was`, and one that DIR listed under
+  another Ghostfolio asset, as after a rename, a delisting or `-manual`,
+  keeps that asset too, as `was_asset`: Ghostfolio ties what you added by
+  hand for it to the asset, and does not follow the change. One that DIR
+  listed and this export does not find is listed under `holdings.gone`,
+  or `holdings.cash_gone`, with `was`: stderr lists each with its change,
+  by which to change what you booked by hand for it, or to delete it, as
+  the rows written now stand for it (in
+  [the how-to](tools.md#the-first-import), step 4), and in Ghostfolio to
+  move it to the asset that holds the security now ([step
+  6](tools.md#ghostfolio)). An account whose cash is not checked carries
+  DIR's difference on, as the `was` of its `cash_not_checked` entry, for
+  the export that checks it again.
 
 The chain keeps its account and its `-manual` list: a `-since` export takes
 no `-account`, and adds what `-manual` names to the chain's. It refuses a
