@@ -1449,6 +1449,12 @@ func getTransaction(ctx context.Context, c *call, wc *windowCache, in getTransac
 		}
 		return out, c.failf(codeNotFound, "The local history has no transaction %s.", id.shown(c))
 	}
+	// A time later than now, as a mistyped year gives, is no row's that a
+	// window read from Schwab could hold, since the windows end at now.
+	if id.activity == 0 && len(found) == 0 && timed && at.After(c.now) {
+		return out, c.failf(codeNotFound, "There is no transaction %s: the time it holds, %s ET, is later than now.",
+			id.shown(c), Ident(at.In(nytime.NewYork()).Format("2006-01-02 15:04")))
+	}
 	if storeErr != nil && !errors.Is(storeErr, history.ErrNoStore) && !errors.Is(storeErr, errNoStorePath) {
 		c.warn("store_unavailable", "The local history could not be read, so its view of the transaction is left out: %s",
 			c.errText(c.s.toolError(c.tool, storeErr)))

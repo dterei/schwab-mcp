@@ -1511,7 +1511,8 @@ func TestCappedWindow(t *testing.T) {
 // A row that Schwab sends without an activity ID has a T~ ref, of its time
 // and digest, which get_transaction takes whether or not the local history
 // holds the row: one the store lacks is read from Schwab's days around its
-// time, and is the row whose ref is the one given, raw JSON included.
+// time, and is the row whose ref is the one given, raw JSON included; one
+// of a time later than now names no row, and Schwab is not asked.
 func TestTildeRefsFromSchwab(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2025, time.March, 5, 15, 0, 0, 0, time.UTC)
@@ -1545,6 +1546,23 @@ func TestTildeRefsFromSchwab(t *testing.T) {
 		if r := e.call("get_transaction", `{"id":"`+missing+`","account":"135"}`); r.code() != "not_found" ||
 			!strings.Contains(r.text, "Schwab sent no transaction "+missing+" in account ...135 on the days around its time.") {
 			t.Errorf("%s: a T~ ref of no row: %.300s", name, r.text)
+		}
+		// A time later than now, later today, in 4 days or in a year
+		// mistyped, is no row's that Schwab could send: not_found, with no
+		// request.
+		before := e.fake.APICalls()
+		for _, tc := range []struct{ args, at string }{
+			{`{"id":"T~20261113T230000.000000000000","account":"135"}`, "2026-11-13 18:00"},
+			{`{"id":"T~20261117T150000.000000000000","account":"135"}`, "2026-11-17 10:00"},
+			{`{"id":"T~29991231T000000.000000000000"}`, "2999-12-30 19:00"},
+		} {
+			if r := e.call("get_transaction", tc.args); r.code() != "not_found" ||
+				!strings.Contains(r.text, ": the time it holds, "+tc.at+" ET, is later than now.") {
+				t.Errorf("%s: %s: %.300s", name, tc.args, r.text)
+			}
+		}
+		if n := e.fake.APICalls() - before; n != 0 || strings.Contains(e.logs.String(), "Schwab could not be reached") {
+			t.Errorf("%s: refs of times later than now sent %d requests, and logged:\n%s", name, n, e.logs)
 		}
 	}
 }
