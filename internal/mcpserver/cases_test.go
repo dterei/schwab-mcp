@@ -121,6 +121,69 @@ func TestEveryToolCovered(t *testing.T) {
 	}
 }
 
+// toolTitles are the tools' titles, as design 10.0's table gives them.
+var toolTitles = map[string]string{
+	"auth_status":      "Schwab login status",
+	"list_accounts":    "Schwab accounts",
+	"get_balances":     "Schwab balances",
+	"get_positions":    "Schwab positions",
+	"get_transactions": "Schwab transactions",
+	"get_transaction":  "One Schwab transaction",
+}
+
+// Every tool has design 10.0's title, as its own and in its annotations,
+// and declares every hint as 10.0 has it: read-only, not destructive and
+// idempotent, and a closed world (decision 25), since the spec's defaults
+// are destructive and an open world, and an editor client asks the user to
+// review each result of a tool of an open world. Each is read from
+// tools/list as the wire carried it, in a 2026-07-28 session and in a
+// 2025-06-18 one.
+func TestToolAnnotations(t *testing.T) {
+	t.Parallel()
+	for _, protocol := range caseProtocols {
+		e := newEnv(t, withProtocol(protocol), withoutStore())
+		var tools []struct {
+			Name        string         `json:"name"`
+			Title       string         `json:"title"`
+			Annotations map[string]any `json:"annotations"`
+		}
+		for _, line := range e.wire.lines() {
+			msg, ok := strings.CutPrefix(line, "read: ")
+			if !ok {
+				continue
+			}
+			var m struct {
+				Result *struct {
+					Tools json.RawMessage `json:"tools"`
+				} `json:"result"`
+			}
+			if json.Unmarshal([]byte(msg), &m) == nil && m.Result != nil && m.Result.Tools != nil {
+				if err := json.Unmarshal(m.Result.Tools, &tools); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if len(tools) != len(e.tools) {
+			t.Fatalf("%q: tools/list's answer lists %d tools, want %d", protocol, len(tools), len(e.tools))
+		}
+		for _, tool := range tools {
+			title, ok := toolTitles[tool.Name]
+			if !ok {
+				t.Errorf("%s has no title in toolTitles", tool.Name)
+				continue
+			}
+			got, err := json.Marshal(tool.Annotations)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := `{"destructiveHint":false,"idempotentHint":true,"openWorldHint":false,"readOnlyHint":true,"title":"` + title + `"}`
+			if tool.Title != title || string(got) != want {
+				t.Errorf("%q: %s has the title %q and the annotations %s, want %q and %s", protocol, tool.Name, tool.Title, got, title, want)
+			}
+		}
+	}
+}
+
 // A leakWorld is TestNoAccountNumberLeaks' world, which each tool's
 // plantings add to. The core's planting runs first, its file's name being
 // first, and sets store.

@@ -61,7 +61,11 @@ func TestMaskerFreeAndStored(t *testing.T) {
 // A T~ ref of the store's is shown with its digest permuted, and taken
 // back in any case: its time and its .2 kept, distinct refs kept distinct,
 // in the store's text too, and the same under the same app secret, in
-// every process, but not under another; any other ref stays as it is.
+// every process, but not under another; any other ref stays as it is. The
+// permutation is refs.go's, as fixed refs pin it, and a shown digest holds
+// neither half of the store's anywhere: a permutation of too few rounds
+// would show one, and half the digest is enough to tell the true account
+// number from the 10^5 that end in its last three digits.
 func TestMaskerRefs(t *testing.T) {
 	t.Parallel()
 	m := testMasker("")
@@ -69,6 +73,15 @@ func TestMaskerRefs(t *testing.T) {
 	shown := string(m.ref(store))
 	if !tildeShape.MatchString(shown) || shown[:18] != store[:18] || shown == store {
 		t.Fatalf("ref(%s) = %s", store, shown)
+	}
+	for ref, want := range map[string]string{
+		store:                            "T~20250305T150000.27ac41aa3646",
+		"T~none.c023c07bca8e":            "T~none.a3032540bed1",
+		"T~20250305T150000.0123456789ab": "T~20250305T150000.4bae4c780d90",
+	} {
+		if got := m.ref(ref); string(got) != want {
+			t.Errorf("ref(%s) = %s under the fake's app secret, want %s", ref, got, want)
+		}
 	}
 	for _, given := range []string{shown, strings.ToUpper(shown), "t~20250305t150000." + strings.ToUpper(shown[18:])} {
 		if got := m.storeRef(given); got != store {
@@ -102,7 +115,8 @@ func TestMaskerRefs(t *testing.T) {
 	if longer := "of " + store + "9f"; m.stored(longer) != FreeText(longer) {
 		t.Errorf("stored(%q) = %q", longer, m.stored(longer))
 	}
-	// The digests of many refs of one time stay distinct, and come back.
+	// The digests of many refs of one time stay distinct, come back, and
+	// show neither half of the store's.
 	seen := map[Ident]bool{}
 	for i := range 4096 {
 		ref := fmt.Sprintf("T~20250305T150000.%012x", i*104729)
@@ -111,6 +125,9 @@ func TestMaskerRefs(t *testing.T) {
 			t.Fatalf("ref(%s) = %s, seen before %v, back %s", ref, got, seen[got], m.storeRef(string(got)))
 		}
 		seen[got] = true
+		if digest := string(got[18:]); strings.Contains(digest, ref[18:24]) || strings.Contains(digest, ref[24:]) {
+			t.Errorf("ref(%s) = %s, which shows half the store's digest", ref, got)
+		}
 	}
 }
 

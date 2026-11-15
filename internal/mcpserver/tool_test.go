@@ -1004,13 +1004,14 @@ func TestCacheScopeIsPrivate(t *testing.T) {
 }
 
 // An account argument picks exactly one account (design 6.4): by its hash
-// or a prefix of 12 or more of its characters, in any case; by its store
-// ref; by the digits its number ends in, with or without ..., dashes or
-// spaces; by its nickname as Schwab sent it or as masked. None, or
-// several, is an error that names the accounts, each hash whole, and
-// echoes the argument with no more of a number than ... and 3 digits, but a
-// hash whole. A hash that Schwab no longer takes is looked up again once;
-// an account no longer shared is account_not_shared.
+// or a prefix of 12 or more of its characters, in any case, but not of 11;
+// by its store ref; by the digits its number ends in, with or without ...,
+// dashes or spaces; by its nickname as Schwab sent it or as masked, one of
+// fewer than 12 hex digits too. None, or several, is an error that names
+// the accounts, each hash whole, and echoes the argument with no more of a
+// number than ... and 3 digits, but a hash whole. A hash that Schwab no
+// longer takes is looked up again once; an account no longer shared is
+// account_not_shared.
 func TestAccountSelection(t *testing.T) {
 	t.Parallel()
 	hash := schwabtest.HashFor(individual)
@@ -1058,6 +1059,8 @@ func TestAccountSelection(t *testing.T) {
 		{"12345678", "account_not_found", `"...678"`, "12345678"},
 		{"ABCDEF123456", "account_not_found", `"ABCDEF123456"`, ""},
 		{"Nobody 29470135", "account_not_found", `"Nobody ...135"`, ""},
+		// 11 of a hash's first characters are no prefix of it, which takes 12.
+		{hash[:11], "account_not_found", `"742C51B...446"`, ""},
 	} {
 		r := e.call("pick", map[string]string{"account": tc.arg})
 		if r.code() != tc.code || !strings.Contains(r.text, tc.echo) {
@@ -1090,7 +1093,14 @@ func TestAccountSelection(t *testing.T) {
 	if r := e.call("pick", `{"account":"135"}`); r.isError || !strings.Contains(r.text, `"type":"CASH"`) {
 		t.Errorf("after a new hash: %s", r.text)
 	}
-	e3 := newEnv(t, withPick())
+	// A nickname of hex digits alone, fewer than 12, names its account: it is
+	// no hash's prefix.
+	e3 := newEnv(t, withPick(), withFake(func(f *schwabtest.Server) {
+		f.SetUserPreference(`{"accounts":[{"accountNumber":"29470135","nickName":"Cafe","primaryAccount":true}]}`)
+	}))
+	if r := e3.call("pick", `{"account":"cafe"}`); r.isError || !strings.Contains(r.text, `"account":"...135"`) {
+		t.Errorf("the nickname \"Cafe\": %s", r.text)
+	}
 	if r := e3.call("pick", `{"account":"398"}`); r.isError {
 		t.Fatal(r.text)
 	}
@@ -1194,10 +1204,11 @@ func TestNicknames(t *testing.T) {
 }
 
 // Before any request, the call checks what costs Schwab nothing (design
-// 6.2): a config that cannot be used, the app key and secret, a saved login
-// that has not lapsed nor been refused; a login that lapses within 48
-// hours is warned of; and every login error asks the user to run schwabtx
-// login in their own terminal, never the model.
+// 6.2), with no request to its API or its token endpoint: a config that
+// cannot be used, the app key and secret, a saved login that has not lapsed
+// nor been refused; a login that lapses within 48 hours is warned of; and
+// every login error asks the user to run schwabtx login in their own
+// terminal, never the model.
 func TestLoginErrors(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -1234,6 +1245,7 @@ func TestLoginErrors(t *testing.T) {
 		})}, "config_unreadable", []string{"https, or http to this computer only"}},
 	} {
 		e := newEnv(t, append(tc.opts, withPick())...)
+		requests := e.fake.TokenRequests() + e.fake.APICalls()
 		r := e.call("pick", `{}`)
 		if r.code() != tc.code {
 			t.Errorf("%s: %s, want [%s]", tc.name, r.text, tc.code)
@@ -1243,8 +1255,8 @@ func TestLoginErrors(t *testing.T) {
 				t.Errorf("%s: %s, want it to say %q", tc.name, r.text, w)
 			}
 		}
-		if n := e.fake.APICalls(); n != 0 {
-			t.Errorf("%s: %d requests reached the API", tc.name, n)
+		if n := e.fake.TokenRequests() + e.fake.APICalls() - requests; n != 0 {
+			t.Errorf("%s: %d requests reached Schwab, its token endpoint or its API", tc.name, n)
 		}
 	}
 
