@@ -1144,10 +1144,23 @@ func TestToolMapping(t *testing.T) {
 			},
 			// The newer ticker is the file's, which an export after the API's
 			// sale names its rows by: the API's key, whose sale was its last
-			// row, knows only the old one.
+			// row, knows only the old one. The buy is of an earlier file, or
+			// of the later one too, which restates it under the new ticker, as
+			// the store's entry of it then is: either way, the file's key took
+			// up the new ticker at the export that named it so, after the
+			// API's sale under the old one, whatever the buy's day, and with a
+			// CUSIP under the API's key or none, the two are one security.
 			{
 				name: "renamed under the file's key alone", api: []string{"JKLM"}, file: []string{"JKLM", "JKLN"}, apiCUSIP: "ZZJ12K106",
 				identity: "JKLN", changed: true,
+			},
+			{
+				name: "renamed under the file's key alone, its buy restated", api: []string{"JKLM"}, file: []string{"JKLM", "JKLN"}, apiCUSIP: "ZZJ12K106",
+				buy: "JKLN", identity: "JKLN", changed: true,
+			},
+			{
+				name: "renamed under the file's key alone, its buy restated, no CUSIP", api: []string{"JKLM"}, file: []string{"JKLM", "JKLN"},
+				buy: "JKLN", identity: "JKLN", changed: true,
 			},
 			{
 				name: "delisted, a CUSIP under the API's key", api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106",
@@ -1157,10 +1170,15 @@ func TestToolMapping(t *testing.T) {
 				name: "delisted, described alike", api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106",
 				apiName: "JKLM SMALL CAP VALUE ETF", fileName: "JKLM SMALL CAP VALUE ETF", filed: tcFiledEarly, identity: "ZZJ12K106", why: "delisted", changed: true,
 			},
-			// A file that writes the CUSIP of a security that has gone.
+			// A file that writes the CUSIP of a security that has gone, of the
+			// buy too when it restates it.
 			{
 				name: "delisted under the file's key", api: []string{"JKLM"}, file: []string{"JKLM", "ZZJ12K106"}, apiCUSIP: "ZZJ12K106",
 				identity: "ZZJ12K106", why: "delisted", changed: true,
+			},
+			{
+				name: "delisted under the file's key, its buy restated", api: []string{"JKLM"}, file: []string{"JKLM", "ZZJ12K106"}, apiCUSIP: "ZZJ12K106",
+				buy: "ZZJ12K106", identity: "ZZJ12K106", why: "delisted", changed: true,
 			},
 			{
 				name: "dotted", api: []string{"JKL.PRA"}, file: []string{"JKL.PRA"}, apiName: "JKL TRUST PFD SER A", fileName: "JKL TRUST PFD SER A",
@@ -1476,19 +1494,28 @@ func TestToolMapping(t *testing.T) {
 				t.Errorf("%s: unsure %+v", k, *u)
 			}
 		}
-		// A ticker that a company gave up, delisted (B1, B2) or renamed
-		// (B3), and that another had after it, by the days of their rows,
-		// whatever the store read them: one CUSIP between them, or none (B5),
-		// does not join them, each written as itself, so that neither takes
-		// the other's identifiers, and the one that knows no CUSIP is listed
-		// with the other, apart; of two that know none, the one that holds the
-		// ticker now. B4 adds a History file's key of each, which
-		// had the ticker while its company did: each joins its own (the old
-		// one's file key, of a buy before the delisting, the old one), and
-		// the new company's two keys are listed once. F3: of two companies
-		// of a ticker still, a file key is taken for the one whose rows had
-		// it first, the old one's, which a late -json import of its rows
-		// dates after the other's snapshots.
+		// A ticker that a company gave up, delisted (B1) or renamed (B3),
+		// and that another had after it, by the days of the API's rows and
+		// the exports that named the History files' keys, whatever the store
+		// read them: one CUSIP between them, or none (B5, where one export
+		// names the two keys otherwise at once), does not join them, each
+		// written as itself, so that neither takes the other's identifiers,
+		// and the one that knows no CUSIP is listed with the other, apart; of
+		// two that know none, the one that holds the ticker now. B4 adds a
+		// History file's key of each, which had the ticker while its company
+		// did: each joins its own (the old one's file key, of a buy before
+		// the delisting, the old one), and the new company's two keys are
+		// listed once. F3: of two companies of a ticker still, a file key is
+		// taken for the one whose rows had it first, the old one's, which a
+		// late -json import of its rows dates after the other's snapshots.
+		// B2: a History file names a security TKRY at an export of 2023 and
+		// by its CUSIP at one of 2026, which restates its rows of 2019 and
+		// 2022 under the CUSIP, and the API's key bought TKRY in 2025: the
+		// file's key took up the CUSIP at the export of 2026, nothing says
+		// that it gave TKRY up before the API's key had it, and the two are
+		// one security, delisted while the API's key was last seen before
+		// that export, and trading under TKRY once a snapshot after it sees
+		// the API's key so.
 		apartIn := func(securities []toolSecurityRow, names []toolName, rows []toolRow, positions []toolPosition) toolInput {
 			base, baseNames := tcSecurities()
 			in := tcInput(toolInput{securities: append(base, securities...), names: append(baseNames, names...), rows: rows, positions: positions})
@@ -1522,6 +1549,83 @@ func TestToolMapping(t *testing.T) {
 			rcFile("C7f4a5b6d.2", 1, "2022-05-02", "Sell", "sell", "x:66000303", "ZZN40B107", centsOf(-5_000_000), 12, 6_000),
 			rcTrade("T7f4a000202", 1, "2025-03-03 10:00:00", "buy", "i:1000303", "TKRY", 3_000_000, 40, -12_000, 0),
 		}, []toolPosition{rcPosition("2026-11-10", "i:1000303", 3_000_000, 150)})
+		// S1: a History file's key follows a spin-off from its first row,
+		// under its CUSIP (2015), through a purchase under its ticker (2016)
+		// to its cash merger under the CUSIP again (2025), and names them at
+		// its export (2026); the API's key, which knows no CUSIP, bought the
+		// ticker in 2024. The file's key took up the CUSIP, which its last
+		// row names, at that export, after the API's purchase: one security,
+		// delisted by the merger, known by its CUSIP.
+		mergedCash := rcFile("C7f4a5b74.3", 3, "2025-12-01", "Cash Merger", "sell", "x:66000510", "69389C109", sql.NullInt64{}, 0, 75_000)
+		mergedShares := rcFile("C7f4a5b74.4", 3, "2025-12-01", "Cash Merger Adj", "other", "x:66000510", "69389C109", centsOf(-15_000_000), 0, 0)
+		mergedCash.flags, mergedShares.flags = []string{"two_row_event"}, []string{"two_row_event"}
+		s1 := apartIn([]toolSecurityRow{
+			{key: "x:66000510", symbol: "69389C109"}, {key: "i:1000510", assetType: "EQUITY", symbol: "TKSP"},
+		}, []toolName{
+			seen("x:66000510", "symbol", "TKSP", "2026-01-15 09:00:00"), seen("x:66000510", "symbol", "69389C109", "2026-01-15 09:00:00"),
+			seen("x:66000510", "description", "TKSP SPINCO INC", "2026-01-15 09:00:00"),
+			seen("i:1000510", "symbol", "TKSP", "2024-06-03 18:30:00"), seen("i:1000510", "description", "TKSP SPINCO INC", "2024-06-03 18:30:00"),
+		}, []toolRow{
+			rcFile("C7f4a5b74.1", 3, "2015-03-02", "Spin-off", "transfer_in", "x:66000510", "69389C109", centsOf(10_000_000), 0, 0),
+			rcFile("C7f4a5b74.2", 3, "2016-05-02", "Buy", "buy", "x:66000510", "TKSP", centsOf(5_000_000), 20, -10_000),
+			rcTrade("T7f4a000510", 1, "2024-06-03 10:00:00", "buy", "i:1000510", "TKSP", 2_000_000, 30, -6_000, 0),
+			mergedCash, mergedShares,
+		}, nil)
+		// S2: the same of an API key, whose rows date its symbols: it gave
+		// the ticker up at the merger, its first day under the CUSIP after
+		// its last under the ticker, not at the spin-off, its first under
+		// the CUSIP ever, so a History file's key that bought the ticker in
+		// 2024, before the merger, is of it.
+		s2 := apartIn([]toolSecurityRow{
+			{key: "i:1000520", assetType: "EQUITY", symbol: "69389C109"}, {key: "x:66000520", symbol: "TKSP"},
+		}, []toolName{
+			{key: "i:1000520", kind: "symbol", value: "69389C109", firstSeen: tcNY("2015-03-02 18:30:00"), lastSeen: tcNY("2025-12-01 18:30:00")},
+			{key: "i:1000520", kind: "symbol", value: "TKSP", firstSeen: tcNY("2016-05-02 18:30:00"), lastSeen: tcNY("2016-05-02 18:30:00")},
+			seen("x:66000520", "symbol", "TKSP", "2024-07-01 09:00:00"),
+		}, []toolRow{
+			rcTrade("T7f4a000521", 1, "2015-03-02 10:00:00", "buy", "i:1000520", "69389C109", 10_000_000, 1, -1_000, 0),
+			rcTrade("T7f4a000522", 1, "2016-05-02 10:00:00", "buy", "i:1000520", "TKSP", 5_000_000, 20, -10_000, 0),
+			rcTrade("T7f4a000523", 1, "2025-12-01 10:00:00", "sell", "i:1000520", "69389C109", -15_000_000, 50, 75_000, 0),
+			rcFile("C7f4a5b75.1", 3, "2024-06-03", "Buy", "buy", "x:66000520", "TKSP", centsOf(2_000_000), 30, -6_000),
+		}, nil)
+		// B7: a History file whose one row of the security is its cash
+		// merger, under its CUSIP, dated by that row (the file's key has no
+		// ticker), after the positions' key last saw the ticker; and an API
+		// key that bought the ticker after the merger, before the file's
+		// export: apart, the merger's day deciding, not the export's.
+		mergerCash := rcFile("C7f4a5b76.1", 1, "2025-12-01", "Cash Merger", "sell", "x:66000309", "69389C109", sql.NullInt64{}, 0, 50_000)
+		mergerShares := rcFile("C7f4a5b76.2", 1, "2025-12-01", "Cash Merger Adj", "other", "x:66000309", "69389C109", centsOf(-10_000_000), 0, 0)
+		mergerCash.flags, mergerShares.flags = []string{"two_row_event"}, []string{"two_row_event"}
+		b7 := apartIn([]toolSecurityRow{
+			{key: "x:66000309", symbol: "69389C109"},
+			{key: "c:69389C109", assetType: "EQUITY", symbol: "MRGR", cusip: "69389C109"},
+			{key: "i:1000309", assetType: "EQUITY", symbol: "MRGR"},
+		}, []toolName{
+			seen("x:66000309", "symbol", "69389C109", "2026-01-15 09:00:00"),
+			{key: "c:69389C109", kind: "symbol", value: "MRGR", firstSeen: tcNY("2025-06-30 18:05:00"), lastSeen: tcNY("2025-11-28 18:05:00")},
+			seen("i:1000309", "symbol", "MRGR", "2026-01-05 18:30:00"),
+		}, []toolRow{
+			mergerCash, mergerShares,
+			rcTrade("T7f4a000701", 1, "2026-01-05 10:00:00", "buy", "i:1000309", "MRGR", 2_000_000, 25, -5_000, 0),
+		}, nil)
+		// B8: B1 with the old company's rows read by one -json import long
+		// after, which dates both of its symbols: its rows say when it went
+		// by each, so it gave the ticker up at its sale under the CUSIP, as
+		// in B1, before the file's key had it.
+		b8 := b1
+		b8.names = slices.Clone(b1.names)
+		for i := range b8.names {
+			if n := &b8.names[i]; n.key == "i:1000301" {
+				n.firstSeen, n.lastSeen = tcNY("2026-11-12 10:04:05"), tcNY("2026-11-12 10:04:05")
+			}
+		}
+		b2Seen := b2
+		b2Seen.names = slices.Clone(b2.names)
+		for i := range b2Seen.names {
+			if n := &b2Seen.names[i]; n.key == "i:1000303" {
+				n.lastSeen = tcNY("2026-11-10 18:05:00")
+			}
+		}
 		b3 := apartIn([]toolSecurityRow{
 			{key: "i:1000304", assetType: "EQUITY", symbol: "TKRV", cusip: "ZZP40C103"}, {key: "x:66000304", symbol: "TKRW"},
 		}, []toolName{
@@ -1533,6 +1637,22 @@ func TestToolMapping(t *testing.T) {
 			rcTrade("T7f4a000302", 1, "2024-02-01 10:00:00", "sell", "i:1000304", "TKRV", -10_000_000, 25, 25_000, 0),
 			rcFile("C7f4a5b6e.1", 3, "2025-06-02", "Buy", "buy", "x:66000304", "TKRW", centsOf(5_000_000), 30, -15_000),
 		}, nil)
+		// B9: B3 with the History file exported on the morning of the day
+		// of the old company's rename, its buy the day before: the API's
+		// rows date the rename by its day, and the file's export of that day
+		// is no instant of one source naming the two otherwise, so nothing
+		// says that the rename came first, and the file's key, whose buy
+		// was of the old company, joins it.
+		b9 := b3
+		b9.names = slices.Clone(b3.names)
+		for i := range b9.names {
+			if n := &b9.names[i]; n.key == "x:66000304" {
+				n.firstSeen, n.lastSeen = tcNY("2024-02-01 09:00:00"), tcNY("2024-02-01 09:00:00")
+			}
+		}
+		b9.rows = slices.Clone(b3.rows)
+		b9.rows[2] = rcFile("C7f4a5b6e.1", 3, "2024-01-31", "Buy", "buy", "x:66000304", "TKRW", centsOf(5_000_000), 30, -15_000)
+		b9 = tcInput(b9)
 		b5 := apartIn([]toolSecurityRow{{key: "x:66000306", symbol: "TKRT"}, {key: "x:66000307", symbol: "TKRU"}}, []toolName{
 			seen("x:66000306", "symbol", "TKRU", "2022-01-15 09:00:00"), seen("x:66000306", "symbol", "TKRT", "2026-02-10 09:00:00"),
 			seen("x:66000307", "symbol", "TKRU", "2026-02-10 09:00:00"),
@@ -1593,9 +1713,15 @@ func TestToolMapping(t *testing.T) {
 			},
 			{
 				"B2, delisted by a later file", b2,
-				map[string]string{"x:66000303": "ZZN40B107", "i:1000303": "i:1000303"},
+				map[string]string{"x:66000303": "ZZN40B107", "i:1000303": "ZZN40B107"},
+				[][2]string{{"x:66000303", "i:1000303"}},
 				nil,
-				map[string]toolUnsure{"i:1000303": {keys: []string{"i:1000303"}, tickers: []string{"TKRY"}, of: []toolUnsureOf{{key: "x:66000303", cusip: "ZZN40B107", apart: true}}, taken: -1}},
+			},
+			{
+				"B2, the API's key seen since", b2Seen,
+				map[string]string{"x:66000303": "TKRY", "i:1000303": "TKRY"},
+				[][2]string{{"x:66000303", "i:1000303"}},
+				nil,
 			},
 			{
 				"B3, renamed", b3,
@@ -1626,6 +1752,36 @@ func TestToolMapping(t *testing.T) {
 					"i:1000302":  {keys: []string{"i:1000302", "x:66000302"}, tickers: []string{"TKRZ"}, of: []toolUnsureOf{{key: "i:1000301", cusip: "ZZM40A100", apart: true}}, taken: -1},
 					"x:66000302": {keys: []string{"i:1000302", "x:66000302"}, tickers: []string{"TKRZ"}, of: []toolUnsureOf{{key: "i:1000301", cusip: "ZZM40A100", apart: true}}, taken: -1},
 				},
+			},
+			{
+				"S1, a spin-off merged away under its CUSIP", s1,
+				map[string]string{"x:66000510": "69389C109", "i:1000510": "69389C109"},
+				[][2]string{{"x:66000510", "i:1000510"}},
+				nil,
+			},
+			{
+				"B9, a file of the rename's day", b9,
+				map[string]string{"i:1000304": "TKRV", "x:66000304": "TKRV"},
+				[][2]string{{"i:1000304", "x:66000304"}},
+				nil,
+			},
+			{
+				"B8, B1 of a -json import", b8,
+				map[string]string{"i:1000301": "ZZM40A100", "x:66000302": "x:66000302"},
+				nil,
+				map[string]toolUnsure{"x:66000302": {keys: []string{"x:66000302"}, tickers: []string{"TKRZ"}, of: []toolUnsureOf{{key: "i:1000301", cusip: "ZZM40A100", apart: true}}, taken: -1}},
+			},
+			{
+				"S2, a spin-off merged away under its CUSIP, of an API key", s2,
+				map[string]string{"i:1000520": "69389C109", "x:66000520": "69389C109"},
+				[][2]string{{"i:1000520", "x:66000520"}},
+				nil,
+			},
+			{
+				"B7, a later company after a cash merger alone under the CUSIP", b7,
+				map[string]string{"c:69389C109": "69389C109", "x:66000309": "69389C109", "i:1000309": "i:1000309"},
+				[][2]string{{"c:69389C109", "x:66000309"}},
+				map[string]toolUnsure{"i:1000309": {keys: []string{"i:1000309"}, tickers: []string{"MRGR"}, of: []toolUnsureOf{{key: "c:69389C109", cusip: "69389C109", apart: true}}, taken: -1}},
 			},
 			{
 				"F3, the first by its rows", f3,
@@ -1765,7 +1921,35 @@ func TestToolMapping(t *testing.T) {
 			toolName{key: posKey, kind: "description", value: "SPINCO INC", firstSeen: first, lastSeen: last},
 		)
 		held.positions = []toolPosition{rcPosition("2026-11-10", posKey, 15_000_000, 195)}
-		for _, c := range []toolCase{{name: "alone", in: alone}, {name: "held", in: held}} {
+		// A file whose one row of the security is the spin-off's, under its
+		// CUSIP, exported the morning after the snapshot that held it under
+		// its ticker: the file's key has no ticker, and saw the CUSIP on the
+		// row's day, not at the export, which says nothing of a delisting.
+		late := held
+		late.securities = append(slices.Clone(securities), held.securities[len(held.securities)-2:]...)
+		exportedLate := tcNY("2026-11-11 09:00:00")
+		late.names = append(slices.Clone(names),
+			toolName{key: fileKey, kind: "symbol", value: cusip, firstSeen: exportedLate, lastSeen: exportedLate},
+			toolName{key: fileKey, kind: "description", value: "SPINCO INC", firstSeen: exportedLate, lastSeen: exportedLate},
+			toolName{key: posKey, kind: "symbol", value: "SPNC", firstSeen: first, lastSeen: last},
+			toolName{key: posKey, kind: "description", value: "SPINCO INC", firstSeen: first, lastSeen: last},
+		)
+		late.rows = slices.Clone(held.rows[:1])
+		late.positions = []toolPosition{rcPosition("2026-11-10", posKey, 10_000_000, 195)}
+		late = tcInput(late)
+		// The same, with the spin-off received on the day of the one
+		// snapshot that held it: the row's day is as of its start, before
+		// that evening's snapshot.
+		sameDay := late
+		sameDay.names = slices.Clone(late.names)
+		for i := range sameDay.names {
+			if n := &sameDay.names[i]; n.key == posKey {
+				n.firstSeen, n.lastSeen = tcNY("2026-01-05 18:05:00"), tcNY("2026-01-05 18:05:00")
+			}
+		}
+		sameDay.positions = []toolPosition{rcPosition("2026-01-05", posKey, 10_000_000, 120)}
+		sameDay.snapshots = []toolSnapshot{rcSnapshot(1, "2026-01-05", 100_000)}
+		for _, c := range []toolCase{{name: "alone", in: alone}, {name: "held", in: held}, {name: "held, filed after the snapshot", in: late}, {name: "held, received on the snapshot's day", in: sameDay}} {
 			for _, tool := range []string{toolPP, toolGF} {
 				in, events, _ := mapCase(c, tool)
 				for _, e := range events {
@@ -1773,7 +1957,7 @@ func TestToolMapping(t *testing.T) {
 						t.Errorf("%s %s: %s is of %s, delisted %v, MANUAL %q, changed %v", c.name, tool, e.ref, s.identity(), s.delisted, s.manual, s.symbolsChanged())
 					}
 				}
-				if diffs, _ := holdingsCheck(in, events); c.name == "held" && len(diffs) != 0 {
+				if diffs, _ := holdingsCheck(in, events); c.name != "alone" && len(diffs) != 0 {
 					t.Errorf("%s %s: differences %+v", c.name, tool, diffs)
 				}
 				if e := caseExport(t, c, tool); e.SymbolsChanged != 0 {
@@ -1838,6 +2022,38 @@ func TestToolMapping(t *testing.T) {
 				in.securities = append(in.securities, toolSecurityRow{key: "c:69389C109", assetType: "EQUITY", symbol: "MRGR", cusip: "69389C109"})
 				in.names = append(in.names, toolName{key: "c:69389C109", kind: "symbol", value: "MRGR", firstSeen: tcNY("2025-06-30 18:05:00"), lastSeen: tcNY("2025-06-30 18:05:00")})
 				return in
+			}(), true},
+			// A file whose one row of the security is its cash merger, under
+			// the CUSIP, which the positions' key saw under its ticker until a
+			// snapshot before the merger: the file's key has no ticker, and saw
+			// the CUSIP on the merger's day, after that snapshot.
+			{"a cash merger alone under the CUSIP, after a snapshot that held it", "MRGR", func() toolInput {
+				securities, names := tcSecurities()
+				in := tcInput(toolInput{
+					securities: append(securities, toolSecurityRow{key: "x:66000309", symbol: "69389C109"},
+						toolSecurityRow{key: "c:69389C109", assetType: "EQUITY", symbol: "MRGR", cusip: "69389C109"}),
+					names: append(names,
+						toolName{key: "x:66000309", kind: "symbol", value: "69389C109", firstSeen: tcNY("2026-01-15 09:00:00"), lastSeen: tcNY("2026-01-15 09:00:00")},
+						toolName{key: "c:69389C109", kind: "symbol", value: "MRGR", firstSeen: tcNY("2025-06-30 18:05:00"), lastSeen: tcNY("2025-11-28 18:05:00")},
+					),
+					rows: merger("C7f3a4b5e", "x:66000309", "69389C109"),
+				})
+				return in
+			}(), true},
+			// An API read after the delisting names the security's old buy by
+			// its CUSIP, which the key alone has: the read dates it, after the
+			// positions' key last saw the ticker.
+			{"an API read of a key with no ticker, after the positions' last sighting", "MRGR", func() toolInput {
+				securities, names := tcSecurities()
+				return tcInput(toolInput{
+					securities: append(securities, toolSecurityRow{key: "i:900000004", assetType: "EQUITY", symbol: "69389C109"},
+						toolSecurityRow{key: "c:69389C109", assetType: "EQUITY", symbol: "MRGR", cusip: "69389C109"}),
+					names: append(names,
+						toolName{key: "i:900000004", kind: "symbol", value: "69389C109", firstSeen: tcNY("2023-01-15 10:00:00"), lastSeen: tcNY("2023-01-15 10:00:00")},
+						toolName{key: "c:69389C109", kind: "symbol", value: "MRGR", firstSeen: tcNY("2021-03-01 18:05:00"), lastSeen: tcNY("2022-06-30 18:05:00")},
+					),
+					rows: []toolRow{rcTrade("T7f3a000401", 1, "2021-03-01 10:00:00", "buy", "i:900000004", "69389C109", 10_000_000, 10, -10_000, 0)},
+				})
 			}(), true},
 			{"rows of both on one day", "TKRN", gone("i:900000003", "EQUITY", "TKRN", "69389F102", tcNY("2026-11-12 10:04:05"),
 				rcTrade("T7f3a000301", 1, "2022-06-16 10:00:00", "buy", "i:900000003", "TKRN", 10_000_000, 10, -10_000, 0),

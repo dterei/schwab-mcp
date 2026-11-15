@@ -839,3 +839,76 @@ func TestToolReadNamesOfOneSource(t *testing.T) {
 		}
 	}
 }
+
+// TestToolReadRenameRestated reads, from a real store, a security renamed
+// between two History files that hold its first buy, whose entry takes the
+// later file's ticker (fileEntry), as does a second buy that the later file
+// alone holds, of a day between the two; and an API key of the old ticker,
+// which sold it under that ticker before the later file: Q12 has the file
+// key's rows under the new ticker alone, its names are dated by the two
+// files' exports, and both tools take the two keys for one security of the
+// new ticker, which the export does not list as unsure.
+func TestToolReadRenameRestated(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	ny := nytime.NewYork()
+	item := map[int]string{0: "66000401"}
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20250115-090000", "json"), historyJSON("01/01/2024", "01/14/2025", item,
+		csvRow{"03/11/2024", "Buy", "JKLM", "JKLM CORP", "10", "$150.00", "", "-$1500.00"}))
+	// The later file holds a second buy, of a day between the two files,
+	// under the new ticker too, as of its export.
+	importFiles(t, s, ImportOptions{Account: fileAccount}, exportName("20261111-090000", "json"), historyJSON("01/01/2024", "11/10/2026",
+		map[int]string{0: "66000401", 1: "66000401"},
+		csvRow{"06/02/2025", "Buy", "JKLN", "JKLN CORP", "5", "$160.00", "", "-$800.00"},
+		csvRow{"03/11/2024", "Buy", "JKLN", "JKLN CORP", "10", "$150.00", "", "-$1500.00"}))
+	sale := fmt.Sprintf(`{"activityId": 73700000401, "time": %q, "accountNumber": %q, "type": "TRADE", "status": "VALID",
+		"subAccount": "CASH", "tradeDate": %q, "netAmount": 1700, "transferItems": [{"instrument": {"assetType": "EQUITY",
+		"status": "ACTIVE", "symbol": "JKLM", "instrumentId": 900000401, "closingPrice": 10.0}, "amount": -10, "cost": -1700,
+		"price": 170.0, "positionEffect": "CLOSING"}]}`,
+		schwabTime(time.Date(2026, time.March, 16, 10, 0, 0, 0, ny)), individual, schwabTime(midnight("2026-03-16")))
+	read := time.Date(2026, time.March, 16, 22, 30, 0, 0, time.UTC)
+	record(t, s, listRead(individual, time.Date(2026, time.March, 1, 5, 0, 0, 0, time.UTC), read, read, decodeRow(t, sale)))
+	var in *toolInput
+	if err := s.withRead(t.Context(), func(r *rtx) error {
+		var err error
+		in, err = readToolInput(r, 0, "2026-11-12")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var days []string
+	for _, d := range in.days {
+		if d.key == "x:66000401" {
+			days = append(days, d.symbol+" "+string(d.first)+" "+string(d.last))
+		}
+	}
+	seen := map[string]nytime.Date{}
+	for _, n := range in.names {
+		if n.key == "x:66000401" && n.kind == "symbol" {
+			seen[n.value] = nytime.DateOf(n.firstSeen)
+		}
+	}
+	if !slices.Equal(days, []string{"JKLN 2024-03-11 2025-06-02"}) || seen["JKLM"] != "2025-01-15" || seen["JKLN"] != "2026-11-11" {
+		t.Fatalf("the file's key: rows %q, names first seen %v", days, seen)
+	}
+	for _, tool := range []string{toolPP, toolGF} {
+		e := *in
+		e.tool = tool
+		events, _ := toolEvents(&e)
+		var refs []string
+		for _, ev := range events {
+			sec := ev.security
+			ticker, _, _ := ppIdentifiers(sec)
+			refs = append(refs, ev.ref)
+			if sec.identity() != "JKLN" || sec.gfDataSource() != "YAHOO" || sec.gfSymbol() != "JKLN" || ticker != "JKLN" || sec.first().key != "i:900000401" {
+				t.Errorf("%s %s of %s: identity %s, %s %s, PP ticker %q", tool, ev.ref, sec.key, sec.identity(), sec.gfDataSource(), sec.gfSymbol(), ticker)
+			}
+		}
+		if len(refs) != 3 {
+			t.Errorf("%s: records %q", tool, refs)
+		}
+		if u := keysUnsure(&e, events); len(u) != 0 {
+			t.Errorf("%s: unsure %+v", tool, *u[0])
+		}
+	}
+}

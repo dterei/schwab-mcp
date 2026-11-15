@@ -1274,7 +1274,12 @@ func (ix *toolIndex) join(members []*toolSecurity) *toolSecurity {
 // the tools take for one, have had, in the order of one security's
 // (symbolOrder): each by when any of them saw it last, and by the last day
 // of the rows and legs of any of them under it; a symbol that none has a
-// name of stands, unseen, after those seen.
+// name of stands, unseen, after those seen. A History file's key that has
+// no ticker, as of a spin-off's first row under its CUSIP, saw its CUSIP on
+// the last day of its rows under it, as of that day's start in New York,
+// not at the file's export (byRows): a file exported after the other keys'
+// last sighting of the ticker says nothing of a delisting, while a cash
+// merger's row under the CUSIP does.
 func (ix *toolIndex) symbolsOf(members []*toolSecurity) []symbolSeen {
 	last := map[string]time.Time{}
 	for _, m := range members {
@@ -1283,8 +1288,12 @@ func (ix *toolIndex) symbolsOf(members []*toolSecurity) []symbolSeen {
 			for _, n := range ix.names[m.key] {
 				if n.kind == "symbol" {
 					seen = true
-					if t, ok := last[n.value]; !ok || n.lastSeen.After(t) {
-						last[n.value] = n.lastSeen
+					t := n.lastSeen
+					if d := ix.days[[2]string{m.key, n.value}].last; ix.byRows(m) && d != "" {
+						t = midnight(d)
+					}
+					if prev, ok := last[n.value]; !ok || t.After(prev) {
+						last[n.value] = t
 					}
 				}
 			}
@@ -1307,6 +1316,29 @@ func (ix *toolIndex) symbolsOf(members []*toolSecurity) []symbolSeen {
 	return symbols
 }
 
+// historyFileKey reports whether key is a History file's: an ItemIssueId
+// (x:) or a file's symbol (s:FILE:). A History file names every row by the
+// ticker of its export (docs/schwab-exports.md), and the entry of a
+// transaction that two exports hold takes the newer one's, so that a file
+// exported after a rename names the old rows by the new ticker; and the
+// store dates each of the file's names by its export. The days of such a
+// key's rows under a ticker do not say when the security went by it.
+func historyFileKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	k := keyKind(key)
+	return k == "x" || k == "f"
+}
+
+// byRows reports whether the symbols of m, one of the store's securities,
+// are dated by the days of its rows under them rather than by the exports
+// that named them: it is a History file's key that has no ticker, whose
+// CUSIPs name the old sides of corporate actions, which its rows date.
+func (ix *toolIndex) byRows(m *toolSecurity) bool {
+	return historyFileKey(m.key) && len(m.tickers) == 0
+}
+
 // rowDays returns when the store's rows and legs named the security m by
 // symbol (Q12), the zero value for never: a row's security without a key,
 // by the rows of its symbol without one.
@@ -1318,12 +1350,15 @@ func (ix *toolIndex) rowDays(m *toolSecurity, symbol string) toolSymbolDays {
 }
 
 // since returns when members, the store's securities that the tools take
-// for one, first had a symbol that is: the first day of their rows and legs
-// under one (Q12), or the New York date when the store first saw one (Q5),
-// whichever is earlier, "" for never; and that first instant that the store
-// saw one, the zero time for none. A name's instant is its source's, which
-// a late History file or -json import makes late, and the rows' days say
-// when the security went by it.
+// for one, first had a symbol that is: of a History file's key, the New
+// York date when the store first saw one, the export that first named it so
+// (Q5), since the file names its rows by the ticker of its newest export,
+// so that their days say nothing of when the security went by it; of any
+// other, the first day of its rows and legs under one (Q12), or that date,
+// whichever is earlier; "" for never. It returns too the first instant that
+// the store saw one, the zero time for none. A name's instant is its
+// source's, which a late -json import makes late, and an API row's day says
+// when the security went by its symbol.
 func (ix *toolIndex) since(members []*toolSecurity, is func(symbol string) bool) (nytime.Date, time.Time) {
 	var day nytime.Date
 	var at time.Time
@@ -1339,9 +1374,11 @@ func (ix *toolIndex) since(members []*toolSecurity, is func(symbol string) bool)
 			}
 			continue
 		}
-		for _, d := range ix.keyDays[m.key] {
-			if is(d.symbol) {
-				earlier(d.first)
+		if !historyFileKey(m.key) {
+			for _, d := range ix.keyDays[m.key] {
+				if is(d.symbol) {
+					earlier(d.first)
+				}
 			}
 		}
 		for _, n := range ix.names[m.key] {
@@ -1356,6 +1393,98 @@ func (ix *toolIndex) since(members []*toolSecurity, is func(symbol string) bool)
 	return day, at
 }
 
+// lastUnder returns the last day that members, the store's securities that
+// the tools take for one, are known to have had a symbol that is, "" for
+// never. Of an API key, the last day of its rows and legs under one (Q12),
+// which name it as of their day: the store dates its names by the read or
+// the -json import that brought them, which may hold years of rows; of a
+// key with no row under one, as a position's, the New York date when the
+// store last saw one; of a History file's key, that date, the last export
+// that named it so, which comes after every row that it names so.
+func (ix *toolIndex) lastUnder(members []*toolSecurity, is func(symbol string) bool) nytime.Date {
+	var day nytime.Date
+	for _, m := range members {
+		if m.key == "" {
+			if is(m.symbol) {
+				day = max(day, ix.rowDays(m, m.symbol).last)
+			}
+			continue
+		}
+		var rows, named nytime.Date
+		for _, d := range ix.keyDays[m.key] {
+			if is(d.symbol) {
+				rows = max(rows, d.last)
+			}
+		}
+		for _, n := range ix.names[m.key] {
+			if n.kind == "symbol" && is(n.value) {
+				named = max(named, nytime.DateOf(n.lastSeen))
+			}
+		}
+		switch {
+		case historyFileKey(m.key):
+			day = max(day, rows, named)
+		case rows != "":
+			day = max(day, rows)
+		default:
+			day = max(day, named)
+		}
+	}
+	return day
+}
+
+// tookUp returns the first day, on or after the day after, that members,
+// the store's securities that the tools take for one, are known to have had
+// a symbol that is, and the instant when the store saw it so, when a
+// sighting gives that day; "" for none. A History file's key had it at the
+// exports that named it so (Q5), but one that has no ticker on the days of
+// its rows under it (byRows); any other key on the first and the last days
+// of its rows and legs under it (Q12) and at its first and last sightings:
+// of a span that holds after, the last alone is known to be on or after it.
+func (ix *toolIndex) tookUp(members []*toolSecurity, is func(symbol string) bool, after nytime.Date) (nytime.Date, time.Time) {
+	var day nytime.Date
+	var at time.Time
+	take := func(d nytime.Date, t time.Time) {
+		if d == "" || d < after {
+			return
+		}
+		if day == "" || d < day || d == day && !t.IsZero() && (at.IsZero() || t.Before(at)) {
+			day, at = d, t
+		}
+	}
+	span := func(first, last nytime.Date, firstAt, lastAt time.Time) {
+		take(first, firstAt)
+		take(last, lastAt)
+	}
+	for _, m := range members {
+		if m.key == "" {
+			if is(m.symbol) {
+				d := ix.rowDays(m, m.symbol)
+				span(d.first, d.last, time.Time{}, time.Time{})
+			}
+			continue
+		}
+		rows := !historyFileKey(m.key) || ix.byRows(m)
+		if rows {
+			for _, d := range ix.keyDays[m.key] {
+				if is(d.symbol) {
+					span(d.first, d.last, time.Time{}, time.Time{})
+				}
+			}
+		}
+		for _, n := range ix.names[m.key] {
+			switch {
+			case n.kind != "symbol" || !is(n.value):
+			case ix.byRows(m) && ix.days[[2]string{m.key, n.value}].last != "":
+				// Its rows date it, above.
+			default:
+				span(nytime.DateOf(n.firstSeen), nytime.DateOf(n.lastSeen), n.firstSeen, n.lastSeen)
+			}
+		}
+	}
+	return day, at
+}
+
 // formOf returns a test of a symbol: whether it is the ticker f, as the
 // export compares tickers (symbolForm).
 func formOf(f string) func(string) bool {
@@ -1364,29 +1493,36 @@ func formOf(f string) func(string) bool {
 
 // gaveUp reports whether members, a group of the store's securities that a
 // CUSIP or an OCC form joins, gave the ticker f (symbolForm) up before had,
-// the day that another security first had it: their latest symbol
-// (symbolsOf) is no longer f, as of a security renamed or delisted, and
-// they had that symbol (since) before had.
-func (ix *toolIndex) gaveUp(members []*toolSecurity, f string, had nytime.Date) bool {
+// the day that another security first had it, at hadAt (since): their
+// latest symbol (symbolsOf) is no longer f, as of a security renamed or
+// delisted, and they took it up (tookUp) on or after their last day under f
+// (lastUnder) and before had; or the store saw them under it at hadAt, the
+// instant that it first saw the other under f, so that one source named the
+// two otherwise at once. A History file's key took up a symbol by the export
+// that named it so, not by the days of the rows that the export restates
+// under it; so a security renamed or delisted between two of its exports
+// gave the ticker up only by the later, and another key that had the ticker
+// between them is taken for it, as one security.
+func (ix *toolIndex) gaveUp(members []*toolSecurity, f string, had nytime.Date, hadAt time.Time) bool {
 	symbols := ix.symbolsOf(members)
 	if had == "" || len(symbols) == 0 || symbolForm(symbols[0].value) == f {
 		return false
 	}
-	latest := symbols[0].value
-	day, _ := ix.since(members, func(symbol string) bool { return symbol == latest })
-	return day != "" && day < had
+	day, at := ix.tookUp(members, formOf(symbolForm(symbols[0].value)), ix.lastUnder(members, formOf(f)))
+	return day != "" && (day < had || day == had && !at.IsZero() && at.Equal(hadAt))
 }
 
 // apart reports whether a and b, groups of the store's securities that a
 // CUSIP or an OCC form joins, had the ticker f (symbolForm) at times that
 // do not meet: one of them gave it up (gaveUp) before the other first had
 // it, as when a company takes a ticker that another gave up when it was
-// renamed, delisted or merged away. The days of their rows decide, which
-// do not depend on when the store read them.
+// renamed, delisted or merged away. The days of the API's rows and the
+// exports that named the History files' keys decide (since, tookUp), which
+// do not depend on when the store read a row.
 func (ix *toolIndex) apart(a, b []*toolSecurity, f string) bool {
-	da, _ := ix.since(a, formOf(f))
-	db, _ := ix.since(b, formOf(f))
-	return ix.gaveUp(a, f, db) || ix.gaveUp(b, f, da)
+	da, ta := ix.since(a, formOf(f))
+	db, tb := ix.since(b, formOf(f))
+	return ix.gaveUp(a, f, db, tb) || ix.gaveUp(b, f, da, ta)
 }
 
 // earlierSince reports whether a security that first had a ticker on day,
@@ -1674,9 +1810,10 @@ type toolUnsureOf struct {
 //     which the joins by ticker leave on its own, as when the store holds a
 //     reorganized security's new CUSIP or another company under the ticker
 //     of a History file's key, is taken for the one of them that had one of
-//     its tickers first, by the days of their rows under it (a late import
-//     of old rows dates its names late), else by when the store first saw
-//     each; when none of them says, the first of them.
+//     its tickers first (since: an API key by the days of its rows under it,
+//     a late import of old rows dating its names late; a History file's key
+//     by the export that first named it so), else by when the store first
+//     saw each; when none of them says, the first of them.
 //   - One whose tickers are each of another stays on its own: its rows may
 //     be of each.
 //   - One that the others had the ticker apart from, alone or beside those
@@ -1718,7 +1855,7 @@ func (ix *toolIndex) placeAlone(all []*toolSecurity, find func(int) int, holders
 					continue
 				}
 				forms = append(forms, f)
-				had, _ := ix.since(mine, formOf(f))
+				had, hadAt := ix.since(mine, formOf(f))
 				var held []int
 				for _, h := range holders[f] {
 					c := find(h)
@@ -1729,7 +1866,7 @@ func (ix *toolIndex) placeAlone(all []*toolSecurity, find func(int) int, holders
 					case cusips(groups[c]) > 0 && !ix.apart(mine, theirs, f):
 						live[c] = true
 						held = append(held, c)
-					case cusips(groups[c]) > 0, ix.gaveUp(theirs, f, had):
+					case cusips(groups[c]) > 0, ix.gaveUp(theirs, f, had, hadAt):
 						apart[c] = true
 					default:
 						continue

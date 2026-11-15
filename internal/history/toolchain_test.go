@@ -2443,6 +2443,69 @@ func TestToolReimport(t *testing.T) {
 		}
 	})
 
+	t.Run("5d a spin-off that a History file names by its CUSIP alone, exported after the snapshot", func(t *testing.T) {
+		t.Parallel()
+		// The file's one row of the spin-off is its receipt, under its
+		// CUSIP, and the file was exported the morning after the snapshot
+		// that held it under its ticker; the next export follows a snapshot
+		// of that evening. The security trades under its ticker in both
+		// exports: PP gets the ticker and the CUSIP as WKN, Ghostfolio asks
+		// Yahoo, and neither is told of a change of symbol.
+		const fileKey, cusip, posKey = "x:66000098", "69389B101", "c:69389B101"
+		securities, names := tcSecurities()
+		exported, first := tcNY("2026-11-11 09:00:00"), tcNY("2026-02-02 18:05:00")
+		in := func(last time.Time, days ...string) toolInput {
+			in := toolInput{
+				to: "2026-11-11",
+				securities: append(slices.Clone(securities), toolSecurityRow{key: fileKey, symbol: cusip, description: "SPINCO INC"},
+					toolSecurityRow{key: posKey, assetType: "EQUITY", cusip: cusip, symbol: "SPNC", description: "SPINCO INC"}),
+				names: append(slices.Clone(names),
+					toolName{key: fileKey, kind: "symbol", value: cusip, firstSeen: exported, lastSeen: exported},
+					toolName{key: fileKey, kind: "description", value: "SPINCO INC", firstSeen: exported, lastSeen: exported},
+					toolName{key: posKey, kind: "symbol", value: "SPNC", firstSeen: first, lastSeen: last},
+					toolName{key: posKey, kind: "description", value: "SPINCO INC", firstSeen: first, lastSeen: last},
+				),
+				rows: []toolRow{rcFile("C7f2a2b3c.1", 1, "2026-01-05", "Journaled Shares", "transfer_in", fileKey, cusip, centsOf(10_000_000), 12, 0)},
+			}
+			for _, d := range days {
+				in.positions = append(in.positions, rcPosition(d, posKey, 10_000_000, 195))
+				in.snapshots = append(in.snapshots, rcSnapshot(1, d, 0))
+			}
+			return tcInput(in)
+		}
+		before, after := in(tcNY("2026-11-10 18:05:00"), "2026-11-10"), in(tcNY("2026-11-11 18:05:00"), "2026-11-10", "2026-11-11")
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, before, tool, nil, rcAt1)
+			e2 := chainStepOf(t, after, tool, e1, rcAt2)
+			for _, e := range e1.events {
+				if s := e.security; s.delisted || s.identity() != "SPNC" || s.gfSymbol() != "SPNC" || s.ppTicker() != "SPNC" {
+					t.Errorf("%s: %s is of %s, delisted %v, PP ticker %q", tool, e.ref, s.identity(), s.delisted, s.ppTicker())
+				}
+			}
+			changed, gone := rcChanged(e2)
+			if e1.e.SymbolsChanged != 0 || e2.e.SymbolsChanged != 0 || len(changed)+len(gone) != 0 || !slices.Equal(e2.refs(outcomeGiven), []string{"C7f2a2b3c.1"}) {
+				t.Errorf("%s: symbols changed %d, %d; changed %q, gone %q, given %q", tool, e1.e.SymbolsChanged, e2.e.SymbolsChanged, changed, gone, e2.refs(outcomeGiven))
+			}
+			if tool == toolPP {
+				if f := ppFileNamed(t, e1.pp, ppSecuritiesFile); !strings.Contains(string(f.data), "\nSPNC,69389B101,SPINCO INC,USD,,\n") {
+					t.Errorf("PP's securities:\n%s", f.data)
+				}
+				m := newPPModel()
+				ppApply(t, m, e1)
+				ppApply(t, m, e2)
+				ppReconcile(t, m, e2.in, e2.events, e2.outcomes)
+				continue
+			}
+			m := newGFModel()
+			for _, s := range []*chainStep{e1, e2} {
+				if _, err := gfApply(t, m, s); err != nil && s == e1 {
+					t.Fatal(err)
+				}
+			}
+			gfReconcile(t, e2.in, e2.events, e2.outcomes, m)
+		}
+	})
+
 	t.Run("6 an account of the same masked number joins", func(t *testing.T) {
 		t.Parallel()
 		rows := []toolRow{

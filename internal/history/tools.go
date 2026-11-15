@@ -288,9 +288,10 @@ type ToolUnsure struct {
 // its keys, its CUSIP ("" for none), and the command, naming no -store,
 // that tells the store that the ToolUnsure's key is of it; Key and Command
 // are "" for a security that the store holds under no key. Apart says that
-// the two had the ticker at times that do not meet, by the days of their
-// rows: one gave it up, renamed, delisted or merged away, before the other
-// had it, so that the export does not take them for one.
+// the two had the ticker at times that do not meet, by the days of the API's
+// rows and the exports that named the History files' keys: one gave it up,
+// renamed, delisted or merged away, before the other had it, so that the
+// export does not take them for one.
 type ToolUnsureSecurity struct {
 	Key, CUSIP, Command string
 	Apart               bool

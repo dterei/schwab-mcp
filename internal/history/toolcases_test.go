@@ -1521,12 +1521,15 @@ func toolCaseIdle() toolCase {
 // key, the zero time for the case's 2026-11-11; the symbol that -manual
 // names, "" for none; the CUSIP of a third key, of a security that had
 // the API key's first ticker later (keyTwoOther: another company, or the
-// security's own new CUSIP after a reorganization), "" for none; and what
-// the one security of the two keys is: its identity, why Ghostfolio gets
-// it as a MANUAL asset ("" for YAHOO), and whether its symbol has changed.
-// A file names its rows by the ticker of its export, so a security that
-// only the API's key saw renamed or delisted is of a file exported before
-// that.
+// security's own new CUSIP after a reorganization), "" for none; the symbol
+// that the file's buy names, "" for the file key's first; and what the one
+// security of the two keys is: its identity, why Ghostfolio gets it as a
+// MANUAL asset ("" for YAHOO), and whether its symbol has changed. A file
+// names its rows by the ticker of its export, so a security that only the
+// API's key saw renamed or delisted is of a file exported before that; and
+// the entry of a row that two exports hold takes the newer one's symbol, so
+// a later file restates the buy under its own (buy), where an earlier file
+// that alone holds it keeps the first.
 type twoKeys struct {
 	name                string
 	api, file           []string
@@ -1535,6 +1538,7 @@ type twoKeys struct {
 	filed               time.Time
 	manual              string
 	other               string
+	buy                 string
 	identity, why       string
 	changed             bool
 }
@@ -1550,8 +1554,8 @@ var tcFiledEarly = tcNY("2026-01-15 09:00:00")
 // and each later one at a read a month after the one before; the file's key
 // had its last on the day of the file, and each before a month before the
 // next; the third key had the API key's first symbol on 2026-06-01, after
-// the sale, and has no row; the file's buy names the file key's first
-// symbol, and the sale the API key's first.
+// the sale, and has no row; the file's buy names v.buy, else the file key's
+// first symbol, and the sale the API key's first; Q12 reads those.
 func (v twoKeys) toolCase() toolCase {
 	c := toolCaseNamed("two_keys")
 	c.in.manual = nil
@@ -1589,8 +1593,9 @@ func (v twoKeys) toolCase() toolCase {
 		)
 	}
 	for i := range c.in.rows {
-		c.in.rows[i].symbol = map[string]string{keyTwoAPI: v.api[0], keyTwoFile: v.file[0]}[c.in.rows[i].securityKey]
+		c.in.rows[i].symbol = map[string]string{keyTwoAPI: v.api[0], keyTwoFile: cmp.Or(v.buy, v.file[0])}[c.in.rows[i].securityKey]
 	}
+	c.in.days = tcDays(c.in.rows, c.in.legs)
 	return c
 }
 
