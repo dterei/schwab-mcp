@@ -1340,6 +1340,15 @@ var (
 	fileRowRef  = regexp.MustCompile(`^[Cc][0-9A-Fa-f]{1,52}\.[0-9]{1,9}$`)
 )
 
+// The store's refs exactly, as internal/history makes them: T~, the row's
+// time in UTC or none, a dot and 12 hex digits of its digest, and .2, .3
+// and so on for a second and third row of that time and digest; and C, at
+// least 8 hex digits of its file's digest, a dot and the row.
+var (
+	tildeShape = regexp.MustCompile(`^T~(?:[0-9]{8}T[0-9]{6}|none)\.[0-9a-f]{12}(?:\.[0-9]{1,9})?$`)
+	fileShape  = regexp.MustCompile(`^C[0-9a-f]{8,64}\.[0-9]{1,9}$`)
+)
+
 // A txnID is get_transaction's id: the ref that the store gives it, and
 // Schwab's activity ID, 0 for a ref that only the store knows.
 type txnID struct {
@@ -1365,12 +1374,14 @@ func (c *call) txnIDOf(id string) (txnID, error) {
 }
 
 // shown returns the id as an error may echo it (design 6.3): whole when it
-// has the shape of what it names, a ref or an activity ID of 10 or more
-// digits; anything else as lookup.Selector.Shown shows a number, so that a
-// full account number given as an id shows only its last three digits.
+// has the shape of what it names, one of the store's refs exactly or an
+// activity ID whose value has 10 or more digits, and holds no account
+// number the server knows; anything else as lookup.Selector.Shown shows a
+// number, so that a full account number given as an id, alone or after T~
+// or C, or with zeros before it, shows only its last three digits.
 func (id txnID) shown(c *call) FreeText {
-	digits := strings.TrimLeft(id.given, "Tt")
-	if id.activity == 0 || len(digits) >= 10 {
+	whole := id.activity >= 1_000_000_000 || id.activity == 0 && (tildeShape.MatchString(id.given) || fileShape.MatchString(id.given))
+	if whole && !c.mask.known.Contains(id.given) {
 		return c.mask.compose("%s", Ident(id.given))
 	}
 	return c.mask.free(lookup.Selector{Given: id.given}.Shown())

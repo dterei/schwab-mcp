@@ -975,7 +975,18 @@ func TestGetTransactionIDs(t *testing.T) {
 		{"7350826194", "T7350826194", "7350826194"},
 		{"735082619", "T735082619", "...619"},
 		{"T~20260302T143027.1f2e3d4c5b6a", "T~20260302T143027.1f2e3d4c5b6a", "T~20260302T143027.1f2e3d4c5b6a"},
+		{"T~none.1f2e3d4c5b6a", "T~none.1f2e3d4c5b6a", "T~none.1f2e3d4c5b6a"},
+		{"T~20260302T143027.1f2e3d4c5b6a.2", "T~20260302T143027.1f2e3d4c5b6a.2", "T~20260302T143027.1f2e3d4c5b6a.2"},
 		{"C2cdf9679.2", "C2cdf9679.2", "C2cdf9679.2"},
+		// Ids of no ref's exact shape, or that hold a known number, show
+		// as a selector's digits do; zeros before a number do not count.
+		{"T~29470135", "T~29470135", "T~...135"},
+		{"T~5550001234", "T~5550001234", "T~...234"},
+		{"C1.999888777", "C1.999888777", "C...777"},
+		{"C29470135.1", "C29470135.1", "C...351"},
+		{"0029470135", "T29470135", "...135"},
+		{"T0029470135", "T29470135", "T...135"},
+		{"5550001234", "T5550001234", "5550001234"},
 	} {
 		id, err := c.txnIDOf(tc.id)
 		if err != nil || id.ref != tc.ref || string(id.shown(c)) != tc.shown {
@@ -993,6 +1004,9 @@ func TestGetTransactionIDs(t *testing.T) {
 		{`{"id":"73508261946","account":"398"}`, "not_found", "Schwab has no transaction 73508261946 in account ...398."},
 		{`{"id":"C2cdf9679.2","account":"135"}`, "not_found", "The local history has no transaction C2cdf9679.2 in account ...135."},
 		{`{"id":"T~20260302T143027.1f2e3d4c5b6a"}`, "not_found", "The local history has no transaction T~20260302T143027.1f2e3d4c5b6a."},
+		{`{"id":"T~29470135"}`, "not_found", "The local history has no transaction T~...135."},
+		{`{"id":"C1.999888777"}`, "not_found", "The local history has no transaction C...777."},
+		{`{"id":"0029470135","account":"135"}`, "not_found", "Schwab has no transaction ...135 in account ...135."},
 		{`{"id":"99999999999"}`, "bad_argument", "account is needed: the local history does not hold this id, and the login shares 3 accounts"},
 		{`{"id":"one"}`, "bad_argument", "id takes a ref"},
 	} {
