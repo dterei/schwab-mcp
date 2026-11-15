@@ -88,8 +88,9 @@ var getTransactionDef = toolDef{
 			"(73508261946).", minLen: new(1), maxLen: new(64)},
 		"account": {desc: "The account, as get_transactions takes it; needed only when neither the local history nor " +
 			"id tells it."},
-		"include_raw": {desc: "Also return Schwab's JSON of the transaction, with account numbers masked and any value " +
-			"of a key the server does not know withheld."},
+		"include_raw": {desc: "Also return Schwab's JSON of the transaction, with account numbers masked, and a value " +
+			"of a key the server does not know withheld unless it is a time, a code, a number that cannot be an account " +
+			"number, or a number already masked."},
 	},
 }
 
@@ -959,6 +960,9 @@ func (w *txnWalk) coverage(ta *txnAccount) coverageRow {
 		for _, run := range runs {
 			r.Partial = append(r.Partial, w.clip(run))
 		}
+		// Whole are the days from the newest window to the oldest read
+		// before any that Schwab may have cut, or that sent nothing though a
+		// newer one sent rows, which empty_not_proof says may be missing.
 		var oldestWhole nytime.Date
 		for i, rd := range ta.reads {
 			if rd.capped || i == ta.empty {

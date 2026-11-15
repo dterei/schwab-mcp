@@ -106,7 +106,9 @@ them.
 
 The local history counts each transaction once, whichever of its sources
 hold it: counted and counted_why say whether a row counts and why (api,
-file, tda, user), or why not (gone, invalid, linked, uncertain, held_out).
+file, tda, or policy: the user's policy for its action says count), or why
+not (gone, invalid, linked, uncertain, held_out); user is the user's own
+decision, either way.
 A row read from Schwab carries the rules' category, before the user's
 decisions and the local history's pairing.
 `

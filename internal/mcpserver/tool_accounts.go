@@ -45,7 +45,8 @@ func (s *Server) registerAccounts() {
 		description: "Each account's value (liquidation value), cash and buying power, and the totals of value and cash, " +
 			"the same figures as `schwabtx balances`. Buying power is a margin account's buying power for stock, or a cash " +
 			"account's cash available for trading; it has no total. A figure Schwab did not send is null, and so is a cash " +
-			"that is not the value less the holdings. detail full adds every current balance figure Schwab sent.",
+			"that is not the value less the holdings. detail full adds each current balance figure that Schwab sent " +
+			"and schwabtx reads, by Schwab's name.",
 		slot: true,
 	}, s.getBalances)
 	addTool(s, toolDef{

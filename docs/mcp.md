@@ -156,7 +156,7 @@ its next call, with no restart.
 | --- | --- | --- |
 | `auth_status` | Whether the server can read Schwab: the login and when it lapses, the config, token, rate-limit and store files it uses, and how many items of the local history wait for you. It sends nothing to Schwab. | "Is my Schwab login still good?" |
 | `list_accounts` | The accounts the login shares: masked number, account hash, nickname, CASH or MARGIN, whether it is the primary account, the kind you gave it in the local history, and its value and cash, with totals. | "Which accounts do I have, and what are they worth?" |
-| `get_balances` | Each account's value, cash and buying power, the figures of `schwabtx balances`, with the totals of value and cash; `detail: "full"` adds every current balance figure Schwab sent. | "How much cash can I trade with in my IRA?" |
+| `get_balances` | Each account's value, cash and buying power, the figures of `schwabtx balances`, with the totals of value and cash; `detail: "full"` adds each current balance figure that Schwab sent and `schwabtx` reads, by Schwab's name. | "How much cash can I trade with in my IRA?" |
 | `get_positions` | What each account holds, the figures of `schwabtx positions`: quantity, average price, market value, cost, open profit or loss, and each position's share of its account and of every account, with totals. `symbol` keeps one symbol and its options. | "What do I hold, and what is my largest position?" |
 | `get_transactions` | The transactions between two New York dates, the last 90 days unless asked, newest first, with totals per category over every page, and a coverage row per account that says where its rows came from and which days they cover. Filters: account, categories, Schwab's types, symbol. | "How much did I get in dividends this year?" |
 | `get_transaction` | One transaction in full: every leg, the settlement date, the order ID, what the local history says of it (counted or not and why, its pair, its matches and its flags), and with `include_raw` Schwab's JSON of it. | "What were the fees on that trade?" |
@@ -310,9 +310,11 @@ and nicknames are data, which the server's instructions tell the model not
 to take as instructions.
 
 What never does: a full account number, the `user` details that Schwab's
-spec puts on a transaction (a person's name and login), any value of
+spec puts on a transaction (a person's name and login), a value of
 Schwab's JSON under a key the server does not know, which `include_raw`
-shows as withheld, the app key and secret, and the login's tokens. A last
+shows as withheld unless it is a time, a code, a number that cannot be an
+account number, or a number already masked, the app key and secret, and
+the login's tokens. A last
 pass over every string the server sends replaces any account number it has
 seen, the key, the secret and the tokens, and the tests fail if it ever
 finds one.

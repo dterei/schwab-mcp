@@ -778,6 +778,7 @@ An entry's `counted_why` says which rule decided:
 | `uncertain` | no | several API transactions could be it |
 | `held_out` | no | inside the API's coverage, and no API transaction is it |
 | `tda` | yes | of TD Ameritrade's history, inside the coverage, unmatched |
+| `policy` | yes | inside the API's coverage, unmatched, of an action that your `edit -action LABEL -policy count` counts |
 | `file` | yes | outside the API's coverage: history the API does not serve |
 | `user` | as you said | your `-count`, or your `-link none`, which counts it from the file |
 
