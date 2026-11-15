@@ -169,15 +169,17 @@ func ask[T any](ctx context.Context, c *call, f func(*schwab.Client) (T, error))
 	return v, nil
 }
 
-// askAccount runs f, requests about the account a, with its hash. When
+// askAccount runs f, requests about the account *a, with its hash. When
 // Schwab refuses the hash as an invalid account, the directory reads the
-// account numbers again, and f runs once more with the account's new hash;
-// an account that Schwab no longer lists is account_not_shared, and so is
-// one without a hash, which only the store knows: one that the store saw
-// the login stop sharing, or one that it never saw shared, as an account
-// known only from a History export's import is, which the error says as
-// the account argument's does (dirView.pick).
-func askAccount[T any](ctx context.Context, c *call, a dirAccount, f func(*schwab.Client, schwab.AccountHash) (T, error)) (T, error) {
+// account numbers again; *a becomes the account as the directory has it
+// then, with its new hash, so that the caller names it and asks with that
+// hash from then on; and f runs once more with it. An account that Schwab
+// no longer lists is account_not_shared, and so is one without a hash,
+// which only the store knows: one that the store saw the login stop
+// sharing, or one that it never saw shared, as an account known only from
+// a History export's import is, which the error says as the account
+// argument's does (dirView.pick).
+func askAccount[T any](ctx context.Context, c *call, a *dirAccount, f func(*schwab.Client, schwab.AccountHash) (T, error)) (T, error) {
 	var zero T
 	if a.hash == "" {
 		if a.notSharedSince.IsZero() {
@@ -197,5 +199,6 @@ func askAccount[T any](ctx context.Context, c *call, a dirAccount, f func(*schwa
 	if !ok {
 		return zero, c.failf(codeAccountNotShared, "Schwab no longer shares that account; ask the user to run schwabtx login and tick it.")
 	}
-	return ask(ctx, c, func(cl *schwab.Client) (T, error) { return f(cl, again.hash) })
+	*a = again
+	return ask(ctx, c, func(cl *schwab.Client) (T, error) { return f(cl, a.hash) })
 }

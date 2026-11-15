@@ -137,7 +137,7 @@ func TestWindowSplits(t *testing.T) {
 		wc := newWindowCache()
 		wc.full = tc.full
 		before := len(e.fake.Requests())
-		r, err := wc.read(t.Context(), c, a, w)
+		r, err := wc.read(t.Context(), c, &a, w)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -172,7 +172,7 @@ func TestWindowSplits(t *testing.T) {
 		txnJSON(individual, 80301, ny(2025, time.April, 1, 12, 0), "JOURNAL", "TRF FDS TO TYPE 1", 1))
 	wc := newWindowCache()
 	wc.full = 9
-	r, err := wc.read(t.Context(), c, a, w)
+	r, err := wc.read(t.Context(), c, &a, w)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestWindowSplits(t *testing.T) {
 	if _, ok := wc.get(windowKey{hash: a.hash, first: w.first, last: w.last}); !ok {
 		t.Error("the window read is not kept")
 	}
-	if _, err := wc.read(t.Context(), &call{s: e.srv, deadline: time.Now(), budget: time.Second}, a, window{first: "2025-04-01", last: "2025-04-30"}); !errors.Is(err, errNoTime) {
+	if _, err := wc.read(t.Context(), &call{s: e.srv, deadline: time.Now(), budget: time.Second}, &a, window{first: "2025-04-01", last: "2025-04-30"}); !errors.Is(err, errNoTime) {
 		t.Errorf("a read past the reserve: %v, want errNoTime", err)
 	}
 }

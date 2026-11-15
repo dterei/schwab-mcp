@@ -393,7 +393,7 @@ func (s *Server) getBalances(ctx context.Context, c *call, in balancesIn) (getBa
 	var accounts []schwab.Account
 	if one {
 		var a schwab.Account
-		a, err = askAccount(ctx, c, picked[0], func(cl *schwab.Client, hash schwab.AccountHash) (schwab.Account, error) {
+		a, err = askAccount(ctx, c, &picked[0], func(cl *schwab.Client, hash schwab.AccountHash) (schwab.Account, error) {
 			return cl.Account(ctx, hash)
 		})
 		accounts = []schwab.Account{a}

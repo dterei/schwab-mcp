@@ -1600,6 +1600,114 @@ func TestTildeRefsFromSchwab(t *testing.T) {
 	}
 }
 
+// After Schwab gives an account a new hash, as on a new login, the walk in
+// which it refuses the old one reads the directory again once, and asks
+// with the new hash from then on, for every later window: the rows and the
+// coverage name the account by its new hash, and next_cursor, whose digest
+// is of the account's hash, is taken by the next call, which picks the
+// account by that hash, so that the pages hold every row once.
+// get_transaction answers with the hash that Schwab took, for an activity
+// ID and for a T~ ref. And when two accounts have new hashes, the walk of
+// every account reads the directory again once, for the first that Schwab
+// refuses, and asks for the other with its new hash. A read of the
+// directory is warm for 5 minutes, so list_accounts reads it first, before
+// the new hashes.
+func TestTransactionsOfARehashedAccount(t *testing.T) {
+	t.Parallel()
+	old, rehashed := schwabtest.HashFor(individual), schwabtest.HashFor("rehashed")
+	// asked counts the requests since the first from that asked with hash,
+	// and those that read the account numbers.
+	asked := func(e *env, from int, hash string) (int, int) {
+		withHash, numbers := 0, 0
+		for _, r := range e.fake.Requests()[from:] {
+			if strings.Contains(r.Path, hash) {
+				withHash++
+			}
+			if r.Route == schwabtest.AccountNumbersRoute {
+				numbers++
+			}
+		}
+		return withHash, numbers
+	}
+	e := newEnv(t, withoutStore())
+	if r := e.call("list_accounts", `{}`); r.isError {
+		t.Fatal(r.text)
+	}
+	e.fake.Rehash(old, rehashed)
+	from := len(e.fake.Requests())
+	var got []string
+	for i, p := range e.txnPages("get_transactions", `{"account":"135","from":"2024-01-01","to":"2025-06-30","limit":2}`, 10) {
+		for _, row := range txnRowsOf(p) {
+			got = append(got, fmt.Sprint(row["ref"]))
+			if row["account_hash"] != rehashed {
+				t.Errorf("page %d: %v has the hash %v", i+1, row["ref"], row["account_hash"])
+			}
+		}
+		if c := txnCoverageOf(p, "...135"); c["account_hash"] != rehashed {
+			t.Errorf("page %d: coverage of %v", i+1, c)
+		}
+	}
+	if refused, numbers := asked(e, from, old); refused != 1 || numbers != 1 {
+		t.Errorf("the walk of two windows asked %d times with the old hash and read the account numbers %d times, want once each", refused, numbers)
+	}
+	whole := txnRefsOf(txnRowsOf(e.call("get_transactions", `{"account":"135","from":"2024-01-01","to":"2025-06-30"}`)))
+	if len(got) != 6 || len(whole) != 6 || !slices.Equal(got, func() []string {
+		var refs []string
+		for _, r := range whole {
+			refs = append(refs, strings.TrimSuffix(r, "@...135"))
+		}
+		return refs
+	}()) {
+		t.Errorf("pages of 2 hold %v, one call %v", got, whole)
+	}
+
+	// get_transaction, of a T~ ref and then, after another new hash, of an
+	// activity ID.
+	at := time.Date(2025, time.March, 5, 15, 0, 0, 0, time.UTC)
+	noID := strings.Replace(txnJSON(individual, 1, at, "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.04), `"activityId":1,`, "", 1)
+	var row schwab.Transaction
+	if err := json.Unmarshal([]byte(noID), &row); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := history.DeriveAPIEntries([]schwab.Transaction{row}, individual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e = newEnv(t, withoutStore(), withTxnRows(individual, noID))
+	if r := e.call("list_accounts", `{}`); r.isError {
+		t.Fatal(r.text)
+	}
+	again := schwabtest.HashFor("rehashed again")
+	for _, tc := range []struct{ id, from, to string }{{entries[0].Ref, old, rehashed}, {"73508261943", rehashed, again}} {
+		e.fake.Rehash(tc.from, tc.to)
+		from := len(e.fake.Requests())
+		r := e.call("get_transaction", `{"id":"`+tc.id+`","account":"135"}`)
+		tx, _ := r.value["transaction"].(map[string]any)
+		if r.isError || tx["account_hash"] != tc.to {
+			t.Errorf("get_transaction of %s after a new hash: %.400s", tc.id, r.text)
+		}
+		if refused, numbers := asked(e, from, tc.from); refused != 1 || numbers != 1 {
+			t.Errorf("get_transaction of %s asked %d times with the old hash and read the account numbers %d times", tc.id, refused, numbers)
+		}
+	}
+	latest, other := schwabtest.HashFor("rehashed once more"), schwabtest.HashFor("rehashed 398")
+	e.fake.Rehash(again, latest)
+	e.fake.Rehash(schwabtest.HashFor(options), other)
+	from = len(e.fake.Requests())
+	r := e.call("get_transactions", `{"from":"2024-01-01","to":"2025-06-30"}`)
+	for masked, hash := range map[string]string{"...135": latest, "...398": other} {
+		if c := txnCoverageOf(r, masked); c["account_hash"] != hash || c["read_from"] != "schwab" {
+			t.Errorf("every account, two of them with new hashes: %s's coverage %v", masked, c)
+		}
+	}
+	refused, _ := asked(e, from, again)
+	refused398, numbers := asked(e, from, schwabtest.HashFor(options))
+	if refused != 1 || refused398 != 0 || numbers != 1 {
+		t.Errorf("every account, two of them with new hashes: asked %d times with ...135's old hash and %d times with ...398's, "+
+			"and read the account numbers %d times", refused, refused398, numbers)
+	}
+}
+
 // A window that Schwab may have cut ends the days that coverage calls
 // whole, though an older one was read whole: whole runs from the newest
 // window back, and the newest here holds two rows of one instant, which no

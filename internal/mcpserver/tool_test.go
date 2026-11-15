@@ -86,7 +86,7 @@ func withPick() envOption {
 				out.Keys = append(out.Keys, Ident(a.key()))
 			}
 			if len(as) == 1 {
-				acct, err := askAccount(ctx, c, as[0], func(cl *schwab.Client, hash schwab.AccountHash) (schwab.Account, error) {
+				acct, err := askAccount(ctx, c, &as[0], func(cl *schwab.Client, hash schwab.AccountHash) (schwab.Account, error) {
 					return cl.Account(ctx, hash)
 				})
 				if err != nil {

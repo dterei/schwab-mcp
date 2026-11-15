@@ -203,12 +203,14 @@ func (wc *windowCache) drop(gone func(windowKey, *windowRead) bool) {
 	})
 }
 
-// read returns what Schwab holds of a's transactions in w: kept from an
+// read returns what Schwab holds of *a's transactions in w: kept from an
 // earlier call, or read, halved as need be, and derived as the store
 // derives it (history.DeriveAPIEntries), with the account's full number.
 // It begins no request without time for it beyond the call's reserve, and
-// fails then with errNoTime.
-func (wc *windowCache) read(ctx context.Context, c *call, a dirAccount, w window) (*windowRead, error) {
+// fails then with errNoTime. When Schwab refuses a's hash and the
+// directory reads the account again (askAccount), *a is the account with
+// its new hash, under which the read is kept.
+func (wc *windowCache) read(ctx context.Context, c *call, a *dirAccount, w window) (*windowRead, error) {
 	k := windowKey{hash: a.hash, first: w.first, last: w.last}
 	if r, ok := wc.get(k); ok {
 		return r, nil
@@ -218,6 +220,7 @@ func (wc *windowCache) read(ctx context.Context, c *call, a dirAccount, w window
 	if err != nil {
 		return nil, err
 	}
+	k.hash = a.hash
 	r := &windowRead{sent: len(rows), capped: capped, at: wc.now()}
 	for _, t := range rows {
 		if d := t.TradeDay(); w.first <= d && d <= w.last {
@@ -232,14 +235,16 @@ func (wc *windowCache) read(ctx context.Context, c *call, a dirAccount, w window
 	return r, nil
 }
 
-// readSpan asks Schwab for a's transactions from start to end. When the
+// readSpan asks Schwab for *a's transactions from start to end. When the
 // answer is full, holding as many rows as Schwab sends at most, which it
 // may have cut, it asks for each half again, the newer first, depth being
 // how often the span was halved already; capped says that a half that
 // could not be halved again was full. A row that both halves hold, at the
 // instant between them, is kept once; rows that one answer holds twice are
-// kept as Schwab sent them, for the derivation to flag.
-func (wc *windowCache) readSpan(ctx context.Context, c *call, a dirAccount, start, end time.Time, depth int) ([]schwab.Transaction, bool, error) {
+// kept as Schwab sent them, for the derivation to flag. A hash that Schwab
+// refuses, and the directory reads again, is the new one in *a, which the
+// halves ask with.
+func (wc *windowCache) readSpan(ctx context.Context, c *call, a *dirAccount, start, end time.Time, depth int) ([]schwab.Transaction, bool, error) {
 	if !c.roomForMore() {
 		return nil, false, errNoTime
 	}

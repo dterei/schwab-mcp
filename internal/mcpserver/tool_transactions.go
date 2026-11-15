@@ -459,6 +459,12 @@ func getTransactions(ctx context.Context, c *call, wc *windowCache, in getTransa
 	if err := w.readSchwab(ctx, wc); err != nil {
 		return out, err
 	}
+	if key != "" {
+		// The account as the walk left it: with the new hash that the
+		// directory read when Schwab refused the one it had, as the next
+		// call picks it, whose cursor must take this one's.
+		key = w.accts[0].a.key()
+	}
 	return w.answer(ctx, q.args(key))
 }
 
@@ -572,7 +578,9 @@ func (w *txnWalk) readStore(ctx context.Context, v *dirView) error {
 // cuts short leaves only older days unread. A window that Schwab refuses as
 // too old, after it served a newer one, ends that account's walk, as the
 // CLI's does; any other failure is the account's, and the others are read
-// on.
+// on. A hash that Schwab refuses, which makes the directory read the
+// account numbers again, is replaced for every account of the walk
+// (rehashed), so that each later window asks with the new one.
 func (w *txnWalk) readSchwab(ctx context.Context, wc *windowCache) error {
 	c, q := w.c, w.q
 	var sw []*txnAccount
@@ -599,7 +607,13 @@ func (w *txnWalk) readSchwab(ctx context.Context, wc *windowCache) error {
 				ta.unread = true
 				continue
 			}
-			r, err := wc.read(ctx, c, ta.a, win)
+			hash := ta.a.hash
+			r, err := wc.read(ctx, c, &ta.a, win)
+			if ta.a.hash != hash {
+				if err := w.rehashed(ctx); err != nil {
+					return err
+				}
+			}
 			switch {
 			case err == nil:
 				ta.reads = append(ta.reads, r)
@@ -620,6 +634,27 @@ func (w *txnWalk) readSchwab(ctx context.Context, wc *windowCache) error {
 	for _, ta := range sw {
 		if ta.from == fromSchwab {
 			w.match(ta)
+		}
+	}
+	return nil
+}
+
+// rehashed gives each account of the walk that Schwab shares the hash that
+// the directory has for it now, after Schwab refused one account's and the
+// directory read the account numbers again: a new login may give every
+// account a new hash, and one that kept its old hash would be refused in
+// turn, and the directory read again for it. An account that the directory
+// no longer lists keeps its hash, which Schwab refuses, as askAccount says.
+// The rows that the store read keep the keys that it read them by, since
+// its page was cut in their order.
+func (w *txnWalk) rehashed(ctx context.Context) error {
+	v, err := w.c.directory(ctx)
+	if err != nil {
+		return err
+	}
+	for _, ta := range w.accts {
+		if ta.a.shared {
+			ta.a.hash = current(v, ta.a).hash
 		}
 	}
 	return nil
@@ -1490,12 +1525,12 @@ func getTransaction(ctx context.Context, c *call, wc *windowCache, in getTransac
 		err = v.schwabErr
 	case id.activity == 0:
 		var ok bool
-		if t, derived, ok, err = tildeRow(ctx, c, wc, a, at, id.ref); err == nil && !ok {
+		if t, derived, ok, err = tildeRow(ctx, c, wc, &a, at, id.ref); err == nil && !ok {
 			return out, c.failf(codeNotFound, "Schwab sent no transaction %s in account %s on the days around its time.",
 				id.shown(c), c.mask.masked(a.number))
 		}
 	default:
-		t, err = askAccount(ctx, c, a, func(cl *schwab.Client, hash schwab.AccountHash) (schwab.Transaction, error) {
+		t, err = askAccount(ctx, c, &a, func(cl *schwab.Client, hash schwab.AccountHash) (schwab.Transaction, error) {
 			return cl.Transaction(ctx, hash, id.activity)
 		})
 		if err == nil {
@@ -1543,12 +1578,13 @@ func getTransaction(ctx context.Context, c *call, wc *windowCache, in getTransac
 	return out, nil
 }
 
-// tildeRow returns the row of account a that ref names, a T~ ref of a row
+// tildeRow returns the row of account *a that ref names, a T~ ref of a row
 // of the time at, with its entry, and whether Schwab sent it: the window
 // of the days around at, read through the window cache, holds the rows of
 // those trade days, and the row is the one whose ref the store's
-// derivation gives as ref.
-func tildeRow(ctx context.Context, c *call, wc *windowCache, a dirAccount, at time.Time, ref string) (schwab.Transaction, history.APIEntry, bool, error) {
+// derivation gives as ref. *a is the account as the read left it, with the
+// new hash that the directory read when Schwab refused the one it had.
+func tildeRow(ctx context.Context, c *call, wc *windowCache, a *dirAccount, at time.Time, ref string) (schwab.Transaction, history.APIEntry, bool, error) {
 	day := nytime.DateOf(at)
 	r, err := wc.read(ctx, c, a, window{first: addDays(day, -1), last: addDays(day, 1)})
 	if err != nil {
