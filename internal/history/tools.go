@@ -2,6 +2,7 @@ package history
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -126,11 +127,11 @@ type ToolExport struct {
 	// to resolve them, which no export writes until you have; Holdings the
 	// securities of an account whose shares differ from its latest
 	// snapshot's, but those that the export it goes on from listed, alike
-	// or otherwise (DifferencesChanged); SymbolsChanged the securities, as
-	// the tool holds them, that a tool holding them under an earlier symbol
-	// needs telling of; and, for PP, Cash the accounts whose cash differs
-	// from their latest snapshot's, but those that the export it goes on
-	// from listed likewise.
+	// or otherwise (DifferencesChanged); and, for PP, SymbolsChanged the
+	// securities, as PP holds them, that PP may hold otherwise than written
+	// or that may no longer trade (the manifest's symbols_changed), and Cash
+	// the accounts whose cash differs from their latest snapshot's, but
+	// those that the export it goes on from listed likewise.
 	Flagged, Waiting, Holdings, SymbolsChanged, Cash int
 	// DifferencesChanged are, going on from another export, the
 	// differences of the holdings check and, for PP, of the cash check that
@@ -872,18 +873,28 @@ type (
 		Name   string `json:"name"`
 		Status string `json:"status"`
 	}
-	// A toolSymbolsEntry is a security whose symbol changed (3.5 of the
-	// design), as the tool holds it: its key, the first of the store's
-	// securities that the tool takes for it, and every one's key when there
-	// are several, as the holdings check names them; how the export writes
-	// it (its ticker, or MANUAL for one that the tool gets no price feed
-	// for); and every ticker that it has had, the latest first, its CUSIP
-	// first when it is delisted.
+	// A toolSymbolsEntry is a security of PP's symbols_changed
+	// (symbolsChange), as PP holds it: its key, the first of the store's
+	// securities named, and every one's key when there are several, as the
+	// holdings check names them; how the export writes it (its ticker, or
+	// MANUAL for one that PP gets no price feed for); every symbol that it
+	// has had, as each source named it, with when that source saw it last;
+	// why, and because for no_ticker; and new.
 	toolSymbolsEntry struct {
-		SecurityKey  string   `json:"security_key"`
-		SecurityKeys []string `json:"security_keys,omitempty"`
-		WrittenAs    string   `json:"written_as"`
-		Symbols      []string `json:"symbols"`
+		SecurityKey  string           `json:"security_key"`
+		SecurityKeys []string         `json:"security_keys,omitempty"`
+		WrittenAs    string           `json:"written_as"`
+		Names        []toolSymbolName `json:"names"`
+		Why          []string         `json:"why"`
+		Because      string           `json:"because,omitempty"`
+		New          bool             `json:"new,omitempty"`
+	}
+	// A toolSymbolName is a symbol that a security has had (sourcedSymbol):
+	// source is api or history.
+	toolSymbolName struct {
+		Symbol     string `json:"symbol"`
+		Source     string `json:"source"`
+		LastSeenAt string `json:"last_seen_at"`
 	}
 	// A toolUnsureEntry is a key that the export cannot be sure of
 	// (ToolUnsure): taken_for is null when it stays on its own.
@@ -911,10 +922,10 @@ type (
 // chain's part (part) at its keys; its files, in the order to import them;
 // the units; what it wrote, changed, ticked, left out or flagged, and what
 // waits for you; the holdings check; for Ghostfolio, what its import asks
-// Yahoo about and what is MANUAL; the securities whose symbol changed; the
-// keys that it cannot be sure of; and the coverage. A key of the other tool's only is left out. Descriptions
-// and kinds are the store's masked free text, and the commands name no
-// -store.
+// Yahoo about and what is MANUAL; for PP, the securities that it may hold
+// otherwise than written; the keys that it cannot be sure of; and the
+// coverage. A key of the other tool's only is left out. Descriptions and
+// kinds are the store's masked free text, and the commands name no -store.
 func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) ([]byte, error) {
 	in, res := e.in, e.res
 	m := struct {
@@ -945,7 +956,7 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 		Waiting        []toolWaitingEntry               `json:"waiting"`
 		Holdings       chainHoldings                    `json:"holdings"`
 		Ghostfolio     *toolGhostfolioEntry             `json:"ghostfolio,omitempty"`
-		SymbolsChanged []toolSymbolsEntry               `json:"symbols_changed"`
+		SymbolsChanged *[]toolSymbolsEntry              `json:"symbols_changed,omitempty"`
 		KeysUnsure     []toolUnsureEntry                `json:"keys_unsure"`
 		Coverage       []ExportCoverage                 `json:"coverage"`
 	}{
@@ -956,7 +967,7 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 		Written: toolWritten{Types: map[string]int{}}, Given: part.Given, Securities: part.Securities,
 		Changed: orEmpty(res.changed), Gone: orEmpty(res.gone), LeftOut: part.LeftOut,
 		Caveats: []toolCaveatEntry{}, Combined: []toolCombinedEntry{}, Flagged: []toolFlaggedEntry{},
-		Waiting: []toolWaitingEntry{}, Holdings: part.Holdings, SymbolsChanged: []toolSymbolsEntry{},
+		Waiting: []toolWaitingEntry{}, Holdings: part.Holdings,
 		KeysUnsure: []toolUnsureEntry{}, Coverage: orEmpty(in.coverage),
 	}
 	if e.Account != "" {
@@ -1032,27 +1043,25 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 		}
 		m.Waiting = append(m.Waiting, entry)
 	}
-	for _, of := range res.symbolsChanged {
-		s := of[0]
-		entry := toolSymbolsEntry{SecurityKey: s.key, WrittenAs: "MANUAL", Symbols: slices.Clone(s.tickers)}
-		if len(of) > 1 {
-			for _, k := range of {
-				entry.SecurityKeys = append(entry.SecurityKeys, k.key)
+	if in.tool == toolPP {
+		list := []toolSymbolsEntry{}
+		for _, ch := range res.symbolsChanged {
+			s := ch.members[0]
+			entry := toolSymbolsEntry{
+				SecurityKey: s.key, WrittenAs: cmp.Or(s.ppTicker(), "MANUAL"), Names: []toolSymbolName{},
+				Why: ch.why, Because: ch.because, New: ch.new,
 			}
+			if len(ch.members) > 1 {
+				for _, k := range ch.members {
+					entry.SecurityKeys = append(entry.SecurityKeys, k.key)
+				}
+			}
+			for _, n := range ch.names {
+				entry.Names = append(entry.Names, toolSymbolName{Symbol: n.symbol, Source: n.source, LastSeenAt: exportInstant(n.lastSeen)})
+			}
+			list = append(list, entry)
 		}
-		switch {
-		case in.tool == toolPP && s.ppTicker() != "":
-			entry.WrittenAs = s.ppTicker()
-		case in.tool == toolGF && s.manual == "":
-			entry.WrittenAs = s.gfSymbol()
-		}
-		if s.delisted {
-			// Its CUSIP, which a delisted security, or another of the store's
-			// securities that the tools take for one with it, has for its
-			// symbol now.
-			entry.Symbols = slices.Insert(entry.Symbols, 0, s.cusip)
-		}
-		m.SymbolsChanged = append(m.SymbolsChanged, entry)
+		m.SymbolsChanged = &list
 	}
 	for _, u := range e.Unsure {
 		entry := toolUnsureEntry{SecurityKey: u.Key, SecurityKeys: u.Keys, Tickers: u.Tickers, Securities: []toolUnsureSecurity{}}

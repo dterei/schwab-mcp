@@ -113,9 +113,9 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 			YahooIdle []struct{ Symbol string } `json:"yahoo_idle"`
 			Profiles  []struct{ Status string }
 		} `json:"ghostfolio"`
-		SymbolsChanged []struct{ SecurityKey string } `json:"symbols_changed"`
-		KeysUnsure     []toolUnsureEntry              `json:"keys_unsure"`
-		Coverage       []ExportCoverage               `json:"coverage"`
+		SymbolsChanged *[]struct{ SecurityKey string } `json:"symbols_changed"`
+		KeysUnsure     []toolUnsureEntry               `json:"keys_unsure"`
+		Coverage       []ExportCoverage                `json:"coverage"`
 	}
 	if err := json.Unmarshal(e.manifest, &m); err != nil {
 		t.Fatalf("the manifest does not read back: %v", err)
@@ -339,7 +339,9 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 			t.Errorf("the %s export names %s as an account that it holds nothing of, among its accounts %+v", e.Tool, l, accounts)
 		}
 	}
-	check("securities whose symbol changed", e.SymbolsChanged, len(m.SymbolsChanged))
+	// symbols_changed is PP's alone.
+	check("securities that PP may hold otherwise than written", e.SymbolsChanged, len(deref(m.SymbolsChanged)))
+	check("symbols_changed", e.Tool == toolPP, m.SymbolsChanged != nil)
 	var unsure []ToolUnsure
 	for _, u := range m.KeysUnsure {
 		k := ToolUnsure{Key: u.SecurityKey, Keys: u.SecurityKeys, Tickers: u.Tickers, TakenFor: deref(u.TakenFor)}
@@ -907,9 +909,11 @@ func toolFolderNames(t *testing.T, dir string) map[string]bool {
 // TestToolManifest checks what the golden files of the cases do not show
 // of a manifest: the -manual symbols of its filters are said back masked,
 // as every value of them is, though the store's symbols that they name may
-// hold any digits; and a security whose symbol changed is written as its
-// ticker for PP and MANUAL for Ghostfolio when Ghostfolio cannot ask Yahoo
-// about it, a ticker of more than six letters.
+// hold any digits; and PP's symbols_changed names a renamed security, a
+// ticker of more than six letters, as written, with each of its names once
+// for each source that named it, with the latest time that that source saw
+// it: the API's first, then the History files', each the latest first.
+// Ghostfolio's manifest has no symbols_changed.
 func TestToolManifest(t *testing.T) {
 	t.Parallel()
 	const keyDigits, keyLong = "i:2000001", "i:2000002"
@@ -923,18 +927,27 @@ func TestToolManifest(t *testing.T) {
 			{key: keyDigits, kind: "symbol", value: "31415926", firstSeen: seen, lastSeen: seen},
 			{key: keyLong, kind: "symbol", value: "ABCDEFGJ", firstSeen: seen.AddDate(0, 2, 0), lastSeen: seen.AddDate(0, 2, 0)},
 			{key: keyLong, kind: "symbol", value: "ABCDEFGH", firstSeen: seen, lastSeen: seen},
+			// Two History files that the store joined to the key, which named
+			// it by the latest ticker too.
+			{key: keyLong, from: "x:66000901", kind: "symbol", value: "ABCDEFGJ", firstSeen: seen.AddDate(0, 1, 0), lastSeen: seen.AddDate(0, 1, 0)},
+			{key: keyLong, from: "x:66000902", kind: "symbol", value: "ABCDEFGJ", firstSeen: seen.AddDate(0, 1, 15), lastSeen: seen.AddDate(0, 1, 15)},
 		},
 		rows: []toolRow{
 			rcTrade("T81100101", 1, "2026-01-05 10:00:00", "buy", keyDigits, "31415926", 1_000_000, 20, -2000, 0),
 			rcTrade("T81100102", 1, "2026-03-05 10:00:00", "buy", keyLong, "ABCDEFGJ", 1_000_000, 30, -3000, 0),
 		},
 	})
+	renamed := []toolSymbolsEntry{{
+		SecurityKey: keyLong, WrittenAs: "ABCDEFGJ", Why: []string{whyRenamed},
+		Names: []toolSymbolName{{"ABCDEFGJ", "api", "2026-03-05T15:00:00Z"}, {"ABCDEFGH", "api", "2026-01-05T15:00:00Z"}, {"ABCDEFGJ", "history", "2026-02-20T15:00:00Z"}},
+	}}
 	for _, c := range []struct {
-		tool, writtenAs string
-		manual          []string
+		tool   string
+		manual []string
+		want   *[]toolSymbolsEntry
 	}{
-		{toolPP, "ABCDEFGJ", nil},
-		{toolGF, "MANUAL", []string{"31415926"}},
+		{toolPP, nil, &renamed},
+		{toolGF, []string{"31415926"}, nil},
 	} {
 		in := in
 		e, err := exportTool(&in, ToolOptions{Tool: c.tool, Manual: c.manual}, nil, testNow, buildVersions(), "")
@@ -946,7 +959,7 @@ func TestToolManifest(t *testing.T) {
 			Chain   struct {
 				Manual []chainManual `json:"manual"`
 			} `json:"chain"`
-			SymbolsChanged []toolSymbolsEntry `json:"symbols_changed"`
+			SymbolsChanged *[]toolSymbolsEntry `json:"symbols_changed"`
 		}
 		if err := json.Unmarshal(e.manifest, &m); err != nil {
 			t.Fatal(err)
@@ -958,9 +971,8 @@ func TestToolManifest(t *testing.T) {
 		if !slices.Equal(m.Filters.Manual, wantManual) {
 			t.Errorf("%s: the filters' -manual are %q, want %q", c.tool, m.Filters.Manual, wantManual)
 		}
-		want := []toolSymbolsEntry{{SecurityKey: keyLong, WrittenAs: c.writtenAs, Symbols: []string{"ABCDEFGJ", "ABCDEFGH"}}}
-		if !reflect.DeepEqual(m.SymbolsChanged, want) {
-			t.Errorf("%s: the securities whose symbol changed are %+v, want %+v", c.tool, m.SymbolsChanged, want)
+		if !reflect.DeepEqual(m.SymbolsChanged, c.want) {
+			t.Errorf("%s: symbols_changed is %+v, want %+v", c.tool, deref(m.SymbolsChanged), deref(c.want))
 		}
 	}
 }

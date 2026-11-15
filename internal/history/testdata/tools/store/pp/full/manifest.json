@@ -454,7 +454,10 @@
       "security_key": "c:00507V109",
       "symbol": "00507V109",
       "identity": "00507V109",
-      "wkn": "00507V109"
+      "wkn": "00507V109",
+      "why": [
+        "no_ticker"
+      ]
     },
     {
       "security_key": "c:0XYZ..RI60045000",
@@ -848,10 +851,22 @@
     {
       "security_key": "c:00507V109",
       "written_as": "MANUAL",
-      "symbols": [
-        "00507V109",
-        "ZZDLX"
-      ]
+      "names": [
+        {
+          "symbol": "00507V109",
+          "source": "api",
+          "last_seen_at": "2026-11-10T23:05:00Z"
+        },
+        {
+          "symbol": "ZZDLX",
+          "source": "api",
+          "last_seen_at": "2026-11-09T23:05:00Z"
+        }
+      ],
+      "why": [
+        "no_ticker"
+      ],
+      "because": "delisted"
     }
   ],
   "keys_unsure": [],

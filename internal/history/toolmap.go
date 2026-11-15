@@ -948,18 +948,86 @@ func (s *toolSecurity) gfName() string {
 	return what + " (" + s.identity() + ")"
 }
 
-// symbolsChanged reports whether a tool that holds the security under an
-// earlier symbol needs telling of a new one: it is not an option, and it
-// has had two tickers that differ in Yahoo's form, or it is delisted.
-func (s *toolSecurity) symbolsChanged() bool {
+// The whys of PP's symbols_changed (R-10 of the consolidation): a security
+// renamed, which has had two tickers that differ in Yahoo's form and is
+// written with its latest; one written without the ticker that it has had,
+// with why (because: delisted); and, with -since, one that PP finds by
+// other identifiers than the chain wrote it with (finds).
+const (
+	whyRenamed  = "renamed"
+	whyNoTicker = "no_ticker"
+	whyChanged  = "changed"
+)
+
+// symbolWhys returns why PP may hold the security otherwise than written,
+// or why it may no longer trade, of PP's symbols_changed's whys that the
+// security has of itself (renamed, no_ticker), and for no_ticker why it has
+// no ticker: delisted, as its latest symbol is its CUSIP. PP keeps the
+// ticker and the feed of a security that it holds. An option, which PP
+// finds by its OCC form, has none.
+func (s *toolSecurity) symbolWhys() (why []string, because string) {
 	if s.assetType == "OPTION" {
-		return false
+		return nil, ""
 	}
 	forms := map[string]bool{}
 	for _, t := range s.tickers {
 		forms[yahooForm(t)] = true
 	}
-	return len(forms) > 1 || s.delisted
+	if len(forms) > 1 && s.ppTicker() != "" {
+		why = append(why, whyRenamed)
+	}
+	if s.delisted {
+		why, because = append(why, whyNoTicker), "delisted"
+	}
+	return why, because
+}
+
+// A sourcedSymbol is a symbol that a security has had, in symbolForm, as one
+// source named it (toolName.file): the API (api) or the History files
+// (history), and when that source saw it last.
+type sourcedSymbol struct {
+	symbol, source string
+	lastSeen       time.Time
+}
+
+// namesOf returns the symbols that the store's securities of ss and every
+// one that the tools take for one with them (membersOf) have had (Q5),
+// each once for each source that named it, with the latest time that that
+// source saw it: the API's first, then the History files', each the latest
+// first. A source's instants order its own names only, so the two sources
+// stand apart; a symbol of a row without a key has no name in the store.
+func (ix *toolIndex) namesOf(ss []*toolSecurity) []sourcedSymbol {
+	at := map[[2]string]int{}
+	var out []sourcedSymbol
+	keys := map[string]bool{}
+	for _, s := range ss {
+		for _, m := range ix.membersOf(s) {
+			if m.key == "" || keys[m.key] {
+				continue
+			}
+			keys[m.key] = true
+			for _, n := range ix.names[m.key] {
+				if n.kind != "symbol" {
+					continue
+				}
+				name := sourcedSymbol{symbol: symbolForm(n.value), source: "api", lastSeen: n.lastSeen}
+				if n.file() {
+					name.source = "history"
+				}
+				k := [2]string{name.source, name.symbol}
+				if i, ok := at[k]; !ok {
+					at[k] = len(out)
+					out = append(out, name)
+				} else if name.lastSeen.After(out[i].lastSeen) {
+					out[i].lastSeen = name.lastSeen
+				}
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b sourcedSymbol) int {
+		return cmp.Or(cmp.Compare(a.source, b.source), b.lastSeen.Compare(a.lastSeen), cmp.Compare(a.symbol, b.symbol))
+	})
+	return out
 }
 
 // plainYahoo is a ticker, in Yahoo's form, that Ghostfolio asks Yahoo

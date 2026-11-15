@@ -683,10 +683,12 @@ func toolAccountName(e *history.ToolExport, label string) string {
 // path, whose manifest is manifest, a line for each kind of row or
 // security that needs you, with how many there are, when there are some:
 // for Ghostfolio, the cash rows that the balances carry or not yet; the
-// rows left out and those written with a caveat, by code; the securities
-// whose symbol changed; the holdings that differ from the latest snapshot;
-// for PP, the accounts whose cash differs from it; the accounts that the
-// checks do not check (notCheckedLines); the rows flagged; the file
+// rows left out and those written with a caveat, by code; for PP, the
+// securities that it may hold otherwise than written, or that may no longer
+// trade, in one wording for a full export, which may be a first import or
+// a redo, and one for -since; the holdings that differ from the latest
+// snapshot; for PP, the accounts whose cash differs from it; the accounts
+// that the checks do not check (notCheckedLines); the rows flagged; the file
 // transactions that wait for you; and for Ghostfolio, the -manual symbols
 // that nothing uses, masked, and the symbols that Yahoo may no longer
 // know. Going on from another export, it counts no row or holding that
@@ -723,13 +725,17 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 	if n := e.CaveatRows; n > 0 {
 		fmt.Fprintf(w, "wrote %s with %s (%s): %s\n", plural(n, "row"), pluralWord(n, "a caveat", "caveats"), manifest, toolCounts(e.Caveats))
 	}
-	if n := e.SymbolsChanged; n > 0 {
-		it := pluralWord(n, "it", "them")
-		advice := fmt.Sprintf("if %s holds %s under an earlier ticker, give %s the new one; once delisted, no price feed", tool, it, it)
-		if gf {
-			advice = fmt.Sprintf("if %s holds activities of %s under an earlier symbol, delete those that an export wrote, and move to the new one those that you added by hand: it does not follow the change", tool, it)
-		}
-		fmt.Fprintf(w, "%d %s changed symbol (%s): %s (docs/tools.md)\n", n, pluralWord(n, "security has", "securities have"), manifest, advice)
+	// PP's alone: Ghostfolio holds a security written under another symbol
+	// as another asset, of which the export lists the rows given as changed.
+	switch n := e.SymbolsChanged; {
+	case n == 1 && e.Since == "":
+		fmt.Fprintf(w, "1 security may be held by %s otherwise than written, or may no longer trade (%s lists it under symbols_changed, with why): on a first import into empty accounts it asks nothing; on a redo, %[1]s holds it from before: set it as docs/tools.md step 8 says before you import\n", tool, manifest)
+	case n > 1 && e.Since == "":
+		fmt.Fprintf(w, "%d securities may be held by %s otherwise than written, or may no longer trade (%s lists each under symbols_changed, with why): on a first import into empty accounts they ask nothing; on a redo, %[2]s holds them from before: set each as docs/tools.md step 8 says before you import\n", n, tool, manifest)
+	case n == 1:
+		fmt.Fprintf(w, "1 security has changed symbol or may no longer trade (%s lists it under symbols_changed, with why): before you import, set it as docs/tools.md step 8 says if %s holds it; if it is new there, it asks nothing\n", manifest, tool)
+	case n > 1:
+		fmt.Fprintf(w, "%d securities have changed symbol or may no longer trade (%s lists each under symbols_changed, with why): before you import, set each that %s holds as docs/tools.md step 8 says; one that is new to it asks nothing\n", n, manifest, tool)
 	}
 	unsureLines(w, path, e.Unsure, manifest)
 	switch n := e.Holdings; {

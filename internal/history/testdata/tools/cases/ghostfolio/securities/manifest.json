@@ -234,24 +234,6 @@
       }
     ]
   },
-  "symbols_changed": [
-    {
-      "security_key": "i:1000005",
-      "written_as": "MANUAL",
-      "symbols": [
-        "ZZQ00K102",
-        "OLDCO"
-      ]
-    },
-    {
-      "security_key": "i:1000006",
-      "written_as": "PQRS",
-      "symbols": [
-        "PQRS",
-        "PQR"
-      ]
-    }
-  ],
   "keys_unsure": [],
   "coverage": []
 }

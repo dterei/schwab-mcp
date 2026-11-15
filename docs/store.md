@@ -1484,25 +1484,34 @@ and the export after you decide one writes it.
   8 places; one that rounds to 0 is not written. PP gets them in
   `securities.csv`, for each such security that a written row names or that
   an exported account held; Ghostfolio in each MANUAL asset's `marketData`.
-- **Symbols changed.** A tool does not follow a security's change of symbol
-  by itself: PP keeps the ticker, and so the price feed, of the security it
-  made, and Ghostfolio ties activities to their symbol. So stderr and the
-  manifest's `symbols_changed` name each security, but options, that has
-  had two tickers that differ in Yahoo's form, or is delisted; with
-  `-since`, each whose identifiers that the tool finds it by differ from
-  those that the chain wrote it with (in PP its ticker and WKN, or its
-  name when it has neither; in Ghostfolio its symbol, data source and
-  asset name): of those that the export writes, and of those that a row it
-  gives names or an exported account holds, as when PP, which finds a
-  security by its CUSIP, keeps the rows of one renamed since, so that only
-  this line tells it of the new ticker. A PP name that changes beside a
-  ticker or a WKN, as the description seen first does when an older
-  History file brings an earlier one, is not a change of symbol. The chain
-  then holds the new identifiers, and the next export does not name it
-  again. A security is
-  the tool's, as the holdings check takes it: one that the store holds
-  under two keys is named once, under the least of them, with every one in
-  `security_keys`.
+- **Symbols changed**, in PP. PP does not follow a security's change of
+  symbol by itself: it keeps the ticker, and so the price feed, of the
+  security it made. So stderr and the manifest's `symbols_changed` name
+  each security, but options, that PP may hold otherwise than written, or
+  that may no longer trade, with `why`: `renamed`, one that has had two
+  tickers that differ in Yahoo's form and is written with its latest;
+  `no_ticker`, one written without the ticker that it has had, `because`
+  it is `delisted`; and, with `-since`, `changed`, one whose identifiers
+  that PP finds it by differ from those that the chain wrote it with (its
+  ticker and WKN, or its name when it has neither), of those that the
+  export writes, and of those that a row it gives names or an exported
+  account holds, as when PP, which finds a security by its CUSIP, keeps
+  the rows of one renamed since, so that only this list tells it of the
+  new ticker. Each lists every name of the security, with the source that
+  named it, Schwab's API or the History files, and when that source saw
+  it last. A full export names each security that has a why of its own; a
+  `-since` export each whose identifiers changed, or that has a why that
+  the chain's entry lacks, `new` when no export of the chain wrote it, as
+  PP does not hold it then. A PP name that changes beside a ticker or a
+  WKN, as the description seen first does when an older History file
+  brings an earlier one, is not a change. The chain then holds the new
+  identifiers and whys, and the next export does not name it again. A
+  security is PP's, as the holdings check takes it: one that the store
+  holds under two keys is named once, under the least of them, with every
+  one in `security_keys`. Ghostfolio, which ties activities to their
+  asset, holds a security written under another symbol, data source or
+  name as another asset: the export lists its rows given as changed, by
+  their `fp`, and its differences go by asset.
 
 ### Accounts
 
@@ -1691,7 +1700,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `units` | how each value is written |
 | `written` | the ledger rows written, and the records per Type |
 | `given` | per account and ref, what the tool holds of each row once this export is imported: `day`, `as` (what the tool shows), `fp` (a hash of what it keeps), `with` (the shares row that it carries), and for PP `keys` (the hashes of what its duplicate check compares), `note_ref` (the ref that its Note names, when not its own) and `transfer` (for a side of a transfer, the head of the Note that PP holds of it: `A2 ...398 T61001201 to A1 ...135 T61001202`) |
-| `securities` | each security that the chain wrote, with its identity and the identifiers written for it |
+| `securities` | each security that the chain wrote, with its identity and the identifiers written for it, and, for PP, `why`: the whys of `symbols_changed` that it has of itself (`renamed`, `no_ticker`), for which a later export names it again only when the entry lacks one |
 | `changed`, `gone` | the rows that the tool holds and that this export writes otherwise, or neither writes nor gives: `ref`, `account`, `was`, for PP `note_ref` and `transfer` as in `given`, and `now` or `why` |
 | `same_as` | PP: rows gone under one ref and written under another, alike in all that PP keeps: nothing to do |
 | `tick` | PP: the rows that PP will mark as existing although they are new: `file`, `ref`, `account`, `as` |
@@ -1700,7 +1709,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `flagged`, `waiting` | the rows with a flag that needs you, with their flags, and the file rows that wait for you, each with the command that shows it |
 | `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several, and for Ghostfolio the asset that holds it, `ghostfolio_asset`: its `data_source`, `symbol` and a MANUAL asset's `name`), with `before` when DIR listed it alike, or `was`, DIR's difference, the snapshot's shares less the written, when DIR listed it otherwise, and `was_asset`, DIR's asset, when DIR listed it under another; `gone`: each that DIR listed and this export does not find, with `was` and its asset; and `not_checked`, the accounts not checked: with rows and no snapshot, or, for PP, with snapshots and nothing that PP holds; for PP, `cash`: each account whose cash that the records leave differs from its latest snapshot's, with the snapshot's day, `snapshot_cash`, `written_cash`, and `before` or `was` likewise; `cash_gone`: each account whose difference DIR listed and this export finds none of, with `was`; and `cash_not_checked`: each account whose cash the export does not check, with the snapshot's day, `why` (`margin`: its latest snapshot is of a margin account with a margin or short balance; `no_cash`: its latest snapshot holds no cash figure), and `was`, the difference listed before, carried on |
 | `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`option`, `bond`, `no_ticker`, `delisted`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
-| `symbols_changed` | each security that a tool may hold under an earlier symbol, as the tool holds it: its key (the least, with `security_keys` when the store has several), how it is written now (`written_as`: its ticker, or `MANUAL` when the tool gets no price feed for it) and every ticker it has had (`symbols`) |
+| `symbols_changed` | PP: each security that PP may hold otherwise than written, or that may no longer trade, as PP holds it: its key (the least, with `security_keys` when the store has several); how it is written now (`written_as`: its ticker, or `MANUAL` when PP gets no price feed for it); every symbol it has had (`names`), once for each source that named it, with its `source`, `api` or `history`, and `last_seen_at`, when that source saw it last; `why`, of `renamed`, `no_ticker` and, with `-since`, `changed`; `because` for `no_ticker` (`delisted`); and, with `-since`, `new` when no export of the chain wrote it |
 | `keys_unsure` | each key of the store that knows no CUSIP and had a ticker that other securities have had too, of other CUSIPs or at other times, which the export writes or prices: its key (with `security_keys` when the export takes several for one), the `tickers` it shares with them, the key of the one it is written as (`taken_for`, null when it stays on its own), and each of those `securities`, by its key, with its `cusip` ("" for none), `apart` when the two had the ticker at times that do not meet, and the `command` that joins the key to it in the store |
 | `coverage` | each account's coverage by source, as the manifest of `-dir` |
 

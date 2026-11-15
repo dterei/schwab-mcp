@@ -1046,7 +1046,7 @@ func TestToolSummary(t *testing.T) {
 				},
 				LeftOut:    []history.ToolCount{{Code: "other", Count: 1}},
 				CaveatRows: 1, Caveats: []history.ToolCount{{Code: "assumed_multiplier", Count: 1}},
-				SymbolsChanged: 1, Holdings: 2, Cash: 2, Flagged: 1, Waiting: 1,
+				SymbolsChanged: 2, Holdings: 2, Cash: 2, Flagged: 1, Waiting: 1,
 				// An account with snapshots alone, as the walk-through's third.
 				NotInTool: []string{"A3 ...783"},
 				Accounts:  []history.ToolAccount{newly(a1), newly(a2)},
@@ -1057,7 +1057,7 @@ func TestToolSummary(t *testing.T) {
   A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
 left out 1 row (pp-2026-11-13/manifest.json lists each, with what to do): other 1
 wrote 1 row with a caveat (pp-2026-11-13/manifest.json): assumed_multiplier 1
-1 security has changed symbol (pp-2026-11-13/manifest.json): if Portfolio Performance holds it under an earlier ticker, give it the new one; once delisted, no price feed (docs/tools.md)
+2 securities may be held by Portfolio Performance otherwise than written, or may no longer trade (pp-2026-11-13/manifest.json lists each under symbols_changed, with why): on a first import into empty accounts they ask nothing; on a redo, Portfolio Performance holds them from before: set each as docs/tools.md step 8 says before you import
 2 holdings differ from the latest snapshot (pp-2026-11-13/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
 2 accounts' cash in Portfolio Performance differs from their latest snapshots' (pp-2026-11-13/manifest.json): cash held before the store's first row of each, or rows left out; book each difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)
 1 account has snapshots and nothing in Portfolio Performance (pp-2026-11-13/manifest.json lists it under holdings.not_checked): A3 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
@@ -1073,9 +1073,27 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 `,
 		},
 		{
+			// The full export's wording of symbols_changed, singular: a
+			// first import, or a redo, of which Portfolio Performance may
+			// hold the security from before.
+			name: "pp in full, one security named", dir: "pp-2026-11-14",
+			e: history.ToolExport{
+				Tool: "pp", To: "2026-11-13", Written: 1, SymbolsChanged: 1, Securities: 1,
+				Files:    []history.ToolFile{{Name: "securities.csv", Kind: "securities", Rows: 1}, {Name: "portfolio-transactions-A1-135.csv", Kind: "portfolio", Account: "A1 ...135", Rows: 1}},
+				Accounts: []history.ToolAccount{newly(a1)},
+			},
+			want: `wrote 1 row for Portfolio Performance to pp-2026-11-14, up to 2026-11-13: 1 portfolio file, 1 security
+1 security may be held by Portfolio Performance otherwise than written, or may no longer trade (pp-2026-11-14/manifest.json lists it under symbols_changed, with why): on a first import into empty accounts it asks nothing; on a redo, Portfolio Performance holds it from before: set it as docs/tools.md step 8 says before you import
+in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
+  A1 ...135 (Individual): Schwab A1 ...135
+import in this order: securities.csv, portfolio-transactions-A1-135.csv
+next time: schwabtx export -format pp -since pp-2026-11-14 -dir <a new folder>
+`,
+		},
+		{
 			name: "pp going on", dir: "pp-2026-12-01", since: "pp-2026-11-13",
 			e: history.ToolExport{
-				Tool: "pp", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 3, Late: 2, SameAs: 1, RedoAccount: "A1",
+				Tool: "pp", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 3, Late: 2, SameAs: 1, RedoAccount: "A1", SymbolsChanged: 1,
 				// Each kind of account not checked, two of each, and both whys
 				// of the cash check's.
 				CashNotChecked: []history.ToolCashUnchecked{{Account: "A1 ...135", Why: "no_cash"}, {Account: "A2 ...398", Why: "margin"}},
@@ -1106,6 +1124,7 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
   this assumes Portfolio Performance holds pp-2026-11-13 and every export before it, each imported once, with what it listed deleted and ticked
   2 of them are dated on or before 2026-11-12, the end of pp-2026-11-13: they came late or were decided since
   1 of them is a row that Portfolio Performance holds under another ref (pp-2026-12-01/manifest.json lists it under same_as): it shows it as existing; leave it unticked
+1 security has changed symbol or may no longer trade (pp-2026-12-01/manifest.json lists it under symbols_changed, with why): before you import, set it as docs/tools.md step 8 says if Portfolio Performance holds it; if it is new there, it asks nothing
 2 accounts' cash in Portfolio Performance is not checked (pp-2026-12-01/manifest.json lists them under holdings.cash_not_checked): Schwab A1 ...135, whose latest snapshot holds no cash figure (take another with schwabtx snapshot), and Schwab A2 ...398, a margin account with a margin or short balance at its latest snapshot: compare the cash that Schwab shows for each with the balance of its deposit account in Portfolio Performance, and book the difference as step 4 says (docs/tools.md step 4)
 2 accounts have rows and no snapshot to check against (pp-2026-12-01/manifest.json lists them under holdings.not_checked): A4 ...783 and A5 ...678: take one of each with schwabtx snapshot (an account that Schwab has closed has none)
 2 accounts have snapshots and nothing in Portfolio Performance (pp-2026-12-01/manifest.json lists them under holdings.not_checked): A6 ...246 and A7 ...579 have no row that this export or its chain writes or names; import their History files (docs/store.md) to have them there
@@ -1161,7 +1180,7 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
   1 of them is dated on or before 2026-11-30, the end of pp-2026-12-01: it came late or was decided since
 left out 3 rows (pp-2026-12-15/manifest.json lists each, with what to do): split 1, no_quantity 2
 wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_not_written 1
-2 securities have changed symbol (pp-2026-12-15/manifest.json): if Portfolio Performance holds them under an earlier ticker, give them the new one; once delisted, no price feed (docs/tools.md)
+2 securities have changed symbol or may no longer trade (pp-2026-12-15/manifest.json lists each under symbols_changed, with why): before you import, set each that Portfolio Performance holds as docs/tools.md step 8 says; one that is new to it asks nothing
 5 keys of the store with no CUSIP had tickers that other securities have had too (pp-2026-12-15/manifest.json lists them): the export cannot tell which each is; say which in the store (docs/tools.md):
   x:66000017 (JKLM), written as i:1000013, which had it first: schwabtx edit K:x:66000017 -same K:i:1000013 (ZZJ12K106) or -same K:i:1000213 (ZZJ12K205)
   s:FILE:GRPC FD@2025-01-02 (GRPB, GRPC-FD), on its own, its tickers each of another: schwabtx edit QUOTED -same K:i:1000102 (ZZG10B101) or -same K:i:1000103 (ZZG10C109)
@@ -1253,9 +1272,9 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-13 -dir <a new f
 				Files:      []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio", Rows: 1}},
 				Accounts:   []history.ToolAccount{withCash(a1, 12, "10234.56", "2026-11-28"), withCash(a2, 10, "-12.34", "2026-11-28"), {Label: "A3 ...777", Name: "Schwab A3 ...777"}},
 				Profiles:   1, Yahoo: 1,
-				NotInBalances:  []history.ToolCashRows{{Account: "A2 ...398", Rows: 1, Snapshot: "2026-11-28", Taken: evening.AddDate(0, 0, 18)}, {Account: "A3 ...777", Rows: 1}},
-				LeftOut:        []history.ToolCount{{Code: "gf_cash", Count: 2}},
-				SymbolsChanged: 1, Holdings: 3, Flagged: 1, YahooIdle: 1, IdleSince: "2025-11-30",
+				NotInBalances: []history.ToolCashRows{{Account: "A2 ...398", Rows: 1, Snapshot: "2026-11-28", Taken: evening.AddDate(0, 0, 18)}, {Account: "A3 ...777", Rows: 1}},
+				LeftOut:       []history.ToolCount{{Code: "gf_cash", Count: 2}},
+				Holdings:      3, Flagged: 1, YahooIdle: 1, IdleSince: "2025-11-30",
 				// A3's cash row has no snapshot to be carried by, nor its
 				// holdings to be checked against.
 				NoSnapshot: []string{"A3 ...777"},
@@ -1279,7 +1298,6 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-13 -dir <a new f
   1 of their rows is dated on or before 2026-11-12, the end of gf-2026-11-13: it came late or was decided since
 2 deposits, withdrawals and journals are not in the accounts' balances yet, posted after the latest snapshot was taken (A2 ...398: of 2026-11-28, taken 2026-11-28 18:05 in New York; A3 ...777: none), which a later one will carry
 left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_cash 2
-1 security has changed symbol (gf-2026-12-01/manifest.json): if Ghostfolio holds activities of it under an earlier symbol, delete those that an export wrote, and move to the new one those that you added by hand: it does not follow the change (docs/tools.md)
 1 key of the store with no CUSIP had a ticker that other securities have had too (gf-2026-12-01/manifest.json lists it): the export cannot tell which it is; say which in the store (docs/tools.md):
   x:66000017 (JKLM), written as i:1000013, which had it first: schwabtx edit -store STORE K:x:66000017 -same K:i:1000013 (ZZJ12K106) or -same K:i:1000213 (ZZJ12K205)
 3 holdings differ from the latest snapshot (gf-2026-12-01/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)

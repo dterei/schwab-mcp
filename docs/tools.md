@@ -215,7 +215,8 @@ and the types' names, whatever PP's language and locale.
 ### Later imports
 
 6. **With `-since`** naming the folder that you imported last, once you
-   have imported it, and a new folder. Before importing, delete in PP what
+   have imported it, and a new folder. Before importing, set each security
+   that it lists under `symbols_changed` as step 8 says; delete in PP what
    it lists as changed or gone, each transfer once: deleting either half of
    a transfer in PP deletes both; and change or delete what you booked by
    hand for the differences that it lists (step 4). Each is listed with how
@@ -277,10 +278,12 @@ and the types' names, whatever PP's language and locale.
    in PP every transaction of every account of the export, then import a
    full export as in step 3, of the chain's `-account` when it has one (a
    `-since` export of such a chain prints the command), ticking its `tick`
-   list, and name it in the next `-since`. Every account at once, not some:
-   PP checks a transfer against the other account's side, so a row that an
-   account kept could mark a new row that no list names. Neither a changed
-   symbol nor a bond's unit needs a redo.
+   list, and name it in the next `-since`. PP keeps its securities when you
+   delete their transactions: before you import, set each that the full
+   export lists under `symbols_changed` as step 8 says. Every account at
+   once, not some: PP checks a transfer against the other account's side,
+   so a row that an account kept could mark a new row that no list names.
+   Neither a changed symbol nor a bond's unit needs a redo.
 
    A store made again may number its accounts otherwise, and an account's
    name in PP follows its ref (`Schwab A1 ...135`): `schwabtx status` lists
@@ -296,27 +299,41 @@ and the types' names, whatever PP's language and locale.
 8. PP finds a security by its ticker, then its WKN, then its name. The export
    writes the ticker in Yahoo's form (`BRK-B` for `BRK.B`), the CUSIP as
    WKN and the description seen first as name, but no ISIN; a new security
-   gets PP's Yahoo feed when it has a ticker. Each security that stderr says
-   has changed symbol, listed under `symbols_changed` whether or not the
-   export writes a row of it (PP keeps the rows of a security that it finds
-   by its CUSIP): before you import, give the PP security that holds its
-   rows the new ticker, and its CUSIP as WKN if it has none (PP made it
-   before the store knew the CUSIP), or, once it is delisted, no price
-   feed, since its old ticker may now be another company's; PP finds it by
-   them, and else makes a second security of the new ticker. A security
-   that has neither ticker nor WKN, which PP finds by its name alone, is
-   listed when its name changes, as when an older History file brings an
-   earlier description: give the PP security the new name, as written in
-   `securities.csv`. Beside a ticker or a WKN, a name changes nothing that
-   PP finds a security by, and nothing is listed. An option's
-   shares are its contracts times its multiplier, under its OCC symbol
-   (`XYZ250221P00040000`); an option that expired, was assigned or exercised
-   is closed by a delivery of value 0. A bond's shares are its face value in
-   dollars, and its prices are per dollar of face, about 1: a price feed
-   that quotes bonds in percent of face would value it 100 times too high,
-   so keep its prices from your snapshots. Options, bonds, and securities
-   without a ticker or delisted get their prices from your snapshots, in
-   `securities.csv`.
+   gets PP's Yahoo feed when it has a ticker. PP keeps the ticker and the
+   feed of a security that it holds, and the rows of one that it finds by
+   its CUSIP, so stderr and the manifest's `symbols_changed` name each
+   security that PP may hold otherwise than written, or that may no longer
+   trade, whether or not the export writes a row of it: with `why`, and
+   with every name that it has had and the source that named it (`names`).
+   On a first import into empty accounts PP makes each from what is
+   written, and none asks anything. With `-since`, and on a redo (PP keeps
+   its securities when you delete their transactions), set each that PP
+   holds before you import; PP does not hold one marked `new`, which no
+   export of the chain wrote:
+
+   - `renamed`: it has had two tickers, and the ticker written is its
+     latest. Give the PP security that holds its rows that ticker, and its
+     CUSIP as WKN if it has none (PP made it before the store knew the
+     CUSIP): PP finds it by them, and else makes a second security of the
+     new ticker.
+   - `no_ticker`: written without the ticker that it has had, `because` it
+     is `delisted`: its latest symbol is its CUSIP. Clear its ticker and
+     its feed, as its old ticker may be another company's now.
+   - `changed` (with `-since`): what PP finds it by changed, its ticker and
+     WKN, or its name when it has neither, as when an older History file
+     brings an earlier description of a security that PP finds by its name
+     alone: give the PP security the identifiers written in
+     `securities.csv`. Beside a ticker or a WKN, a name changes nothing that
+     PP finds a security by, and nothing is listed for it.
+
+   An option's shares are its contracts times its multiplier, under its OCC
+   symbol (`XYZ250221P00040000`); an option that expired, was assigned or
+   exercised is closed by a delivery of value 0. A bond's shares are its
+   face value in dollars, and its prices are per dollar of face, about 1: a
+   price feed that quotes bonds in percent of face would value it 100 times
+   too high, so keep its prices from your snapshots. Options, bonds, and
+   securities without a ticker or delisted get their prices from your
+   snapshots, in `securities.csv`.
 
 ## Ghostfolio
 
@@ -473,12 +490,12 @@ with its description in its comment.
    `gf-3`, and set each account's cash where Ghostfolio shows another. The
    line on `-manual` names the chain's symbols that nothing in this export
    uses, here BND, whose activities Ghostfolio holds already: nothing to do.
-   A security that stderr says has changed symbol is one that Ghostfolio
-   may hold under the earlier one: the export lists the activities that it
-   gave of it as changed, to delete, and writes them under the new one, and
-   lists each of its differences that the export before listed with the
-   asset that it was under, from which to move what you added for it by
-   hand (step 6).
+   A security renamed, delisted or named by `-manual` since is another
+   asset to Ghostfolio, which ties activities to their asset: the export
+   lists the activities that it gave of it as changed, to delete, writes
+   them under the new asset, and lists each of its differences that the
+   export before listed with the asset that it was under, from which to
+   move what you added for it by hand (step 6).
    A full export imported again over what Ghostfolio holds is not a redo:
    it says nothing of what changed or went, which stays; an activity whose
    values you changed in Ghostfolio, as a delivery's that the export wrote

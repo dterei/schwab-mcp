@@ -1545,7 +1545,9 @@ type twoKeys struct {
 	other               string
 	buy                 string
 	identity, why       string
-	changed             bool
+	// symbols are its whys of PP's symbols_changed (whysOf), "" when PP
+	// does not name it.
+	symbols string
 }
 
 // tcFiledEarly is when a twoKeys variant's History file is exported when it

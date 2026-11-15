@@ -17,6 +17,13 @@ import (
 	"github.com/dterei/schwab-mcp/internal/nytime"
 )
 
+// whysOf returns s's whys of PP's symbols_changed (symbolWhys) in one
+// string, with why it has no ticker after a space: "no_ticker delisted".
+func whysOf(s *toolSecurity) string {
+	why, because := s.symbolWhys()
+	return strings.TrimSpace(strings.Join(why, ",") + " " + because)
+}
+
 // mapCase maps case c for tool.
 func mapCase(c toolCase, tool string) (*toolInput, []toolEvent, []toolOutcome) {
 	in := c.in
@@ -420,39 +427,41 @@ func TestToolMapping(t *testing.T) {
 		in := toolCaseNamed("securities").in
 		type want struct {
 			ppTicker, gfSymbol, manual, name, gfName string
-			ppManual, changed                        bool
+			ppManual                                 bool
+			// why are its whys of PP's symbols_changed (whysOf).
+			why string
 		}
 		for _, c := range []struct {
 			key, symbol string
 			want        want
 		}{
-			{keyXYZ, "", want{"XYZ", "XYZ", "", "XYZ CORP COMMON STOCK", "Security (XYZ)", false, false}},
-			{keyClass, "", want{"ABC-B", "ABC-B", "", "ABC HOLDINGS CL B", "Security (ABC-B)", false, false}},
-			{keyDot, "", want{"", uuid8(toolNamespace, "security ticker:QRS.PRK"), "not_plain", "QRS TRUST PFD SER K", "Security (QRS.PRK)", true, false}},
-			{keyGone, "", want{"", uuid8(toolNamespace, "security cusip:ZZQ00K102"), "delisted", "OLDCO INC", "Security (ZZQ00K102)", true, true}},
-			{keyRename, "", want{"PQRS", "PQRS", "", "PQR GROUP INC", "Security (PQRS)", false, true}},
-			{"", "QQQX", want{"QQQX", "QQQX", "", "", "Security (QQQX)", false, false}},
-			{keyNoTick, "", want{"", uuid8(toolNamespace, "security cusip:ZZC99X101"), "no_ticker", "EXAMPLE PRIVATE PLACEMENT UNITS", "Security (ZZC99X101)", true, false}},
-			{keyPut, "", want{"XYZ250221P00040000", "fc94e404-4c85-87f0-962e-bb88e7134119", "option", "XYZ 02/21/2025 40.00 P", "XYZ 2025-02-21 40 put (XYZ250221P00040000)", true, false}},
-			{keyFileOp, "", want{"XYZ250321C00045000", uuid8(toolNamespace, "security option:XYZ250321C00045000"), "option", "CALL XYZ CORP $45 EXP 03/21/25", "XYZ 2025-03-21 45 call (XYZ250321C00045000)", true, false}},
-			{keyFutOpt, "", want{symFutOpt, uuid8(toolNamespace, "security key:"+keyFutOpt), "option", "EXAMPLE INDEX FUTURE PUT 5050 MAR 25", "Security (i:205187341)", true, false}},
+			{keyXYZ, "", want{"XYZ", "XYZ", "", "XYZ CORP COMMON STOCK", "Security (XYZ)", false, ""}},
+			{keyClass, "", want{"ABC-B", "ABC-B", "", "ABC HOLDINGS CL B", "Security (ABC-B)", false, ""}},
+			{keyDot, "", want{"", uuid8(toolNamespace, "security ticker:QRS.PRK"), "not_plain", "QRS TRUST PFD SER K", "Security (QRS.PRK)", true, ""}},
+			{keyGone, "", want{"", uuid8(toolNamespace, "security cusip:ZZQ00K102"), "delisted", "OLDCO INC", "Security (ZZQ00K102)", true, "no_ticker delisted"}},
+			{keyRename, "", want{"PQRS", "PQRS", "", "PQR GROUP INC", "Security (PQRS)", false, "renamed"}},
+			{"", "QQQX", want{"QQQX", "QQQX", "", "", "Security (QQQX)", false, ""}},
+			{keyNoTick, "", want{"", uuid8(toolNamespace, "security cusip:ZZC99X101"), "no_ticker", "EXAMPLE PRIVATE PLACEMENT UNITS", "Security (ZZC99X101)", true, ""}},
+			{keyPut, "", want{"XYZ250221P00040000", "fc94e404-4c85-87f0-962e-bb88e7134119", "option", "XYZ 02/21/2025 40.00 P", "XYZ 2025-02-21 40 put (XYZ250221P00040000)", true, ""}},
+			{keyFileOp, "", want{"XYZ250321C00045000", uuid8(toolNamespace, "security option:XYZ250321C00045000"), "option", "CALL XYZ CORP $45 EXP 03/21/25", "XYZ 2025-03-21 45 call (XYZ250321C00045000)", true, ""}},
+			{keyFutOpt, "", want{symFutOpt, uuid8(toolNamespace, "security key:"+keyFutOpt), "option", "EXAMPLE INDEX FUTURE PUT 5050 MAR 25", "Security (i:205187341)", true, ""}},
 			// The first of its symbols in order, not the latest, gives a
 			// renamed contract's OCC form, which stays.
-			{keyOptRen, "", want{"PQR250620C00030000", uuid8(toolNamespace, "security option:PQR250620C00030000"), "option", "PQR 06/20/2025 30.00 C", "PQR 2025-06-20 30 call (PQR250620C00030000)", true, false}},
-			{keyBondA, "", want{"", uuid8(toolNamespace, "security cusip:9128ZZQ15"), "bond", "EXAMPLE TREASURY NOTE 4.25% 08/15/2034", "Bond (9128ZZQ15)", true, false}},
-			{keyBondB, "", want{"", uuid8(toolNamespace, "security cusip:ZZT10A109"), "bond", "EXAMPLE CITY REVENUE BOND 5% 06/01/2040", "Bond (ZZT10A109)", true, false}},
+			{keyOptRen, "", want{"PQR250620C00030000", uuid8(toolNamespace, "security option:PQR250620C00030000"), "option", "PQR 06/20/2025 30.00 C", "PQR 2025-06-20 30 call (PQR250620C00030000)", true, ""}},
+			{keyBondA, "", want{"", uuid8(toolNamespace, "security cusip:9128ZZQ15"), "bond", "EXAMPLE TREASURY NOTE 4.25% 08/15/2034", "Bond (9128ZZQ15)", true, ""}},
+			{keyBondB, "", want{"", uuid8(toolNamespace, "security cusip:ZZT10A109"), "bond", "EXAMPLE CITY REVENUE BOND 5% 06/01/2040", "Bond (ZZT10A109)", true, ""}},
 			// A bond with a ticker is a bond all the same; an option whose
 			// CUSIP the store knows is known by it; a class share spelled
 			// two ways has not changed its symbol.
-			{keyBondT, "", want{"ZZTB", uuid8(toolNamespace, "security ticker:ZZTB"), "bond", "EXAMPLE BABY BOND 6.5% 2031", "Bond (ZZTB)", true, false}},
-			{keyOptCU, "", want{"XYZ250620C00055000", uuid8(toolNamespace, "security cusip:ZZO55C106"), "option", "XYZ 06/20/2025 55.00 C", "XYZ 2025-06-20 55 call (ZZO55C106)", true, false}},
-			{keyClass2, "", want{"ABD-B", "ABD-B", "", "ABD CORP CL B", "Security (ABD-B)", false, false}},
+			{keyBondT, "", want{"ZZTB", uuid8(toolNamespace, "security ticker:ZZTB"), "bond", "EXAMPLE BABY BOND 6.5% 2031", "Bond (ZZTB)", true, ""}},
+			{keyOptCU, "", want{"XYZ250620C00055000", uuid8(toolNamespace, "security cusip:ZZO55C106"), "option", "XYZ 06/20/2025 55.00 C", "XYZ 2025-06-20 55 call (ZZO55C106)", true, ""}},
+			{keyClass2, "", want{"ABD-B", "ABD-B", "", "ABD CORP CL B", "Security (ABD-B)", false, ""}},
 			// Ghostfolio asks Yahoo about a ticker of up to six letters.
-			{keySix, "", want{"ABCDEF", "ABCDEF", "", "SIX LETTER TICKER INC", "Security (ABCDEF)", false, false}},
-			{keySeven, "", want{"ABCDEFG", uuid8(toolNamespace, "security ticker:ABCDEFG"), "not_plain", "SEVEN LETTER TICKER INC", "Security (ABCDEFG)", false, false}},
+			{keySix, "", want{"ABCDEF", "ABCDEF", "", "SIX LETTER TICKER INC", "Security (ABCDEF)", false, ""}},
+			{keySeven, "", want{"ABCDEFG", uuid8(toolNamespace, "security ticker:ABCDEFG"), "not_plain", "SEVEN LETTER TICKER INC", "Security (ABCDEFG)", false, ""}},
 		} {
 			s := toolSecurityOf(&in, c.key, c.symbol)
-			got := want{s.ppTicker(), s.gfSymbol(), s.manual, s.name, s.gfName(), s.ppManual(), s.symbolsChanged()}
+			got := want{s.ppTicker(), s.gfSymbol(), s.manual, s.name, s.gfName(), s.ppManual(), whysOf(s)}
 			if got != c.want {
 				t.Errorf("%s%s: %+v,\nwant %+v", c.key, c.symbol, got, c.want)
 			}
@@ -467,6 +476,21 @@ func TestToolMapping(t *testing.T) {
 		}
 		if s := toolSecurityOf(&in, keyRename, ""); s.ticker() != "PQRS" || !slices.Equal(s.tickers, []string{"PQRS", "PQR"}) {
 			t.Errorf("the renamed security has tickers %v", s.tickers)
+		}
+		// Of two tickers, PP is told of a rename only when it gets the
+		// latest: not of one that keeps a dot in Yahoo's form, which PP finds
+		// by its WKN or name, nor of one delisted, which is no_ticker.
+		for _, c := range []struct {
+			s    toolSecurity
+			want string
+		}{
+			{toolSecurity{assetType: "EQUITY", tickers: []string{"NEWN", "OLDN"}}, "renamed"},
+			{toolSecurity{assetType: "EQUITY", tickers: []string{"QRS.PRL", "QRS.PRK"}}, ""},
+			{toolSecurity{assetType: "EQUITY", tickers: []string{"NEWN", "OLDN"}, delisted: true}, "no_ticker delisted"},
+		} {
+			if got := whysOf(&c.s); got != c.want {
+				t.Errorf("tickers %q, delisted %v: symbols changed %q, want %q", c.s.tickers, c.s.delisted, got, c.want)
+			}
 		}
 		// Multipliers: an option's, assumed for a file's option and for a
 		// row's contract without a key, refused when not whole.
@@ -1192,20 +1216,20 @@ func TestToolMapping(t *testing.T) {
 		for _, v := range []twoKeys{
 			{
 				name: "renamed", api: []string{"JKLM", "JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", fileCUSIP: "ZZJ12K106", filed: tcFiledEarly,
-				identity: "JKLN", changed: true,
+				identity: "JKLN", symbols: "renamed",
 			},
 			{
 				name: "renamed, a CUSIP under the API's key", api: []string{"JKLM", "JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", filed: tcFiledEarly,
-				identity: "JKLN", changed: true,
+				identity: "JKLN", symbols: "renamed",
 			},
 			{
 				name: "renamed, no ticker alike, a CUSIP under both", api: []string{"JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", fileCUSIP: "ZZJ12K106",
-				filed: tcFiledEarly, identity: "JKLN", changed: true,
+				filed: tcFiledEarly, identity: "JKLN", symbols: "renamed",
 			},
 			// -manual names the ticker that the file's key alone had.
 			{
 				name: "renamed, -manual naming the old ticker", api: []string{"JKLN"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106", fileCUSIP: "ZZJ12K106",
-				filed: tcFiledEarly, manual: "JKLM", identity: "JKLN", why: "asked", changed: true,
+				filed: tcFiledEarly, manual: "JKLM", identity: "JKLN", why: "asked", symbols: "renamed",
 			},
 			// The newer ticker is the file's, which an export after the API's
 			// sale names its rows by: the API's key, whose sale was its last
@@ -1217,33 +1241,33 @@ func TestToolMapping(t *testing.T) {
 			// CUSIP under the API's key or none, the two are one security.
 			{
 				name: "renamed under the file's key alone", api: []string{"JKLM"}, file: []string{"JKLM", "JKLN"}, apiCUSIP: "ZZJ12K106",
-				identity: "JKLN", changed: true,
+				identity: "JKLN", symbols: "renamed",
 			},
 			{
 				name: "renamed under the file's key alone, its buy restated", api: []string{"JKLM"}, file: []string{"JKLM", "JKLN"}, apiCUSIP: "ZZJ12K106",
-				buy: "JKLN", identity: "JKLN", changed: true,
+				buy: "JKLN", identity: "JKLN", symbols: "renamed",
 			},
 			{
 				name: "renamed under the file's key alone, its buy restated, no CUSIP", api: []string{"JKLM"}, file: []string{"JKLM", "JKLN"},
-				buy: "JKLN", identity: "JKLN", changed: true,
+				buy: "JKLN", identity: "JKLN", symbols: "renamed",
 			},
 			{
 				name: "delisted, a CUSIP under the API's key", api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106",
-				filed: tcFiledEarly, identity: "ZZJ12K106", why: "delisted", changed: true,
+				filed: tcFiledEarly, identity: "ZZJ12K106", why: "delisted", symbols: "no_ticker delisted",
 			},
 			{
 				name: "delisted, described alike", api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106",
-				apiName: "JKLM SMALL CAP VALUE ETF", fileName: "JKLM SMALL CAP VALUE ETF", filed: tcFiledEarly, identity: "ZZJ12K106", why: "delisted", changed: true,
+				apiName: "JKLM SMALL CAP VALUE ETF", fileName: "JKLM SMALL CAP VALUE ETF", filed: tcFiledEarly, identity: "ZZJ12K106", why: "delisted", symbols: "no_ticker delisted",
 			},
 			// A file that writes the CUSIP of a security that has gone, of the
 			// buy too when it restates it.
 			{
 				name: "delisted under the file's key", api: []string{"JKLM"}, file: []string{"JKLM", "ZZJ12K106"}, apiCUSIP: "ZZJ12K106",
-				identity: "ZZJ12K106", why: "delisted", changed: true,
+				identity: "ZZJ12K106", why: "delisted", symbols: "no_ticker delisted",
 			},
 			{
 				name: "delisted under the file's key, its buy restated", api: []string{"JKLM"}, file: []string{"JKLM", "ZZJ12K106"}, apiCUSIP: "ZZJ12K106",
-				buy: "ZZJ12K106", identity: "ZZJ12K106", why: "delisted", changed: true,
+				buy: "ZZJ12K106", identity: "ZZJ12K106", why: "delisted", symbols: "no_ticker delisted",
 			},
 			{
 				name: "dotted", api: []string{"JKL.PRA"}, file: []string{"JKL.PRA"}, apiName: "JKL TRUST PFD SER A", fileName: "JKL TRUST PFD SER A",
@@ -1268,7 +1292,7 @@ func TestToolMapping(t *testing.T) {
 			},
 			{
 				name: "a third key of the ticker, the API's delisted", api: []string{"JKLM", "ZZJ12K106"}, file: []string{"JKLM"}, apiCUSIP: "ZZJ12K106",
-				other: "ZZJ12K205", filed: tcFiledEarly, identity: "ZZJ12K106", why: "delisted", changed: true,
+				other: "ZZJ12K205", filed: tcFiledEarly, identity: "ZZJ12K106", why: "delisted", symbols: "no_ticker delisted",
 			},
 		} {
 			c := v.toolCase()
@@ -1278,8 +1302,8 @@ func TestToolMapping(t *testing.T) {
 					t.Errorf("%s %s: differences %+v", v.name, tool, diffs)
 				}
 				for _, e := range events {
-					if s := e.security; s.identity() != v.identity || s.manual != v.why || s.symbolsChanged() != v.changed {
-						t.Errorf("%s %s: %s is of %s, MANUAL %q, changed %v; want %s, %q, %v", v.name, tool, e.ref, s.identity(), s.manual, s.symbolsChanged(), v.identity, v.why, v.changed)
+					if s := e.security; s.identity() != v.identity || s.manual != v.why || whysOf(s) != v.symbols {
+						t.Errorf("%s %s: %s is of %s, MANUAL %q, symbols changed %q; want %s, %q, %q", v.name, tool, e.ref, s.identity(), s.manual, whysOf(s), v.identity, v.why, v.symbols)
 					}
 				}
 				e := caseExport(t, c, tool)
@@ -1295,18 +1319,30 @@ func TestToolMapping(t *testing.T) {
 				if !reflect.DeepEqual(e.Unsure, unsure) {
 					t.Errorf("%s %s: unsure %+v", v.name, tool, e.Unsure)
 				}
-				// The manifest names a security whose symbol changed once, as the
-				// tool holds it, under the least of its keys with both keys, its
-				// symbol now first: a delisted one's CUSIP. stderr counts one.
+				// PP's manifest names a security with a why once, as PP holds it,
+				// under the least of its keys with both keys, with every name of
+				// each key as its source named it. stderr counts one.
+				// Ghostfolio's has no symbols_changed.
 				var manifest struct {
-					SymbolsChanged []toolSymbolsEntry `json:"symbols_changed"`
+					SymbolsChanged *[]toolSymbolsEntry `json:"symbols_changed"`
 				}
 				if err := json.Unmarshal(e.manifest, &manifest); err != nil {
 					t.Fatal(err)
 				}
-				changed := manifest.SymbolsChanged
-				if v.changed != (len(changed) == 1) || e.SymbolsChanged != len(changed) || slices.ContainsFunc(changed, func(s toolSymbolsEntry) bool {
-					return s.Symbols[0] != v.identity || s.SecurityKey != keyTwoAPI || !slices.Equal(s.SecurityKeys, []string{keyTwoAPI, keyTwoFile})
+				names := map[string]bool{}
+				for _, s := range v.api {
+					names[symbolForm(s)+" api"] = true
+				}
+				for _, s := range v.file {
+					names[symbolForm(s)+" history"] = true
+				}
+				changed := deref(manifest.SymbolsChanged)
+				if (manifest.SymbolsChanged != nil) != (tool == toolPP) || (v.symbols != "" && tool == toolPP) != (len(changed) == 1) || e.SymbolsChanged != len(changed) || slices.ContainsFunc(changed, func(s toolSymbolsEntry) bool {
+					got := map[string]bool{}
+					for _, n := range s.Names {
+						got[n.Symbol+" "+n.Source] = true
+					}
+					return strings.TrimSpace(strings.Join(s.Why, ",")+" "+s.Because) != v.symbols || s.SecurityKey != keyTwoAPI || !slices.Equal(s.SecurityKeys, []string{keyTwoAPI, keyTwoFile}) || !maps.Equal(got, names)
 				}) {
 					t.Errorf("%s %s: symbols changed %+v, counted %d", v.name, tool, changed, e.SymbolsChanged)
 				}
@@ -2237,8 +2273,8 @@ func TestToolMapping(t *testing.T) {
 			for _, tool := range []string{toolPP, toolGF} {
 				in, events, _ := mapCase(c, tool)
 				for _, e := range events {
-					if s := e.security; s.identity() != "SPNC" || s.delisted || s.manual != "" || s.symbolsChanged() || s.gfSymbol() != "SPNC" || s.ppTicker() != "SPNC" {
-						t.Errorf("%s %s: %s is of %s, delisted %v, MANUAL %q, changed %v", c.name, tool, e.ref, s.identity(), s.delisted, s.manual, s.symbolsChanged())
+					if s := e.security; s.identity() != "SPNC" || s.delisted || s.manual != "" || whysOf(s) != "" || s.gfSymbol() != "SPNC" || s.ppTicker() != "SPNC" {
+						t.Errorf("%s %s: %s is of %s, delisted %v, MANUAL %q, symbols changed %q", c.name, tool, e.ref, s.identity(), s.delisted, s.manual, whysOf(s))
 					}
 				}
 				if diffs, _ := holdingsCheck(in, events); c.name != "alone" && len(diffs) != 0 {
@@ -2354,11 +2390,11 @@ func TestToolMapping(t *testing.T) {
 					if !c.delisted {
 						why, ticker, identity = "", c.ticker, c.ticker
 					}
-					if s.delisted != c.delisted || s.manual != why || s.ppTicker() != ticker || s.identity() != identity || s.symbolsChanged() != c.delisted {
-						t.Errorf("%s %s: %s is of %s, delisted %v, MANUAL %q, PP ticker %q, changed %v", c.name, tool, e.ref, s.identity(), s.delisted, s.manual, s.ppTicker(), s.symbolsChanged())
+					if s.delisted != c.delisted || s.manual != why || s.ppTicker() != ticker || s.identity() != identity || whysOf(s) != map[bool]string{true: "no_ticker delisted"}[c.delisted] {
+						t.Errorf("%s %s: %s is of %s, delisted %v, MANUAL %q, PP ticker %q, symbols changed %q", c.name, tool, e.ref, s.identity(), s.delisted, s.manual, s.ppTicker(), whysOf(s))
 					}
 				}
-				if e := caseExport(t, toolCase{name: c.name, in: c.in}, tool); e.SymbolsChanged != map[bool]int{true: 1}[c.delisted] {
+				if e := caseExport(t, toolCase{name: c.name, in: c.in}, tool); e.SymbolsChanged != map[bool]int{true: 1}[c.delisted && tool == toolPP] {
 					t.Errorf("%s %s: %d securities changed symbol", c.name, tool, e.SymbolsChanged)
 				}
 			}

@@ -407,7 +407,10 @@
       "security_key": "c:00507V109",
       "symbol": "00507V109",
       "identity": "00507V109",
-      "wkn": "00507V109"
+      "wkn": "00507V109",
+      "why": [
+        "no_ticker"
+      ]
     },
     {
       "security_key": "c:0XYZ..RI60045000",

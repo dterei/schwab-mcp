@@ -878,9 +878,21 @@ func TestToolChain(t *testing.T) {
 
 	t.Run("symbols changed", func(t *testing.T) {
 		t.Parallel()
-		// PQR is renamed PQRS between two exports: with -since, it alone
-		// of what the export writes changed its identifiers; a full export
-		// names it for its two tickers.
+		// PP's alone (R-10 of the consolidation): Ghostfolio, which holds a
+		// security written otherwise as another asset, names none, and its
+		// manifest has no symbols_changed. PQR is renamed PQRS between two
+		// exports: with -since, it alone of what both write is named,
+		// renamed and changed; a full export names it renamed. OLDCO,
+		// delisted, which the first export does not write, is new with
+		// -since, as PP does not hold it, and named no_ticker, delisted, in
+		// full. Each is named with every name that its keys have had, as
+		// each source named it, and the chain's entry keeps its whys, so
+		// that the next export does not name it again. The one after an
+		// older History file names XYZ by XYZ/A, which Yahoo's form writes
+		// XYZ-A, names XYZ, renamed, a why that the chain's entry lacks,
+		// though PP finds it as before; and the file's own key of PQRS,
+		// which the store linked to PQRS's, renamed but not new, as PP holds
+		// PQRS.
 		before := func(in toolInput) toolInput {
 			in.names = slices.DeleteFunc(slices.Clone(in.names), func(n toolName) bool { return n.kind == "symbol" && n.value == "PQRS" })
 			return in
@@ -892,36 +904,79 @@ func TestToolChain(t *testing.T) {
 		first := before(tcInput(toolInput{rows: slices.Clone(rows)}))
 		later := tcInput(toolInput{rows: append(rows,
 			rcTrade("T74600103", 1, "2025-09-01 10:00:00", "sell", keyRename, "PQRS", -1_000_000, 25, 2500, 0),
-			rcTrade("T74600104", 1, "2025-09-01 11:00:00", "buy", keyXYZ, "XYZ", 1_000_000, 51, -5100, 0))})
-		keys := func(groups [][]*toolSecurity) []string {
+			rcTrade("T74600104", 1, "2025-09-01 11:00:00", "buy", keyXYZ, "XYZ", 1_000_000, 51, -5100, 0),
+			rcTrade("T74600105", 1, "2025-09-02 10:00:00", "buy", keyGone, "OLDCO", 1_000_000, 5, -500, 0))})
+		// A key of PQRS's CUSIP, of no row, whose name of PQRS is the
+		// latest: the names are those of every key of the security.
+		seen := time.Date(2023, time.July, 1, 15, 0, 0, 0, time.UTC)
+		later.securities = append(slices.Clone(later.securities), toolSecurityRow{key: "c:ZZR00K200", assetType: "EQUITY", cusip: "ZZR00K200", symbol: "PQRS"})
+		later.names = append(slices.Clone(later.names), toolName{key: "c:ZZR00K200", kind: "symbol", value: "PQRS", firstSeen: seen, lastSeen: seen})
+		// An older History file names XYZ by XYZ/A, and brings a buy of
+		// PQRS under a key of its own, which the store linked to PQRS's: of
+		// a security that PP holds, so not new.
+		older := later
+		filed, fileKey := time.Date(2022, time.June, 1, 15, 0, 0, 0, time.UTC), "x:66000748"
+		older.securities = append(slices.Clone(later.securities), toolSecurityRow{key: fileKey, symbol: "PQRS"})
+		older.names = append(slices.Clone(later.names),
+			toolName{key: keyXYZ, from: "x:66000746", kind: "symbol", value: "XYZ/A", firstSeen: filed, lastSeen: filed},
+			toolName{key: fileKey, kind: "symbol", value: "PQRS", firstSeen: filed.AddDate(2, 0, 0), lastSeen: filed.AddDate(2, 0, 0)})
+		older.rows = append(slices.Clone(later.rows), rcFile("C7460000.1", 1, "2025-09-03", "Buy", "buy", fileKey, "PQRS", centsOf(1_000_000), 25, -2500))
+		older.links = []toolLink{{file: fileKey, api: keyRename}}
+		older = tcInput(older)
+		named := func(s *chainStep) []string {
+			t.Helper()
+			var m struct {
+				SymbolsChanged *[]toolSymbolsEntry `json:"symbols_changed"`
+			}
+			if err := json.Unmarshal(s.manifest, &m); err != nil {
+				t.Fatal(err)
+			}
+			if (m.SymbolsChanged != nil) != (s.e.Tool == toolPP) {
+				t.Errorf("%s: symbols_changed %v", s.e.Tool, m.SymbolsChanged)
+			}
 			var out []string
-			for _, ss := range groups {
-				var of []string
-				for _, s := range ss {
-					of = append(of, s.key)
+			for _, e := range deref(m.SymbolsChanged) {
+				var names []string
+				for _, n := range e.Names {
+					names = append(names, n.Symbol+" "+n.Source+" "+n.LastSeenAt)
 				}
-				out = append(out, strings.Join(of, " "))
+				out = append(out, fmt.Sprintf("%s %s why=%s because=%s new=%v names=%s", e.SecurityKey, e.WrittenAs, strings.Join(e.Why, ","), e.Because, e.New, strings.Join(names, "; ")))
 			}
 			return out
 		}
+		const (
+			renamed = "%s PQRS why=renamed%s because= new=false names=PQRS api 2023-07-01T15:00:00Z; PQR api 2023-04-01T15:00:00Z%s"
+			gone    = "i:1000005 MANUAL why=no_ticker because=delisted new=%v names=ZZQ00K102 api 2023-06-01T15:00:00Z; OLDCO api 2023-04-01T15:00:00Z"
+		)
 		for _, tool := range []string{toolPP, toolGF} {
 			e1 := chainStepOf(t, first, tool, nil, rcAt1)
 			e2 := chainStepOf(t, later, tool, e1, rcAt2)
+			e3 := chainStepOf(t, later, tool, e2, rcAt3)
+			e4 := chainStepOf(t, older, tool, e3, rcAt4)
 			full := chainStepOf(t, later, tool, nil, rcAt2)
-			if got := keys(e1.res.symbolsChanged); len(got) > 0 {
-				t.Errorf("%s, the first export: %q", tool, got)
+			var want [5][]string
+			if tool == toolPP {
+				want[1] = []string{fmt.Sprintf(gone, true), fmt.Sprintf(renamed, keyRename, ",changed", "")}
+				want[3] = []string{
+					fmt.Sprintf(renamed, fileKey, "", "; PQRS history 2024-06-01T15:00:00Z"),
+					"i:1854092 XYZ why=renamed because= new=false names=XYZ api 2023-04-01T15:00:00Z; XYZ-A history 2022-06-01T15:00:00Z",
+				}
+				want[4] = []string{fmt.Sprintf(gone, false), fmt.Sprintf(renamed, keyRename, "", "")}
 			}
-			if got := keys(e2.res.symbolsChanged); !slices.Equal(got, []string{keyRename}) {
-				t.Errorf("%s, with -since: %q", tool, got)
-			}
-			if got := keys(full.res.symbolsChanged); !slices.Equal(got, []string{keyRename}) {
-				t.Errorf("%s, a full export: %q", tool, got)
+			for i, s := range []*chainStep{e1, e2, e3, e4, full} {
+				if got := named(s); !slices.Equal(got, want[i]) {
+					t.Errorf("%s, export %d: symbols changed\n%q\nwant\n%q", tool, i+1, got, want[i])
+				}
 			}
 			var secs []string
-			for _, s := range chainJSON(e2.res, rcAt2, nil).Securities {
-				secs = append(secs, s.SecurityKey+" "+cmp.Or(s.Ticker, s.GFSymbol))
+			for _, s := range chainJSON(e4.res, rcAt4, nil).Securities {
+				secs = append(secs, fmt.Sprintf("%s %s %v", s.SecurityKey, cmp.Or(s.Ticker, s.WKN, s.GFSymbol), s.Why))
 			}
-			if !slices.Equal(secs, []string{keyRename + " PQRS", keyXYZ + " XYZ"}) {
+			wantSecs := []string{"i:1000005 ZZQ00K102 [no_ticker]", keyRename + " PQRS [renamed]", keyXYZ + " XYZ [renamed]", fileKey + " PQRS [renamed]"}
+			if tool == toolGF {
+				wantSecs = []string{"i:1000005 " + uuid8(toolNamespace, "security cusip:ZZQ00K102") + " []", keyRename + " PQRS []", keyXYZ + " XYZ []", fileKey + " PQRS []"}
+			}
+			if !slices.Equal(secs, wantSecs) {
 				t.Errorf("%s: the chain's securities %q", tool, secs)
 			}
 		}
@@ -931,25 +986,24 @@ func TestToolChain(t *testing.T) {
 		// PP finds by its ticker and WKN, changed nothing that PP finds it
 		// by, and its rows stay given; QRS.PRK, which has neither (a dot
 		// stays in its Yahoo form, and the store knows no CUSIP of it), PP
-		// finds by its name alone: its rows are changed, and it is named, for
-		// you to give the PP security its new name. Ghostfolio's identifiers
-		// are not the descriptions. The chain's securities take the new
-		// names all the same.
+		// finds by its name alone: its rows are changed, and it is named
+		// changed, for you to give the PP security its new name. The chain's
+		// securities take the new names all the same.
 		described := []toolRow{
 			rcTrade("T74600201", 1, "2026-01-06 10:30:00", "buy", keyXYZ, "XYZ", 10_000_000, 50, -50_000, 0),
 			rcTrade("T74600202", 1, "2026-01-06 11:30:00", "buy", keyDot, "QRS.PRK", 1_000_000, 25, -2500, 0),
 		}
 		earlier := tcInput(toolInput{rows: slices.Clone(described)})
-		older := time.Date(2022, time.June, 1, 15, 0, 0, 0, time.UTC)
+		desc := time.Date(2022, time.June, 1, 15, 0, 0, 0, time.UTC)
 		earlier.names = append(earlier.names,
-			toolName{key: keyXYZ, kind: "description", value: "XYZ CORPORATION", firstSeen: older, lastSeen: older},
-			toolName{key: keyDot, kind: "description", value: "QRS TRUST PREFERRED K", firstSeen: older, lastSeen: older})
+			toolName{key: keyXYZ, kind: "description", value: "XYZ CORPORATION", firstSeen: desc, lastSeen: desc},
+			toolName{key: keyDot, kind: "description", value: "QRS TRUST PREFERRED K", firstSeen: desc, lastSeen: desc})
 		for _, c := range []struct {
 			tool           string
 			changed, given []string
 			named          []string
 		}{
-			{toolPP, []string{"T74600202"}, []string{"T74600201"}, []string{keyDot}},
+			{toolPP, []string{"T74600202"}, []string{"T74600201"}, []string{"i:1000004 MANUAL why=changed because= new=false names=QRS.PRK api 2023-04-01T15:00:00Z"}},
 			{toolGF, nil, []string{"T74600201", "T74600202"}, nil},
 		} {
 			e1 := chainStepOf(t, tcInput(toolInput{rows: slices.Clone(described)}), c.tool, nil, rcAt1)
@@ -958,7 +1012,7 @@ func TestToolChain(t *testing.T) {
 			for i := range changed {
 				changed[i], _, _ = strings.Cut(changed[i], ":")
 			}
-			if got := keys(e2.res.symbolsChanged); !slices.Equal(changed, c.changed) || !slices.Equal(e2.refs(outcomeGiven), c.given) || !slices.Equal(got, c.named) {
+			if got := named(e2); !slices.Equal(changed, c.changed) || !slices.Equal(e2.refs(outcomeGiven), c.given) || !slices.Equal(got, c.named) {
 				t.Errorf("%s, an earlier description: changed %q, given %q, symbols changed %q", c.tool, changed, e2.refs(outcomeGiven), got)
 			}
 			if c.tool != toolPP {
@@ -2243,10 +2297,12 @@ func TestToolReimport(t *testing.T) {
 			e2 := chainStepOf(t, tcInput(after), tool, e1, rcAt2)
 			changed, _ := rcChanged(e2)
 			// Its identifiers changed under both of its keys, whose rows are
-			// written or given: one security whose symbol changed, as the tool
-			// holds it, in PP too, which writes the dividend alone.
-			if got := e2.res.symbolsChanged; e2.e.SymbolsChanged != 1 || len(got) != 1 || len(got[0]) != 2 {
-				t.Errorf("%s: %d securities changed symbol: %v", tool, e2.e.SymbolsChanged, got)
+			// written or given: PP, which writes the dividend alone, names
+			// one security, as it holds it, delisted and changed; Ghostfolio
+			// none.
+			if got := e2.res.symbolsChanged; tool == toolGF && (e2.e.SymbolsChanged != 0 || len(got) != 0) ||
+				tool == toolPP && (e2.e.SymbolsChanged != 1 || len(got) != 1 || len(got[0].members) != 2 || !slices.Equal(got[0].why, []string{whyNoTicker, whyChanged}) || got[0].because != "delisted") {
+				t.Errorf("%s: %d securities changed symbol: %+v", tool, e2.e.SymbolsChanged, got)
 			}
 			if tool == toolPP {
 				if len(changed) > 0 || !slices.Equal(e2.refs(outcomeWritten), []string{dividend.ref}) {
@@ -2620,12 +2676,12 @@ func TestToolReimport(t *testing.T) {
 		t.Parallel()
 		// PP finds a security whose CUSIP the store knows by its WKN, so its
 		// one row, bought under OLDN, stays given once the store sees the
-		// security renamed NEWN; a -since export names it all the same, so
-		// that you give PP's security the new ticker, and its price feed with
-		// it, and the next export does not name it again. Ghostfolio, whose
-		// activity is of the symbol, gets the row again, changed. So with
-		// round 3's renamed two keys, which a later History file names by the
-		// new ticker.
+		// security renamed NEWN; a -since export names it all the same,
+		// renamed and changed, so that you give PP's security the new ticker,
+		// and its price feed with it, and the next export does not name it
+		// again. Ghostfolio, whose activity is of the symbol, gets the row
+		// again, changed, and names nothing. So with round 3's renamed two
+		// keys, which a later History file names by the new ticker.
 		const key, cusip = "i:1000901", "69389B101"
 		securities, names := tcSecurities()
 		in := func(renamed bool, to string, days ...string) toolInput {
@@ -2666,17 +2722,21 @@ func TestToolReimport(t *testing.T) {
 				e3 := chainStepOf(t, c.renamed, tool, e2, rcAt3)
 				changed, _ := rcChanged(e2)
 				written := len(changed) > 0
-				if e1.e.SymbolsChanged != 0 || e2.e.SymbolsChanged != 1 || e3.e.SymbolsChanged != 0 || written != (tool == toolGF) {
+				n := map[string]int{toolPP: 1}[tool]
+				if e1.e.SymbolsChanged != 0 || e2.e.SymbolsChanged != n || e3.e.SymbolsChanged != 0 || written != (tool == toolGF) {
 					t.Errorf("%s %s: symbols changed %d, %d, %d; changed %q", c.name, tool, e1.e.SymbolsChanged, e2.e.SymbolsChanged, e3.e.SymbolsChanged, changed)
 				}
 				var manifest struct {
-					SymbolsChanged []toolSymbolsEntry `json:"symbols_changed"`
-					Securities     []chainSecurity    `json:"securities"`
+					SymbolsChanged *[]toolSymbolsEntry `json:"symbols_changed"`
+					Securities     []chainSecurity     `json:"securities"`
 				}
 				if err := json.Unmarshal(e2.manifest, &manifest); err != nil {
 					t.Fatal(err)
 				}
-				if got := manifest.SymbolsChanged; len(got) != 1 || got[0].WrittenAs != c.ticker || got[0].Symbols[0] != c.ticker || !slices.Equal(got[0].SecurityKeys, c.keys) {
+				// PP's alone, renamed and changed, with the new ticker among its
+				// names.
+				if got := deref(manifest.SymbolsChanged); len(got) != n || n == 1 && (got[0].WrittenAs != c.ticker || !slices.Equal(got[0].Why, []string{whyRenamed, whyChanged}) ||
+					!slices.ContainsFunc(got[0].Names, func(m toolSymbolName) bool { return m.Symbol == c.ticker }) || !slices.Equal(got[0].SecurityKeys, c.keys)) {
 					t.Errorf("%s %s: symbols changed %+v", c.name, tool, got)
 				}
 				for _, s := range manifest.Securities {
@@ -2695,7 +2755,7 @@ func TestToolReimport(t *testing.T) {
 		}
 		// A security of no row that the chain wrote for its prices alone,
 		// held under its CUSIP, which has its ticker since: neither tool has
-		// its prices from the export now, and it is named once.
+		// its prices from the export now, and PP names it once, changed.
 		const posKey = "c:69389B101"
 		held := func(ticker bool, to string, days ...string) toolInput {
 			in := toolInput{
@@ -2720,8 +2780,11 @@ func TestToolReimport(t *testing.T) {
 			e1 := chainStepOf(t, held(false, "2026-05-29", "2026-05-29"), tool, nil, rcAt1)
 			e2 := chainStepOf(t, held(true, "2026-06-30", "2026-05-29", "2026-06-30"), tool, e1, rcAt2)
 			e3 := chainStepOf(t, held(true, "2026-06-30", "2026-05-29", "2026-06-30"), tool, e2, rcAt3)
-			if e1.e.SymbolsChanged != 0 || e2.e.SymbolsChanged != 1 || e3.e.SymbolsChanged != 0 {
+			if e1.e.SymbolsChanged != 0 || e2.e.SymbolsChanged != map[string]int{toolPP: 1}[tool] || e3.e.SymbolsChanged != 0 {
 				t.Errorf("held %s: symbols changed %d, %d, %d", tool, e1.e.SymbolsChanged, e2.e.SymbolsChanged, e3.e.SymbolsChanged)
+			}
+			if got := e2.res.symbolsChanged; tool == toolPP && (len(got) != 1 || !slices.Equal(got[0].why, []string{whyChanged})) {
+				t.Errorf("held: symbols changed %+v", got)
 			}
 		}
 	})

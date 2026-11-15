@@ -144,18 +144,21 @@ type chainGiven struct {
 // that its latest export wrote it under (8.1 of the design): its key ("" for
 // the security that a row without one names by its symbol), its latest
 // symbol, and its identity (toolSecurity.identity); for PP the Ticker Symbol,
-// WKN and Security Name that PP finds it by, and for Ghostfolio its symbol,
-// data source and profile name ("" for a security that Ghostfolio asks Yahoo
-// about, which has no profile).
+// WKN and Security Name that PP finds it by, and the whys of symbols_changed
+// that it had of itself (symbolWhys), which a later export names it again
+// for only when it lacks one; for Ghostfolio, kept for the record and
+// compared with nothing, its symbol, data source and profile name ("" for a
+// security that Ghostfolio asks Yahoo about, which has no profile).
 type chainSecurity struct {
-	SecurityKey string `json:"security_key"`
-	Symbol      string `json:"symbol"`
-	Identity    string `json:"identity"`
-	Ticker      string `json:"ticker,omitempty"`
-	WKN         string `json:"wkn,omitempty"`
-	GFSymbol    string `json:"ghostfolio_symbol,omitempty"`
-	DataSource  string `json:"data_source,omitempty"`
-	Name        string `json:"name,omitempty"`
+	SecurityKey string   `json:"security_key"`
+	Symbol      string   `json:"symbol"`
+	Identity    string   `json:"identity"`
+	Ticker      string   `json:"ticker,omitempty"`
+	WKN         string   `json:"wkn,omitempty"`
+	GFSymbol    string   `json:"ghostfolio_symbol,omitempty"`
+	DataSource  string   `json:"data_source,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	Why         []string `json:"why,omitempty"`
 }
 
 // ref returns how the chain knows the security: by its key, or by its symbol
@@ -167,19 +170,15 @@ func (s chainSecurity) ref() secRef {
 	return secRef{symbol: s.Symbol}
 }
 
-// finds returns, in one string, the identifiers that tool finds the
-// security by again, of those that it got for it, by which two exports' are
-// compared: for Ghostfolio its symbol, data source and profile name; for PP
-// its Ticker Symbol and WKN, before which PP takes no name
+// finds returns, in one string, the identifiers that PP finds the security
+// by again, of those that it got for it, by which two exports' are
+// compared: its Ticker Symbol and WKN, before which PP takes no name
 // (SecurityCache.java:66-159), or its Security Name when it has neither, as
 // a security that PP finds by its name alone. A name that changes beside a
 // ticker or a WKN, as the description seen first does when an older History
 // file brings an earlier one, finds the same security in PP.
-func (s chainSecurity) finds(tool string) string {
-	switch {
-	case tool == toolGF:
-		return strings.Join([]string{s.GFSymbol, s.DataSource, s.Name}, "\x1f")
-	case s.Ticker == "" && s.WKN == "":
+func (s chainSecurity) finds() string {
+	if s.Ticker == "" && s.WKN == "" {
 		return "name\x1f" + s.Name
 	}
 	return strings.Join([]string{s.Ticker, s.WKN}, "\x1f")
@@ -698,12 +697,11 @@ type chainResult struct {
 	cashGone      []chainCashGone
 	cashUnchecked []chainCashUnchecked
 	// securities are every security that the chain has written, with its
-	// identifiers as written last; symbolsChanged those of this export whose
-	// symbol a tool that holds them under an earlier one needs telling of,
-	// one list for each of the tool's securities (sameSecurity), of the
-	// store's securities of it whose symbol changed, in their order.
+	// identifiers as written last; symbolsChanged, for PP, those of this
+	// export that PP may hold otherwise than written or that may no longer
+	// trade (symbols_changed), one for each of PP's securities.
 	securities     []chainSecurity
-	symbolsChanged [][]*toolSecurity
+	symbolsChanged []symbolsChange
 	// kept holds the earlier export's entries of the rows given, and oldOf,
 	// for PP, the row that each row written under a new ref is the same as.
 	kept  map[rowKey]chainGiven
@@ -1421,22 +1419,41 @@ func (c *chainResult) differencesChanged() []ToolDifference {
 	return out
 }
 
+// A symbolsChange is a security of PP's symbols_changed (R-10 of the
+// consolidation), one of PP's securities: the store's securities of it that
+// are named, in their order; why (renamed, no_ticker, changed) and because
+// (delisted, for no_ticker); new, with -since, when no export of the chain
+// wrote any of the store's securities of it, so that PP does not hold it;
+// and every symbol that the named ones have had, as each source named it
+// (namesOf).
+type symbolsChange struct {
+	members []*toolSecurity
+	why     []string
+	because string
+	new     bool
+	names   []sourcedSymbol
+}
+
 // compareSecurities makes the chain's securities, the earlier export's with
-// those that this export writes (listSecurities) as it writes them, and the
-// securities whose symbol changed: with -since, those that this export
-// writes under other identifiers than the earlier one, of those that the
-// tool finds it by (finds), which a tool that holds them does not follow by
-// itself (3.5 of the design), and those that the chain wrote and that a row
-// given of events names, or that an account that the export selects holds,
-// whose identifiers would be written otherwise now: PP finds a security
-// whose CUSIP the store knows by its WKN, so its rows stay given when it is
-// renamed, and PP keeps its old ticker, and that ticker's price feed, until
-// you give it the new one (4.14); without -since, those that have had
-// another ticker or are delisted. A PP Security Name that changes beside a
-// ticker or a WKN changes nothing that PP finds the security by, and the
-// chain's entry takes it all the same. The store's securities that the
-// tool takes for one (mergeListed) are one security whose symbol changed,
-// as the tool holds them.
+// those that this export writes (listSecurities) as it writes them, and, for
+// PP, which keeps the ticker and the feed of a security that it holds, the
+// securities that PP may hold otherwise than written, or that may no longer
+// trade (symbols_changed): without -since, those with a why of their own
+// (symbolWhys); with -since, those that this export writes, and those that
+// the chain wrote and that a row given of events names or that an account
+// that the export selects holds, whose identifiers that PP finds them by
+// (finds) differ from the chain's (changed), as PP finds a security whose
+// CUSIP the store knows by its WKN, so that its rows stay given when it is
+// renamed, and keeps its old ticker, and that ticker's feed, until you give
+// it the new one (4.14 of the design); and those with a why that the
+// chain's entry lacks, which is every why of one that the chain never wrote
+// (new). A PP Security Name that changes beside a ticker or a WKN changes
+// nothing that PP finds the security by, and the chain's entry takes it all
+// the same. The store's securities that PP takes for one (mergeListed) are
+// one security, as PP holds them. Ghostfolio's chain securities are kept for
+// the record and compared with nothing: it holds a security that is written
+// under another symbol, data source or name as another asset, whose rows the
+// export lists as changed by their fp.
 func (c *chainResult) compareSecurities(events []toolEvent) {
 	byRef := map[secRef]chainSecurity{}
 	if c.since != nil {
@@ -1466,7 +1483,7 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 			return cmp.Or(cmp.Compare(a.security.key, b.security.key), cmp.Compare(a.security.symbol, b.security.symbol))
 		})
 	}
-	changed := map[secRef]bool{}
+	changes, had := map[secRef]symbolsChange{}, map[secRef]bool{}
 	for _, l := range listed {
 		s := l.security
 		w := chainSecurity{SecurityKey: s.key, Symbol: s.symbol, Identity: s.identity()}
@@ -1475,23 +1492,40 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 			if s.manual != "" {
 				w.Name = s.gfName()
 			}
-		} else {
-			w.Ticker, w.WKN, w.Name = ppIdentifiers(s)
+			byRef[w.ref()] = w
+			continue
 		}
-		if prev, had := byRef[w.ref()]; c.since == nil && s.symbolsChanged() || c.since != nil && had && prev.finds(c.in.tool) != w.finds(c.in.tool) {
-			changed[s.ref()] = true
+		w.Ticker, w.WKN, w.Name = ppIdentifiers(s)
+		why, because := s.symbolWhys()
+		w.Why = why
+		prev, ok := byRef[w.ref()]
+		had[s.ref()] = ok
+		named := slices.ContainsFunc(why, func(y string) bool { return !slices.Contains(prev.Why, y) })
+		if ok && prev.finds() != w.finds() {
+			why, named = append(slices.Clone(why), whyChanged), true
+		}
+		if named {
+			changes[s.ref()] = symbolsChange{why: why, because: because}
 		}
 		byRef[w.ref()] = w
 	}
-	for _, l := range mergeListed(c.in.tool, listed) {
-		var of []*toolSecurity
-		for _, s := range l.members {
-			if changed[s.ref()] {
-				of = append(of, s)
+	if c.in.tool == toolPP {
+		for _, l := range mergeListed(toolPP, listed) {
+			var ch symbolsChange
+			for _, s := range l.members {
+				if m, ok := changes[s.ref()]; ok {
+					ch.members, ch.why, ch.because = append(ch.members, s), append(ch.why, m.why...), cmp.Or(ch.because, m.because)
+				}
 			}
-		}
-		if len(of) > 0 {
-			c.symbolsChanged = append(c.symbolsChanged, of)
+			if len(ch.members) == 0 {
+				continue
+			}
+			// The whys of the store's securities of one of PP's, each once,
+			// in their order; new when PP holds none of them.
+			ch.why = slices.DeleteFunc([]string{whyRenamed, whyNoTicker, whyChanged}, func(y string) bool { return !slices.Contains(ch.why, y) })
+			ch.new = c.since != nil && !slices.ContainsFunc(l.members, func(s *toolSecurity) bool { return had[s.ref()] })
+			ch.names = c.ix.namesOf(ch.members)
+			c.symbolsChanged = append(c.symbolsChanged, ch)
 		}
 	}
 	c.securities = slices.SortedFunc(maps.Values(byRef), func(a, b chainSecurity) int {

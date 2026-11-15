@@ -173,7 +173,10 @@
       "symbol": "ZZQ00K102",
       "identity": "ZZQ00K102",
       "wkn": "ZZQ00K102",
-      "name": "OLDCO INC"
+      "name": "OLDCO INC",
+      "why": [
+        "no_ticker"
+      ]
     },
     {
       "security_key": "i:1000006",
@@ -181,7 +184,10 @@
       "identity": "PQRS",
       "ticker": "PQRS",
       "wkn": "ZZR00K200",
-      "name": "PQR GROUP INC"
+      "name": "PQR GROUP INC",
+      "why": [
+        "renamed"
+      ]
     },
     {
       "security_key": "i:1000008",
@@ -222,17 +228,40 @@
     {
       "security_key": "i:1000005",
       "written_as": "MANUAL",
-      "symbols": [
-        "ZZQ00K102",
-        "OLDCO"
-      ]
+      "names": [
+        {
+          "symbol": "ZZQ00K102",
+          "source": "api",
+          "last_seen_at": "2023-06-01T15:00:00Z"
+        },
+        {
+          "symbol": "OLDCO",
+          "source": "api",
+          "last_seen_at": "2023-04-01T15:00:00Z"
+        }
+      ],
+      "why": [
+        "no_ticker"
+      ],
+      "because": "delisted"
     },
     {
       "security_key": "i:1000006",
       "written_as": "PQRS",
-      "symbols": [
-        "PQRS",
-        "PQR"
+      "names": [
+        {
+          "symbol": "PQRS",
+          "source": "api",
+          "last_seen_at": "2023-06-01T15:00:00Z"
+        },
+        {
+          "symbol": "PQR",
+          "source": "api",
+          "last_seen_at": "2023-04-01T15:00:00Z"
+        }
+      ],
+      "why": [
+        "renamed"
       ]
     }
   ],
