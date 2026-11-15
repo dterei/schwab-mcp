@@ -1284,9 +1284,9 @@ type getTransactionIn struct {
 type getTransactionOut struct {
 	envelope
 	cuts                        // legs cut to fit the cap, after raw (design 8.3)
-	Transaction txnRow          `json:"transaction"` // its detail always set
-	Store       *storeView      `json:"store"`       // null without a store, or when it does not hold the ref
-	Raw         json.RawMessage `json:"raw"`         // null unless include_raw and read from Schwab
+	Transaction txnRow          `json:"transaction"`       // its detail always set
+	Store       *storeView      `json:"store"`             // null without a store, or when it does not hold the ref
+	Raw         json.RawMessage `json:"raw" masked:"json"` // null unless include_raw and read from Schwab, as masker.json rewrote it
 }
 
 // dropRaw drops Schwab's JSON, the first thing to go when the answer

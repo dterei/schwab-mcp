@@ -845,6 +845,10 @@ func TestCacheScopeIsPrivate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		prompts, err := e.cs.ListPrompts(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 		fixed, err := e.readResource("schwab://test/fixed")
 		if err != nil {
 			t.Fatal(err)
@@ -855,7 +859,7 @@ func TestCacheScopeIsPrivate(t *testing.T) {
 		}
 		for name, c := range map[string]mcp.Cacheable{
 			"tools/list": tools.Cacheable, "resources/list": resources.Cacheable, "resources/templates/list": templates.Cacheable,
-			"resources/read": fixed.Cacheable,
+			"prompts/list": prompts.Cacheable, "resources/read": fixed.Cacheable,
 		} {
 			if c.CacheScope != "private" || c.TTLMs != 0 {
 				t.Errorf("%s %s: %+v, want private and 0", protocol, name, c)

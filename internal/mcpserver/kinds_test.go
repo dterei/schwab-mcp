@@ -217,19 +217,34 @@ var kindTypes = []reflect.Type{
 	reflect.TypeFor[Date](), reflect.TypeFor[Instant](), reflect.TypeFor[Cursor](),
 }
 
+// rawJSON is the type of a field of raw JSON.
+var rawJSON = reflect.TypeFor[json.RawMessage]()
+
 // fieldsWithoutKind returns the fields of t, an output type, at every
 // depth, of kind string, or a slice, array or pointer of one, whose type is
-// not one of the kinds, and the fields whose JSON names hold account_number,
-// accountnumber or tag.
+// not one of the kinds; the maps, whose keys and values are held to the
+// same, and the interfaces, which can hold a plain string; raw JSON in a
+// field not tagged masked:"json"; and the fields whose JSON names hold
+// account_number, accountnumber or tag.
 func fieldsWithoutKind(t reflect.Type, path string, seen map[reflect.Type]bool) []string {
 	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
+		if t == rawJSON {
+			return []string{path + ` is raw JSON in a field not tagged masked:"json"`}
+		}
 		t = t.Elem()
 	}
-	if t.Kind() == reflect.String {
+	switch t.Kind() {
+	case reflect.String:
 		if !slices.Contains(kindTypes, t) {
 			return []string{path + " is a " + t.String()}
 		}
 		return nil
+	case reflect.Interface:
+		return []string{path + " is an interface, which can hold a plain string"}
+	case reflect.Map:
+		found := []string{path + " is a map"}
+		found = append(found, fieldsWithoutKind(t.Key(), path+"'s key", seen)...)
+		return append(found, fieldsWithoutKind(t.Elem(), path+"'s value", seen)...)
 	}
 	if t.Kind() != reflect.Struct || seen[t] {
 		return nil
@@ -252,6 +267,9 @@ func fieldsWithoutKind(t reflect.Type, path string, seen map[reflect.Type]bool) 
 		if strings.Contains(lower, "account_number") || strings.Contains(lower, "accountnumber") || strings.Contains(lower, "tag") {
 			found = append(found, path+"."+name+" is named for an account number or a tag")
 		}
+		if f.Type == rawJSON && f.Tag.Get("masked") == "json" {
+			continue
+		}
 		found = append(found, fieldsWithoutKind(f.Type, path+"."+name, seen)...)
 	}
 	return found
@@ -260,8 +278,9 @@ func fieldsWithoutKind(t reflect.Type, path string, seen map[reflect.Type]bool) 
 // Every string field of every registered tool's output, at every depth,
 // has one of the seven kinds, and no field is named for an account number
 // or a tag, so that an author adding a field must decide what it holds.
-// The check itself finds a plain string, a list of them, a pointer to one
-// and the names.
+// The check itself finds a plain string, a list of them, a pointer to one,
+// the names, a map, whose keys are strings, an interface, and raw JSON in
+// a field that does not say it is masked.
 func TestOutputStringFieldsHaveKinds(t *testing.T) {
 	t.Parallel()
 	s, err := New(Options{})
@@ -290,9 +309,26 @@ func TestOutputStringFieldsHaveKinds(t *testing.T) {
 		OrderTag Ident                  `json:"order_tag"`
 		Nested   struct{ Inner string } `json:"nested"`
 		Fine     FreeText               `json:"fine"`
+		ByName   map[Ident]FreeText     `json:"by_name"`
+		Any      any                    `json:"any"`
+		Raw      json.RawMessage        `json:"raw"`
+		Masked   json.RawMessage        `json:"masked" masked:"json"`
+		Strings  [][]string             `json:"strings"`
 	}
-	if found := fieldsWithoutKind(reflect.TypeFor[bad](), "bad", map[reflect.Type]bool{}); len(found) != 6 {
-		t.Errorf("the check found %d of 6 planted fields:\n%s", len(found), strings.Join(found, "\n"))
+	found := fieldsWithoutKind(reflect.TypeFor[bad](), "bad", map[reflect.Type]bool{})
+	if want := []string{
+		"bad.plain is a string", "bad.list is a string", "bad.pointer is a string",
+		"bad.account_number is named for an account number or a tag", "bad.order_tag is named for an account number or a tag",
+		"bad.nested.Inner is a string", "bad.by_name is a map", "bad.any is an interface, which can hold a plain string",
+		`bad.raw is raw JSON in a field not tagged masked:"json"`, "bad.strings is a string",
+	}; !slices.Equal(found, want) {
+		t.Errorf("the check found\n%s\nwant\n%s", strings.Join(found, "\n"), strings.Join(want, "\n"))
+	}
+	keyed := fieldsWithoutKind(reflect.TypeFor[struct {
+		M map[string][]Ident `json:"m"`
+	}](), "keyed", map[reflect.Type]bool{})
+	if !slices.Equal(keyed, []string{"keyed.m is a map", "keyed.m's key is a string"}) {
+		t.Errorf("a map of string keys: %q", keyed)
 	}
 }
 

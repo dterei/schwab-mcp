@@ -13,7 +13,10 @@ import (
 // declared, and TestOutputStringFieldsHaveKinds fails on a plain string.
 // FreeText, MaskedNumber and Path hold text from outside, so only the
 // masker makes them (TestOnlyTheMaskerMakesMaskedText); the others hold
-// what cannot be an account number.
+// what cannot be an account number. An output holds no map, whose keys
+// would be strings of no kind, and no interface; the one field of raw JSON,
+// a json.RawMessage, holds Schwab's JSON as masker.json rewrote it, and
+// says so with the tag masked:"json".
 
 // FreeText is text that Schwab, a file or the user wrote, with every run of
 // 8 or more digits, every known account number and every secret masked;

@@ -62,13 +62,16 @@ func registerTestTools(s *mcpserver.Server) {
 		fmt.Println("stray: fmt.Println")
 		_, _ = os.Stdout.WriteString("stray: os.Stdout.WriteString\n")
 		rawWrite("stray: a raw write to descriptor 1\n")
+		// Whether descriptor 1 is open is asked before a file is opened,
+		// which would be given descriptor 1 if a finalizer had closed it.
+		open := fd1Open()
 		f, err := os.CreateTemp("", "schwab-mcp-stray-")
 		if err != nil {
 			return nil, err
 		}
 		defer os.Remove(f.Name())
 		defer f.Close()
-		text := fmt.Sprintf(`{"fd1_open":%t,"opened":%d}`, fd1Open(), descriptor(f))
+		text := fmt.Sprintf(`{"fd1_open":%t,"opened":%d}`, open, descriptor(f))
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil
 	})
 	s.MCP().AddTool(&mcp.Tool{Name: "slow", InputSchema: object}, func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
