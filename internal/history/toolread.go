@@ -10,11 +10,11 @@ import (
 )
 
 // This file reads what a tool export maps (2 of the design): its queries,
-// Q0 to Q10 and Q12, run in one read transaction into a toolInput.
+// Q0 to Q10, Q12 and QL, run in one read transaction into a toolInput.
 
 // A toolQuery is one of the reads of a tool export (2 of the design): its
-// name there, Q0 to Q10 or Q12; its SQL and its arguments; and scan, which
-// reads the current row of rows, a row of the query, into in.
+// name there, Q0 to Q10, Q12 or QL; its SQL and its arguments; and scan,
+// which reads the current row of rows, a row of the query, into in.
 type toolQuery struct {
 	name  string
 	query string
@@ -24,20 +24,20 @@ type toolQuery struct {
 
 // toolQueries returns the reads of a tool export that selects the account
 // of id account, 0 for every account, and the rows up to the day to, ""
-// for no bound (2 of the design): Q0 to Q10 and Q12, in that order. The
+// for no bound (2 of the design): Q0 to Q10, Q12 and QL, in that order. The
 // account bounds the ledger rows, their legs, the snapshots, the rows that
 // wait for you, the coverage and the uncounted entries (Q2, Q3 and Q7 to
 // Q10); to bounds the ledger rows, their legs, the positions and the rows
 // that wait for you (Q2, Q3, Q6 and Q8). The accounts, the securities,
-// their names and the days of the rows under each of their symbols (Q12)
-// are the store's, and the positions every account's, since a transfer
-// names the other account, a price is the market's, and every export takes
-// a security for the same as every other, whatever it selects; the
-// snapshots and the uncounted entries go past to, since Ghostfolio takes an
-// account's balances only in the import that makes it and a row that a
-// tool holds may have stopped counting on any day. Every query reads views,
-// but Q0, which reads when the store was made: no account number, raw JSON
-// or file's content.
+// their names, the days of the rows under each of their symbols (Q12) and
+// the links of rows of two of them (QL) are the store's, and the positions
+// every account's, since a transfer names the other account, a price is
+// the market's, and every export takes a security for the same as every
+// other, whatever it selects; the snapshots and the uncounted entries go
+// past to, since Ghostfolio takes an account's balances only in the import
+// that makes it and a row that a tool holds may have stopped counting on
+// any day. Every query reads views, but Q0, which reads when the store was
+// made: no account number, raw JSON or file's content.
 func toolQueries(account int64, to nytime.Date) []toolQuery {
 	// bounds returns the WHERE clause of conds and of the selection's
 	// bounds: on the account column acct and by the condition day, which
@@ -155,6 +155,18 @@ func toolQueries(account int64, to nytime.Date) []toolQuery {
 				WHERE symbol IS NOT NULL AND symbol <> '' AND day IS NOT NULL
 				GROUP BY 1, 2, 3 ORDER BY 1, 2, 3`,
 			scan: scanToolSymbolDays,
+		},
+		{
+			name: "QL",
+			// The keys of the two rows of each link that the store made, a
+			// History file's row and the API's row that it counts as one
+			// transaction, when they are of two of its securities.
+			query: `SELECT DISTINCT f.security_key, a.security_key FROM matches m
+				JOIN entries f ON f.account_id = m.account_id AND f.ref = m.file_ref
+				JOIN entries a ON a.account_id = m.account_id AND a.ref = m.api_ref
+				WHERE f.security_key IS NOT NULL AND a.security_key IS NOT NULL AND f.security_key <> a.security_key
+				ORDER BY 1, 2`,
+			scan: scanToolLink,
 		},
 	}
 }
@@ -384,5 +396,16 @@ func scanToolSymbolDays(rows *sql.Rows, in *toolInput) error {
 	}
 	d.first, d.last = nytime.Date(first), nytime.Date(last)
 	in.days = append(in.days, d)
+	return nil
+}
+
+// scanToolLink reads a row of QL: the keys of a History file's row and of
+// the API's row that the store linked to it, of two securities.
+func scanToolLink(rows *sql.Rows, in *toolInput) error {
+	var l toolLink
+	if err := rows.Scan(&l.file, &l.api); err != nil {
+		return err
+	}
+	in.links = append(in.links, l)
 	return nil
 }

@@ -1443,6 +1443,149 @@ func TestToolMapping(t *testing.T) {
 		}
 	})
 
+	t.Run("joins", func(t *testing.T) {
+		t.Parallel()
+		// The keys that the store's data make one security (certainJoins):
+		// of one CUSIP, of one option contract or one futures symbol, and
+		// those whose rows the store linked as one transaction, when the
+		// groups that the links reach know one CUSIP at most; whatever order
+		// the links come in, and never by a ticker alone.
+		var in toolInput
+		add := func(key, assetType, cusip string, symbols ...string) {
+			in.securities = append(in.securities, toolSecurityRow{key: key, assetType: assetType, cusip: cusip, symbol: symbols[len(symbols)-1]})
+			for i, s := range symbols {
+				seen := tcNY("2024-01-02 10:00:00").AddDate(0, i, 0)
+				in.names = append(in.names, toolName{key: key, kind: "symbol", value: s, firstSeen: seen, lastSeen: seen})
+			}
+		}
+		link := func(file, api string) toolLink { return toolLink{file: file, api: api} }
+		add("i:1000501", "EQUITY", "ZZJ50A101", "JNA")
+		add("x:66000501", "", "", "ZZJ50A101")
+		add("i:1000502", "OPTION", "", "XYZ   250620C00055000")
+		add("s:FILE:XYZ 06/20/2025 55.00 C@2025-07-01", "OPTION", "", "XYZ 06/20/2025 55.00 C")
+		add("i:1000503", "OPTION", "", "/ZZM25_C5100:XCME")
+		add("s:FILE:/ZZM25_C5100:XCME@2025-07-01", "OPTION", "", "/ZZM25_C5100:XCME")
+		add("i:1000504", "FUTURE", "", "/ZZM25:XCME")
+		add("s:FILE:/ZZM25:XCME@2025-07-01", "", "", "/ZZM25:XCME")
+		add("x:66000505", "", "", "JNE")
+		add("i:1000505", "EQUITY", "ZZJ50E103", "JNE")
+		add("x:66000506", "", "", "JNF")
+		add("i:1000506", "COLLECTIVE_INVESTMENT", "", "JNF")
+		// A file's key linked to securities of two CUSIPs, and one named by
+		// a CUSIP linked to another's.
+		add("x:66000507", "", "", "JNG")
+		add("i:1000507", "EQUITY", "ZZJ50G108", "JNG")
+		add("i:1000508", "EQUITY", "ZZJ50H106", "JNG")
+		add("x:66000509", "", "", "ZZJ50J102")
+		add("i:1000509", "EQUITY", "ZZJ50K109", "JNJ")
+		// Two files' keys, linked to two keys of one CUSIP.
+		add("x:66000510", "", "", "JNL")
+		add("s:FILE:JNL@2025-07-01", "", "", "JNL")
+		add("i:1000510", "EQUITY", "ZZJ50L107", "JNL")
+		add("c:ZZJ50L107", "EQUITY", "ZZJ50L107", "JNL")
+		// A ticker that a file's key and the API's have had alike.
+		add("x:66000511", "", "", "JNM")
+		add("i:1000511", "EQUITY", "ZZJ50M105", "JNM")
+		in.links = []toolLink{
+			link("x:66000505", "i:1000505"), link("x:66000506", "i:1000506"),
+			link("x:66000507", "i:1000507"), link("x:66000507", "i:1000508"), link("x:66000509", "i:1000509"),
+			link("x:66000510", "i:1000510"), link("s:FILE:JNL@2025-07-01", "c:ZZJ50L107"),
+		}
+		want := [][]string{
+			{"i:1000501", "x:66000501"},
+			{"i:1000502", "s:FILE:XYZ 06/20/2025 55.00 C@2025-07-01"},
+			{"i:1000503", "s:FILE:/ZZM25_C5100:XCME@2025-07-01"},
+			{"i:1000504", "s:FILE:/ZZM25:XCME@2025-07-01"},
+			{"i:1000505", "x:66000505"},
+			{"i:1000506", "x:66000506"},
+			{"i:1000507"},
+			{"i:1000508"},
+			{"x:66000507"},
+			{"i:1000509"},
+			{"x:66000509"},
+			{"i:1000510", "c:ZZJ50L107", "x:66000510", "s:FILE:JNL@2025-07-01"},
+			{"i:1000511"},
+			{"x:66000511"},
+		}
+		for _, order := range []string{"in order", "reversed"} {
+			c := in
+			if order == "reversed" {
+				c.links = slices.Clone(in.links)
+				slices.Reverse(c.links)
+			}
+			ix := newToolIndex(&c)
+			var all []*toolSecurity
+			for _, r := range c.securities {
+				all = append(all, ix.base(r.key, ""))
+			}
+			g := certainJoins(all, c.links)
+			groups := map[int][]string{}
+			for i, s := range all {
+				groups[g.find(i)] = append(groups[g.find(i)], s.key)
+			}
+			got := slices.Collect(maps.Values(groups))
+			for _, k := range got {
+				slices.Sort(k)
+			}
+			for _, w := range want {
+				if !slices.ContainsFunc(got, func(k []string) bool { return slices.Equal(k, slices.Sorted(slices.Values(w))) }) {
+					t.Errorf("links %s: no group %q, groups %q", order, w, got)
+				}
+			}
+			if len(got) != len(want) {
+				t.Errorf("links %s: %d groups %q, want %d", order, len(got), got, len(want))
+			}
+		}
+
+		// The links join before the tickers do (groupAll), and the undo of a
+		// join by ticker at two CUSIPs keeps them: a file's key whose ticker
+		// securities of two CUSIPs have had is the one that a link names, and
+		// not listed; one linked to both is joined to neither and listed with
+		// both, whichever order the links come in; and a link stays when the
+		// tickers of its group would join it to a second CUSIP.
+		in = toolInput{}
+		add("i:1000521", "EQUITY", "ZZJ52A109", "JNP")
+		add("i:1000522", "EQUITY", "ZZJ52B107", "JNP")
+		add("x:66000521", "", "", "JNP")
+		add("i:1000531", "EQUITY", "ZZJ53A108", "JNR")
+		add("i:1000532", "EQUITY", "ZZJ53B106", "JNS")
+		add("x:66000531", "", "", "JNR", "JNS")
+		tickers := in
+		grouped := func(links ...toolLink) *toolIndex {
+			c := tickers
+			c.links = links
+			ix := newToolIndex(&c)
+			ix.groupAll()
+			return ix
+		}
+		one := func(ix *toolIndex, a, b string) bool { return ix.security(a, "").rep == ix.security(b, "").rep }
+		ix := grouped(link("x:66000521", "i:1000522"), link("x:66000531", "i:1000531"))
+		if !one(ix, "x:66000521", "i:1000522") || one(ix, "x:66000521", "i:1000521") || ix.unsure[secRef{key: "x:66000521"}] != nil {
+			t.Errorf("a link to the second of two CUSIPs of its ticker: one with it %v, unsure %+v", one(ix, "x:66000521", "i:1000522"), ix.unsure[secRef{key: "x:66000521"}])
+		}
+		if !one(ix, "x:66000531", "i:1000531") || one(ix, "x:66000531", "i:1000532") || ix.unsure[secRef{key: "x:66000531"}] != nil {
+			t.Errorf("a link that tickers would undo: one with it %v, unsure %+v", one(ix, "x:66000531", "i:1000531"), ix.unsure[secRef{key: "x:66000531"}])
+		}
+		for _, links := range [][]toolLink{
+			{link("x:66000521", "i:1000521"), link("x:66000521", "i:1000522")},
+			{link("x:66000521", "i:1000522"), link("x:66000521", "i:1000521")},
+		} {
+			ix := grouped(links...)
+			u := ix.unsure[secRef{key: "x:66000521"}]
+			var commands []string
+			if u != nil {
+				for _, c := range toolUnsures([]*toolUnsure{u})[0].Securities {
+					commands = append(commands, c.Command)
+				}
+			}
+			if one(ix, "x:66000521", "i:1000522") || !slices.Equal(commands, []string{
+				"schwabtx edit K:x:66000521 -same K:i:1000521", "schwabtx edit K:x:66000521 -same K:i:1000522",
+			}) {
+				t.Errorf("links %+v to two CUSIPs: unsure %+v, commands %q", links, u, commands)
+			}
+		}
+	})
+
 	t.Run("groups", func(t *testing.T) {
 		t.Parallel()
 		// The store's securities that the tools take for one: by a ticker

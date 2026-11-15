@@ -267,7 +267,7 @@ func (k eventKind) gfType() string { return eventKinds[k].gfType }
 func (k eventKind) shareSign() int64 { return eventKinds[k].shares }
 
 // A toolInput is what a tool export reads of the store (2 of the design),
-// Q0 to Q10 and Q12, as plain values, with the export's options:
+// Q0 to Q10, Q12 and QL, as plain values, with the export's options:
 // everything that toolEvents and the functions beside it read. Days are
 // New York dates as the store writes them, "" for none; instants are the
 // zero time for none; money is in whole cents and quantities in whole
@@ -321,7 +321,20 @@ type toolInput struct {
 	// days are when the store's rows and legs, of every account and day,
 	// counted or not, had each symbol of each security (Q12).
 	days []toolSymbolDays
+	// links are the links that the store made, of every account and day,
+	// between a History file's row and an API row of two of its securities
+	// (QL).
+	links []toolLink
 }
+
+// A toolLink is a link that the store made between a History file's row
+// and the API's row that it counts as one transaction (QL), by the keys of
+// their securities, two of the store's: the file row's and the API row's.
+// The store links two rows when their symbols name one security (one text,
+// one option contract or one of its securities), or when you link them
+// (edit -link): a link says that the two keys are one security, as surely
+// as the store counts the two rows as one.
+type toolLink struct{ file, api string }
 
 // A toolSymbolDays is when the store's rows and legs of one source had a
 // symbol of a security (Q12): the first and the last day of those that name
@@ -1630,18 +1643,20 @@ func (ix *toolIndex) multiplier(members []*toolSecurity) (m int64, assumed, bad 
 // security that a History file's rows name, under an ItemIssueId or a
 // symbol, and the API's rows, under an instrumentId, often stays two, a
 // CUSIP under one of them only; and when it is delisted or renamed, only
-// the API's key learns it. The groups are those that share a CUSIP, the
-// options of one OCC form, and those that have had a ticker alike
-// (symbolForm), or an option's or a future's symbol, when those that have
-// had it know at most one CUSIP between them, and had it at times that
-// meet: a ticker that two securities of different CUSIPs have had, as when
-// a company takes a ticker that another gave up, joins none of them, and is
+// the API's key learns it. The groups are first those that the store's
+// data make one security (certainJoins): those that know one CUSIP, that
+// name one option contract or one futures symbol, and whose rows the store
+// linked as one transaction. Of those, the groups that have had a ticker
+// alike (symbolForm), or an option's symbol, join when those that have had
+// it know at most one CUSIP between them, and had it at times that meet: a
+// ticker that two securities of different CUSIPs have had, as when a
+// company takes a ticker that another gave up, joins none of them, and is
 // reused; and of those that know one CUSIP or none, one that had it after
 // another gave it up (apart), as such a company known by a History file's
 // key or by an API key that no snapshot held, joins those that had it with
 // it, apart from the other, and the ticker is reused too. A group that its
 // tickers would give two CUSIPs, through a security that had a ticker of
-// each, is joined by its CUSIPs and OCC forms alone. Then a group with a key
+// each, is joined by those certain joins alone. Then a group with a key
 // that knows no CUSIP, as a History file's key often does, and that those
 // joins leave tied by its tickers to securities of other CUSIPs, or apart
 // from it, is placed among them (placeAlone): it is taken for the one that
@@ -1696,43 +1711,9 @@ func (ix *toolIndex) groupAll() {
 		}
 		return strings.Compare(a.symbol, b.symbol)
 	})
-	parent := make([]int, len(all))
-	for i := range parent {
-		parent[i] = i
-	}
-	find := func(i int) int {
-		for parent[i] != i {
-			parent[i], i = parent[parent[i]], parent[i]
-		}
-		return i
-	}
-	union := func(a, b int) {
-		ra, rb := find(a), find(b)
-		parent[max(ra, rb)] = min(ra, rb)
-	}
-	cusips := func(is []int) int {
-		set := map[string]bool{}
-		for _, i := range is {
-			if c := all[i].cusip; c != "" {
-				set[c] = true
-			}
-		}
-		return len(set)
-	}
-	// By CUSIP and by OCC form, which name one security each.
-	first := map[string]int{}
-	for i, s := range all {
-		for _, id := range []string{"cusip " + s.cusip, "option " + s.occ} {
-			if strings.HasSuffix(id, " ") {
-				continue
-			}
-			if j, ok := first[id]; ok {
-				union(i, j)
-			} else {
-				first[id] = i
-			}
-		}
-	}
+	parent := certainJoins(all, ix.in.links)
+	find, union := parent.find, parent.union
+	cusips := func(is []int) int { return cusipsOf(all, is) }
 	alone := slices.Clone(parent)
 	// The groups that those joins make, which the joins by ticker compare.
 	staged := map[int][]*toolSecurity{}
@@ -1741,8 +1722,8 @@ func (ix *toolIndex) groupAll() {
 		stage[i] = find(i)
 		staged[stage[i]] = append(staged[stage[i]], s)
 	}
-	// By ticker: an option's or a future's symbol, which no stock has, joins
-	// the keys of one contract that has no OCC form, as a futures option.
+	// By ticker: an option's symbol, which no stock has, joins the keys of
+	// one contract that has no OCC form.
 	holders := map[string][]int{}
 	for i, s := range all {
 		for _, t := range s.tickers {
@@ -1829,6 +1810,104 @@ func (ix *toolIndex) groupAll() {
 	}
 }
 
+// certainJoins returns the groups of all, the store's securities, that the
+// store's data make one security each (3.5 of the design): those that know
+// one CUSIP; those that name one option contract, by its OCC form, or one
+// future or futures option, by its symbol (one that starts with "/"); and
+// of the groups that those make, those whose rows the store linked as one
+// transaction (links): the groups that links reach, one from another, are
+// one when they know one CUSIP at most between them, and stay apart when
+// they know two or more, as a History file's key of no CUSIP whose rows
+// are linked to rows of two securities of different CUSIPs, whatever order
+// the links come in. A ticker alone joins none.
+func certainJoins(all []*toolSecurity, links []toolLink) unionFind {
+	g := newUnionFind(len(all))
+	first := map[string]int{}
+	at := map[secRef]int{}
+	for i, s := range all {
+		at[s.ref()] = i
+		ids := []string{"cusip " + s.cusip, "option " + s.occ}
+		for _, t := range s.tickers {
+			if f := symbolForm(t); strings.HasPrefix(f, "/") {
+				ids = append(ids, "future "+f)
+			}
+		}
+		for _, id := range ids {
+			if strings.HasSuffix(id, " ") {
+				continue
+			}
+			if j, ok := first[id]; ok {
+				g.union(i, j)
+			} else {
+				first[id] = i
+			}
+		}
+	}
+	// The components that the links make of those groups, each joined
+	// whole or not at all.
+	c := newUnionFind(len(all))
+	for _, l := range links {
+		a, okA := at[secRef{key: l.file}]
+		b, okB := at[secRef{key: l.api}]
+		if okA && okB {
+			c.union(g.find(a), g.find(b))
+		}
+	}
+	components := map[int][]int{}
+	for i := range all {
+		r := c.find(g.find(i))
+		components[r] = append(components[r], i)
+	}
+	for _, is := range components {
+		if cusipsOf(all, is) <= 1 {
+			for _, i := range is[1:] {
+				g.union(is[0], i)
+			}
+		}
+	}
+	return g
+}
+
+// cusipsOf returns how many CUSIPs the securities of all at the indexes is
+// know between them.
+func cusipsOf(all []*toolSecurity, is []int) int {
+	set := map[string]bool{}
+	for _, i := range is {
+		if c := all[i].cusip; c != "" {
+			set[c] = true
+		}
+	}
+	return len(set)
+}
+
+// A unionFind holds groups of the indexes of a slice: the parent of each
+// index, up to its group's root, the least index of the group, whatever
+// order the groups were joined in.
+type unionFind []int
+
+// newUnionFind returns n indexes, each a group of its own.
+func newUnionFind(n int) unionFind {
+	u := make(unionFind, n)
+	for i := range u {
+		u[i] = i
+	}
+	return u
+}
+
+// find returns the root of i's group.
+func (u unionFind) find(i int) int {
+	for u[i] != i {
+		u[i], i = u[u[i]], u[i]
+	}
+	return i
+}
+
+// union joins the groups of a and b.
+func (u unionFind) union(a, b int) {
+	ra, rb := u.find(a), u.find(b)
+	u[max(ra, rb)] = min(ra, rb)
+}
+
 // A toolUnsure is a group of the store's securities that knows no CUSIP and
 // whose tickers other securities have had too, of other CUSIPs, or apart
 // from it, so that the export cannot be sure which of them it is
@@ -1855,13 +1934,13 @@ type toolUnsureOf struct {
 	apart      bool
 }
 
-// placeAlone returns the joins that groupAll makes, after those by CUSIP,
-// OCC form and ticker, of the groups of all (find) that have a key, know no
-// CUSIP and had a ticker that other securities have had too (3.5 of the
-// design): each as the roots of the two groups that it joins. Of a CUSIP,
-// another counts when the two had the ticker at times that meet (apart);
-// one that gave it up before the group had it is apart, and so is one of no
-// CUSIP that did, so that two companies of one ticker are not one.
+// placeAlone returns the joins that groupAll makes, after the certain ones
+// (certainJoins) and those by ticker, of the groups of all (find) that have
+// a key, know no CUSIP and had a ticker that other securities have had too
+// (3.5 of the design): each as the roots of the two groups that it joins.
+// Of a CUSIP, another counts when the two had the ticker at times that meet
+// (apart); one that gave it up before the group had it is apart, and so is
+// one of no CUSIP that did, so that two companies of one ticker are not one.
 //   - One that a ticker of it ties to one security of a CUSIP alone joins
 //     it: the joins by ticker made that join, and undid it for another key
 //     of their group, which had tickers of two CUSIPs.

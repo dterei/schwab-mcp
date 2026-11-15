@@ -1421,14 +1421,16 @@ and the export after you decide one writes it.
   meet, often with a CUSIP under one of them only, and one key alone learns
   that it was renamed or delisted: the API's, or a later History file's. The
   exports take for one the store's securities that share a CUSIP, the
-  options of one OCC symbol, and those that have had a ticker alike in
-  Yahoo's form, when those that had it know one CUSIP at most, and write
-  each key's rows with what they have had together: the CUSIP, the
-  description seen first, and the symbols, each as of when any key saw it
-  last (of one instant, by the days of any key's rows under each), so that
-  the ticker is the one that any key saw last, and the security is
-  delisted when the symbol that any key saw last is a CUSIP, never because
-  one key alone reads so. Each tool then holds it as one: one
+  options of one OCC symbol and the futures of one symbol; those whose rows
+  the store linked as one transaction (`matches`: a History file's row and
+  the API's), unless those links would join two CUSIPs; and those that have
+  had a ticker alike in Yahoo's form, when those that had it know one CUSIP
+  at most. They write each key's rows with what they have had together: the
+  CUSIP, the description seen first, and the symbols, each as of when any
+  key saw it last (of one instant, by the days of any key's rows under
+  each), so that the ticker is the one that any key saw last, and the
+  security is delisted when the symbol that any key saw last is a CUSIP,
+  never because one key alone reads so. Each tool then holds it as one: one
   row of PP's `securities.csv`, found by one ticker or WKN, one Ghostfolio
   asset, one holding to check; `-manual` naming a ticker that any of its
   keys had makes the whole of it MANUAL, and an export that writes the rows

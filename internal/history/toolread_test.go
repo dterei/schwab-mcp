@@ -368,6 +368,9 @@ func toolLines(in *toolInput) map[string][]string {
 	for _, d := range in.days {
 		add("days", new(toolLine).word(d.key).word(d.symbol).word(d.source).word(string(d.first)).word(string(d.last)))
 	}
+	for _, l := range in.links {
+		add("links", new(toolLine).word(l.file).word(l.api))
+	}
 	return out
 }
 
@@ -394,8 +397,8 @@ func (ts *toolStore) lines(in *toolInput) map[string][]string {
 // that have a day up to to; the positions of every account up to to; the
 // account's snapshots of every day; the rows of the account up to to that
 // wait for you; the coverage and the uncounted entries of the account; and
-// all the accounts, securities, names and days of the rows under each
-// symbol.
+// all the accounts, securities, names, days of the rows under each symbol
+// and links of rows of two securities.
 func toolSelected(in *toolInput, account int64, to nytime.Date) *toolInput {
 	out := *in
 	out.account, out.to = account, to
@@ -457,7 +460,8 @@ func toolInsert(t *testing.T, lines []string, before string, added ...string) []
 // count, the linked one with the API row it is; and the days of the rows
 // and legs under each symbol of each security, counted or not (the
 // uncertain AAPL dividend of 09-22 among them), of every account and day,
-// but for a row without one (the META dividend).
+// but for a row without one (the META dividend). It holds no links of two
+// securities: the one link, of the wire, is of rows of none.
 var toolStoreLines = map[string][]string{
 	"accounts": {
 		`A1 ...135 nickname=Individual`,
@@ -982,6 +986,60 @@ func TestToolReadJoinedHistoryKey(t *testing.T) {
 		}}}}
 		if got := toolUnsures(keysUnsure(&e, events)); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: unsure %+v", tool, got)
+		}
+	}
+}
+
+// TestToolReadLinks reads, from a real store, the links of a History
+// file's rows to the API's rows of two of its securities (QL): the
+// individual account's file, exported a year before the API's read, names
+// VBR and BND by keys of its own, which the store holds apart from the
+// API's, their names a year apart, and links its sale of VBR and BND's
+// dividend and tax to the API's rows, which QL reads as one pair of keys
+// each; its wire, linked too, is of no security, and its buys, of VBR and
+// of another key, come before the API's rows, linked to none. A later
+// file's buy of AAPL, exported a day after the read, is linked to the
+// API's, whose key the store joined the file's to: one key, no pair. QL is
+// the store's, of every account and day, whatever the export selects.
+func TestToolReadLinks(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Options{})
+	recordFixtures(t, s)
+	importFiles(t, s, ImportOptions{}, "Individual_XXX135_Transactions_20240601-090000.json", historyJSON("02/01/2023", "05/31/2024",
+		map[int]string{0: "66000903", 1: "66000903", 2: "66000901", 4: "66000902", 5: "66000901"},
+		csvRow{"04/04/2024", "NRA Tax Adj", "BND", "VANGUARD TOTAL BOND MARKET ETF", "", "", "", "-$1.16"},
+		csvRow{"04/04/2024", "Qualified Dividend", "BND", "VANGUARD TOTAL BOND MARKET ETF", "", "", "", "$3.86"},
+		csvRow{"03/15/2024", "Sell", "VBR", "VANGUARD SMALL CAP VALUE ETF", "0.4513", "$184.51", "", "$83.27"},
+		csvRow{"12/15/2023", "Wire Received", "", "WIRED FUNDS RECEIVED", "", "", "", "$10,000.00"},
+		csvRow{"03/13/2023", "Buy", "ZZLK", "ZZLK HOLDINGS INC", "5", "$20.00", "", "-$100.00"},
+		csvRow{"03/10/2023", "Buy", "VBR", "VANGUARD SMALL CAP VALUE ETF", "2", "$160.00", "", "-$320.00"}))
+	importFiles(t, s, ImportOptions{}, "Individual_XXX135_Transactions_20250604-090000.csv",
+		historyCSV(csvRow{"06/02/2025", "Buy", "AAPL", "APPLE INC", "3", "$201.82", "", "-$605.46"}))
+	keys := []string{
+		"s:FILE:AAPL@2025-06-04 i:1973757747", "s:FILE:BND@2024-06-01 x:66000903", "s:FILE:VBR@2024-06-01 x:66000901",
+		"s:FILE:ZZLK@2024-06-01 x:66000902", "x:66000901 x:66000901", "x:66000902 x:66000902", "x:66000903 x:66000903",
+	}
+	if got := storeStrings(t, s, "SELECT key || ' ' || security_key FROM security_keys WHERE key LIKE 'x:%' OR key LIKE 's:FILE:%' ORDER BY key"); !slices.Equal(got, keys) {
+		t.Fatalf("the store holds the files' keys as of the securities %q", got)
+	}
+	if n := storeInt(t, s, "SELECT count(*) FROM matches"); n != 5 {
+		t.Fatalf("the store links %d rows, want 5", n)
+	}
+	want := []toolLink{{file: "x:66000901", api: "i:4417355"}, {file: "x:66000903", api: "i:4417302"}}
+	for _, c := range []struct {
+		account int64
+		to      nytime.Date
+	}{{0, ""}, {storeInt(t, s, "SELECT account_id FROM account WHERE number = ?", options), "2023-06-30"}} {
+		var in *toolInput
+		if err := s.withRead(t.Context(), func(r *rtx) error {
+			var err error
+			in, err = readToolInput(r, c.account, c.to)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(in.links, want) {
+			t.Errorf("A%d up to %q: links %+v, want %+v", c.account, c.to, in.links, want)
 		}
 	}
 }
