@@ -401,9 +401,14 @@ type txnWalk struct {
 
 // A txnAccount is one selected account, and how it was read.
 type txnAccount struct {
-	a    dirAccount
-	from string   // fromStore, fromSchwab or fromNone
-	err  *toolErr // why it could not be read, or nil
+	// a is the account as the walk left it, with the new hash that the
+	// directory read when Schwab refused the one it had; startKey is its
+	// key as the call picked it, which the cursor that the call continues
+	// was written with, and which the store's pages are read by.
+	a        dirAccount
+	startKey string
+	from     string   // fromStore, fromSchwab or fromNone
+	err      *toolErr // why it could not be read, or nil
 	// schwabErr is why Schwab could not be read for an account that was
 	// then read from the store as far as it covers (fallBack), or nil.
 	schwabErr *toolErr
@@ -456,7 +461,7 @@ func getTransactions(ctx context.Context, c *call, wc *windowCache, in getTransa
 		return out, err
 	}
 	for _, a := range accts {
-		w.accts = append(w.accts, &txnAccount{a: a, empty: -1})
+		w.accts = append(w.accts, &txnAccount{a: a, startKey: a.key(), empty: -1})
 	}
 	if err := w.schwabReadable(ctx, v); err != nil {
 		return out, err
@@ -564,7 +569,7 @@ func (w *txnWalk) readStore(ctx context.Context, v *dirView) error {
 	var listed []history.LedgerAccount
 	for _, ta := range w.accts {
 		if ta.a.storeID != 0 {
-			listed = append(listed, history.LedgerAccount{ID: ta.a.storeID, Key: ta.a.key(), IfWhole: w.toSchwab(ta)})
+			listed = append(listed, history.LedgerAccount{ID: ta.a.storeID, Key: ta.startKey, IfWhole: w.toSchwab(ta)})
 		}
 	}
 	err := v.storeErr
@@ -574,10 +579,7 @@ func (w *txnWalk) readStore(ctx context.Context, v *dirView) error {
 		err = c.store.read(ctx, func(*history.Reader) error { return nil })
 	default:
 		err = c.store.read(ctx, func(r *history.Reader) error {
-			p, err := r.Ledger(ctx, history.LedgerQuery{
-				Accounts: listed, From: q.from, To: q.to, Categories: q.categories, Types: q.types,
-				Symbol: q.symbol, All: q.all, After: w.after, Limit: q.limit,
-			})
+			p, err := r.Ledger(ctx, w.ledgerQuery(listed))
 			w.ledger, w.newer = p, r.NewerRules()
 			return err
 		})
@@ -618,6 +620,25 @@ func (w *txnWalk) readStore(ctx context.Context, v *dirView) error {
 	return nil
 }
 
+// ledgerQuery returns the query of the store's page of the accounts
+// listed, each by its key as the call picked it, which the cursor holds.
+// Its limit is the page's, and one row more for each listed account after
+// the first: when Schwab refuses a hash during the walk, the account's
+// rows take its new key (answer), which can reorder rows that tie on day,
+// time and ref, one of each account, so that a row after the store's last
+// would come before it; every row of a tie that starts within the page's
+// limit is then in the store's page.
+func (w *txnWalk) ledgerQuery(listed []history.LedgerAccount) history.LedgerQuery {
+	q := w.q
+	return history.LedgerQuery{
+		Accounts: listed, From: q.from, To: q.to, Categories: q.categories, Types: q.types,
+		Symbol: q.symbol, All: q.all, After: w.after, Limit: min(q.limit+len(listed)-1, maxLedgerRows),
+	}
+}
+
+// maxLedgerRows is the most rows that history.Reader.Ledger reads at once.
+const maxLedgerRows = 500
+
 // toSchwab reports whether ta goes to Schwab under auto, unless the store
 // holds every asked day of it whole: when Schwab shares it and can be read.
 func (w *txnWalk) toSchwab(ta *txnAccount) bool {
@@ -643,17 +664,14 @@ func (w *txnWalk) fallBack(ctx context.Context) error {
 	var listed []history.LedgerAccount
 	for _, ta := range w.accts {
 		if ta.from == fromNone && ta.err != nil && ta.err.code != codeInternal && ta.a.storeID != 0 {
-			listed = append(listed, history.LedgerAccount{ID: ta.a.storeID, Key: ta.a.key()})
+			listed = append(listed, history.LedgerAccount{ID: ta.a.storeID, Key: ta.startKey})
 		}
 	}
 	if len(listed) == 0 {
 		return nil
 	}
 	err := c.store.read(ctx, func(r *history.Reader) error {
-		p, err := r.Ledger(ctx, history.LedgerQuery{
-			Accounts: listed, From: q.from, To: q.to, Categories: q.categories, Types: q.types,
-			Symbol: q.symbol, All: q.all, After: w.after, Limit: q.limit,
-		})
+		p, err := r.Ledger(ctx, w.ledgerQuery(listed))
 		w.fellBack, w.newer = p, w.newer || r.NewerRules()
 		return err
 	})
@@ -756,8 +774,8 @@ func (w *txnWalk) readSchwab(ctx context.Context, wc *windowCache) error {
 // account a new hash, and one that kept its old hash would be refused in
 // turn, and the directory read again for it. An account that the directory
 // no longer lists keeps its hash, which Schwab refuses, as askAccount says.
-// The rows that the store read keep the keys that it read them by, since
-// its page was cut in their order.
+// Its rows, from Schwab or the store, take the new key on the page and in
+// the cursor (answer).
 func (w *txnWalk) rehashed(ctx context.Context) error {
 	v, err := w.c.directory(ctx)
 	if err != nil {
@@ -875,13 +893,18 @@ func (w *txnWalk) answer(ctx context.Context, args txnArgs) (getTransactionsOut,
 			"after %s, totals are null, and next_cursor continues the walk.", Date(w.horizon()))
 	}
 
-	// The candidates: the store's page, and Schwab's rows after the cursor,
+	// The candidates: the store's pages, and Schwab's rows after the cursor,
 	// merged newest first; only rows after the horizon when the budget left
-	// a window unread.
+	// a window unread. A row is after the cursor by its account's key as the
+	// call picked it, which the cursor holds, as the store's pages were
+	// read, and takes its place by the key as the walk left it, with the new
+	// hash that Schwab took, which the next call picks the account by.
 	var schwabItems []txnItem
 	for _, ta := range w.accts {
 		for _, it := range ta.items {
-			if w.after == nil || keyCompare(it.key, *w.after) < 0 {
+			was := it.key
+			was.Account = ta.startKey
+			if w.after == nil || keyCompare(was, *w.after) < 0 {
 				schwabItems = append(schwabItems, it)
 			}
 		}
@@ -892,8 +915,12 @@ func (w *txnWalk) answer(ctx context.Context, args txnArgs) (getTransactionsOut,
 		var storeItems []txnItem
 		for i := range p.Rows {
 			x := &p.Rows[i]
-			storeItems = append(storeItems, txnItem{key: x.Key, ta: w.byStoreID(x.AccountID), store: x})
+			ta := w.byStoreID(x.AccountID)
+			k := x.Key
+			k.Account = ta.a.key()
+			storeItems = append(storeItems, txnItem{key: k, ta: ta, store: x})
 		}
+		slices.SortFunc(storeItems, func(x, y txnItem) int { return keyCompare(y.key, x.key) })
 		merged = mergeItems(storeItems, merged)
 	}
 	if h := w.horizon(); h != "" {

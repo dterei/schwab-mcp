@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1609,9 +1610,11 @@ func TestTildeRefsFromSchwab(t *testing.T) {
 // get_transaction answers with the hash that Schwab took, for an activity
 // ID and for a T~ ref. And when two accounts have new hashes, the walk of
 // every account reads the directory again once, for the first that Schwab
-// refuses, and asks for the other with its new hash. A read of the
-// directory is warm for 5 minutes, so list_accounts reads it first, before
-// the new hashes.
+// refuses, and asks for the other with its new hash; an account read from
+// the store takes its new hash too, in its rows and in the cursor, so that
+// the next page, which keys its rows by that hash, repeats none. A read of
+// the directory is warm for 5 minutes, so list_accounts reads it first,
+// before the new hashes.
 func TestTransactionsOfARehashedAccount(t *testing.T) {
 	t.Parallel()
 	old, rehashed := schwabtest.HashFor(individual), schwabtest.HashFor("rehashed")
@@ -1705,6 +1708,178 @@ func TestTransactionsOfARehashedAccount(t *testing.T) {
 	if refused != 1 || refused398 != 0 || numbers != 1 {
 		t.Errorf("every account, two of them with new hashes: asked %d times with ...135's old hash and %d times with ...398's, "+
 			"and read the account numbers %d times", refused, refused398, numbers)
+	}
+
+	// Every account, with the shared store: ...398's 2025 is read from the
+	// store, ...135's from Schwab, whose refusal of ...135's old hash gives
+	// ...398 its new hash too, one that sorts before its old one. The store's
+	// rows take the new hash in their place on the page and in the cursor,
+	// as the next call keys them, so that the pages of 1 hold the rows of one
+	// call, each once, though the first ends at a row of ...398's.
+	e = newEnv(t, withTxnRows(individual, dividend135))
+	if r := e.call("list_accounts", `{}`); r.isError {
+		t.Fatal(r.text)
+	}
+	lower := schwabtest.HashFor("398 again")
+	if lower >= schwabtest.HashFor(options) {
+		t.Fatal("...398's new hash does not sort before its old one: the case shows nothing")
+	}
+	e.fake.Rehash(old, rehashed)
+	e.fake.Rehash(schwabtest.HashFor(options), lower)
+	pages := e.txnPages("get_transactions", `{"from":"2025-01-01","to":"2025-12-31","limit":1}`, 20)
+	got = nil
+	for i, p := range pages {
+		for _, row := range txnRowsOf(p) {
+			got = append(got, txnRefsOf([]map[string]any{row})...)
+			if row["account"] == "...398" && (row["read_from"] != "store" || row["account_hash"] != lower) {
+				t.Errorf("page %d: %v", i+1, row)
+			}
+		}
+	}
+	whole = txnRefsOf(txnRowsOf(e.call("get_transactions", `{"from":"2025-01-01","to":"2025-12-31"}`)))
+	if len(whole) < 3 || txnCoverageOf(pages[0], "...398")["read_from"] != "store" || !slices.Equal(got, whole) {
+		t.Errorf("every account, ...398 from the store with a new hash: pages of 1 hold %v, one call %v", got, whole)
+	}
+}
+
+// A cursor holds a row's account by its key, the account's hash, which a
+// new login may change; the rows that a page places after a cursor keep
+// it as the call found it, and the page and its cursor give each row the
+// key that the next call finds (design 8.5). So no page repeats or skips a
+// row across a new hash that a call learns of, as when Schwab refuses the
+// hash that the directory, read in the last 5 minutes, still has: the
+// account whose row the last page ended at, read from Schwab again, every
+// window of it, as after the window cache's 60 seconds; the same account
+// when Schwab then fails for it, and it is read from the store; and two
+// accounts read from the store, whose transfer to each other ties on day,
+// time and ref at the end of the store's page, where the new hashes
+// reverse the two sides' order.
+func TestCursorsAcrossANewHash(t *testing.T) {
+	t.Parallel()
+	old := schwabtest.HashFor(individual)
+	lower := schwabtest.HashFor("135 again")
+	if lower >= old {
+		t.Fatal("...135's new hash does not sort before its old one: the cases show nothing")
+	}
+	// unkept registers get_transactions_unkept, whose window cache keeps no
+	// read for the next call.
+	unkept := withTools(func(s *Server) {
+		var ticks atomic.Int64
+		windows := newWindowCache()
+		windows.now = func() time.Time { return testNow.Add(time.Duration(ticks.Add(1)) * time.Minute) }
+		testTool(s, "get_transactions_unkept", getTransactionsDef.args, func(ctx context.Context, c *call, in getTransactionsIn) (getTransactionsOut, error) {
+			return getTransactions(ctx, c, windows, in)
+		})
+	})
+	// pagesAfter follows the cursor of first, page by page, and returns the
+	// refs of first and of every page after it.
+	pagesAfter := func(e *env, args string, first result) []string {
+		refs := txnRefsOf(txnRowsOf(first))
+		cur, _ := first.value["next_cursor"].(string)
+		for i := 0; cur != ""; i++ {
+			if i == 20 {
+				t.Fatalf("%s: more than 20 pages", args)
+			}
+			r := e.call("get_transactions_unkept", txnWithCursor(t, args, cur))
+			if r.isError {
+				t.Fatalf("page %d of %s: %s", i+2, args, r.text)
+			}
+			refs = append(refs, txnRefsOf(txnRowsOf(r))...)
+			cur, _ = r.value["next_cursor"].(string)
+		}
+		return refs
+	}
+
+	// Every account, from Schwab: the first page ends at ...135's newest row.
+	newest := txnJSON(individual, 73508265701, ny(2025, time.December, 30, 10, 0), "DIVIDEND_OR_INTEREST",
+		"Free Balance Interest Adjustment", 0.03)
+	e := newEnv(t, withoutStore(), withTxnRows(individual, newest), unkept)
+	args := `{"from":"2025-01-01","to":"2025-12-31","limit":1}`
+	first := e.call("get_transactions_unkept", args)
+	if refs := txnRefsOf(txnRowsOf(first)); !slices.Equal(refs, []string{"T73508265701@...135"}) {
+		t.Fatalf("the first page holds %v", refs)
+	}
+	e.fake.Rehash(old, lower)
+	got := pagesAfter(e, args, first)
+	whole := txnRefsOf(txnRowsOf(e.call("get_transactions", `{"from":"2025-01-01","to":"2025-12-31"}`)))
+	if len(whole) < 3 || !slices.Equal(got, whole) {
+		t.Errorf("from Schwab, a new hash after the first page: pages of 1 hold %v, one call %v", got, whole)
+	}
+
+	// ...135 alone, whose 2025 the store does not hold: the first page reads
+	// Schwab and ends at its newest row of the days, which the store holds
+	// too; with the new hash, Schwab fails for it, and the rest comes from
+	// the store.
+	e = newEnv(t, unkept)
+	args = `{"account":"135","from":"2024-01-01","to":"2025-05-31","limit":1}`
+	first = e.call("get_transactions_unkept", args)
+	if row := txnRowsOf(first); len(row) != 1 || row[0]["ref"] != "T73508261949" || row[0]["read_from"] != "schwab" {
+		t.Fatalf("the first page: %.600s", first.text)
+	}
+	e.fake.Rehash(old, lower)
+	e.fake.Queue(schwabtest.TransactionsRoute, nil, schwabtest.Unavailable, schwabtest.Unavailable)
+	got = pagesAfter(e, args, first)
+	whole = txnRefsOf(txnRowsOf(e.call("get_transactions", `{"account":"135","source":"store","from":"2024-01-01","to":"2025-05-31"}`)))
+	if len(whole) < 3 || !slices.Equal(got, whole) {
+		t.Errorf("a new hash, then the store: pages of 1 hold %v, source store %v", got, whole)
+	}
+
+	// Every account, ...135 and ...398 from the store, which holds both sides
+	// of a journal between them: one activity ID at one time. ...783 goes to
+	// Schwab, which refuses its old hash, and the new hashes put ...398's
+	// side first, where the old ones put ...135's.
+	path := storeCopy(t)
+	s, err := history.Open(t.Context(), history.Options{Path: path, Now: func() time.Time { return testNow }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, side := range []struct {
+		number string
+		net    float64
+	}{{individual, -25}, {options, 25}} {
+		var row schwab.Transaction
+		raw := txnJSON(side.number, 73508265801, ny(2026, time.June, 10, 10, 0), "JOURNAL", "Journal", side.net)
+		if err = json.Unmarshal([]byte(raw), &row); err != nil {
+			break
+		}
+		_, err = s.RecordTransactions(t.Context(), history.TransactionsRead{
+			Read:    history.Read{SentAt: ny(2026, time.July, 2, 9, 0), AnsweredAt: ny(2026, time.July, 2, 9, 0).Add(time.Second)},
+			Account: side.number, Query: schwab.TransactionQuery{Start: ny(2026, time.May, 31, 0, 0), End: ny(2026, time.July, 2, 0, 0)},
+			Rows: []schwab.Transaction{row},
+		})
+		if err != nil {
+			break
+		}
+	}
+	if cerr := s.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	first135, first398 := schwabtest.HashFor("135 anew"), schwabtest.HashFor("398 anew")
+	if old < schwabtest.HashFor(options) || first135 > first398 {
+		t.Fatal("the new hashes do not reverse the order of the old: the case shows nothing")
+	}
+	e = newEnv(t, withStore(path))
+	if r := e.call("list_accounts", `{}`); r.isError {
+		t.Fatal(r.text)
+	}
+	e.fake.Rehash(schwabtest.HashFor(empty), schwabtest.HashFor("783 anew"))
+	e.fake.Rehash(old, first135)
+	e.fake.Rehash(schwabtest.HashFor(options), first398)
+	pages := e.txnPages("get_transactions", `{"from":"2026-06-01","to":"2026-06-30","limit":1}`, 10)
+	got = nil
+	for _, p := range pages {
+		got = append(got, txnRefsOf(txnRowsOf(p))...)
+	}
+	for _, masked := range []string{"...135", "...398"} {
+		if c := txnCoverageOf(pages[0], masked); c["read_from"] != "store" {
+			t.Errorf("the journal's side of %s: %v", masked, c)
+		}
+	}
+	if want := []string{"T73508265801@...398", "T73508265801@...135"}; !slices.Equal(got, want) {
+		t.Errorf("a tie at the end of the store's page: pages of 1 hold %v, want %v", got, want)
 	}
 }
 
