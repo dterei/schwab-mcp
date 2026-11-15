@@ -38,7 +38,9 @@ func (s *Server) registerTransactions() {
 	addTool(s, getTransactionsDef, func(ctx context.Context, c *call, in getTransactionsIn) (getTransactionsOut, error) {
 		return getTransactions(ctx, c, windows, in)
 	})
-	addTool(s, getTransactionDef, getTransaction)
+	addTool(s, getTransactionDef, func(ctx context.Context, c *call, in getTransactionIn) (getTransactionOut, error) {
+		return getTransaction(ctx, c, windows, in)
+	})
 	s.addReferencePage(transactionTypesPage())
 }
 
@@ -1349,6 +1351,20 @@ var (
 	fileShape  = regexp.MustCompile(`^C[0-9a-f]{8,64}\.[0-9]{1,9}$`)
 )
 
+// tildeTime is the time that a T~ ref holds.
+var tildeTime = regexp.MustCompile(`^[Tt]~([0-9]{8}[Tt][0-9]{6})\.`)
+
+// timeOfRef returns the time of a row that ref, a T~ ref, holds, and
+// whether it holds one: a row that Schwab sent without a time has none.
+func timeOfRef(ref string) (time.Time, bool) {
+	m := tildeTime.FindStringSubmatch(ref)
+	if m == nil {
+		return time.Time{}, false
+	}
+	t, err := time.Parse("20060102T150405", strings.ToUpper(m[1]))
+	return t, err == nil
+}
+
 // A txnID is get_transaction's id: the ref that the store gives it, and
 // Schwab's activity ID, 0 for a ref that only the store knows.
 type txnID struct {
@@ -1390,12 +1406,16 @@ func (id txnID) shown(c *call) FreeText {
 // getTransaction answers get_transaction: Schwab's row of an activity ID,
 // with what the local history says of it, or the local history's own row
 // of a ref that only it knows, or when Schwab cannot be read.
-func getTransaction(ctx context.Context, c *call, in getTransactionIn) (getTransactionOut, error) {
+func getTransaction(ctx context.Context, c *call, wc *windowCache, in getTransactionIn) (getTransactionOut, error) {
 	var out getTransactionOut
 	id, err := c.txnIDOf(in.ID)
 	if err != nil {
 		return out, err
 	}
+	// A T~ ref that the store does not hold is of a row read from Schwab, as
+	// get_transactions gives one for a row without an activity ID: its time
+	// says which days to read again.
+	at, timed := timeOfRef(id.ref)
 	v, err := c.directory(ctx)
 	if err != nil {
 		return out, err
@@ -1409,7 +1429,7 @@ func getTransaction(ctx context.Context, c *call, in getTransactionIn) (getTrans
 	if storeErr != nil && ctx.Err() != nil {
 		return out, storeErr
 	}
-	if id.activity == 0 && len(found) == 0 {
+	if id.activity == 0 && len(found) == 0 && !timed {
 		if storeErr != nil {
 			return out, c.storeError(storeErr)
 		}
@@ -1433,7 +1453,7 @@ func getTransaction(ctx context.Context, c *call, in getTransactionIn) (getTrans
 	if entry != nil {
 		out.Store = c.storeViewOf(*entry)
 	}
-	if id.activity == 0 {
+	if id.activity == 0 && (entry != nil || !timed) {
 		if entry == nil {
 			return out, c.failf(codeNotFound, "The local history has no transaction %s in account %s.", id.shown(c), c.mask.masked(a.number))
 		}
@@ -1444,15 +1464,33 @@ func getTransaction(ctx context.Context, c *call, in getTransactionIn) (getTrans
 	// An account without a hash is one that Schwab no longer shares, or
 	// that the store alone knows because Schwab could not be read.
 	var t schwab.Transaction
-	if a.hash == "" && v.schwabErr != nil {
+	var derived history.APIEntry
+	switch {
+	case a.hash == "" && v.schwabErr != nil:
 		err = v.schwabErr
-	} else {
+	case id.activity == 0:
+		var ok bool
+		if t, derived, ok, err = tildeRow(ctx, c, wc, a, at, id.ref); err == nil && !ok {
+			return out, c.failf(codeNotFound, "Schwab sent no transaction %s in account %s on the days around its time.",
+				id.shown(c), c.mask.masked(a.number))
+		}
+	default:
 		t, err = askAccount(ctx, c, a, func(cl *schwab.Client, hash schwab.AccountHash) (schwab.Transaction, error) {
 			return cl.Transaction(ctx, hash, id.activity)
 		})
+		if err == nil {
+			var entries []history.APIEntry
+			if entries, err = history.DeriveAPIEntries([]schwab.Transaction{t}, a.number); err != nil {
+				return out, err
+			}
+			derived = entries[0]
+		}
 	}
 	if err != nil && ctx.Err() != nil {
 		return out, err
+	}
+	if errors.Is(err, errNoTime) {
+		return out, c.s.errorFor(codeTimedOut)
 	}
 	if err != nil {
 		e := c.s.toolError(c.tool, err)
@@ -1466,11 +1504,7 @@ func getTransaction(ctx context.Context, c *call, in getTransactionIn) (getTrans
 		out.Source, out.Transaction = sourceStore, c.storeRow(a, entry.Entry, entry.Legs, true)
 		return out, nil
 	}
-	entries, err := history.DeriveAPIEntries([]schwab.Transaction{t}, a.number)
-	if err != nil {
-		return out, err
-	}
-	out.Source, out.Transaction = sourceSchwab, c.schwabRow(a, t, entries[0], true)
+	out.Source, out.Transaction = sourceSchwab, c.schwabRow(a, t, derived, true)
 	if out.Store != nil {
 		out.Source = sourceSchwabStore
 	}
@@ -1487,6 +1521,25 @@ func getTransaction(ctx context.Context, c *call, in getTransactionIn) (getTrans
 		out.Raw = raw
 	}
 	return out, nil
+}
+
+// tildeRow returns the row of account a that ref names, a T~ ref of a row
+// of the time at, with its entry, and whether Schwab sent it: the window
+// of the days around at, read through the window cache, holds the rows of
+// those trade days, and the row is the one whose ref the store's
+// derivation gives as ref.
+func tildeRow(ctx context.Context, c *call, wc *windowCache, a dirAccount, at time.Time, ref string) (schwab.Transaction, history.APIEntry, bool, error) {
+	day := nytime.DateOf(at)
+	r, err := wc.read(ctx, c, a, window{first: addDays(day, -1), last: addDays(day, 1)})
+	if err != nil {
+		return schwab.Transaction{}, history.APIEntry{}, false, err
+	}
+	for i, e := range r.entries {
+		if strings.EqualFold(e.Ref, ref) {
+			return r.rows[i], e, true, nil
+		}
+	}
+	return schwab.Transaction{}, history.APIEntry{}, false, nil
 }
 
 // pickTxnAccount returns the account of get_transaction's transaction: the

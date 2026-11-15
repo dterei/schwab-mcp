@@ -1040,7 +1040,12 @@ func TestGetTransactionIDs(t *testing.T) {
 		{`{"id":"29470135","account":"135"}`, "not_found", "Schwab has no transaction ...135 in account ...135."},
 		{`{"id":"73508261946","account":"398"}`, "not_found", "Schwab has no transaction 73508261946 in account ...398."},
 		{`{"id":"C2cdf9679.2","account":"135"}`, "not_found", "The local history has no transaction C2cdf9679.2 in account ...135."},
-		{`{"id":"T~20260302T143027.1f2e3d4c5b6a"}`, "not_found", "The local history has no transaction T~20260302T143027.1f2e3d4c5b6a."},
+		{`{"id":"T~20260302T143027.1f2e3d4c5b6a"}`, "bad_argument", "account is needed: the local history does not hold this id"},
+		{
+			`{"id":"T~20260302T143027.1f2e3d4c5b6a","account":"135"}`, "not_found",
+			"Schwab sent no transaction T~20260302T143027.1f2e3d4c5b6a in account ...135 on the days around its time.",
+		},
+		{`{"id":"T~none.1f2e3d4c5b6a"}`, "not_found", "The local history has no transaction T~none.1f2e3d4c5b6a."},
 		{`{"id":"T~29470135"}`, "not_found", "The local history has no transaction T~...135."},
 		{`{"id":"C1.999888777"}`, "not_found", "The local history has no transaction C...777."},
 		{`{"id":"0029470135","account":"135"}`, "not_found", "Schwab has no transaction ...135 in account ...135."},
@@ -1436,6 +1441,47 @@ func TestCappedWindow(t *testing.T) {
 	}
 	if got := txnRefsOf(txnRowsOf(r)); !slices.Contains(got, "T73508261943@...135") || !slices.Contains(got, "T73508265201@...135") {
 		t.Errorf("the rows read: %v", got)
+	}
+}
+
+// A row that Schwab sends without an activity ID has a T~ ref, of its time
+// and digest, which get_transaction takes whether or not the local history
+// holds the row: one the store lacks is read from Schwab's days around its
+// time, and is the row whose ref is the one given, raw JSON included.
+func TestTildeRefsFromSchwab(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2025, time.March, 5, 15, 0, 0, 0, time.UTC)
+	row := strings.Replace(txnJSON(individual, 1, at, "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.04), `"activityId":1,`, "", 1)
+	for _, name := range []string{"without a store", "with a store that lacks the row"} {
+		opts := []envOption{withTxnRows(individual, row)}
+		if name == "without a store" {
+			opts = append(opts, withoutStore())
+		}
+		e := newEnv(t, opts...)
+		list := e.call("get_transactions", `{"source":"schwab","account":"135","from":"2025-03-01","to":"2025-03-31"}`)
+		var ref string
+		for _, r := range txnRowsOf(list) {
+			if s, _ := r["ref"].(string); strings.HasPrefix(s, "T~20250305T150000.") {
+				ref = s
+			}
+		}
+		if ref == "" {
+			t.Fatalf("%s: no T~ ref among %v", name, txnRefsOf(txnRowsOf(list)))
+		}
+		r := e.call("get_transaction", `{"id":"`+ref+`","account":"135","include_raw":true}`)
+		tx, _ := r.value["transaction"].(map[string]any)
+		if r.isError || tx["ref"] != ref || r.value["source"] != "schwab" || r.value["store"] != nil || r.value["raw"] == nil ||
+			tx["amount"] != 0.04 {
+			t.Errorf("%s: get_transaction of %s: %.600s", name, ref, r.text)
+		}
+		if r := e.call("get_transaction", `{"id":"`+ref+`"}`); r.code() != "bad_argument" || !strings.Contains(r.text, "account is needed") {
+			t.Errorf("%s: no account given: %.300s", name, r.text)
+		}
+		missing := "T~20250306T150000.000000000000"
+		if r := e.call("get_transaction", `{"id":"`+missing+`","account":"135"}`); r.code() != "not_found" ||
+			!strings.Contains(r.text, "Schwab sent no transaction "+missing+" in account ...135 on the days around its time.") {
+			t.Errorf("%s: a T~ ref of no row: %.300s", name, r.text)
+		}
 	}
 }
 
