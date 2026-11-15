@@ -1075,26 +1075,46 @@ func TestAccountSelection(t *testing.T) {
 // that names it is account_not_shared, which names it, and the error for
 // one that names no account lists only the accounts that the login shares.
 // get_transactions, which reads the local history too, lists it apart, by
-// its store ref, and reads it there.
+// its store ref, and reads it there. get_transaction, which reads Schwab
+// for a transaction that the local history does not hold, says that the
+// login does not share it, or, of one that the local history saw the login
+// stop sharing, that Schwab no longer shares it.
 func TestStoreOnlyAccount(t *testing.T) {
 	t.Parallel()
 	path := storeCopy(t)
-	exec(t, rawStore(t, path), "INSERT INTO account (number, created_from, first_seen_at, last_seen_at) "+
-		"VALUES ('12345678', 'user', '2026-01-05T19:11:00.000Z', '2026-01-05T19:11:00.000Z')")
+	gone := schwabtest.SpareAccountNumbers[0]
+	exec(t, rawStore(t, path),
+		"INSERT INTO account (number, created_from, first_seen_at, last_seen_at) "+
+			"VALUES ('12345678', 'user', '2026-01-05T19:11:00.000Z', '2026-01-05T19:11:00.000Z')",
+		"INSERT INTO account (number, created_from, first_seen_at, last_seen_at, not_shared_since) "+
+			"VALUES ('"+gone+"', 'api', '2026-01-05T19:11:00.000Z', '2026-01-05T19:11:00.000Z', '2026-11-01T03:30:00.000Z')")
 	e := newEnv(t, withStore(path), withPick())
-	e.plant("12345678")
+	e.plant("12345678", gone)
 	const notShared = "The login does not share ...678, which only the local history knows; ask the user to run schwabtx login and tick it."
 	for _, tc := range []struct{ tool, arg string }{{"pick", "A4"}, {"pick", "678"}, {"get_balances", "12345678"}, {"get_positions", "a4"}} {
 		if r := e.call(tc.tool, map[string]string{"account": tc.arg}); r.code() != "account_not_shared" || !strings.Contains(r.text, notShared) {
 			t.Errorf("%s of %q: %s", tc.tool, tc.arg, r.text)
 		}
 	}
+	for _, args := range []string{
+		`{"id":"73508261999","account":"A4"}`, `{"id":"T73508261999","account":"678"}`,
+		`{"id":"T~20250305T150000.0123456789ab","account":"A4"}`,
+	} {
+		if r := e.call("get_transaction", args); r.code() != "account_not_shared" || !strings.Contains(r.text, notShared) {
+			t.Errorf("get_transaction %s: %s", args, r.text)
+		}
+	}
+	if r := e.call("get_transaction", `{"id":"73508261999","account":"A5"}`); r.code() != "account_not_shared" ||
+		!strings.Contains(r.text, "Schwab no longer shares ...265; ask the user to run schwabtx login and tick it.") {
+		t.Errorf("get_transaction of an account that the login stopped sharing: %s", r.text)
+	}
 	if r := e.call("pick", `{"account":"999"}`); r.code() != "account_not_found" || strings.Contains(r.text, "...678") ||
 		!strings.Contains(r.text, `The login shares ...135 "Individual" (account_hash `) {
 		t.Errorf("an account of none, to a tool that reads Schwab: %s", r.text)
 	}
 	if r := e.call("get_transactions", `{"account":"999"}`); r.code() != "account_not_found" ||
-		!strings.Contains(r.text, `(account_hash `+schwabtest.HashFor(empty)+"). Only the local history knows ...678 (store_ref A4). Pass one of those.") {
+		!strings.Contains(r.text, `(account_hash `+schwabtest.HashFor(empty)+"). Only the local history knows ...678 (store_ref A4), "+
+			"...265 (store_ref A5). Pass one of those.") {
 		t.Errorf("an account of none, to get_transactions: %s", r.text)
 	}
 	if r := e.call("get_transactions", `{"account":"A4","source":"store"}`); r.isError || txnCoverageOf(r, "...678")["read_from"] != "store" {
