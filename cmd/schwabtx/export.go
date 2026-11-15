@@ -472,16 +472,18 @@ func sinceManifest(dir, format string) ([]byte, error) {
 }
 
 // toolSummary says on w what an export for a tool, of the store at path,
-// wrote to the folder dir, going on from the export in the folder since
-// ("" for a full export), and what it asks of you (8.2 of the tool exports'
-// design): what it wrote (toolWrote) and, going on, what it assumes that
-// the tool holds; each account's coverage; what it counted that needs you
+// wrote to the folder dir, going on from the export in the folder since (""
+// for a full export), and what it asks of you (8.2 of the tool exports'
+// design): what it wrote (toolWrote) and, going on, what it assumes that the
+// tool holds; each account's coverage; what it counted that needs you
 // (toolCountLines); what to delete in the tool before importing
-// (toolDeletions); for PP, the accounts to make, the order of the files
-// and the rows to tick; for Ghostfolio, the cash that its imports leave as
-// it is; going on, when the chain selects an account or, for Ghostfolio,
-// names -manual symbols, the full export that a redo imports; and the
-// command that goes on from it.
+// (toolDeletions); going on, the differences from the snapshots that the
+// export it goes on from listed and that changed or went, with what to do
+// with what you added by hand for them (differenceLines); for PP, the
+// accounts to make, the order of the files and the rows to tick; for
+// Ghostfolio, the cash that its imports leave as it is; going on, when the
+// chain selects an account or, for Ghostfolio, names -manual symbols, the
+// full export that a redo imports; and the command that goes on from it.
 func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since string) {
 	tool, gf := toolFormats[e.Tool].name, e.Tool == "ghostfolio"
 	manifest := filepath.Join(dir, "manifest.json")
@@ -504,6 +506,7 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 	coverageLines(w, e.Coverage)
 	toolCountLines(w, path, e, manifest)
 	toolDeletions(w, e, manifest)
+	differenceLines(w, e, manifest, since)
 	if gf {
 		fmt.Fprintf(w, "%s takes an account's balances only in the import that makes the account; later imports leave its cash as it is\n", tool)
 		if since != "" {
@@ -709,15 +712,15 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 	unsureLines(w, path, e.Unsure, manifest)
 	switch n := e.Holdings; {
 	case n == 1:
-		fmt.Fprintf(w, "1 holding differs from the latest snapshot (%s): a position opened before the store's rows, or a split left out; add it by hand (docs/tools.md)\n", manifest)
+		fmt.Fprintf(w, "1 holding differs from the latest snapshot (%s): a position opened before the store's rows, or a split left out; add it by hand, less the rows left out that you book by hand (docs/tools.md)\n", manifest)
 	case n > 1:
-		fmt.Fprintf(w, "%d holdings differ from the latest snapshot (%s): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)\n", n, manifest)
+		fmt.Fprintf(w, "%d holdings differ from the latest snapshot (%s): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)\n", n, manifest)
 	}
 	switch n := e.Cash; {
 	case n == 1:
-		fmt.Fprintf(w, "1 account's cash in %s differs from its latest snapshot's (%s): cash held before the store's first row of the account, or rows left out; book the difference as an opening deposit or withdrawal (docs/tools.md)\n", tool, manifest)
+		fmt.Fprintf(w, "1 account's cash in %s differs from its latest snapshot's (%s): cash held before the store's first row of the account, or rows left out; book the difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)\n", tool, manifest)
 	case n > 1:
-		fmt.Fprintf(w, "%d accounts' cash in %s differs from their latest snapshots' (%s): cash held before the store's first row of each, or rows left out; book each difference as an opening deposit or withdrawal (docs/tools.md)\n", n, tool, manifest)
+		fmt.Fprintf(w, "%d accounts' cash in %s differs from their latest snapshots' (%s): cash held before the store's first row of each, or rows left out; book each difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)\n", n, tool, manifest)
 	}
 	switch n := len(e.CashNotChecked); {
 	case n == 1:
@@ -845,6 +848,33 @@ func toolDeletions(w io.Writer, e *history.ToolExport, manifest string) {
 			why = what + " (" + detail + ")"
 		}
 		fmt.Fprintf(w, "  %s: gone, %s\n", held(g), why)
+	}
+}
+
+// differenceLines says on w, of the export e for a tool, going on from the
+// export in the folder since, whose manifest is manifest, each difference
+// of the holdings check and of PP's cash check that that export listed and
+// that this one lists with another, or not at all (e.DifferencesChanged),
+// with its change: what you added or booked by hand in the tool for it is
+// to change by the change, less the rows left out that you book by hand,
+// or to delete, as the rows written stand for it now.
+func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string) {
+	n := len(e.DifferencesChanged)
+	if n == 0 {
+		return
+	}
+	fmt.Fprintf(w, "%d %s that %s listed %s changed or gone (%s lists each, with was): change what you added in %s by hand for %s by its change, less the rows left out that you book by hand, or delete it (docs/tools.md):\n",
+		n, pluralWord(n, "difference", "differences"), since, pluralWord(n, "has", "have"), manifest, toolFormats[e.Tool].name, pluralWord(n, "it", "each"))
+	for _, d := range e.DifferencesChanged {
+		what := "cash"
+		if !d.Cash {
+			what = plainCell(mask.Text(cmp.Or(d.Symbol, d.Key)))
+		}
+		if d.Now == "" {
+			fmt.Fprintf(w, "  %s: %s: gone, was %s: delete\n", toolAccountName(e, d.Account), what, d.Was)
+			continue
+		}
+		fmt.Fprintf(w, "  %s: %s: %s, was %s: change by %s\n", toolAccountName(e, d.Account), what, d.Now, d.Was, d.Change)
 	}
 }
 

@@ -111,6 +111,7 @@
   "waiting": [],
   "holdings": {
     "differences": [],
+    "gone": [],
     "cash": [
       {
         "account": "A1 ...135",
@@ -119,6 +120,7 @@
         "written_cash": -820.00
       }
     ],
+    "cash_gone": [],
     "cash_not_checked": [],
     "not_checked": []
   },

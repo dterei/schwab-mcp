@@ -112,12 +112,19 @@ type ToolExport struct {
 	// gone once you uncount them; Waiting the file rows that wait for you
 	// to resolve them, which no export writes until you have; Holdings the
 	// securities of an account whose shares differ from its latest
-	// snapshot's, but those that the export it goes on from listed alike;
-	// SymbolsChanged the securities, as the tool holds them, that a tool
-	// holding them under an earlier symbol needs telling of; and, for PP,
-	// Cash the accounts whose cash differs from their latest snapshot's, but
-	// those that the export it goes on from listed alike.
+	// snapshot's, but those that the export it goes on from listed, alike
+	// or otherwise (DifferencesChanged); SymbolsChanged the securities, as
+	// the tool holds them, that a tool holding them under an earlier symbol
+	// needs telling of; and, for PP, Cash the accounts whose cash differs
+	// from their latest snapshot's, but those that the export it goes on
+	// from listed likewise.
 	Flagged, Waiting, Holdings, SymbolsChanged, Cash int
+	// DifferencesChanged are, going on from another export, the
+	// differences of the holdings check and, for PP, of the cash check that
+	// that export listed and that this one lists with another, or not at
+	// all: what you added or booked by hand in the tool for one is to
+	// change by its change, or to delete.
+	DifferencesChanged []ToolDifference
 	// CashNotChecked are, for PP, the labels of the accounts whose cash the
 	// cash check could not check: the latest snapshot of each is of a
 	// margin account whose cash balance reads 0 beside a margin or a short
@@ -233,6 +240,21 @@ type ToolCashRows struct {
 	Rows     int
 	Snapshot nytime.Date
 	Taken    time.Time
+}
+
+// A ToolDifference is a difference of the holdings check, or of PP's cash
+// check, that the export that a tool export goes on from listed and that
+// this one lists with another, or not at all: its account's label; for
+// shares, the security's key (the least, when the tool holds it under
+// several) and symbol, both "" for cash (Cash); and the difference, the
+// snapshot's shares or cash less what the records leave, as listed then
+// (Was) and now (Now, "" when it is gone), with the change from one to the
+// other (Now less Was, or less Was alone when gone), each as the manifest
+// writes it, signed: shares, or dollars with two places.
+type ToolDifference struct {
+	Account, Key, Symbol string
+	Cash                 bool
+	Was, Now, Change     string
 }
 
 // A ToolChange is a row that the tool holds and that a tool export changes
@@ -567,18 +589,19 @@ func (e *ToolExport) count() {
 		}
 	}
 	for _, h := range e.res.holdings {
-		if !h.Before {
+		if !h.Before && h.Was == "" {
 			e.Holdings++
 		}
 	}
 	for _, c := range e.res.cash {
-		if !c.Before {
+		if !c.Before && c.Was == "" {
 			e.Cash++
 		}
 	}
 	for _, u := range e.res.cashUnchecked {
-		e.CashNotChecked = append(e.CashNotChecked, u.account.label())
+		e.CashNotChecked = append(e.CashNotChecked, u.Account)
 	}
+	e.DifferencesChanged = e.res.differencesChanged()
 	for _, c := range e.res.changed {
 		e.Changed = append(e.Changed, ToolChange{Ref: c.Ref, Account: c.Account, Was: c.Was, NoteRef: c.NoteRef, Transfer: c.Transfer, Now: c.Now})
 	}

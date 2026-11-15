@@ -191,6 +191,7 @@
   "waiting": [],
   "holdings": {
     "differences": [],
+    "gone": [],
     "not_checked": [
       "A1 ...135"
     ]

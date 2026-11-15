@@ -778,6 +778,7 @@
         "before": true
       }
     ],
+    "gone": [],
     "cash": [
       {
         "account": "A1 ...135",
@@ -790,9 +791,11 @@
         "account": "A2 ...398",
         "snapshot": "2026-11-10",
         "snapshot_cash": -12.34,
-        "written_cash": -645.16
+        "written_cash": -645.16,
+        "was": 1132.82
       }
     ],
+    "cash_gone": [],
     "cash_not_checked": [],
     "not_checked": [
       "A3 ...398"

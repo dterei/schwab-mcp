@@ -3264,6 +3264,13 @@ func (e *toolEvent) inSnapshot(in *toolInput, s toolSnapshot) bool {
 	return inSnapshot(&in.rows[e.row], s)
 }
 
+// cashSnapshot returns the snapshot that the cash check checks account
+// against: its latest closed-phase snapshot of its cash taken by the end of
+// the export's last day (checkedSnapshot), ok false for none.
+func cashSnapshot(in *toolInput, account int64) (toolSnapshot, bool) {
+	return checkedSnapshot(in, account, func(s toolSnapshot) bool { return s.cash.Valid })
+}
+
 // A toolCashUnchecked is an account whose cash the cash check cannot
 // check: its snapshot (marginZero), by its market date.
 type toolCashUnchecked struct {
@@ -3318,7 +3325,7 @@ func cashCheck(in *toolInput, events []toolEvent) ([]toolCash, []toolCashUncheck
 	latest := map[int64]toolSnapshot{}
 	var unchecked []toolCashUnchecked
 	for _, id := range snapshotAccounts(in) {
-		snap, ok := checkedSnapshot(in, id, func(s toolSnapshot) bool { return s.cash.Valid })
+		snap, ok := cashSnapshot(in, id)
 		switch {
 		case ok && snap.marginZero():
 			unchecked = append(unchecked, toolCashUnchecked{account: in.accountOf(id), snapshot: snap.marketDate})

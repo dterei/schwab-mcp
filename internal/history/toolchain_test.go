@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -1132,6 +1133,35 @@ func rcChanged(s *chainStep) (changed, gone []string) {
 		gone = append(gone, g.Ref+" "+g.Why+": "+g.Was)
 	}
 	return changed, gone
+}
+
+// TestChainSameHolding shows which difference of the holdings check an
+// export takes for one that the export it goes on from listed: of one
+// account, and of a security that shares a key with it, as when a key
+// joins the security since and its least key is another; two of a row's
+// securities without a key by their symbol.
+func TestChainSameHolding(t *testing.T) {
+	t.Parallel()
+	listed := chainHolding{Account: "A1 ...135", SecurityKey: "i:1000013", Symbol: "JKLM"}
+	for _, c := range []struct {
+		name   string
+		listed chainHolding
+		now    chainHolding
+		same   bool
+	}{
+		{"one key", listed, chainHolding{Account: "A1 ...135", SecurityKey: "i:1000013", Symbol: "JKLM"}, true},
+		{"a key joined since, less than the listed one", listed, chainHolding{Account: "A1 ...135", SecurityKey: "c:ZZJ12K106", SecurityKeys: []string{"c:ZZJ12K106", "i:1000013"}, Symbol: "JKLM"}, true},
+		{"a key gone since", chainHolding{Account: "A1 ...135", SecurityKey: "c:ZZJ12K106", SecurityKeys: []string{"c:ZZJ12K106", "i:1000013"}}, listed, true},
+		{"another account", listed, chainHolding{Account: "A2 ...398", SecurityKey: "i:1000013", Symbol: "JKLM"}, false},
+		{"keys apart, one symbol", listed, chainHolding{Account: "A1 ...135", SecurityKey: "x:66000017", Symbol: "JKLM"}, false},
+		{"no key, one symbol", chainHolding{Account: "A1 ...135", Symbol: "XYZ   260619P00045000"}, chainHolding{Account: "A1 ...135", Symbol: "XYZ   260619P00045000"}, true},
+		{"no key, another symbol", chainHolding{Account: "A1 ...135", Symbol: "XYZ   260619P00045000"}, chainHolding{Account: "A1 ...135", Symbol: "XYZ   260619P00040000"}, false},
+		{"a key and none", chainHolding{Account: "A1 ...135", Symbol: "JKLM"}, listed, false},
+	} {
+		if got := chainSameHolding(c.listed, c.now); got != c.same {
+			t.Errorf("%s: %v", c.name, got)
+		}
+	}
 }
 
 // TestToolReimport chains exports and imports through the models of PP
@@ -2410,7 +2440,10 @@ func TestToolReimport(t *testing.T) {
 		// PP's cash check lists A1's difference from its snapshot in the
 		// first export, and marks it before in the next, which an opening
 		// deposit booked in PP leaves as it was: its rows and its snapshots
-		// move alike. A row left out that moves cash makes another.
+		// move alike. A row left out that moves cash changes it: the third
+		// lists it with the difference listed before (was), not counted as
+		// new, and its change, 5.00, the row left out's, which left_out has
+		// you book by hand, the opening deposit staying as it is.
 		rows := []toolRow{rcTrade("T7c100001", 1, "2026-03-02 10:00:00", "buy", keyEFGH, "EFGH", 1_000_000, 30, -3_000, 0)}
 		first := tcInput(toolInput{to: "2026-03-31", rows: slices.Clone(rows), snapshots: []toolSnapshot{rcSnapshot(1, "2026-03-31", 7_000)}})
 		later := tcInput(toolInput{
@@ -2434,11 +2467,17 @@ func TestToolReimport(t *testing.T) {
 		}{
 			{e1, []chainCashHolding{{Account: "A1 ...135", Snapshot: "2026-03-31", SnapshotCash: "70.00", WrittenCash: "-30.00"}}, 1},
 			{e2, []chainCashHolding{{Account: "A1 ...135", Snapshot: "2026-04-30", SnapshotCash: "80.00", WrittenCash: "-20.00", Before: true}}, 0},
-			{e3, []chainCashHolding{{Account: "A1 ...135", Snapshot: "2026-05-29", SnapshotCash: "85.00", WrittenCash: "-20.00"}}, 1},
+			{e3, []chainCashHolding{{Account: "A1 ...135", Snapshot: "2026-05-29", SnapshotCash: "85.00", WrittenCash: "-20.00", Was: "100.00"}}, 0},
 		} {
 			if !slices.Equal(c.s.res.cash, c.want) || c.s.e.Cash != c.count {
 				t.Errorf("%s: cash %+v, counted %d", c.s.e.At.Format(time.RFC3339), c.s.res.cash, c.s.e.Cash)
 			}
+		}
+		if want := []ToolDifference{{Account: "A1 ...135", Cash: true, Was: "100.00", Now: "105.00", Change: "5.00"}}; !slices.Equal(e3.e.DifferencesChanged, want) || len(e2.e.DifferencesChanged) > 0 {
+			t.Errorf("the differences changed: %+v, then %+v", e2.e.DifferencesChanged, e3.e.DifferencesChanged)
+		}
+		if l := e3.res.leftOut; len(l) != 1 || l[0].Ref != "T7c100003" || l[0].Before {
+			t.Errorf("left out: %+v", l)
 		}
 	})
 
@@ -2611,6 +2650,275 @@ func TestToolReimport(t *testing.T) {
 			e3 := chainStepOf(t, held(true, "2026-06-30", "2026-05-29", "2026-06-30"), tool, e2, rcAt3)
 			if e1.e.SymbolsChanged != 0 || e2.e.SymbolsChanged != 1 || e3.e.SymbolsChanged != 0 {
 				t.Errorf("held %s: symbols changed %d, %d, %d", tool, e1.e.SymbolsChanged, e2.e.SymbolsChanged, e3.e.SymbolsChanged)
+			}
+		}
+	})
+
+	t.Run("5f an opening position and opening cash booked by hand, then the rows they stood for", func(t *testing.T) {
+		t.Parallel()
+		// The first export has only the API's sale of 10 XYZ: A1's cash
+		// differs from its snapshot's by 700.00, and its shares by 10, which
+		// you book by hand as the how-to says, an opening deposit and an
+		// opening position. A History file then brings a first deposit: the
+		// next export lists the cash's difference as changed, from 700.00 to
+		// 100.00, and you change the deposit by -600.00, as stderr says,
+		// rather than book 100.00 beside it. Another brings the second
+		// deposit and the purchase: the third export lists both differences
+		// as gone, and you delete what you booked, which the rows written
+		// now stand for. The tool then holds the snapshot's cash and shares.
+		sale := rcTrade("T7c500101", 1, "2026-02-02 10:00:00", "sell", keyXYZ, "XYZ", -10_000_000, 50, 50_000, 0)
+		first := rcFile("C7c50001.1", 1, "2025-11-03", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 60_000)
+		rest := []toolRow{
+			rcFile("C7c50002.1", 1, "2025-11-04", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 40_000),
+			rcFile("C7c50002.2", 1, "2025-11-05", "Buy", "buy", keyXYZ, "XYZ", centsOf(10_000_000), 30, -30_000),
+		}
+		in := func(rows ...toolRow) toolInput {
+			return tcInput(toolInput{to: "2026-02-27", rows: rows, snapshots: []toolSnapshot{rcSnapshot(1, "2026-02-26", 120_000)}})
+		}
+		const name = "Schwab A1 ...135"
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, in(sale), tool, nil, rcAt1)
+			e2 := chainStepOf(t, in(first, sale), tool, e1, rcAt2)
+			e3 := chainStepOf(t, in(slices.Concat([]toolRow{first}, rest, []toolRow{sale})...), tool, e2, rcAt3)
+			// Each export's differences as the manifest lists them, those
+			// that it counts as new, and those that changed or went.
+			describe := func(s *chainStep) []string {
+				var out []string
+				for _, h := range s.res.holdings {
+					out = append(out, fmt.Sprintf("%s %s %s %s before=%v was=%s", h.Account, h.Symbol, h.SnapshotShares, h.WrittenShares, h.Before, h.Was))
+				}
+				for _, c := range s.res.cash {
+					out = append(out, fmt.Sprintf("%s cash %s %s before=%v was=%s", c.Account, c.SnapshotCash, c.WrittenCash, c.Before, c.Was))
+				}
+				for _, g := range s.res.holdingsGone {
+					out = append(out, fmt.Sprintf("%s %s gone was=%s", g.Account, g.Symbol, g.Was))
+				}
+				for _, g := range s.res.cashGone {
+					out = append(out, fmt.Sprintf("%s cash gone was=%s", g.Account, g.Was))
+				}
+				return out
+			}
+			want := [][]string{
+				{"A1 ...135 XYZ 0 -10 before=false was=", "A1 ...135 cash 1200.00 500.00 before=false was="},
+				{"A1 ...135 XYZ 0 -10 before=true was=", "A1 ...135 cash 1200.00 1100.00 before=false was=700.00"},
+				{"A1 ...135 XYZ gone was=10", "A1 ...135 cash gone was=100.00"},
+			}
+			counted := []int{2, 0, 0}
+			changed := []ToolDifference{{Account: "A1 ...135", Cash: true, Was: "700.00", Now: "100.00", Change: "-600.00"}}
+			gone := []ToolDifference{{Account: "A1 ...135", Key: keyXYZ, Symbol: "XYZ", Was: "10", Change: "-10"}, {Account: "A1 ...135", Cash: true, Was: "100.00", Change: "-100.00"}}
+			if tool == toolGF {
+				want = [][]string{want[0][:1], want[1][:1], want[2][:1]}
+				counted, changed, gone = []int{1, 0, 0}, nil, gone[:1]
+			}
+			for i, c := range []struct {
+				s           *chainStep
+				differences []ToolDifference
+			}{{e1, nil}, {e2, changed}, {e3, gone}} {
+				if got, n := describe(c.s), c.s.e.Holdings+c.s.e.Cash; !slices.Equal(got, want[i]) || n != counted[i] || !reflect.DeepEqual(c.s.e.DifferencesChanged, c.differences) {
+					t.Errorf("%s, export %d: %q, %d new, changed %+v", tool, i+1, got, n, c.s.e.DifferencesChanged)
+				}
+			}
+
+			// What you book by hand, then change by the change of each
+			// difference that a later export lists, or delete.
+			changeOf := func(d ToolDifference) *big.Rat {
+				change, _ := new(big.Rat).SetString(d.Change)
+				return change
+			}
+			if tool == toolPP {
+				m := newPPModel()
+				ppApply(t, m, e1)
+				f := ppFolderOf(toolInput{tool: toolPP})
+				f["account-transactions-A1-135.csv"] = ppMade(ppAccount, map[string]string{"Date": "2025-11-01", "Type": "Deposit", "Value": "700.00", "Cash Account": name, "Note": "by hand"})
+				f["portfolio-transactions-A1-135.csv"] = ppMade(ppPortfolio, map[string]string{
+					"Date": "2025-11-01", "Type": "Delivery (Inbound)", "Value": "300.00", "Shares": "10",
+					"Ticker Symbol": "XYZ", "WKN": "98389B100", "Security Name": "XYZ CORP COMMON STOCK", "Securities Account": name, "Note": "by hand",
+				})
+				dir := f.write(t)
+				for _, file := range []string{"account-transactions-A1-135.csv", "portfolio-transactions-A1-135.csv"} {
+					if _, refused := m.importFile(dir, file, name, nil); len(refused) > 0 {
+						t.Fatal(refused)
+					}
+				}
+				byHand := func(cash bool) *ppTx {
+					owners := m.portfolios
+					if cash {
+						owners = m.accounts
+					}
+					for _, tx := range ppOwnerNamed(owners, name).txs {
+						if tx.note == "by hand" {
+							return tx
+						}
+					}
+					return nil
+				}
+				for _, s := range []*chainStep{e2, e3} {
+					// The files first, as ppApply would, but beside what
+					// PP holds by hand, which the export's replay does not
+					// know of: no row is marked as existing.
+					for _, f := range s.pp {
+						if f.kind == ppConfiguration {
+							continue
+						}
+						if marked, refused := m.importFile(s.dir, f.name, f.account.name(), nil); len(refused)+len(marked) > 0 {
+							t.Errorf("%s: PP refuses %q, marks %v", f.name, refused, marked)
+						}
+					}
+					for _, d := range s.e.DifferencesChanged {
+						tx := byHand(d.Cash)
+						if tx == nil {
+							t.Fatalf("PP holds nothing booked by hand for %+v", d)
+						}
+						// Cash in cents, shares in 10^-8.
+						if d.Cash {
+							tx.amount += new(big.Rat).Mul(changeOf(d), big.NewRat(100, 1)).Num().Int64()
+						} else {
+							tx.shares += new(big.Rat).Mul(changeOf(d), big.NewRat(100_000_000, 1)).Num().Int64()
+						}
+						if d.Now == "" {
+							if d.Cash && tx.amount != 0 || !d.Cash && tx.shares != 0 {
+								t.Errorf("%+v: deleting what was booked by hand for it leaves %d, %d", d, tx.amount, tx.shares)
+							}
+							for _, o := range slices.Concat(m.accounts, m.portfolios) {
+								o.txs = slices.DeleteFunc(o.txs, func(x *ppTx) bool { return x == tx })
+							}
+						}
+					}
+				}
+				var shares int64
+				for _, q := range m.shares(name) {
+					shares += q
+				}
+				if shares != 0 || m.cash(name) != 120_000 || byHand(true) != nil || byHand(false) != nil {
+					t.Errorf("PP holds %d shares (in 10^-8) and %s, by hand %v, %v", shares, formatCents(m.cash(name)), byHand(true), byHand(false))
+				}
+				continue
+			}
+			g := newGFModel()
+			if _, err := gfApply(t, g, e1); err != nil {
+				t.Fatal(err)
+			}
+			g.activities = append(g.activities, gfmActivity{
+				account: g.accounts[0].id, comment: "by hand", currency: "USD", source: "YAHOO", symbol: "XYZ", typ: "BUY",
+				date: "2025-11-01T12:00:00.000Z", fee: new(big.Rat), quantity: big.NewRat(10, 1), unitPrice: big.NewRat(30, 1),
+			})
+			for _, s := range []*chainStep{e2, e3} {
+				// The dialog cannot import a file with no activity: the
+				// deposit's export has none, its cash in the balances.
+				if _, err := gfApply(t, g, s); (err != nil) != (len(s.gf.file.Activities) == 0) {
+					t.Fatalf("%d activities: %v", len(s.gf.file.Activities), err)
+				}
+				for _, d := range s.e.DifferencesChanged {
+					i := slices.IndexFunc(g.activities, func(a gfmActivity) bool { return a.comment == "by hand" })
+					if i < 0 {
+						t.Fatalf("Ghostfolio holds nothing added by hand for %+v", d)
+					}
+					g.activities[i].quantity = new(big.Rat).Add(g.activities[i].quantity, changeOf(d))
+					if d.Now == "" {
+						if g.activities[i].quantity.Sign() != 0 {
+							t.Errorf("%+v: deleting what was added by hand for it leaves %v", d, g.activities[i].quantity)
+						}
+						g.activities = slices.Delete(g.activities, i, i+1)
+					}
+				}
+			}
+			if held := g.holdings(); len(held) != 0 || slices.ContainsFunc(g.activities, func(a gfmActivity) bool { return a.comment == "by hand" }) {
+				t.Errorf("Ghostfolio holds %v", held)
+			}
+		}
+	})
+
+	t.Run("5g a cash difference carried while a margin account's cash reads 0", func(t *testing.T) {
+		t.Parallel()
+		// A2's opening cash, 1000.00, shows in the first export. In the
+		// second, a buy leaves the margin account with a debit, which its
+		// snapshot reads as cash of 0 beside a margin balance: its cash is
+		// not checked, and the difference listed is carried on. A deposit
+		// then repays the debit: the third export checks the account again,
+		// against the difference carried, alike, so it counts nothing new;
+		// a fourth, of another snapshot cash, lists the change from it.
+		rows := []toolRow{
+			rcCash("T7c700001", 2, "2026-01-02 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 100_000),
+			rcTrade("T7c700002", 2, "2026-01-05 10:00:00", "buy", keyEFGH, "EFGH", 10_000_000, 30, -30_000, 0),
+		}
+		snapshot := func(day string, cash int64, debit float64) toolSnapshot {
+			s := rcSnapshot(2, day, cash)
+			s.accountType = "MARGIN"
+			s.margin, s.short = sql.NullFloat64{Float64: debit, Valid: true}, sql.NullFloat64{Valid: true}
+			return s
+		}
+		// The snapshots hold the shares that the rows leave.
+		position := func(day string, long int64) toolPosition {
+			p := rcPosition(day, keyEFGH, long, float64(long)/1e6*30)
+			p.account = 2
+			return p
+		}
+		snapshots := []toolSnapshot{snapshot("2026-01-30", 170_000, 0)}
+		positions := []toolPosition{position("2026-01-30", 10_000_000)}
+		s1 := tcInput(toolInput{to: "2026-01-30", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots), positions: slices.Clone(positions)})
+		rows = append(rows, rcTrade("T7c700003", 2, "2026-02-02 10:00:00", "buy", keyEFGH, "EFGH", 90_000_000, 30, -270_000, 0))
+		snapshots = append(snapshots, snapshot("2026-02-27", 0, -1000))
+		positions = append(positions, position("2026-02-27", 100_000_000))
+		s2 := tcInput(toolInput{to: "2026-02-27", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots), positions: slices.Clone(positions)})
+		rows = append(rows, rcCash("T7c700004", 2, "2026-03-02 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 150_000))
+		snapshots = append(snapshots, snapshot("2026-03-30", 50_000, 0))
+		positions = append(positions, position("2026-03-30", 100_000_000))
+		s3 := tcInput(toolInput{to: "2026-03-31", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots), positions: slices.Clone(positions)})
+		snapshots = append(snapshots, snapshot("2026-04-29", 52_500, 0))
+		positions = append(positions, position("2026-04-29", 100_000_000))
+		s4 := tcInput(toolInput{to: "2026-04-30", rows: rows, snapshots: snapshots, positions: positions})
+		e1 := chainStepOf(t, s1, toolPP, nil, rcAt1)
+		e2 := chainStepOf(t, s2, toolPP, e1, rcAt2)
+		e3 := chainStepOf(t, s3, toolPP, e2, rcAt3)
+		e4 := chainStepOf(t, s4, toolPP, e3, rcAt4)
+		describe := func(s *chainStep) []string {
+			var out []string
+			for _, c := range s.res.cash {
+				out = append(out, fmt.Sprintf("%s %s %s before=%v was=%s", c.Account, c.SnapshotCash, c.WrittenCash, c.Before, c.Was))
+			}
+			for _, u := range s.res.cashUnchecked {
+				out = append(out, fmt.Sprintf("%s not checked %s was=%s", u.Account, u.Snapshot, u.Was))
+			}
+			for _, g := range s.res.cashGone {
+				out = append(out, fmt.Sprintf("%s gone was=%s", g.Account, g.Was))
+			}
+			return out
+		}
+		for i, c := range []struct {
+			s           *chainStep
+			want        []string
+			counted     int
+			differences []ToolDifference
+		}{
+			{e1, []string{"A2 ...398 1700.00 700.00 before=false was="}, 1, nil},
+			{e2, []string{"A2 ...398 not checked 2026-02-27 was=1000.00"}, 0, nil},
+			{e3, []string{"A2 ...398 500.00 -500.00 before=true was="}, 0, nil},
+			{e4, []string{"A2 ...398 525.00 -500.00 before=false was=1000.00"}, 0, []ToolDifference{{Account: "A2 ...398", Cash: true, Was: "1000.00", Now: "1025.00", Change: "25.00"}}},
+		} {
+			if got := describe(c.s); !slices.Equal(got, c.want) || c.s.e.Cash != c.counted || !reflect.DeepEqual(c.s.e.DifferencesChanged, c.differences) {
+				t.Errorf("export %d: %q, %d new, changed %+v", i+1, got, c.s.e.Cash, c.s.e.DifferencesChanged)
+			}
+		}
+	})
+
+	t.Run("5h differences of an account that this export cannot check", func(t *testing.T) {
+		t.Parallel()
+		// The first export lists A1's shares and cash as differing from
+		// its snapshot; the next reads no snapshot of the account, as a
+		// store restored from an older backup may: it checks neither, and
+		// lists neither difference as gone, which would have you delete
+		// what you booked for them.
+		rows := []toolRow{rcTrade("T7c800101", 1, "2026-02-02 10:00:00", "sell", keyXYZ, "XYZ", -10_000_000, 50, 50_000, 0)}
+		with := tcInput(toolInput{to: "2026-02-27", rows: slices.Clone(rows), snapshots: []toolSnapshot{rcSnapshot(1, "2026-02-26", 120_000)}})
+		without := tcInput(toolInput{to: "2026-02-27", rows: slices.Clone(rows)})
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, with, tool, nil, rcAt1)
+			e2 := chainStepOf(t, without, tool, e1, rcAt2)
+			if n := e1.e.Holdings + e1.e.Cash; tool == toolPP && n != 2 || tool == toolGF && n != 1 {
+				t.Errorf("%s: the first export counts %d differences", tool, n)
+			}
+			if len(e2.res.holdings)+len(e2.res.holdingsGone)+len(e2.res.cash)+len(e2.res.cashGone) > 0 || len(e2.e.DifferencesChanged) > 0 || len(e2.res.unchecked) != 1 {
+				t.Errorf("%s: %+v, gone %+v, cash %+v, gone %+v, changed %+v, not checked %v", tool, e2.res.holdings, e2.res.holdingsGone, e2.res.cash, e2.res.cashGone, e2.e.DifferencesChanged, e2.res.unchecked)
 			}
 		}
 	})
@@ -2858,7 +3166,7 @@ func TestToolReimport(t *testing.T) {
 		describe := func(s *chainStep) []string {
 			var out []string
 			for _, h := range s.res.holdings {
-				out = append(out, fmt.Sprintf("%s %s %s %s %v", h.Account, h.Symbol, h.SnapshotShares, h.WrittenShares, h.Before))
+				out = append(out, fmt.Sprintf("%s %s %s %s %v %s", h.Account, h.Symbol, h.SnapshotShares, h.WrittenShares, h.Before, h.Was))
 			}
 			for _, l := range s.res.leftOut {
 				out = append(out, fmt.Sprintf("%s %s %v", l.Ref, l.Reason, l.Before))
@@ -2872,15 +3180,22 @@ func TestToolReimport(t *testing.T) {
 				prev = chainStepOf(t, in, tool, prev, []string{rcAt1, rcAt2, rcAt3, rcAt4}[i])
 				steps = append(steps, prev)
 			}
+			// The split left out changes the difference by the shares
+			// that it adds, which the export lists with the one before
+			// (was): the opening position stays, the split is booked by
+			// hand, as its left_out entry says.
 			for i, want := range [][]string{
-				{"A1 ...135 XYZ 5 -10 false"},
-				{"A1 ...135 XYZ 8 -7 true"},
-				{"A1 ...135 XYZ 16 -7 false", "C7b00000.1 other false"},
-				{"A1 ...135 XYZ 16 -7 true", "C7b00000.1 other true"},
+				{"A1 ...135 XYZ 5 -10 false "},
+				{"A1 ...135 XYZ 8 -7 true "},
+				{"A1 ...135 XYZ 16 -7 false 15", "C7b00000.1 other false"},
+				{"A1 ...135 XYZ 16 -7 true ", "C7b00000.1 other true"},
 			} {
 				if got := describe(steps[i]); !slices.Equal(got, want) {
 					t.Errorf("%s, export %d: %q, want %q", tool, i+1, got, want)
 				}
+			}
+			if d := steps[2].e.DifferencesChanged; len(d) != 1 || d[0].Change != "8" || steps[2].e.Holdings != 0 {
+				t.Errorf("%s: the split's export counts %d new and lists %+v", tool, steps[2].e.Holdings, d)
 			}
 
 			// The opening position, added by hand in the tool after the

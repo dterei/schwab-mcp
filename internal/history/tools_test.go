@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"maps"
+	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -99,9 +100,11 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 		Flagged    []struct{ Ref string } `json:"flagged"`
 		Waiting    []struct{ Ref string } `json:"waiting"`
 		Holdings   struct {
-			Differences    []struct{ Before bool }
-			Cash           *[]struct{ Before bool }
-			CashNotChecked *[]struct{ Account string } `json:"cash_not_checked"`
+			Differences    []chainHolding
+			Gone           *[]chainHoldingGone
+			Cash           *[]chainCashHolding
+			CashGone       *[]chainCashGone      `json:"cash_gone"`
+			CashNotChecked *[]chainCashUnchecked `json:"cash_not_checked"`
 		} `json:"holdings"`
 		Ghostfolio *struct {
 			Yahoo     []string
@@ -238,26 +241,63 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	check("rows with a caveat", e.CaveatRows, len(caveatRows))
 	check("rows flagged", e.Flagged, len(m.Flagged))
 	check("rows waiting", e.Waiting, len(m.Waiting))
+	// The differences that the export it goes on from listed otherwise
+	// (was), or that went, each with its change, which stderr lists, and
+	// the new ones, which it counts.
+	var differences []ToolDifference
+	difference := func(d ToolDifference, snapshot, written json.Number, cash bool) {
+		was, _ := new(big.Rat).SetString(d.Was)
+		now := new(big.Rat)
+		if d.Now != "gone" {
+			s, _ := new(big.Rat).SetString(snapshot.String())
+			w, _ := new(big.Rat).SetString(written.String())
+			now.Sub(s, w)
+			d.Now = string(chainNumber(now, cash))
+		} else {
+			d.Now = ""
+		}
+		d.Change = string(chainNumber(now.Sub(now, was), cash))
+		differences = append(differences, d)
+	}
 	holdings := 0
 	for _, h := range m.Holdings.Differences {
-		if !h.Before {
+		switch {
+		case h.Was != "":
+			difference(ToolDifference{Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Was: string(h.Was)}, h.SnapshotShares, h.WrittenShares, false)
+		case !h.Before:
 			holdings++
+		}
+	}
+	if m.Holdings.Gone == nil {
+		t.Errorf("the %s manifest's holdings list no differences gone", e.Tool)
+	} else {
+		for _, g := range *m.Holdings.Gone {
+			difference(ToolDifference{Account: g.Account, Key: g.SecurityKey, Symbol: g.Symbol, Was: string(g.Was), Now: "gone"}, "", "", false)
 		}
 	}
 	check("holdings that differ", e.Holdings, holdings)
 	// PP's cash check, which Ghostfolio's manifest has none of.
-	if (m.Holdings.Cash != nil) != (e.Tool == toolPP) {
-		t.Errorf("the %s manifest's holdings hold a cash check: %v", e.Tool, m.Holdings.Cash != nil)
+	if (m.Holdings.Cash != nil) != (e.Tool == toolPP) || (m.Holdings.CashGone != nil) != (e.Tool == toolPP) {
+		t.Errorf("the %s manifest's holdings hold a cash check: %v, %v", e.Tool, m.Holdings.Cash != nil, m.Holdings.CashGone != nil)
 	}
 	cash := 0
 	if m.Holdings.Cash != nil {
 		for _, c := range *m.Holdings.Cash {
-			if !c.Before {
+			switch {
+			case c.Was != "":
+				difference(ToolDifference{Account: c.Account, Cash: true, Was: string(c.Was)}, c.SnapshotCash, c.WrittenCash, true)
+			case !c.Before:
 				cash++
 			}
 		}
 	}
+	if m.Holdings.CashGone != nil {
+		for _, g := range *m.Holdings.CashGone {
+			difference(ToolDifference{Account: g.Account, Cash: true, Was: string(g.Was), Now: "gone"}, "", "", true)
+		}
+	}
 	check("accounts whose cash differs", e.Cash, cash)
+	check("differences changed or gone", e.DifferencesChanged, differences)
 	if (m.Holdings.CashNotChecked != nil) != (e.Tool == toolPP) {
 		t.Errorf("the %s manifest's holdings list accounts whose cash is not checked: %v", e.Tool, m.Holdings.CashNotChecked != nil)
 	}

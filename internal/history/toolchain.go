@@ -197,13 +197,17 @@ type chainLeftOut struct {
 }
 
 // A chainHoldings is the holdings check of the manifest (4.15 of the
-// design): each difference, for PP each difference of the cash check and
-// each account whose cash it could not check, and the labels of the
-// accounts whose shares it could not check, for want of a snapshot. Cash
-// and CashNotChecked are nil for Ghostfolio, whose cash is the balances'.
+// design): each difference; with -since, each that the export it goes on
+// from listed and this one does not find (Gone); for PP each difference of
+// the cash check, those gone likewise, and each account whose cash it could
+// not check; and the labels of the accounts whose shares it could not
+// check, for want of a snapshot. Cash, CashGone and CashNotChecked are nil
+// for Ghostfolio, whose cash is the balances'.
 type chainHoldings struct {
 	Differences    []chainHolding        `json:"differences"`
+	Gone           []chainHoldingGone    `json:"gone"`
 	Cash           *[]chainCashHolding   `json:"cash,omitempty"`
+	CashGone       *[]chainCashGone      `json:"cash_gone,omitempty"`
 	CashNotChecked *[]chainCashUnchecked `json:"cash_not_checked,omitempty"`
 	NotChecked     []string              `json:"not_checked"`
 }
@@ -212,33 +216,43 @@ type chainHoldings struct {
 // check (toolCashUnchecked): its label, the market date of its snapshot, and
 // why, "margin": the snapshot is of a margin account whose cash balance
 // reads 0 beside a margin or a short balance, as Schwab can report a debit
-// or short positions (docs/schwab-api.md).
+// or short positions (docs/schwab-api.md). Was is, with -since, the
+// difference that the export it goes on from listed for the account, or
+// carried as this one does, "" for none: the export that checks the account
+// again compares its difference with it.
 type chainCashUnchecked struct {
 	Account  string      `json:"account"`
 	Snapshot nytime.Date `json:"snapshot"`
 	Why      string      `json:"why"`
+	Was      json.Number `json:"was,omitempty"`
 }
 
 // A chainCashHolding is a difference of PP's cash check (toolCash): the
 // account, the market date of the snapshot, its cash and what the records
 // leave of it in PP, and, with -since, whether the export it goes on from
-// listed the same account with the same difference (before): an opening
-// deposit booked in PP changes nothing in the store, so its difference
-// comes back in every export.
+// listed the same account with the same difference, the snapshot's cash
+// less the records' (before), or with another, which Was is, "" for none:
+// an opening deposit booked in PP changes nothing in the store, so its
+// difference comes back in every export, and one booked for a difference
+// that has changed since is to change by the change.
 type chainCashHolding struct {
 	Account      string      `json:"account"`
 	Snapshot     nytime.Date `json:"snapshot"`
 	SnapshotCash json.Number `json:"snapshot_cash"`
 	WrittenCash  json.Number `json:"written_cash"`
 	Before       bool        `json:"before,omitempty"`
+	Was          json.Number `json:"was,omitempty"`
 }
 
 // A chainHolding is a difference of the holdings check (toolHolding), its
 // shares signed, and, with -since, whether the export it goes on from listed
-// the same account and security with the same difference (before): the
-// snapshot's shares less the written ones, which trades the store records
-// leave as they are. SecurityKeys are, for a security that the tool holds
-// under several of the store's keys, every one of them.
+// the same account and security (chainSameHolding) with the same
+// difference, the snapshot's shares less the written ones (before), or with
+// another, which Was is, "" for none: an opening position added by hand
+// changes nothing in the store, whose trades leave its difference as it
+// is, and one added for a difference that has changed since is to change by
+// the change. SecurityKeys are, for a security that the tool holds under
+// several of the store's keys, every one of them.
 type chainHolding struct {
 	Account        string      `json:"account"`
 	SecurityKey    string      `json:"security_key"`
@@ -248,6 +262,30 @@ type chainHolding struct {
 	SnapshotShares json.Number `json:"snapshot_shares"`
 	WrittenShares  json.Number `json:"written_shares"`
 	Before         bool        `json:"before,omitempty"`
+	Was            json.Number `json:"was,omitempty"`
+}
+
+// A chainHoldingGone is a difference of the holdings check that the export
+// it goes on from listed and that this one does not find: the records now
+// leave of the security what the account's latest snapshot holds. It is as
+// that export listed it, with its difference, the snapshot's shares less
+// the written ones, as Was: an opening position added by hand for it is to
+// delete, as the rows written now stand for it.
+type chainHoldingGone struct {
+	Account      string      `json:"account"`
+	SecurityKey  string      `json:"security_key"`
+	SecurityKeys []string    `json:"security_keys,omitempty"`
+	Symbol       string      `json:"symbol"`
+	Was          json.Number `json:"was"`
+}
+
+// A chainCashGone is, for PP, an account whose cash the export it goes on
+// from listed as differing from its latest snapshot's, by Was, the
+// snapshot's cash less the records', and which this one finds alike: an
+// opening deposit or withdrawal booked by hand for it is to delete.
+type chainCashGone struct {
+	Account string      `json:"account"`
+	Was     json.Number `json:"was"`
 }
 
 // A chainChanged is a row that the tool holds in another form than this
@@ -587,10 +625,15 @@ type chainResult struct {
 	leftOut   []chainLeftOut
 	holdings  []chainHolding
 	unchecked []toolAccount
-	// cash are, for PP, the differences of the cash check, and
-	// cashUnchecked the accounts whose cash it could not check.
+	// holdingsGone are the differences that the earlier export listed and
+	// that the holdings check no longer finds; cash, cashGone and
+	// cashUnchecked are, for PP, the cash check's differences, those gone,
+	// and the accounts whose cash it could not check, each as the manifest
+	// lists it.
+	holdingsGone  []chainHoldingGone
 	cash          []chainCashHolding
-	cashUnchecked []toolCashUnchecked
+	cashGone      []chainCashGone
+	cashUnchecked []chainCashUnchecked
 	// securities are every security that the chain has written, with its
 	// identifiers as written last; symbolsChanged those of this export whose
 	// symbol a tool that holds them under an earlier one needs telling of,
@@ -1055,66 +1098,200 @@ func (c *chainResult) compareLeftOut() {
 }
 
 // compareHoldings runs the holdings check over the records of every row
-// written or given, events (4.15 of the design), and marks before each
-// difference that the earlier export listed for the same account and
-// security with the same difference: an opening position added by hand in
-// the tool changes nothing in the store, so its difference comes back in
-// every export.
+// written or given, events (4.15 of the design), and compares each
+// difference with those that the earlier export listed for the same account
+// and security (chainSameHolding), each taken once: an opening position
+// added by hand in the tool changes nothing in the store, so its difference
+// comes back in every export. One listed alike is marked before; one listed
+// otherwise keeps the difference listed (Was), by which the hand entry is
+// to change; and one listed that this export does not find, of an account
+// that it checks, is gone, for the hand entry to go too: the rows written
+// now stand for it.
 func (c *chainResult) compareHoldings(events []toolEvent) {
 	diffs, unchecked := holdingsCheck(c.in, events)
 	c.unchecked = unchecked
-	before := map[string]bool{}
+	var listed []chainHolding
 	if c.since != nil {
-		for _, h := range c.since.Holdings.Differences {
-			d := new(big.Rat).Sub(chainRat(h.SnapshotShares), chainRat(h.WrittenShares))
-			before[chainHoldingKey(h.Account, h.SecurityKey, h.Symbol, d)] = true
-		}
+		listed = c.since.Holdings.Differences
 	}
+	taken := make([]bool, len(listed))
 	for _, d := range diffs {
 		h := chainHolding{
 			Account: d.account.label(), SecurityKey: d.key, SecurityKeys: d.keys, Symbol: d.symbol, Snapshot: d.snapshot,
 			SnapshotShares: json.Number(formatMicros(d.snapshotShares)), WrittenShares: json.Number(formatMicros(d.writtenShares)),
 		}
-		h.Before = before[chainHoldingKey(h.Account, h.SecurityKey, h.Symbol, big.NewRat(d.snapshotShares-d.writtenShares, 1_000_000))]
+		was, found := new(big.Rat), false
+		for i, l := range listed {
+			if !taken[i] && chainSameHolding(l, h) {
+				taken[i], found = true, true
+				was.Add(was, chainDifference(l.SnapshotShares, l.WrittenShares))
+			}
+		}
+		switch {
+		case found && was.Cmp(big.NewRat(d.snapshotShares-d.writtenShares, 1_000_000)) == 0:
+			h.Before = true
+		case found:
+			h.Was = chainNumber(was, false)
+		}
 		c.holdings = append(c.holdings, h)
+	}
+	// An account that the earlier export checked and this one cannot, as a
+	// store restored from an older backup may lack its snapshot, has
+	// nothing gone: this export cannot tell.
+	for i, l := range listed {
+		if !taken[i] && !slices.ContainsFunc(c.unchecked, func(a toolAccount) bool { return a.label() == l.Account }) {
+			c.holdingsGone = append(c.holdingsGone, chainHoldingGone{
+				Account: l.Account, SecurityKey: l.SecurityKey, SecurityKeys: l.SecurityKeys, Symbol: l.Symbol,
+				Was: chainNumber(chainDifference(l.SnapshotShares, l.WrittenShares), false),
+			})
+		}
 	}
 }
 
 // compareCash runs PP's cash check over the records of every row written
-// or given, events, and marks before each difference that the earlier
-// export listed for the same account with the same difference, the
-// snapshot's cash less the records'.
+// or given, events, and compares each account's difference, the snapshot's
+// cash less the records', with the one that the earlier export listed for
+// it, or carried for an account that it could not check
+// (chainCashUnchecked.Was), as compareHoldings does: alike, it is marked
+// before; otherwise it keeps the difference listed (Was); and one listed of
+// an account whose cash this export checks and finds alike is gone. A
+// margin account whose cash it cannot check carries the difference listed
+// on, for the export that checks it again: Schwab's cash reading of 0 does
+// not settle it.
 func (c *chainResult) compareCash(events []toolEvent) {
 	if c.in.tool != toolPP {
 		return
 	}
-	before := map[string]bool{}
-	if c.since != nil && c.since.Holdings.Cash != nil {
-		for _, h := range *c.since.Holdings.Cash {
-			d := new(big.Rat).Sub(chainRat(h.SnapshotCash), chainRat(h.WrittenCash))
-			before[h.Account+"\x1f"+d.RatString()] = true
+	listed := map[string]*big.Rat{}
+	var order []string
+	if c.since != nil {
+		if c.since.Holdings.Cash != nil {
+			for _, h := range *c.since.Holdings.Cash {
+				listed[h.Account] = chainDifference(h.SnapshotCash, h.WrittenCash)
+				order = append(order, h.Account)
+			}
+		}
+		if c.since.Holdings.CashNotChecked != nil {
+			for _, u := range *c.since.Holdings.CashNotChecked {
+				if u.Was != "" {
+					listed[u.Account] = chainRat(u.Was)
+					order = append(order, u.Account)
+				}
+			}
 		}
 	}
 	diffs, unchecked := cashCheck(c.in, events)
-	c.cashUnchecked = unchecked
+	for _, u := range unchecked {
+		n := chainCashUnchecked{Account: u.account.label(), Snapshot: u.snapshot, Why: "margin"}
+		if was, ok := listed[n.Account]; ok {
+			n.Was = chainNumber(was, true)
+			delete(listed, n.Account)
+		}
+		c.cashUnchecked = append(c.cashUnchecked, n)
+	}
 	for _, d := range diffs {
 		h := chainCashHolding{
 			Account: d.account.label(), Snapshot: d.snapshot,
 			SnapshotCash: json.Number(formatCents(d.snapshotCash)), WrittenCash: json.Number(formatCents(d.writtenCash)),
 		}
-		h.Before = before[h.Account+"\x1f"+big.NewRat(d.snapshotCash-d.writtenCash, 100).RatString()]
+		if was, ok := listed[h.Account]; ok {
+			if was.Cmp(big.NewRat(d.snapshotCash-d.writtenCash, 100)) == 0 {
+				h.Before = true
+			} else {
+				h.Was = chainNumber(was, true)
+			}
+			delete(listed, h.Account)
+		}
 		c.cash = append(c.cash, h)
+	}
+	// An account with no snapshot of its cash to check, as in a store
+	// restored from an older backup, has nothing gone: this export cannot
+	// tell.
+	checked := map[string]bool{}
+	for _, id := range snapshotAccounts(c.in) {
+		if _, ok := cashSnapshot(c.in, id); ok {
+			checked[c.in.accountOf(id).label()] = true
+		}
+	}
+	for _, a := range order {
+		if was, ok := listed[a]; ok && checked[a] {
+			c.cashGone = append(c.cashGone, chainCashGone{Account: a, Was: chainNumber(was, true)})
+			delete(listed, a)
+		}
 	}
 }
 
-// chainHoldingKey names a difference of the holdings check: its account,
-// its security (by its key, or by its symbol for one without), and the
-// snapshot's shares less the written ones.
-func chainHoldingKey(account, key, symbol string, diff *big.Rat) string {
-	if key != "" {
-		symbol = ""
+// chainSameHolding reports whether the difference l, that an earlier export
+// listed, and h are of one account and one security: of keys one of which
+// the other has too, or, for two of a row's securities without a key, of
+// one symbol. A security that the tool holds under several of the store's
+// keys lists them all, so that a key that joins it later finds it still.
+func chainSameHolding(l, h chainHolding) bool {
+	if l.Account != h.Account {
+		return false
 	}
-	return strings.Join([]string{account, key, symbol, diff.RatString()}, "\x1f")
+	if l.SecurityKey == "" || h.SecurityKey == "" {
+		return l.SecurityKey == h.SecurityKey && l.Symbol == h.Symbol
+	}
+	keys := append([]string{l.SecurityKey}, l.SecurityKeys...)
+	return slices.ContainsFunc(append([]string{h.SecurityKey}, h.SecurityKeys...), func(k string) bool { return slices.Contains(keys, k) })
+}
+
+// chainDifference returns a difference that an earlier export listed: the
+// snapshot's shares or cash less the written.
+func chainDifference(snapshot, written json.Number) *big.Rat {
+	return new(big.Rat).Sub(chainRat(snapshot), chainRat(written))
+}
+
+// chainNumber writes r as the manifest writes shares, in up to six places,
+// or with cash, as dollars in two; a number off that grid, of a manifest
+// edited by hand, in as many as it takes, up to twelve.
+func chainNumber(r *big.Rat, cash bool) json.Number {
+	scale := int64(1_000_000)
+	if cash {
+		scale = 100
+	}
+	if n := new(big.Rat).Mul(r, big.NewRat(scale, 1)); n.IsInt() && n.Num().IsInt64() {
+		if cash {
+			return json.Number(formatCents(n.Num().Int64()))
+		}
+		return json.Number(formatMicros(n.Num().Int64()))
+	}
+	return json.Number(strings.TrimSuffix(strings.TrimRight(r.FloatString(12), "0"), "."))
+}
+
+// differencesChanged returns the differences that the earlier export listed
+// and that this one lists with another, or not at all, as ToolExport gives
+// them: the holdings', then, for PP, the cash's, each those changed in the
+// manifest's order, then those gone in the earlier export's.
+func (c *chainResult) differencesChanged() []ToolDifference {
+	var out []ToolDifference
+	changed := func(d ToolDifference, now *big.Rat, cash bool) {
+		d.Now = string(chainNumber(now, cash))
+		d.Change = string(chainNumber(now.Sub(now, chainRat(json.Number(d.Was))), cash))
+		out = append(out, d)
+	}
+	gone := func(d ToolDifference, cash bool) {
+		d.Change = string(chainNumber(new(big.Rat).Neg(chainRat(json.Number(d.Was))), cash))
+		out = append(out, d)
+	}
+	for _, h := range c.holdings {
+		if h.Was != "" {
+			changed(ToolDifference{Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Was: string(h.Was)}, chainDifference(h.SnapshotShares, h.WrittenShares), false)
+		}
+	}
+	for _, g := range c.holdingsGone {
+		gone(ToolDifference{Account: g.Account, Key: g.SecurityKey, Symbol: g.Symbol, Was: string(g.Was)}, false)
+	}
+	for _, h := range c.cash {
+		if h.Was != "" {
+			changed(ToolDifference{Account: h.Account, Cash: true, Was: string(h.Was)}, chainDifference(h.SnapshotCash, h.WrittenCash), true)
+		}
+	}
+	for _, g := range c.cashGone {
+		gone(ToolDifference{Account: g.Account, Cash: true, Was: string(g.Was)}, true)
+	}
+	return out
 }
 
 // compareSecurities makes the chain's securities, the earlier export's with
@@ -1306,13 +1483,10 @@ func chainJSON(c *chainResult, exportedAt string, unused []string) chainManifest
 	if m.Holdings.Differences == nil {
 		m.Holdings.Differences = []chainHolding{}
 	}
+	m.Holdings.Gone = append([]chainHoldingGone{}, c.holdingsGone...)
 	if c.in.tool == toolPP {
-		cash := append([]chainCashHolding{}, c.cash...)
-		notChecked := []chainCashUnchecked{}
-		for _, u := range c.cashUnchecked {
-			notChecked = append(notChecked, chainCashUnchecked{Account: u.account.label(), Snapshot: u.snapshot, Why: "margin"})
-		}
-		m.Holdings.Cash, m.Holdings.CashNotChecked = &cash, &notChecked
+		cash, gone, notChecked := append([]chainCashHolding{}, c.cash...), append([]chainCashGone{}, c.cashGone...), append([]chainCashUnchecked{}, c.cashUnchecked...)
+		m.Holdings.Cash, m.Holdings.CashGone, m.Holdings.CashNotChecked = &cash, &gone, &notChecked
 	}
 	return m
 }

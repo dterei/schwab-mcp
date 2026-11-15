@@ -109,6 +109,7 @@
   "waiting": [],
   "holdings": {
     "differences": [],
+    "gone": [],
     "not_checked": []
   },
   "ghostfolio": {

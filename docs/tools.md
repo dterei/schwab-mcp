@@ -89,8 +89,8 @@ and the types' names, whatever PP's language and locale.
      A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
-   11 holdings differ from the latest snapshot (pp-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
-   2 accounts' cash in Portfolio Performance differs from their latest snapshots' (pp-1/manifest.json): cash held before the store's first row of each, or rows left out; book each difference as an opening deposit or withdrawal (docs/tools.md)
+   11 holdings differ from the latest snapshot (pp-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
+   2 accounts' cash in Portfolio Performance differs from their latest snapshots' (pp-1/manifest.json): cash held before the store's first row of each, or rows left out; book each difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)
    in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
      A1 ...135: Schwab A1 ...135
      A2 ...398: Schwab A2 ...398
@@ -145,8 +145,9 @@ and the types' names, whatever PP's language and locale.
    it. Import the History files that go back to the purchase
    (`schwabtx import`), and the next export writes the rows they add; or
    add the opening position in PP, a Delivery (Inbound) dated before its
-   first row. A later export marks `before` a difference that the one
-   before it listed alike, and does not count it again.
+   first row. A row left out that moved shares, such as a split, is in the
+   difference too: book it by hand as step 5 says, and only the rest as the
+   opening position.
 
    **Opening cash.** PP's deposit account holds the sum of its records, from
    the account's first row in the store, so it lacks the cash that the
@@ -158,13 +159,29 @@ and the types' names, whatever PP's language and locale.
    Import the History files that go back to the account's first deposit, and
    the next export writes the rows they add; or book the difference in PP as
    a Deposit, or a Withdrawal when the records leave more, dated before the
-   account's first row. Schwab can report a margin account's cash as 0 with
-   a debit or short positions, its cash then in other figures: such an
-   account's cash is not checked, and stderr names it
+   account's first row, less the rows left out that you book by hand (step
+   5), whose cash it holds too. Schwab can report a margin account's cash as
+   0 with a debit or short positions, its cash then in other figures: such
+   an account's cash is not checked, and stderr names it
    (`holdings.cash_not_checked`), for you to compare its cash at Schwab with
-   PP's by hand. A later export marks `before` a difference that the one
-   before it listed alike; a new one is a row that moved cash and that the
-   export left out (`left_out`) or the store lacks.
+   PP's by hand.
+
+   **Later exports.** The two ways exclude each other: what you add or book
+   by hand stands for rows that the store lacks, and once a later export
+   writes them, it is to go. So each later export compares every difference,
+   of shares or cash, with the one before it. One listed alike is marked
+   `before`, and not counted again; one listed otherwise keeps the earlier
+   difference, the snapshot's less the records', as `was`; and one that it
+   no longer finds is listed under `holdings.gone`, or `holdings.cash_gone`
+   for cash, with `was`. A difference changes when what the export writes,
+   gives or leaves out does: History files imported, a row left out,
+   uncounted or revised since, or one that the store lacked. stderr lists
+   each that changed or went with its change, signed as the manifest's
+   amounts are: change what you added or booked by hand for it by that
+   change, less the rows left out that you book by hand, or delete it. If
+   you booked nothing for it, take its difference as a new one. An account
+   whose cash is not checked keeps, as its `was`, the difference listed
+   before, for the export that checks it again.
 5. **What the manifest asks of you**: the rows left out, each with its
    reason and what to do, and the rows written with a caveat
    ([below](#what-the-manifest-asks-of-you)). A row that PP refuses for its
@@ -214,8 +231,10 @@ and the types' names, whatever PP's language and locale.
    exported comes back under gone, to delete, and so does one that a
    revision dates after `-to`, which an export up to its new day writes
    again; a file row that waits for you comes in a later export once you
-   decide it; and the left-out rows, holdings and cash that an earlier
-   export listed are marked `before`, so that you are not asked twice.
+   decide it; the left-out rows that an earlier export listed are marked
+   `before`, so that you are not asked twice, and so are its differences
+   from the snapshots that stayed as they were, while those that changed or
+   went are listed with their change (step 4).
    Never name an export that you have not imported: the next one would
    take for granted what it gave PP.
 
@@ -283,7 +302,7 @@ with its description in its comment.
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
    4 deposits, withdrawals and journals are in the accounts' balances
-   11 holdings differ from the latest snapshot (gf-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+   11 holdings differ from the latest snapshot (gf-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
    2 symbols for Yahoo have no row since 2025-11-13 and are not held (gf-1/manifest.json lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual
    Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
    next time: schwabtx export -format ghostfolio -since gf-1 -dir <a new folder>
@@ -308,7 +327,7 @@ with its description in its comment.
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
    4 deposits, withdrawals and journals are in the accounts' balances
-   11 holdings differ from the latest snapshot (gf-2/manifest.json): positions opened before the store's rows, or splits left out; add them by hand (docs/tools.md)
+   11 holdings differ from the latest snapshot (gf-2/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
    1 symbol for Yahoo has no row since 2025-11-13 and is not held (gf-2/manifest.json lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual
    Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
    next time: schwabtx export -format ghostfolio -since gf-2 -dir <a new folder>
@@ -361,7 +380,10 @@ with its description in its comment.
    Ghostfolio a later sale shows as a negative holding, and a dividend of it
    sets the portfolio's dividend yield to 0. Add the opening position as a
    BUY dated before its first row, or import the History files back to the
-   purchase and export again.
+   purchase and export again. The two exclude each other, as in PP: once a
+   later export writes the purchase, stderr lists the difference as gone,
+   and you delete the BUY, or as changed, and you change its quantity by
+   the change.
 
 ### Later imports
 

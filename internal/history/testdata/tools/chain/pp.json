@@ -130,6 +130,7 @@
         "written_shares": 1
       }
     ],
+    "gone": [],
     "cash": [
       {
         "account": "A1 ...135",
@@ -138,6 +139,7 @@
         "written_cash": -40.00
       }
     ],
+    "cash_gone": [],
     "cash_not_checked": [],
     "not_checked": [
       "A3 ...783"

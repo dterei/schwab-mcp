@@ -413,7 +413,9 @@
   "waiting": [],
   "holdings": {
     "differences": [],
+    "gone": [],
     "cash": [],
+    "cash_gone": [],
     "cash_not_checked": [],
     "not_checked": [
       "A1 ...135"
