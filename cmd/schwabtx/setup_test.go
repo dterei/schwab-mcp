@@ -335,7 +335,8 @@ func TestSetupUsage(t *testing.T) {
 // The README's section on schwabtx setup lists, in its block of flags,
 // exactly the flags that setup -h prints, shows the client lines as setup
 // prints them, and quotes the warnings of login and of the store commands
-// as they print them.
+// as they print them; docs/mcp.md shows each kind of client's entry as
+// setup prints it.
 func TestSetupDocs(t *testing.T) {
 	b, err := os.ReadFile("README.md")
 	if err != nil {
@@ -365,6 +366,25 @@ func TestSetupDocs(t *testing.T) {
 	lines := clientLines("/home/you/go/bin/schwab-mcp", "/home/you/.config/schwabtx/config.json", false)
 	if !slices.ContainsFunc(codeBlocks(section), func(block string) bool { return strings.Contains(block+"\n", "\n"+lines) }) {
 		t.Errorf("no block of the README's section on setup shows the client lines as setup prints them:\n%s", lines)
+	}
+	// docs/mcp.md shows each kind of client's entry as setup prints it, for
+	// macOS's paths, in a block of code, indented as the block needs.
+	mcp, err := os.ReadFile(filepath.Join("..", "..", "docs", "mcp.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var blocks [][]string
+	for _, block := range fencedBlocks(strings.ReplaceAll(string(mcp), "\r\n", "\n")) {
+		blocks = append(blocks, trimmedLines(block))
+	}
+	entries := clientEntries(clientLines("/Users/you/go/bin/schwab-mcp", "/Users/you/Library/Application Support/schwabtx/config.json", false))
+	if len(entries) != 3 {
+		t.Fatalf("setup prints %d entries, not one for each of the three kinds of client: %q", len(entries), entries)
+	}
+	for _, entry := range entries {
+		if !slices.ContainsFunc(blocks, func(lines []string) bool { return holdsRun(lines, entry) }) {
+			t.Errorf("no block of docs/mcp.md shows, as setup prints it,\n%s", strings.Join(entry, "\n"))
+		}
 	}
 	for _, warning := range []string{
 		"warning: the MCP server reads its login from ",
@@ -528,6 +548,47 @@ func clientsIn(t *testing.T, out string) map[string][]string {
 		"command-line agent": systemShellWords(t, line),
 		"editor extension":   entry(`An editor extension, in "servers" of your user's MCP configuration:`, "stdio"),
 	}
+}
+
+// clientEntries returns the entries of lines, what clientLines prints: the
+// lines of each run of lines indented below a line that says which kind of
+// client takes them, each line trimmed.
+func clientEntries(lines string) [][]string {
+	var entries [][]string
+	var run []string
+	for line := range strings.Lines(lines) {
+		line = strings.TrimSuffix(line, "\n")
+		if strings.HasPrefix(line, "  ") {
+			run = append(run, strings.TrimSpace(line))
+			continue
+		}
+		if run != nil {
+			entries, run = append(entries, run), nil
+		}
+	}
+	if run != nil {
+		entries = append(entries, run)
+	}
+	return entries
+}
+
+// trimmedLines returns the lines of s, each trimmed.
+func trimmedLines(s string) []string {
+	var lines []string
+	for line := range strings.Lines(s) {
+		lines = append(lines, strings.TrimSpace(line))
+	}
+	return lines
+}
+
+// holdsRun reports whether lines hold run, one after another.
+func holdsRun(lines, run []string) bool {
+	for i := 0; i+len(run) <= len(lines); i++ {
+		if slices.Equal(lines[i:i+len(run)], run) {
+			return true
+		}
+	}
+	return false
 }
 
 // serverBeside makes a schwab-mcp, schwab-mcp.exe on Windows, in dir, which

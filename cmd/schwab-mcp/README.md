@@ -29,7 +29,8 @@ schwab-mcp --config /abs/path/to/config.json --check
 ```
 
 The server cannot log in: when the login is missing or has lapsed, every
-tool says so and asks you to run `schwabtx login` in your terminal.
+tool that reads Schwab says so, and asks that you run `schwabtx login` in
+your terminal.
 
 ## Flags
 
@@ -53,8 +54,8 @@ A command typed wrong in a terminal gets what is wrong and the usage on
 stderr, and exit code 2. A client that starts the server with a flag or
 an argument it cannot use does not stop it, since a client shows only
 "failed" for a server that exits: the server starts with the flags it
-could read, `auth_status` lists the problem, and every tool answers
-`[config_unreadable]` with how to fix it.
+could read, `auth_status` lists the problem, and every tool that reads
+Schwab answers `[config_unreadable]` with how to fix it.
 
 `--check` prints, for a person, what the `auth_status` tool answers: the
 config file, where the app key and secret came from, the API's host, the
@@ -81,9 +82,9 @@ host when it is not Schwab's.
 
 A problem with the file does not stop the server either: a file that
 `--config` names and that does not exist, one that is not a config file,
-one that a newer `schwabtx` wrote, a relative path, or one that others
-could read, which the server makes readable only by you. `auth_status`
-lists each, and the tools say what to do.
+one that a newer `schwabtx` wrote, a relative path, or, on Linux and
+macOS, one that others could read, which the server then makes readable
+only by you. `auth_status` lists each, and the tools say what to do.
 
 ## Exit codes
 
