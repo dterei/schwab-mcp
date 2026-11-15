@@ -454,8 +454,12 @@ what identifies it, with its description in its comment.
    year that no account holds (`why` `idle`), and those named by a CUSIP
    (`named_by_cusip`), often a company acquired, renamed or delisted since
    you sold. If Yahoo lacks any, or shows another company under it, export
-   again, in full to another new folder, with `-manual` naming them all,
-   comma-separated.
+   again with `-manual` naming them all, comma-separated: in full to
+   another new folder, as below; or, when the line is a `-since` export's,
+   the same `schwabtx export` with `-manual`, once you have moved away the
+   folder that you did not import, which adds them to the chain's
+   `-manual` list and lists the activities that the chain gave of them as
+   changed, to delete (step 7).
    `-manual` refuses a symbol that no security in the store has had. Say
    that Yahoo lacked BND:
 
@@ -491,8 +495,8 @@ what identifies it, with its description in its comment.
    Ghostfolio user that holds none of these accounts, and review the
    preview, which shows an activity that Ghostfolio holds as "This activity
    already exists.". If the import says that `activities.N.symbol` "cannot
-   be resolved by the data source", export again, in full to another new
-   folder, with `-manual` naming that symbol and those you named before, and
+   be resolved by the data source", export again with `-manual` naming that
+   symbol, as above (a full export naming those you named before too), and
    import that one. A MANUAL asset loses Yahoo's price history in
    Ghostfolio's charts; later exports with `-since` keep the chain's
    `-manual` list.
