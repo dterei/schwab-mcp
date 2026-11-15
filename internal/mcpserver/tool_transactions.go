@@ -270,7 +270,7 @@ func (c *call) txnQueryOf(in getTransactionsIn) (txnQuery, error) {
 	today := nytime.DateOf(c.now)
 	q := txnQuery{
 		to: today, source: cmp.Or(in.Source, "auto"), all: in.IncludeUncounted, full: in.Detail == "full",
-		limit: cmp.Or(in.Limit, 50), symbol: asciiUpper(in.Symbol),
+		limit: cmp.Or(in.Limit, 50), symbol: asciiUpper(strings.TrimSpace(in.Symbol)),
 	}
 	if in.To != "" {
 		if _, ok := dayOf(nytime.Date(in.To)); !ok {

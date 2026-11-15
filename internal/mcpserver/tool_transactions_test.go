@@ -189,7 +189,7 @@ var getTransactionsCases = []toolCase{
 	{
 		tool: "get_transactions", name: "symbol", opts: []envOption{withTxnRows(individual, xyzDividend135)},
 		args: `{"symbol":"xyz","from":"2025-01-01","to":"2025-12-31"}`,
-		check: func(t *testing.T, _ *env, r result) {
+		check: func(t *testing.T, e *env, r result) {
 			for _, row := range txnRowsOf(r) {
 				if row["symbol"] != "XYZ" {
 					t.Errorf("a row of another symbol: %v", row)
@@ -200,6 +200,13 @@ var getTransactionsCases = []toolCase{
 				"C2cdf9679.2@...398", "C2cdf9679.1@...398",
 			}) {
 				t.Errorf("the rows of XYZ: %v", got)
+			}
+			// Spaces around the symbol are no part of it, as in get_positions.
+			padded := e.call("get_transactions", `{"symbol":" xyz ","from":"2025-01-01","to":"2025-12-31"}`)
+			got, _ := json.Marshal([]any{txnRefsOf(txnRowsOf(padded)), padded.value["totals"]})
+			want, _ := json.Marshal([]any{txnRefsOf(txnRowsOf(r)), r.value["totals"]})
+			if string(got) != string(want) {
+				t.Errorf("the rows and totals of \" xyz \": %s, want those of \"xyz\": %s", got, want)
 			}
 		},
 	},
