@@ -1069,6 +1069,45 @@ func TestLoginErrors(t *testing.T) {
 	}
 }
 
+// A call whose request ends while it waits on Schwab, as when the client
+// cancels it or closes its input, is timed_out, as after a signal, and the
+// log does not say that Schwab could not be reached: the SDK ends a request
+// at the input's end with io.EOF as the cause, and an HTTP request to
+// Schwab fails with that cause, which is no failure of Schwab's or of the
+// network's. The tool here fails as such a request does once its context
+// ends.
+func TestEndedRequestIsNoSchwabFailure(t *testing.T) {
+	t.Parallel()
+	started := make(chan struct{}, 1)
+	e := newEnv(t, withoutStore(), withTools(func(s *Server) {
+		testTool(s, "waits", nil, func(ctx context.Context, _ *call, _ struct{}) (echoOut, error) {
+			started <- struct{}{}
+			<-ctx.Done()
+			return echoOut{}, &requestError{err: fmt.Errorf("GET /trader/v1/accounts: %w", io.EOF)}
+		})
+	}))
+	ctx, cancel := context.WithCancel(t.Context())
+	called := make(chan error, 1)
+	go func() {
+		_, err := e.cs.CallTool(ctx, callParams("waits"))
+		called <- err
+	}()
+	<-started
+	cancel()
+	if err := <-called; err == nil {
+		t.Error("a cancelled call answered")
+	}
+	deadline := time.Now().Add(time.Minute)
+	for !strings.Contains(e.logs.String(), "msg=call tool=waits") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	logs := e.logs.String()
+	if !strings.Contains(logs, "msg=call tool=waits duration=") || !strings.Contains(logs, "outcome=timed_out") ||
+		strings.Contains(logs, "could not be reached") {
+		t.Errorf("a call whose request ended:\n%s", logs)
+	}
+}
+
 // A protocol error that the SDK words before the middleware runs, for
 // params it cannot decode, quotes no part of the request: its message is
 // the method and the code's words. Any other keeps the SDK's words, with

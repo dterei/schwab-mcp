@@ -164,6 +164,13 @@ func (t *tool[In, Out]) call(ctx context.Context, raw json.RawMessage) (b []byte
 		b, err = t.answer(c, &out)
 	}
 	if err != nil {
+		if _, worded := errors.AsType[*toolErr](err); !worded && ctx.Err() != nil {
+			// The request ended: the client cancelled it or closed its input,
+			// or a signal ended the server. The SDK ends a request at the
+			// input's end with io.EOF as the cause, which an HTTP request to
+			// Schwab then fails with; that is the call's end, not Schwab's.
+			return nil, s.errorFor(codeTimedOut)
+		}
 		return nil, s.toolError(t.def.name, err)
 	}
 	return b, nil

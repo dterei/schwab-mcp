@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -489,6 +490,40 @@ func TestStdinEndStopsTheServer(t *testing.T) {
 		t.Errorf("the server exited %v after stdin's end", took)
 	}
 	t.Logf("the server exited %v after stdin's end", took)
+}
+
+// When stdin ends while a call waits on Schwab, the call ends timed_out,
+// as after a signal, and the server exits 0: the SDK ends the request with
+// io.EOF as its cause, which the request to Schwab then fails with, and the
+// log does not say that Schwab could not be reached.
+func TestStdinEndDuringARequestToSchwab(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	waiting := make(chan struct{}, 1)
+	w.fake.Override(schwabtest.AccountsRoute, func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case waiting <- struct{}{}:
+		default:
+		}
+		<-r.Context().Done()
+	})
+	c := startChild(t, w, "--config", w.config, "--log-level", "info")
+	c.initialize()
+	c.send(callLine(2, "get_balances", "{}"))
+	select {
+	case <-waiting:
+	case <-time.After(time.Minute):
+		t.Fatal("the call did not reach Schwab's accounts within a minute")
+	}
+	c.stdin.Close()
+	if code, _ := c.wait(); code != 0 {
+		t.Errorf("exit code %d at stdin's end", code)
+	}
+	stderr := strings.Join(c.stderr.all(), "\n")
+	if !strings.Contains(stderr, "msg=call tool=get_balances") || !strings.Contains(stderr, "outcome=timed_out") ||
+		strings.Contains(stderr, "could not be reached") {
+		t.Errorf("the log of a call that stdin's end cut short:\n%s", stderr)
+	}
 }
 
 // A SIGINT while a call runs ends the call and exits 0 within 5 seconds,
