@@ -10,10 +10,10 @@ import (
 )
 
 // This file reads what a tool export maps (2 of the design): its queries,
-// Q0 to Q10, Q12 and QL, run in one read transaction into a toolInput.
+// Q0 to Q10 and QL, run in one read transaction into a toolInput.
 
 // A toolQuery is one of the reads of a tool export (2 of the design): its
-// name there, Q0 to Q10, Q12 or QL; its SQL and its arguments; and scan,
+// name there, Q0 to Q10 or QL; its SQL and its arguments; and scan,
 // which reads the current row of rows, a row of the query, into in.
 type toolQuery struct {
 	name  string
@@ -24,13 +24,13 @@ type toolQuery struct {
 
 // toolQueries returns the reads of a tool export that selects the account
 // of id account, 0 for every account, and the rows up to the day to, ""
-// for no bound (2 of the design): Q0 to Q10, Q12 and QL, in that order. The
+// for no bound (2 of the design): Q0 to Q10 and QL, in that order. The
 // account bounds the ledger rows, their legs, the snapshots, the rows that
 // wait for you, the coverage and the uncounted entries (Q2, Q3 and Q7 to
 // Q10); to bounds the ledger rows, their legs, the positions and the rows
 // that wait for you (Q2, Q3, Q6 and Q8). The accounts, the securities,
-// their names, the days of the rows under each of their symbols (Q12) and
-// the links of rows of two of them (QL) are the store's, and the positions
+// their names and the links of rows of two of them (QL) are the store's,
+// and the positions
 // every account's, since a transfer names the other account, a price is
 // the market's, and every export takes a security for the same as every
 // other, whatever it selects; the snapshots and the uncounted entries go
@@ -137,24 +137,6 @@ func toolQueries(account int64, to nytime.Date) []toolQuery {
 			query: `SELECT ref, account_id, counted_why, matched_with FROM entries` + uncounted +
 				` ORDER BY account_id, ref`,
 			args: uncountedArgs, scan: scanToolUncounted,
-		},
-		{
-			name: "Q12",
-			// The days of every entry, counted or not, and of every API leg of
-			// a security, under each symbol of each security, "" for a row of
-			// none, of each source: the store dates a name by the read or the
-			// file that brought it, which may hold years of rows; the API's
-			// rows' days say when a security went by a symbol, and which of two
-			// symbols of one read came last, while a History file names its
-			// rows by the ticker of its newest export, whatever key the store
-			// gives them.
-			query: `SELECT coalesce(security_key, ''), symbol, source, min(day), max(day) FROM (
-				SELECT security_key, symbol, source, day FROM entries
-				UNION ALL
-				SELECT security_key, symbol, source, day FROM legs WHERE source = 'api' AND asset_type IS NOT 'CURRENCY')
-				WHERE symbol IS NOT NULL AND symbol <> '' AND day IS NOT NULL
-				GROUP BY 1, 2, 3 ORDER BY 1, 2, 3`,
-			scan: scanToolSymbolDays,
 		},
 		{
 			name: "QL",
@@ -382,20 +364,6 @@ func scanToolUncounted(rows *sql.Rows, in *toolInput) error {
 	}
 	u.matchedWith = matched.String
 	in.uncounted = append(in.uncounted, u)
-	return nil
-}
-
-// scanToolSymbolDays reads a row of Q12: the first and the last day of the
-// store's rows and legs of one source under a symbol of a security, of
-// every account.
-func scanToolSymbolDays(rows *sql.Rows, in *toolInput) error {
-	var d toolSymbolDays
-	var first, last string
-	if err := rows.Scan(&d.key, &d.symbol, &d.source, &first, &last); err != nil {
-		return err
-	}
-	d.first, d.last = nytime.Date(first), nytime.Date(last)
-	in.days = append(in.days, d)
 	return nil
 }
 

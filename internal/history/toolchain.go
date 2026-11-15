@@ -1276,7 +1276,8 @@ func (c *chainResult) ppHolds() map[string]bool {
 
 // A symbolsChange is a security of PP's symbols_changed (R-10 of the
 // consolidation), one of PP's securities: the store's securities of it that
-// are named, in their order; why (renamed, no_ticker, changed) and because
+// are named, in their order; why (renamed, no_ticker, named_by_cusip,
+// changed) and because
 // (delisted, reused or undecided, for no_ticker); for reused, reusedBy, the
 // key of the security that keeps the ticker (toolSecurity.reusedBy); new,
 // with -since, when no export of the chain wrote any of the store's
@@ -1389,7 +1390,7 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 			}
 			// The whys of the store's securities of one of PP's, each once,
 			// in their order; new when PP holds none of them.
-			ch.why = slices.DeleteFunc([]string{whyRenamed, whyNoTicker, whyChanged}, func(y string) bool { return !slices.Contains(ch.why, y) })
+			ch.why = slices.DeleteFunc([]string{whyRenamed, whyNoTicker, whyNamedByCUSIP, whyChanged}, func(y string) bool { return !slices.Contains(ch.why, y) })
 			ch.new = c.since != nil && !slices.ContainsFunc(l.members, func(s *toolSecurity) bool { return had[s.ref()] })
 			ch.names = c.ix.namesOf(ch.members)
 			c.symbolsChanged = append(c.symbolsChanged, ch)

@@ -780,12 +780,14 @@
       {
         "symbol": "BND",
         "security_key": "i:4417302",
-        "last_day": "2024-04-04"
+        "last_day": "2024-04-04",
+        "why": "idle"
       },
       {
         "symbol": "VBR",
         "security_key": "i:4417355",
-        "last_day": "2024-03-15"
+        "last_day": "2024-03-15",
+        "why": "idle"
       }
     ],
     "manual": [

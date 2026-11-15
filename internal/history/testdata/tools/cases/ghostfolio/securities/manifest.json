@@ -185,17 +185,20 @@
       {
         "symbol": "ABC-B",
         "security_key": "i:1000003",
-        "last_day": "2025-02-03"
+        "last_day": "2025-02-03",
+        "why": "idle"
       },
       {
         "symbol": "QQQX",
         "security_key": "",
-        "last_day": "2025-03-02"
+        "last_day": "2025-03-02",
+        "why": "idle"
       },
       {
         "symbol": "XYZ",
         "security_key": "i:1854092",
-        "last_day": "2025-02-07"
+        "last_day": "2025-02-07",
+        "why": "idle"
       }
     ],
     "manual": [

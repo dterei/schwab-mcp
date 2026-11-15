@@ -178,12 +178,14 @@
       {
         "symbol": "ABCD",
         "security_key": "i:1000001",
-        "last_day": "2025-01-28"
+        "last_day": "2025-01-28",
+        "why": "idle"
       },
       {
         "symbol": "XYZ",
         "security_key": "i:1854092",
-        "last_day": "2025-01-28"
+        "last_day": "2025-01-28",
+        "why": "idle"
       }
     ],
     "manual": [

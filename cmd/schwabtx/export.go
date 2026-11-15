@@ -714,13 +714,13 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 	// as another asset, of which the export lists the rows given as changed.
 	switch n := e.SymbolsChanged; {
 	case n == 1 && e.Since == "":
-		fmt.Fprintf(w, "1 security may be held by %s otherwise than written, or may no longer trade (%s lists it under symbols_changed, with why): on a first import into empty accounts it asks nothing; on a redo, %[1]s holds it from before: set it as docs/tools.md step 8 says before you import\n", tool, manifest)
+		fmt.Fprintf(w, "1 security may be held by %s otherwise than written, or may no longer trade (%s lists it under symbols_changed, with why): on a first import into empty accounts it asks something only if named_by_cusip, after importing; on a redo, %[1]s holds it from before: set it as docs/tools.md step 8 says before you import\n", tool, manifest)
 	case n > 1 && e.Since == "":
-		fmt.Fprintf(w, "%d securities may be held by %s otherwise than written, or may no longer trade (%s lists each under symbols_changed, with why): on a first import into empty accounts they ask nothing; on a redo, %[2]s holds them from before: set each as docs/tools.md step 8 says before you import\n", n, tool, manifest)
+		fmt.Fprintf(w, "%d securities may be held by %s otherwise than written, or may no longer trade (%s lists each under symbols_changed, with why): on a first import into empty accounts only those named_by_cusip ask anything, after importing; on a redo, %[2]s holds them from before: set each as docs/tools.md step 8 says before you import\n", n, tool, manifest)
 	case n == 1:
-		fmt.Fprintf(w, "1 security has changed symbol or may no longer trade (%s lists it under symbols_changed, with why): before you import, set it as docs/tools.md step 8 says if %s holds it; if it is new there, it asks nothing\n", manifest, tool)
+		fmt.Fprintf(w, "1 security has changed symbol or may no longer trade (%s lists it under symbols_changed, with why): before you import, set it as docs/tools.md step 8 says if %s holds it; if it is new there, it asks something only if named_by_cusip, after importing\n", manifest, tool)
 	case n > 1:
-		fmt.Fprintf(w, "%d securities have changed symbol or may no longer trade (%s lists each under symbols_changed, with why): before you import, set each that %s holds as docs/tools.md step 8 says; one that is new to it asks nothing\n", n, manifest, tool)
+		fmt.Fprintf(w, "%d securities have changed symbol or may no longer trade (%s lists each under symbols_changed, with why): before you import, set each that %s holds as docs/tools.md step 8 says; one that is new to it asks only, if named_by_cusip, after importing\n", n, manifest, tool)
 	}
 	unsureLines(w, path, e.Unsure, manifest)
 	// The rows flagged are written, given, combined or, for Ghostfolio, in
@@ -742,11 +742,11 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 	}
 	switch n := e.YahooIdle; {
 	case n == 1:
-		fmt.Fprintf(w, "1 symbol for Yahoo has no row since %s and is not held (%s lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual\n",
-			e.IdleSince, manifest)
+		fmt.Fprintf(w, "1 symbol for Yahoo may no longer be the security written (%s lists it under ghostfolio.yahoo_idle): no row since %s and not held, or named by a CUSIP; look it up on Yahoo, and if it lacks it or shows it as another company, name it in -manual (docs/tools.md step 1)\n",
+			manifest, e.IdleSince)
 	case n > 1:
-		fmt.Fprintf(w, "%d symbols for Yahoo have no row since %s and are not held (%s lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual\n",
-			n, e.IdleSince, manifest)
+		fmt.Fprintf(w, "%d symbols for Yahoo may no longer be the securities written (%s lists them under ghostfolio.yahoo_idle): no row since %s and not held, or named by a CUSIP; look each up on Yahoo, and name in one -manual those that it lacks or shows as another company (docs/tools.md step 1)\n",
+			n, manifest, e.IdleSince)
 	}
 }
 

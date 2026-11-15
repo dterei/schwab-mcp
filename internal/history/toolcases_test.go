@@ -353,9 +353,8 @@ func tcSecurities() ([]toolSecurityRow, []toolName) {
 // another; a file row's day is its posted date unless it says another (an
 // "as of" date), and its quantity as of a file exported on 2026-11-11;
 // fees are 0 unless the row is flagged inexact, and gross is amount plus
-// fees; a pair's partner, when the case holds it, is read from it,
-// counted; and the days of the rows under each symbol (Q12) are those of
-// its rows and legs, which a store holds whatever an export selects.
+// fees; and a pair's partner, when the case holds it, is read from it,
+// counted.
 func tcInput(in toolInput) toolInput {
 	in.accounts = cmpOr(in.accounts, tcAccounts())
 	if in.securities == nil {
@@ -401,42 +400,7 @@ func tcInput(in toolInput) toolInput {
 			}
 		}
 	}
-	in.days = tcDays(in.rows, in.legs)
 	return in
-}
-
-// tcDays returns what Q12 reads of a store whose rows and legs are rows and
-// legs: the first and the last day of the rows and legs of each source
-// under each symbol of each key, "" for the rows of a symbol without one,
-// in the order of their key, symbol and source.
-func tcDays(rows []toolRow, legs []toolLeg) []toolSymbolDays {
-	days := map[rowKey]nytime.Date{}
-	of := map[[3]string]*toolSymbolDays{}
-	add := func(key, symbol, source string, day nytime.Date) {
-		if symbol == "" || day == "" {
-			return
-		}
-		d := of[[3]string{key, symbol, source}]
-		if d == nil {
-			d = &toolSymbolDays{key: key, symbol: symbol, source: source, first: day, last: day}
-			of[[3]string{key, symbol, source}] = d
-		}
-		d.first, d.last = min(d.first, day), max(d.last, day)
-	}
-	for _, r := range rows {
-		days[rowKey{r.account, r.ref}] = r.day
-		add(r.securityKey, r.symbol, r.source, r.day)
-	}
-	for _, l := range legs {
-		add(l.securityKey, l.symbol, "api", days[rowKey{l.account, l.ref}])
-	}
-	var out []toolSymbolDays
-	for _, k := range slices.SortedFunc(maps.Keys(of), func(a, b [3]string) int {
-		return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1]), cmp.Compare(a[2], b[2]))
-	}) {
-		out = append(out, *of[k])
-	}
-	return out
 }
 
 // cmpOr returns a, or b when a is empty.
@@ -1562,7 +1526,7 @@ var tcFiledEarly = tcNY("2026-01-15 09:00:00")
 // had its last on the day of the file, and each before a month before the
 // next; the third key had the API key's first symbol on 2026-06-01, after
 // the sale, and has no row; the file's buy names v.buy, else the file key's
-// first symbol, and the sale the API key's first; Q12 reads those.
+// first symbol, and the sale the API key's first.
 func (v twoKeys) toolCase() toolCase {
 	c := toolCaseNamed("two_keys")
 	c.in.manual = nil
@@ -1602,17 +1566,16 @@ func (v twoKeys) toolCase() toolCase {
 	for i := range c.in.rows {
 		c.in.rows[i].symbol = map[string]string{keyTwoAPI: v.api[0], keyTwoFile: cmp.Or(v.buy, v.file[0])}[c.in.rows[i].securityKey]
 	}
-	c.in.days = tcDays(c.in.rows, c.in.legs)
 	return c
 }
 
 // sameKey returns in as the store reads it once you say that the security
 // of key is the one of canonical (edit -same), which ranks first of the
-// two: the security's rows, legs, positions and days are canonical's, and
+// two: the security's rows, legs and positions are canonical's, and
 // so are its names, each with the key that had it; its own row of the
 // store's securities goes, and so do the links between the two.
 func sameKey(in toolInput, key, canonical string) toolInput {
-	in.rows, in.legs, in.positions, in.days = slices.Clone(in.rows), slices.Clone(in.legs), slices.Clone(in.positions), slices.Clone(in.days)
+	in.rows, in.legs, in.positions = slices.Clone(in.rows), slices.Clone(in.legs), slices.Clone(in.positions)
 	for i := range in.rows {
 		if r := &in.rows[i]; r.securityKey == key {
 			r.securityKey = canonical
@@ -1626,11 +1589,6 @@ func sameKey(in toolInput, key, canonical string) toolInput {
 	for i := range in.positions {
 		if p := &in.positions[i]; p.key == key {
 			p.key = canonical
-		}
-	}
-	for i := range in.days {
-		if d := &in.days[i]; d.key == key {
-			d.key = canonical
 		}
 	}
 	in.names = slices.Clone(in.names)

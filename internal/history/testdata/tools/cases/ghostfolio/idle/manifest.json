@@ -192,7 +192,8 @@
       {
         "symbol": "EFGH",
         "security_key": "i:1000002",
-        "last_day": "2025-11-11"
+        "last_day": "2025-11-11",
+        "why": "idle"
       }
     ],
     "manual": [

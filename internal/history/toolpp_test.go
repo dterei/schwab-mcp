@@ -434,10 +434,10 @@ func TestPPFiles(t *testing.T) {
 			s                 toolSecurity
 			ticker, wkn, name string
 		}{
-			{toolSecurity{key: "i:1", symbol: "QRS.PRK", tickers: []string{"QRS.PRK"}, writes: true}, "", "", "QRS.PRK"},
+			{toolSecurity{key: "i:1", symbol: "QRS.PRK", tickers: []string{"QRS.PRK"}, current: "QRS.PRK", writes: true}, "", "", "QRS.PRK"},
 			{toolSecurity{key: "i:2"}, "", "", "i:2"},
-			{toolSecurity{key: "i:3", symbol: "XYZ", tickers: []string{"XYZ"}, writes: true, name: " XYZ CORP\u00a0"}, "XYZ", "", "XYZ CORP"},
-			{toolSecurity{key: "i:4", symbol: "XYZ", tickers: []string{"XYZ"}, writes: true, name: "\u2003\x1cXYZ\u2028 CORP\t\ufeff"}, "XYZ", "", "XYZ\u2028 CORP"},
+			{toolSecurity{key: "i:3", symbol: "XYZ", tickers: []string{"XYZ"}, current: "XYZ", writes: true, name: " XYZ CORP\u00a0"}, "XYZ", "", "XYZ CORP"},
+			{toolSecurity{key: "i:4", symbol: "XYZ", tickers: []string{"XYZ"}, current: "XYZ", writes: true, name: "\u2003\x1cXYZ\u2028 CORP\t\ufeff"}, "XYZ", "", "XYZ\u2028 CORP"},
 		} {
 			ticker, wkn, name := ppIdentifiers(&c.s)
 			if ticker != c.ticker || wkn != c.wkn || name != c.name {

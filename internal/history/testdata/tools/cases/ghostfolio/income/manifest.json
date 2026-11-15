@@ -234,7 +234,8 @@
       {
         "symbol": "EFGH",
         "security_key": "i:1000002",
-        "last_day": "2024-12-02"
+        "last_day": "2024-12-02",
+        "why": "idle"
       }
     ],
     "manual": [

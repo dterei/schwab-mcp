@@ -338,20 +338,27 @@ and the types' names, whatever PP's language and locale.
    trade, whether or not the export writes a row of it: with `why`, and
    with every name that it has had and the source that named it (`names`).
    On a first import into empty accounts PP makes each from what is
-   written, and none asks anything. With `-since`, and on a redo (PP keeps
+   written, and only `named_by_cusip` asks anything, after importing. With
+   `-since`, and on a redo (PP keeps
    its securities when you delete their transactions), set each that PP
    holds before you import; PP does not hold one marked `new`, which no
    export of the chain wrote:
 
-   - `renamed`: it has had two tickers, and the ticker written is its
-     latest. Give the PP security that holds its rows that ticker, and its
-     CUSIP as WKN if it has none (PP made it before the store knew the
-     CUSIP): PP finds it by them, and else makes a second security of the
-     new ticker.
+   - `renamed`: it has had two tickers; the ticker written is the last
+     that Schwab's API gave it (the newest History file's when the API
+     never named it), and the entry lists each name with where it was seen.
+     Give the PP security that holds its rows that ticker, and its CUSIP as
+     WKN if it has none (PP made it before the store knew the CUSIP): PP
+     finds it by them, and else makes a second security of the new ticker.
+     When a History file names a later one and you no longer hold the
+     security, the API last saw it before a rename: clear its feed, which
+     values nothing that you hold, or set the ticker that Schwab shows for
+     it now. A fresh `schwabtx transactions -json` names it by its current
+     symbol only while Schwab's API still serves one of its rows.
    - `no_ticker`: written without the ticker that it has had, with its
      CUSIP as WKN, `because`:
-     - `delisted`: its latest symbol is its CUSIP. Clear its ticker and its
-       feed, as its old ticker may be another company's now.
+     - `delisted`: its last name at Schwab is its CUSIP. Clear its ticker
+       and its feed, as its old ticker may be another company's now.
      - `reused`: another security of the store keeps the ticker (its key is
        `reused_by`). Of the securities whose current symbol is one ticker,
        one that an account holds at its latest snapshot keeps it, else one
@@ -359,12 +366,18 @@ and the types' names, whatever PP's language and locale.
        API named by it last; one that only History files name by it keeps
        it from none. Clear this one's ticker, so that PP does not put that
        one's rows on it.
-     - `undecided`: none keeps it: of those held, or, none held, of those
-       that the API names by it, the API named two by it last at one
-       instant; or none is held or named by the API. Each is priced from
-       your snapshots. If you set the ticker by hand on one for a feed,
+     - `undecided`: Schwab named it by two tickers at once (two History
+       files, when the API never named it), so that it has no current one;
+       or none keeps it: of those held, or, none held, of those that the
+       API names by it, the API named two by it last at one instant; or none
+       is held or named by the API. Each is priced from your snapshots. If you set the ticker by hand on one for a feed,
        clear it again before you import a later export that lists another
        security `changed`, written as that ticker.
+   - `named_by_cusip`: written with a ticker although a name of it is its
+     CUSIP, as after a cash merger that only a History file shows, and no
+     account holds it: if Yahoo lacks the ticker or shows another company
+     under it, clear its feed, as PP would value its past holding at that
+     company's prices.
    - `changed` (with `-since`): what PP finds it by changed, its ticker and
      WKN, or its name when it has neither, as when an older History file
      brings an earlier description of a security that PP finds by its name
@@ -409,7 +422,7 @@ comment.
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
    4 deposits, withdrawals and journals are in the accounts' balances
-   2 symbols for Yahoo have no row since 2025-11-13 and are not held (gf-1/manifest.json lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual
+   2 symbols for Yahoo may no longer be the securities written (gf-1/manifest.json lists them under ghostfolio.yahoo_idle): no row since 2025-11-13 and not held, or named by a CUSIP; look each up on Yahoo, and name in one -manual those that it lacks or shows as another company (docs/tools.md step 1)
    11 holdings differ from the latest snapshots (gf-1/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
      Schwab A1 ...135: Security (00507V109) (MANUAL): 10
      Schwab A1 ...135: SWVXX (YAHOO): 1220.89
@@ -430,9 +443,11 @@ comment.
    refuses the whole file at the first that Yahoo cannot resolve, naming one
    at a time. So first look up on Yahoo the symbols that stderr counts and
    the manifest lists under `ghostfolio.yahoo_idle`: those with no row for a
-   year that no account holds, often a company acquired, renamed or
-   delisted since you sold. If Yahoo lacks any, export again, in full to
-   another new folder, with `-manual` naming them all, comma-separated.
+   year that no account holds (`why` `idle`), and those named by a CUSIP
+   (`named_by_cusip`), often a company acquired, renamed or delisted since
+   you sold. If Yahoo lacks any, or shows another company under it, export
+   again, in full to another new folder, with `-manual` naming them all,
+   comma-separated.
    `-manual` refuses a symbol that no security in the store has had. Say
    that Yahoo lacked BND:
 
@@ -446,7 +461,7 @@ comment.
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
    4 deposits, withdrawals and journals are in the accounts' balances
-   1 symbol for Yahoo has no row since 2025-11-13 and is not held (gf-2/manifest.json lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual
+   1 symbol for Yahoo may no longer be the security written (gf-2/manifest.json lists it under ghostfolio.yahoo_idle): no row since 2025-11-13 and not held, or named by a CUSIP; look it up on Yahoo, and if it lacks it or shows it as another company, name it in -manual (docs/tools.md step 1)
    11 holdings differ from the latest snapshots (gf-2/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
      Schwab A1 ...135: Security (00507V109) (MANUAL): 10
      Schwab A1 ...135: SWVXX (YAHOO): 1220.89

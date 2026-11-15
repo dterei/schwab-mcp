@@ -164,9 +164,10 @@ type ToolExport struct {
 	// of the file is of, and PricesOnly those written for their prices
 	// alone, which Ghostfolio applies only to an asset that it holds
 	// already; Yahoo counts the symbols that its import asks Yahoo about,
-	// and YahooIdle those of them with no row since IdleSince, a year
-	// before To, of securities that no account holds: Yahoo may no longer
-	// know them.
+	// and YahooIdle those of them that may no longer be the securities
+	// written: with no row since IdleSince, a year before To, of securities
+	// that no account holds, or of a security that no account holds and that
+	// a name of is a CUSIP.
 	Profiles, PricesOnly, Yahoo, YahooIdle int
 	IdleSince                              nytime.Date
 
@@ -855,12 +856,13 @@ type (
 		Profiles  []toolProfileEntry `json:"profiles"`
 	}
 	// A toolIdleEntry is a symbol that Ghostfolio's import asks Yahoo about
-	// and that Yahoo may no longer know (toolIdle), with the day of its
-	// security's last row.
+	// and that may no longer be the security written (toolIdle), with the
+	// day of its security's last row, and why: idle or named_by_cusip.
 	toolIdleEntry struct {
 		Symbol      string      `json:"symbol"`
 		SecurityKey string      `json:"security_key"`
 		LastDay     nytime.Date `json:"last_day"`
+		Why         string      `json:"why"`
 	}
 	// A toolManualEntry is a security that Ghostfolio gets as a MANUAL
 	// asset, and why (toolSecurity.manual).
@@ -882,8 +884,9 @@ type (
 	// holdings check names them; how the export writes it (its ticker, or
 	// MANUAL for one that PP gets no price feed for); every symbol that it
 	// has had, as each source named it, with when that source saw it last;
-	// why, and because for no_ticker, with reused_by, the key of the
-	// security that keeps the ticker, for reused; and new.
+	// why (renamed, no_ticker, named_by_cusip, changed), and because for
+	// no_ticker, with reused_by, the key of the security that keeps the
+	// ticker, for reused; and new.
 	toolSymbolsEntry struct {
 		SecurityKey  string           `json:"security_key"`
 		SecurityKeys []string         `json:"security_keys,omitempty"`
@@ -1141,7 +1144,7 @@ func (e *ToolExport) ghostfolioEntry() *toolGhostfolioEntry {
 		Yahoo: orEmpty(x.yahoo), YahooIdle: []toolIdleEntry{}, Manual: []toolManualEntry{}, Profiles: []toolProfileEntry{},
 	}
 	for _, i := range x.idle {
-		g.YahooIdle = append(g.YahooIdle, toolIdleEntry{Symbol: i.symbol, SecurityKey: i.key, LastDay: i.last})
+		g.YahooIdle = append(g.YahooIdle, toolIdleEntry{Symbol: i.symbol, SecurityKey: i.key, LastDay: i.last, Why: i.why})
 	}
 	for i, a := range x.assets {
 		p := x.file.AssetProfiles[i]

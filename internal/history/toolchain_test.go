@@ -3390,8 +3390,11 @@ func TestToolReimport(t *testing.T) {
 		// renamed and changed, so that you give PP's security the new ticker,
 		// and its price feed with it, and the next export does not name it
 		// again. Ghostfolio, whose activity is of the symbol, gets the row
-		// again, changed, and names nothing. So with round 3's renamed two
-		// keys, which a later History file names by the new ticker.
+		// again, changed, and names nothing. Round 3's two keys, which a
+		// later History file names by a new ticker after the API's last name
+		// of them, keep the API's ticker (I-2 of the consolidation, L3): PP
+		// names the security renamed alone, with the file's name and its
+		// source, and Ghostfolio's rows stay given.
 		const key, cusip = "i:1000901", "69389B101"
 		securities, names := tcSecurities()
 		in := func(renamed bool, to string, days ...string) toolInput {
@@ -3420,11 +3423,12 @@ func TestToolReimport(t *testing.T) {
 		for _, c := range []struct {
 			name           string
 			first, renamed toolInput
-			ticker         string
+			ticker, named  string
+			why            []string
 			keys           []string
 		}{
-			{"renamed", in(false, "2026-05-29", "2026-05-29"), in(true, "2026-06-30", "2026-05-29", "2026-06-30"), "NEWN", nil},
-			{"renamed by a later History file", before, after, "JKLN", []string{keyTwoAPI, keyTwoFile}},
+			{"renamed", in(false, "2026-05-29", "2026-05-29"), in(true, "2026-06-30", "2026-05-29", "2026-06-30"), "NEWN", "NEWN api", []string{whyRenamed, whyChanged}, nil},
+			{"renamed by a later History file", before, after, "JKLM", "JKLN history", []string{whyRenamed}, []string{keyTwoAPI, keyTwoFile}},
 		} {
 			for _, tool := range []string{toolPP, toolGF} {
 				e1 := chainStepOf(t, c.first, tool, nil, rcAt1)
@@ -3433,7 +3437,7 @@ func TestToolReimport(t *testing.T) {
 				changed, _ := rcChanged(e2)
 				written := len(changed) > 0
 				n := map[string]int{toolPP: 1}[tool]
-				if e1.e.SymbolsChanged != 0 || e2.e.SymbolsChanged != n || e3.e.SymbolsChanged != 0 || written != (tool == toolGF) {
+				if e1.e.SymbolsChanged != 0 || e2.e.SymbolsChanged != n || e3.e.SymbolsChanged != 0 || written != (tool == toolGF && c.ticker == "NEWN") {
 					t.Errorf("%s %s: symbols changed %d, %d, %d; changed %q", c.name, tool, e1.e.SymbolsChanged, e2.e.SymbolsChanged, e3.e.SymbolsChanged, changed)
 				}
 				var manifest struct {
@@ -3443,10 +3447,10 @@ func TestToolReimport(t *testing.T) {
 				if err := json.Unmarshal(e2.manifest, &manifest); err != nil {
 					t.Fatal(err)
 				}
-				// PP's alone, renamed and changed, with the new ticker among its
-				// names.
-				if got := deref(manifest.SymbolsChanged); len(got) != n || n == 1 && (got[0].WrittenAs != c.ticker || !slices.Equal(got[0].Why, []string{whyRenamed, whyChanged}) ||
-					!slices.ContainsFunc(got[0].Names, func(m toolSymbolName) bool { return m.Symbol == c.ticker }) || !slices.Equal(got[0].SecurityKeys, c.keys)) {
+				// PP's alone, with the new ticker among its names, of the source
+				// that named it.
+				if got := deref(manifest.SymbolsChanged); len(got) != n || n == 1 && (got[0].WrittenAs != c.ticker || !slices.Equal(got[0].Why, c.why) ||
+					!slices.ContainsFunc(got[0].Names, func(m toolSymbolName) bool { return m.Symbol+" "+m.Source == c.named }) || !slices.Equal(got[0].SecurityKeys, c.keys)) {
 					t.Errorf("%s %s: symbols changed %+v", c.name, tool, got)
 				}
 				for _, s := range manifest.Securities {

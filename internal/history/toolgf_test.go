@@ -182,7 +182,7 @@ func TestGFRender(t *testing.T) {
 		if got := render("manual").yahoo; len(got) > 0 {
 			t.Errorf("manual: Yahoo is asked about %q", got)
 		}
-		if got := render("idle").idle; len(got) != 1 || got[0] != (toolIdle{symbol: "EFGH", key: keyEFGH, last: "2025-11-11"}) {
+		if got := render("idle").idle; len(got) != 1 || got[0] != (toolIdle{symbol: "EFGH", key: keyEFGH, last: "2025-11-11", why: "idle"}) {
 			t.Errorf("idle: %v", got)
 		}
 	})

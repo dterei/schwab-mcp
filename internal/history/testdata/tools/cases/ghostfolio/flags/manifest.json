@@ -208,7 +208,8 @@
       {
         "symbol": "XYZ",
         "security_key": "i:1854092",
-        "last_day": "2025-07-08"
+        "last_day": "2025-07-08",
+        "why": "idle"
       }
     ],
     "manual": [],

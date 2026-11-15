@@ -213,17 +213,20 @@
       {
         "symbol": "ABCD",
         "security_key": "i:1000001",
-        "last_day": "2025-06-02"
+        "last_day": "2025-06-02",
+        "why": "idle"
       },
       {
         "symbol": "EFGH",
         "security_key": "i:1000002",
-        "last_day": "2025-05-06"
+        "last_day": "2025-05-06",
+        "why": "idle"
       },
       {
         "symbol": "XYZ",
         "security_key": "i:1854092",
-        "last_day": "2025-07-02"
+        "last_day": "2025-07-02",
+        "why": "idle"
       }
     ],
     "manual": [],

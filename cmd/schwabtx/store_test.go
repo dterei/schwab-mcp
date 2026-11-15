@@ -1067,7 +1067,7 @@ func TestToolSummary(t *testing.T) {
   A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
 left out 1 row (pp-2026-11-13/manifest.json lists each, with what to do): other 1
 wrote 1 row with a caveat (pp-2026-11-13/manifest.json): assumed_multiplier 1
-2 securities may be held by Portfolio Performance otherwise than written, or may no longer trade (pp-2026-11-13/manifest.json lists each under symbols_changed, with why): on a first import into empty accounts they ask nothing; on a redo, Portfolio Performance holds them from before: set each as docs/tools.md step 8 says before you import
+2 securities may be held by Portfolio Performance otherwise than written, or may no longer trade (pp-2026-11-13/manifest.json lists each under symbols_changed, with why): on a first import into empty accounts only those named_by_cusip ask anything, after importing; on a redo, Portfolio Performance holds them from before: set each as docs/tools.md step 8 says before you import
 1 row of this export carries a flag that needs you (schwabtx status -review); if you uncount it, the next -since export lists what to delete
 1 file transaction waits for you to resolve it (schwabtx status -review) and is not in this export
 7 differences from the latest snapshots (pp-2026-11-13/manifest.json lists each under holdings, with the snapshot's figure and the records'): after importing, make what you add by hand in Portfolio Performance for each equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 4 says what to book for each):
@@ -1101,7 +1101,7 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 			},
 			want: `wrote 1 row for Portfolio Performance to pp-2026-11-14, up to 2026-11-13: 1 portfolio file, 1 security
   this assumes Portfolio Performance holds none of these accounts' rows: a first import into new, empty accounts, or a redo of every account (docs/tools.md)
-1 security may be held by Portfolio Performance otherwise than written, or may no longer trade (pp-2026-11-14/manifest.json lists it under symbols_changed, with why): on a first import into empty accounts it asks nothing; on a redo, Portfolio Performance holds it from before: set it as docs/tools.md step 8 says before you import
+1 security may be held by Portfolio Performance otherwise than written, or may no longer trade (pp-2026-11-14/manifest.json lists it under symbols_changed, with why): on a first import into empty accounts it asks something only if named_by_cusip, after importing; on a redo, Portfolio Performance holds it from before: set it as docs/tools.md step 8 says before you import
 1 difference from the latest snapshots (pp-2026-11-14/manifest.json lists it under holdings, with the snapshot's figure and the records'): after importing, make what you add by hand in Portfolio Performance for each equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 4 says what to book for each):
   Schwab A1 ...135: c:30303M102 (WKN 30303M102): -1
 in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
@@ -1152,7 +1152,7 @@ next time: schwabtx export -format pp -since pp-2026-11-14 -dir <a new folder>
 			want: `wrote 3 rows for Portfolio Performance to pp-2026-12-01, since pp-2026-11-13, up to 2026-11-30: 1 account file, 1 portfolio file, 2 securities, 20 prices
   this assumes Portfolio Performance holds pp-2026-11-13 and every export before it, each imported once, with what it listed deleted and ticked
   2 of them are dated on or before 2026-11-12, the end of pp-2026-11-13: they came late, were decided or took a new ref since
-1 security has changed symbol or may no longer trade (pp-2026-12-01/manifest.json lists it under symbols_changed, with why): before you import, set it as docs/tools.md step 8 says if Portfolio Performance holds it; if it is new there, it asks nothing
+1 security has changed symbol or may no longer trade (pp-2026-12-01/manifest.json lists it under symbols_changed, with why): before you import, set it as docs/tools.md step 8 says if Portfolio Performance holds it; if it is new there, it asks something only if named_by_cusip, after importing
 before importing, delete in Portfolio Performance what changed or went (pp-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 Dividend 3.86 (note schwabtx A1 ...135 T73508261950): changed; the new form is in this export
   Schwab A2 ...398: 2025-01-21 Buy 400.67 (note schwabtx A2 ...398 T73508261944): gone, uncounted (user)
@@ -1235,7 +1235,7 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
   1 of them is dated on or before 2026-11-30, the end of pp-2026-12-01: it came late, was decided or took a new ref since
 left out 3 rows (pp-2026-12-15/manifest.json lists each, with what to do): split 1, no_quantity 2
 wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_not_written 1
-2 securities have changed symbol or may no longer trade (pp-2026-12-15/manifest.json lists each under symbols_changed, with why): before you import, set each that Portfolio Performance holds as docs/tools.md step 8 says; one that is new to it asks nothing
+2 securities have changed symbol or may no longer trade (pp-2026-12-15/manifest.json lists each under symbols_changed, with why): before you import, set each that Portfolio Performance holds as docs/tools.md step 8 says; one that is new to it asks only, if named_by_cusip, after importing
 3 keys of the store with no CUSIP share a ticker with another security that the export cannot join them to (pp-2026-12-15/manifest.json lists them under keys_unsure, with what the store knows of each): each is written on its own, which neither tool merges with another. Before you import, judge each by its names and the days of its rows (schwabtx status K:… shows its names over time): if it is the security named after it, run that command and export again; if it is not, run nothing and book its differences as any other's (docs/tools.md):
   x:66000009, JKLM HOLDINGS, JKLM in History files, rows 2019-03-04 to 2020-11-30: schwabtx edit K:x:66000009 -same K:i:1000213 (JKLM HOLDINGS INC, JKLM from Schwab's API, rows 2026-01-05 to 2026-10-30, held) or -same K:i:1000214 (CUSIP ZZJ12K205, JKLM from Schwab's API and in History files)
   s:FILE:GRPC FD@2025-01-02, GRPC FUND; GRPC FD, GRPC-FD in History files, rows 2024-05-01: schwabtx edit QUOTED -same K:i:1000103 (CUSIP ZZG10C109, GRPC-FD from Schwab's API) or the rows of GRPC-FD without a key
@@ -1317,7 +1317,7 @@ next time: schwabtx export -format pp -since pp-2026-12-31 -dir <a new folder>
   this assumes Ghostfolio holds none of these accounts: a first import, or a redo of every account (docs/tools.md)
 6 deposits, withdrawals and journals are in the accounts' balances; 2 are not yet, posted after the latest snapshot was taken (A1 ...135: of 2026-11-10, taken 2026-11-10 18:05 in New York), which a later one will carry
 -manual names ABCD and ...398 and XY?Z, which nothing in this export uses
-3 symbols for Yahoo have no row since 2025-11-12 and are not held (gf-2026-11-13/manifest.json lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual
+3 symbols for Yahoo may no longer be the securities written (gf-2026-11-13/manifest.json lists them under ghostfolio.yahoo_idle): no row since 2025-11-12 and not held, or named by a CUSIP; look each up on Yahoo, and name in one -manual those that it lacks or shows as another company (docs/tools.md step 1)
 2 holdings differ from the latest snapshots (gf-2026-11-13/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
   Schwab A1 ...135: VBR (YAHOO): 12.5
   Schwab A1 ...135: Security (00507V109) (MANUAL): 10, less the rows left out of it that you book by hand
@@ -1384,7 +1384,7 @@ left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_ca
 1 key of the store with no CUSIP shares a ticker with another security that the export cannot join it to (gf-2026-12-01/manifest.json lists it under keys_unsure, with what the store knows of it): it is written on its own, which neither tool merges with another. Before you import, judge it by its names and the days of its rows (schwabtx status -store STORE K:… shows its names over time): if it is the security named after it, run that command and export again; if it is not, run nothing and book its differences as any other's (docs/tools.md):
   x:66000017, JKLM in History files, rows 2024-03-11: schwabtx edit -store STORE K:x:66000017 -same K:i:1000013 (JKLM SMALL-CAP VALUE ETF, CUSIP ZZJ12K106, JKLM from Schwab's API, held)
 1 row of this export carries a flag that needs you (schwabtx status -store STORE -review); if you uncount it, the next -since export lists what to delete
-1 symbol for Yahoo has no row since 2025-11-30 and is not held (gf-2026-12-01/manifest.json lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual
+1 symbol for Yahoo may no longer be the security written (gf-2026-12-01/manifest.json lists it under ghostfolio.yahoo_idle): no row since 2025-11-30 and not held, or named by a CUSIP; look it up on Yahoo, and if it lacks it or shows it as another company, name it in -manual (docs/tools.md step 1)
 before importing, delete in Ghostfolio what changed or went (gf-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 DIVIDEND 3.86 (comment schwabtx A1 ...135 T73508261950): changed; the new form is in this export
   Schwab A2 ...398: 2025-01-22 SELL 412.50 fee 0.65 (comment schwabtx A2 ...398 T73508261945): gone, left out (gf_cash)

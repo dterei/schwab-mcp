@@ -364,9 +364,6 @@ func toolLines(in *toolInput) map[string][]string {
 	for _, u := range in.uncounted {
 		add("uncounted", new(toolLine).word(u.ref).word(account(u.account)).word(u.why).text("matched_with", u.matchedWith))
 	}
-	for _, d := range in.days {
-		add("days", new(toolLine).word(d.key).word(d.symbol).word(d.source).word(string(d.first)).word(string(d.last)))
-	}
 	for _, l := range in.links {
 		add("links", new(toolLine).word(l.file).word(l.api))
 	}
@@ -616,25 +613,6 @@ var toolStoreLines = map[string][]string{
 		`M.2 A1 held_out`,
 		`M.3 A1 linked matched_with=T73508261951`,
 	},
-	"days": {
-		`i:1854092 XYZ api 2026-07-15 2026-07-15`,
-		`i:1940083512 META api 2026-03-13 2026-03-13`,
-		`i:1973757747 AAPL api 2025-06-02 2026-09-23`,
-		`i:1973757747 AAPL file 2026-09-22 2026-09-22`,
-		`i:205187341 /ESH25_P5050:XCME api 2025-01-14 2025-01-14`,
-		`i:219771034 "XYZ   250221P00040000" api 2025-01-21 2025-01-21`,
-		`i:219834765 "XYZ   260918C00050000" api 2026-08-04 2026-08-04`,
-		`i:219950001 "XYZ   261016P00045000" api 2026-09-15 2026-09-15`,
-		`i:219950002 "XYZ   261016P00040000" api 2026-09-15 2026-09-15`,
-		`i:4417302 BND api 2024-04-04 2024-04-04`,
-		`i:4417355 VBR api 2024-03-15 2024-03-15`,
-		`s:FILE:9128ZZQ15@2026-07-20 9128ZZQ15 file 2026-04-01 2026-06-01`,
-		`s:FILE:ABCD@2026-07-20 ABCD file 2026-03-09 2026-06-15`,
-		`s:FILE:EFGH@2026-07-20 EFGH file 2026-02-10 2026-07-01`,
-		`s:FILE:MNOP@2026-07-20 MNOP file 2026-02-24 2026-02-24`,
-		`s:FILE:QRST@2026-07-20 QRST file 2026-02-17 2026-02-18`,
-		`"s:FILE:XYZ 05/15/2026 50.00 C@2026-07-20" "XYZ 05/15/2026 50.00 C" file 2026-04-06 2026-05-18`,
-	},
 }
 
 // checkToolRead requires that a tool export read the tool exports' store
@@ -676,9 +654,8 @@ func checkToolRead(t *testing.T, ts *toolStore) map[string][]string {
 // read of checkToolRead, holds and the later files' rows, names and
 // coverage: the row posted on 11-16 "as of" 11-09 is read by its day; their
 // rows come after every other; each later export's symbols are names of
-// the security that the account's first export named; and their days end
-// the days of those symbols. It returns what a read of every account then
-// holds.
+// the security that the account's first export named. It returns what a
+// read of every account then holds.
 func checkToolReadLater(t *testing.T, ts *toolStore, want map[string][]string) map[string][]string {
 	t.Helper()
 	want = maps.Clone(want)
@@ -692,15 +669,6 @@ func checkToolReadLater(t *testing.T, ts *toolStore, want map[string][]string) m
 		`s:FILE:MNOP@2026-07-20 symbol MNOP from=s:FILE:MNOP@2026-11-23 first=2026-11-23T14:00:00Z last=2026-11-23T14:00:00Z`,
 		`s:FILE:MNOP@2026-07-20 symbol MNOP from=s:FILE:MNOP@2026-11-20 first=2026-11-20T14:00:00Z last=2026-11-20T14:00:00Z`)
 	want["coverage"] = toolInsert(t, want["coverage"], `A3 ...398 file_unknown 2026-02-10 2026-07-01`, `A3 ...398 file 2026-11-13 2026-11-16`)
-	want["days"] = slices.Clone(want["days"])
-	for i, l := range want["days"] {
-		switch {
-		case strings.HasPrefix(l, "s:FILE:ABCD@"):
-			want["days"][i] = strings.Replace(l, "2026-06-15", "2026-11-09", 1)
-		case strings.HasPrefix(l, "s:FILE:MNOP@"):
-			want["days"][i] = strings.Replace(l, "2026-02-24 2026-02-24", "2026-02-24 2026-11-13", 1)
-		}
-	}
 	compareToolLines(t, "every account up to 2026-11-13, after the later files", ts.lines(ts.read(t, 0, "2026-11-13")), want)
 	return want
 }
@@ -746,14 +714,16 @@ func checkToolReadDecided(t *testing.T, ts *toolStore, want map[string][]string)
 	compareToolLines(t, "every account after your decisions", ts.lines(ts.read(t, 0, "")), want)
 }
 
-// TestToolReadNamesOfOneSource requires that a security that one source
-// names by its ticker and, from its delisting or its cash merger on, by
-// its CUSIP be delisted in both tools, as the securities view's symbol
-// says: the store dates both names of an API read by its answer, of a
-// transactions -json import by the import, and of a History file by its
-// export, and the days of the rows under each, which Q12 reads, say which
-// came last, counted or not: the API's sale, which you uncount, still
-// does.
+// TestToolReadNamesOfOneSource reads, from a real store, three securities
+// that one source names by a ticker and, from a delisting or a cash merger
+// on, by a CUSIP, and that the store dates both names of at one instant: an
+// API read by its answer, a transactions -json import by the import, and a
+// History file by its export. Of the API's names, a tie of a ticker and a
+// CUSIP gives the CUSIP, so the first two are delisted in both tools, the
+// one whose sale you uncount too; a History file's CUSIP names never delist
+// a security, so the third is written with its ticker and named by its
+// CUSIP, in PP's symbols_changed and in Ghostfolio's yahoo_idle (I-2, I-3
+// and I-12 of the consolidation).
 func TestToolReadNamesOfOneSource(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -789,8 +759,11 @@ func TestToolReadNamesOfOneSource(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range []struct{ key, ticker, cusip string }{
-		{"i:900000001", "TKRQ", "69389D107"}, {"i:900000002", "TKRP", "69389E105"}, {"x:66000301", "MRGR", "69389C109"},
+	for _, c := range []struct {
+		key, ticker, cusip string
+		delisted           bool
+	}{
+		{"i:900000001", "TKRQ", "69389D107", true}, {"i:900000002", "TKRP", "69389E105", true}, {"x:66000301", "MRGR", "69389C109", false},
 	} {
 		var seen []time.Time
 		for _, n := range in.names {
@@ -801,17 +774,9 @@ func TestToolReadNamesOfOneSource(t *testing.T) {
 		if len(seen) < 4 || slices.ContainsFunc(seen, func(at time.Time) bool { return !at.Equal(seen[0]) }) {
 			t.Errorf("%s: its symbols are seen at %v, not at one instant", c.key, seen)
 		}
-		var ticker, cusip toolSymbolDays
-		for _, d := range in.days {
-			switch {
-			case d.key == c.key && d.symbol == c.ticker:
-				ticker = d
-			case d.key == c.key && d.symbol == c.cusip:
-				cusip = d
-			}
-		}
-		if ticker.last == "" || cusip.last <= ticker.last {
-			t.Errorf("%s: the rows under %s end on %q, under %s on %q", c.key, c.ticker, ticker.last, c.cusip, cusip.last)
+		identity, manual, ticker, whys := c.cusip, "delisted", "", "no_ticker delisted"
+		if !c.delisted {
+			identity, manual, ticker, whys = c.ticker, "", c.ticker, whyNamedByCUSIP
 		}
 		for _, tool := range []string{toolPP, toolGF} {
 			e := *in
@@ -821,13 +786,19 @@ func TestToolReadNamesOfOneSource(t *testing.T) {
 			for _, ev := range events {
 				if sec := ev.security; sec != nil && sec.key == c.key {
 					n++
-					if !sec.delisted || sec.identity() != c.cusip || sec.manual != "delisted" || sec.ppTicker() != "" {
-						t.Errorf("%s %s: %s is of %s, delisted %v, MANUAL %q, PP ticker %q", c.key, tool, ev.ref, sec.identity(), sec.delisted, sec.manual, sec.ppTicker())
+					if sec.delisted != c.delisted || sec.identity() != identity || sec.manual != manual || sec.ppTicker() != ticker || whysOf(sec) != whys {
+						t.Errorf("%s %s: %s is of %s, delisted %v, MANUAL %q, PP ticker %q, symbols changed %q", c.key, tool, ev.ref, sec.identity(), sec.delisted, sec.manual, sec.ppTicker(), whysOf(sec))
 					}
 				}
 			}
 			if n == 0 {
 				t.Errorf("%s %s: no records", c.key, tool)
+			}
+			// Its last row is of 2025-12-01, within the year: Ghostfolio's
+			// list has it for its CUSIP alone.
+			idle := slices.ContainsFunc(yahooIdle(&e, events), func(i toolIdle) bool { return i.symbol == c.ticker && i.why == whyNamedByCUSIP })
+			if tool == toolGF && idle == c.delisted {
+				t.Errorf("%s: yahoo_idle lists %s named by its CUSIP: %v", c.key, c.ticker, idle)
 			}
 		}
 	}
@@ -837,11 +808,10 @@ func TestToolReadNamesOfOneSource(t *testing.T) {
 // between two History files that hold its first buy, whose entry takes the
 // later file's ticker (fileEntry), as does a second buy that the later file
 // alone holds, of a day between the two; and an API key of the old ticker,
-// which sold it under that ticker before the later file: Q12 has the file
-// key's rows under the new ticker alone, and its names are dated by the two
-// files' exports. Nothing but the old ticker ties the two keys, neither of a
-// CUSIP, so both tools write each on its own and list it with the other
-// (I-4 of the consolidation).
+// which sold it under that ticker before the later file: the file key's
+// names are dated by the two files' exports. Nothing but the old ticker ties
+// the two keys, neither of a CUSIP, so both tools write each on its own and
+// list it with the other (I-4 of the consolidation).
 func TestToolReadRenameRestated(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -870,20 +840,14 @@ func TestToolReadRenameRestated(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var days []string
-	for _, d := range in.days {
-		if d.key == "x:66000401" {
-			days = append(days, d.symbol+" "+string(d.first)+" "+string(d.last))
-		}
-	}
 	seen := map[string]nytime.Date{}
 	for _, n := range in.names {
 		if n.key == "x:66000401" && n.kind == "symbol" {
 			seen[n.value] = nytime.DateOf(n.firstSeen)
 		}
 	}
-	if !slices.Equal(days, []string{"JKLN 2024-03-11 2025-06-02"}) || seen["JKLM"] != "2025-01-15" || seen["JKLN"] != "2026-11-11" {
-		t.Fatalf("the file's key: rows %q, names first seen %v", days, seen)
+	if seen["JKLM"] != "2025-01-15" || seen["JKLN"] != "2026-11-11" {
+		t.Fatalf("the file's key: names first seen %v", seen)
 	}
 	for _, tool := range []string{toolPP, toolGF} {
 		e := *in
@@ -916,9 +880,8 @@ func TestToolReadRenameRestated(t *testing.T) {
 // 2015 too, while the API's rows of a read of 2026-01-05 name it TKNA up to
 // May 2025 and TKNB from June, after its rename; and another company,
 // which no snapshot held and the store knows no CUSIP of, took TKNA in
-// October 2025, read at once. Q12 holds the API's rows apart from the
-// file's, and Q5 each name with the key that had it, when it is not the
-// security's own. The store holds S's position, two months after the read,
+// October 2025, read at once. Q5 holds each name with the key that had it,
+// when it is not the security's own. The store holds S's position, two months after the read,
 // under the position's key, apart: S knows no CUSIP, and shares TKNA with
 // the other company and TKNB with S's position, so both tools write S and
 // the other company each on its own, and list each with what the store knows
@@ -961,20 +924,14 @@ func TestToolReadJoinedHistoryKey(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var days, from []string
-	for _, d := range in.days {
-		if d.key == "i:1000800" {
-			days = append(days, fmt.Sprintf("%s %s %s %s", d.symbol, d.source, d.first, d.last))
-		}
-	}
+	var from []string
 	for _, n := range in.names {
 		if n.key == "i:1000800" && n.kind == "symbol" && n.from != "" {
 			from = append(from, n.value+" "+n.from)
 		}
 	}
-	if !slices.Equal(days, []string{"TKNA api 2024-03-01 2025-05-15", "TKNB api 2025-06-16 2026-01-02", "TKNB file 2015-03-02 2015-03-02"}) ||
-		!slices.Contains(from, "TKNB x:66000800") {
-		t.Fatalf("S's rows %q, its names of other keys %q", days, from)
+	if !slices.Contains(from, "TKNB x:66000800") {
+		t.Fatalf("S's names of other keys %q", from)
 	}
 	for _, tool := range []string{toolPP, toolGF} {
 		e := *in
