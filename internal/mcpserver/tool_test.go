@@ -1150,6 +1150,24 @@ func TestStoreOnlyAccount(t *testing.T) {
 	if r := e.call("get_transactions", `{"account":"A4","source":"store"}`); r.isError || txnCoverageOf(r, "...678")["read_from"] != "store" {
 		t.Errorf("the account that only the store knows, from the store: %.300s", r.text)
 	}
+	// A login that has ended does not concern a call of accounts that the
+	// login does not share: under auto, it checks no login, and says nothing
+	// of Schwab, though the server knows the login has ended, and the
+	// directory's read of Schwab is warm.
+	e = newEnv(t, withStore(path), withLoginAt(testNow.Add(-10*time.Minute)))
+	e.plant("12345678", gone)
+	if r := e.call("list_accounts", `{}`); r.isError {
+		t.Fatal(r.text)
+	}
+	e.fake.EndLogin()
+	e.fake.RevokeAccess()
+	if r := e.call("get_transactions", `{"account":"135","source":"schwab"}`); r.code() != "login_expired" {
+		t.Fatalf("the login that Schwab ended: %.300s", r.text)
+	}
+	if r := e.call("get_transactions", `{"account":"A4"}`); r.isError || txnCoverageOf(r, "...678")["read_from"] != "store" ||
+		slices.Contains(r.warnings(), "api_unavailable") || strings.Contains(r.text, "login_expired") {
+		t.Errorf("the account that only the store knows, under auto, the login ended: %.600s", r.text)
+	}
 }
 
 // When the preferences cannot be read, the nicknames are null and the

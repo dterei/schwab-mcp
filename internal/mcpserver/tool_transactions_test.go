@@ -2156,7 +2156,8 @@ func TestTransactionsFallBackToTheStore(t *testing.T) {
 		t.Fatal(r.text)
 	}
 	e.fake.Override(schwabtest.TransactionsRoute, schwabtest.Unavailable)
-	fromStore("Schwab answering 503", e.call("get_transactions", args), "2024-01-01",
+	one := e.call("get_transactions", args)
+	fromStore("Schwab answering 503", one, "2024-01-01",
 		"so its rows come from the local history, as far as it holds these days: [schwab_unavailable]")
 	all := e.call("get_transactions", `{"from":"2024-01-01","to":"2025-05-31"}`)
 	if !strings.Contains(all.text, "Schwab could not be read for ...135, ...398 and ...783, so their rows come from the local history") {
@@ -2167,6 +2168,10 @@ func TestTransactionsFallBackToTheStore(t *testing.T) {
 			t.Errorf("every account, Schwab answering 503: %s's coverage %v", masked, c)
 		}
 	}
+	// The totals, and each account's rows, waiting rows and last read, are
+	// those of the read that fell back, as source store has them.
+	sameAsStore(t, e, "one account, Schwab answering 503", one, args, "...135")
+	sameAsStore(t, e, "every account, Schwab answering 503", all, `{"from":"2024-01-01","to":"2025-05-31"}`, "...135", "...398", "...783")
 	var pages []string
 	for _, p := range e.txnPages("get_transactions", `{"account":"135","from":"2024-01-01","to":"2025-05-31","limit":2}`, 10) {
 		pages = append(pages, txnRefsOf(txnRowsOf(p))...)
@@ -2174,6 +2179,121 @@ func TestTransactionsFallBackToTheStore(t *testing.T) {
 	store := txnRefsOf(txnRowsOf(e.call("get_transactions", `{"account":"135","source":"store","from":"2024-01-01","to":"2025-05-31"}`)))
 	if len(store) < 3 || !slices.Equal(pages, store) {
 		t.Errorf("pages of 2, Schwab answering 503, hold %v; source store %v", pages, store)
+	}
+
+	// Schwab sends ...135's newest window, whose part of one instant holds
+	// as many rows as a window may and so may have been cut, then answers
+	// 503 for the older window: the account is read from the store, and
+	// what Schwab sent of it counts for nothing, its rows nor its cut, so
+	// that the answer is complete, with the store's totals.
+	newer := []string{
+		txnJSON(individual, 73508265901, ny(2025, time.March, 3, 10, 0), "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.01),
+		txnJSON(individual, 73508265902, ny(2025, time.March, 3, 10, 0), "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.02),
+	}
+	e = newEnv(t, withTools(func(s *Server) {
+		windows := newWindowCache()
+		windows.full = 2
+		testTool(s, "get_transactions_2", getTransactionsDef.args, func(ctx context.Context, c *call, in getTransactionsIn) (getTransactionsOut, error) {
+			return getTransactions(ctx, c, windows, in)
+		})
+	}), withFake(func(f *schwabtest.Server) {
+		f.Override(schwabtest.TransactionsRoute, func(w http.ResponseWriter, req *http.Request) {
+			// The older window is asked from 2023-12-31, the newer and its
+			// halves from 2024 September on.
+			if req.URL.Query().Get("startDate") < "2024-06-01" {
+				schwabtest.Unavailable(w, req)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, "["+strings.Join(newer, ",")+"]")
+		})
+	}))
+	if r := e.call("list_accounts", `{}`); r.isError {
+		t.Fatal(r.text)
+	}
+	r = e.call("get_transactions_2", args)
+	fromStore("a window that Schwab may have cut, then 503", r, "2024-01-01", "[schwab_unavailable]")
+	if r.value["complete"] != true || slices.Contains(r.warnings(), "partial") || strings.Contains(r.text, "73508265901") {
+		t.Errorf("a window that Schwab may have cut, then 503: %.800s", r.text)
+	}
+	sameAsStore(t, e, "a window that Schwab may have cut, then 503", r, args, "...135")
+}
+
+// sameAsStore fails unless r, a call of get_transactions with args, holds
+// the totals of the same call with source store, and for each account
+// masked as one of masked the same coverage: its rows, waiting rows, last
+// read and whole days.
+func sameAsStore(t *testing.T, e *env, name string, r result, args string, masked ...string) {
+	t.Helper()
+	var in map[string]any
+	if err := json.Unmarshal([]byte(args), &in); err != nil {
+		t.Fatal(err)
+	}
+	in["source"] = "store"
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := e.call("get_transactions", string(b))
+	got, _ := json.Marshal(r.value["totals"])
+	want, _ := json.Marshal(store.value["totals"])
+	if store.isError || string(want) == "[]" || string(got) != string(want) {
+		t.Errorf("%s: totals %s; source store %s", name, got, want)
+	}
+	for _, m := range masked {
+		c, s := txnCoverageOf(r, m), txnCoverageOf(store, m)
+		for _, field := range []string{"rows", "waiting", "last_read", "whole"} {
+			if fmt.Sprint(c[field]) != fmt.Sprint(s[field]) {
+				t.Errorf("%s: %s's %s is %v; source store %v", name, m, field, c[field], s[field])
+			}
+		}
+	}
+}
+
+// An account that failed for a bug of the server's (internal) is not read
+// from the store in its place, so that the bug stays in sight; one that
+// failed otherwise is, as far as the store holds its days, the reads that
+// Schwab answered for it before dropped.
+func TestFallBackLeavesABugFailed(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	c := &call{
+		s: e.srv, tool: "get_transactions", mask: e.srv.mask, accounts: e.srv.accounts, store: e.srv.store,
+		now: testNow, budget: time.Minute, deadline: time.Now().Add(time.Minute),
+	}
+	v, err := c.directory(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := c.txnQueryOf(getTransactionsIn{From: "2024-01-01", To: "2025-05-31"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &txnWalk{c: c, q: q, stopped: -1, ledger: &history.LedgerPage{}}
+	codes := map[string]errorCode{individual: codeInternal, options: codeSchwabUnavailable}
+	for _, a := range v.accounts {
+		if code, ok := codes[a.number]; ok {
+			w.accts = append(w.accts, &txnAccount{
+				a: a, startKey: a.key(), from: fromNone, err: c.s.errorFor(code), empty: -1, reads: []*windowRead{{capped: true}},
+			})
+		}
+	}
+	if len(w.accts) != 2 {
+		t.Fatalf("the directory gave %d of the two accounts", len(w.accts))
+	}
+	if err := w.fallBack(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for _, ta := range w.accts {
+		switch name := c.mask.masked(ta.a.number); {
+		case ta.a.number == individual && (ta.from != fromNone || ta.err == nil || ta.err.code != codeInternal || ta.schwabErr != nil):
+			t.Errorf("%s, failed for a bug: from %s, error %v", name, ta.from, ta.err)
+		case ta.a.number == options && (ta.from != fromStore || ta.err != nil || ta.schwabErr == nil || ta.capped()):
+			t.Errorf("%s, failed for Schwab: from %s, error %v, Schwab's %v, a read kept %v", name, ta.from, ta.err, ta.schwabErr, ta.capped())
+		}
+	}
+	if w.fellBack == nil || !slices.Equal(w.fellBack.Read, []int64{w.accts[1].a.storeID}) {
+		t.Errorf("the store's read that fell back: %+v", w.fellBack)
 	}
 }
 
