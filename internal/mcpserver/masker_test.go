@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -154,7 +155,13 @@ func TestMaskerMasked(t *testing.T) {
 // the name of the app key's rate-limit file whole.
 func TestMaskerPath(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	// The temporary folder is resolved first: on macOS it lies under /var,
+	// itself a link to /private/var, and the home's target below must be
+	// its real path.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	home := filepath.Join(dir, "home-61803398")
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
@@ -408,15 +415,20 @@ func TestLogHandler(t *testing.T) {
 		"date", "2026-09-14",
 	)
 	got := b.String()
+	// The text handler quotes a value that holds a space, and a backslash
+	// in a quoted value is doubled: on Windows a separator then reads \\.
+	sep := string(filepath.Separator)
+	quoted := func(s string) string { return strings.Trim(strconv.Quote(s), `"`) }
 	for _, want := range []string{
 		"file=~/with.db", `msg="reading ~/a.db"`, "~/b.db", "account ...321 and ...567", "key [app key]",
 		`text="plain 87654321 stays, ...567 does not"`, "number=...398", `group.inner="secret [app secret]"`, "date=2026-09-14",
 	} {
-		if !strings.Contains(got, strings.ReplaceAll(want, "/", string(filepath.Separator))) && !strings.Contains(got, want) {
+		if !strings.Contains(got, want) && !strings.Contains(got, strings.ReplaceAll(want, "/", sep)) &&
+			!strings.Contains(got, strings.ReplaceAll(want, "/", quoted(sep))) {
 			t.Errorf("the log lacks %s:\n%s", want, got)
 		}
 	}
-	for _, leak := range []string{home, schwabtest.AppKey, schwabtest.AppSecret, "61803398", "1234567 "} {
+	for _, leak := range []string{home, quoted(home), schwabtest.AppKey, schwabtest.AppSecret, "61803398", "1234567 "} {
 		if strings.Contains(got, leak) {
 			t.Errorf("the log holds %q:\n%s", leak, got)
 		}
