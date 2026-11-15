@@ -312,14 +312,13 @@ data, which the server's instructions tell the model not to take as
 instructions.
 
 What never does: a full account number, the `user` details that Schwab's
-spec puts on a transaction (a person's name and login), a value of
-Schwab's JSON under a key the server does not know, which `include_raw`
-shows as withheld unless it is a time, a code, a number that cannot be an
-account number, or a number already masked, the app key and secret, and
-the login's tokens. A last
-pass over every string the server sends replaces any account number it has
-seen, the key, the secret and the tokens, and the tests fail if it ever
-finds one.
+spec puts on a transaction (a person's name and login), the app key and
+secret, and the login's tokens. `include_raw` withholds a value of
+Schwab's JSON under a key the server does not know, unless it is a time,
+a code, a number that cannot be an account number or a number already
+masked. A last pass over every string the server sends replaces any
+account number it has seen, the key, the secret and the tokens, and the
+tests fail if it ever finds one.
 
 The server reads the local history with a reader that cannot write: it
 never creates, changes or upgrades the store.
