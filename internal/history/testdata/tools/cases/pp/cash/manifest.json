@@ -227,7 +227,9 @@
         "account": "A1 ...135",
         "snapshot": "2026-11-10",
         "snapshot_cash": 12345.67,
-        "written_cash": 8800.00
+        "written_cash": 8800.00,
+        "difference": 3545.67,
+        "left_out": true
       }
     ],
     "cash_gone": [],

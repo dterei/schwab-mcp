@@ -290,17 +290,29 @@
         "account": "A1 ...135",
         "security_key": "i:1000002",
         "symbol": "EFGH",
+        "pp_security": {
+          "ticker": "EFGH",
+          "name": "EFGH TOTAL MARKET ETF"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 20,
-        "written_shares": 10
+        "written_shares": 10,
+        "difference": 10,
+        "left_out": true
       },
       {
         "account": "A1 ...135",
         "security_key": "i:1854092",
         "symbol": "XYZ",
+        "pp_security": {
+          "ticker": "XYZ",
+          "wkn": "98389B100",
+          "name": "XYZ CORP COMMON STOCK"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 5,
-        "written_shares": -10
+        "written_shares": -10,
+        "difference": 15
       }
     ],
     "gone": [],
@@ -309,7 +321,8 @@
         "account": "A1 ...135",
         "snapshot": "2026-11-10",
         "snapshot_cash": 1000.00,
-        "written_cash": 460.00
+        "written_cash": 460.00,
+        "difference": 540.00
       }
     ],
     "cash_gone": [],

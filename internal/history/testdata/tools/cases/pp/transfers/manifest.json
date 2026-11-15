@@ -222,13 +222,15 @@
         "account": "A1 ...135",
         "snapshot": "2026-11-10",
         "snapshot_cash": 5000.00,
-        "written_cash": 430.00
+        "written_cash": 430.00,
+        "difference": 4570.00
       },
       {
         "account": "A2 ...398",
         "snapshot": "2026-11-10",
         "snapshot_cash": -12.34,
-        "written_cash": -631.00
+        "written_cash": -631.00,
+        "difference": 618.66
       }
     ],
     "cash_gone": [],

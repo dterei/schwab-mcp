@@ -546,8 +546,20 @@ wrote 17 rows for Portfolio Performance to pp, up to 2026-11-13: 2 account files
   A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
   A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
   A3 ...783: snapshot 2026-11-02 to 2026-11-10
-11 holdings differ from the latest snapshot (pp/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
-2 accounts' cash in Portfolio Performance differs from their latest snapshots' (pp/manifest.json): cash held before the store's first row of each, or rows left out; book each difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)
+13 differences from the latest snapshots (pp/manifest.json lists each under holdings, with the snapshot's figure and the records'): after importing, make what you add by hand in Portfolio Performance for each equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 4 says what to book for each):
+  Schwab A1 ...135: 00507V109 (WKN 00507V109): 10
+  Schwab A1 ...135: SWVXX (WKN 808515779): 1220.89
+  Schwab A1 ...135: VTI (WKN 922908769): 12
+  Schwab A1 ...135: AAPL (WKN 037833100): -0.8212
+  Schwab A1 ...135: BND (ticker BND): -0.0378
+  Schwab A1 ...135: VBR (ticker VBR): -1.5487
+  Schwab A2 ...398: XYZ 260619P00045000 (ticker XYZ260619P00045000): -200
+  Schwab A2 ...398: META (WKN 30303M102): 2
+  Schwab A2 ...398: /ESH25_P5050:XCME (ticker /ESH25_P5050:XCME): -50
+  Schwab A2 ...398: XYZ 250221P00040000 (ticker XYZ250221P00040000): -200
+  Schwab A2 ...398: XYZ 260918C00050000 (ticker XYZ260918C00050000): 100
+  Schwab A1 ...135: cash: -10776.43
+  Schwab A2 ...398: cash: 5724.26
 1 account has snapshots and nothing in Portfolio Performance (pp/manifest.json lists it under holdings.not_checked): A3 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
 in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
   A1 ...135: Schwab A1 ...135
@@ -561,8 +573,19 @@ wrote 13 activities for Ghostfolio to gf, up to 2026-11-13: 3 accounts with 12 b
   A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
   A3 ...783: snapshot 2026-11-02 to 2026-11-10
 4 deposits, withdrawals and journals are in the accounts' balances
-11 holdings differ from the latest snapshot (gf/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
 2 symbols for Yahoo have no row since 2025-11-13 and are not held (gf/manifest.json lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual
+11 holdings differ from the latest snapshots (gf/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
+  Schwab A1 ...135: Security (00507V109) (MANUAL): 10
+  Schwab A1 ...135: SWVXX (YAHOO): 1220.89
+  Schwab A1 ...135: VTI (YAHOO): 12
+  Schwab A1 ...135: AAPL (YAHOO): -0.8212
+  Schwab A1 ...135: BND (YAHOO): -0.0378
+  Schwab A1 ...135: VBR (YAHOO): -1.5487
+  Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200
+  Schwab A2 ...398: META (YAHOO): 2
+  Schwab A2 ...398: Security (i:205187341) (MANUAL): -50
+  Schwab A2 ...398: XYZ 2025-02-21 40 put (XYZ250221P00040000) (MANUAL): -200
+  Schwab A2 ...398: XYZ 2026-09-18 50 call (XYZ260918C00050000) (MANUAL): 100
 Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
 next time: schwabtx export -format ghostfolio -since gf -dir <a new folder>
 ```
@@ -1655,12 +1678,13 @@ then started over.
   postings, one taken after midnight stands for the session before). A
   snapshot of `-to`'s session taken the next morning is passed over: it may
   hold rows dated after `-to`, which the export does not read. It lists
-  each difference under `holdings`, counted on stderr, with the accounts
-  that it does not check, which stderr names with what to do: those with
-  rows and no snapshot to check against (take one with `schwabtx
-  snapshot`), and, for PP, those that PP holds nothing of, as an account
-  with snapshots and no rows, which no export of the chain writes or names
-  (import its History files). A security is the tool's: one that the tool
+  each difference under `holdings`, and on stderr with its value, the
+  snapshot's shares less the records', with the accounts that it does not
+  check, which stderr names with what to do: those with rows and no
+  snapshot to check against (take one with `schwabtx snapshot`), and, for
+  PP, those that PP holds nothing of, as an account with snapshots and no
+  rows, which no export of the chain writes or names (import its History
+  files). A security is the tool's: one that the tool
   holds as one under two of the store's keys (PP finds it by its ticker,
   WKN or name, and Ghostfolio by its symbol) is checked once, under the
   least of its keys, with every one of them in `security_keys`. Splits
@@ -1668,7 +1692,7 @@ then started over.
   PP, whose deposit account holds the sum of its records, it checks each
   account's cash as well, against the same snapshot: what the records
   leave of the rows that it holds, against its cash, listed under
-  `holdings.cash` and counted on stderr. A difference is cash held before
+  `holdings.cash` and on stderr. A difference is cash held before
   the store's first row of the account, or moved by a row left out or one
   that the store lacks. Two accounts' cash it does not check, as no figure
   of the snapshot is certain to be their cash: one whose snapshot holds no
@@ -1679,8 +1703,11 @@ then started over.
   notes](schwab-api.md#positions-and-balances)). Each is listed under
   `holdings.cash_not_checked`, with why, and named on stderr, for you to
   compare its cash at Schwab with PP's by hand, or, for `no_cash`, to take
-  another snapshot. Ghostfolio's cash is the snapshots' balances, with
-  nothing to check. The walk-through's store shows 11 holdings, and 2
+  another snapshot. With `-since`, an account that the export does not
+  check, or whose cash it does not check, keeps the differences of it that
+  DIR listed, marked `carried`, for the next export that checks it
+  ([below](#later-exports)). Ghostfolio's cash is the snapshots' balances,
+  with nothing to check. The walk-through's store shows 11 holdings, and 2
   accounts' cash, since its made-up snapshots and rows were not made to
   agree.
 
@@ -1709,7 +1736,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `left_out`, `caveats`, `combined` | the rows left out, written with a caveat, and carried by a sale |
 | `in_balances` | Ghostfolio: per account, the cash rows that its balances carry |
 | `flagged`, `waiting` | the rows with a flag that needs you, with their flags, and the file rows that wait for you, each with the command that shows it |
-| `holdings` | each difference from the latest snapshot, of a security as the tool holds it (under its least key, with `security_keys` when the store has several, and for Ghostfolio the asset that holds it, `ghostfolio_asset`: its `data_source`, `symbol` and a MANUAL asset's `name`), with `before` when DIR listed it alike, or `was`, DIR's difference, the snapshot's shares less the written, when DIR listed it otherwise, and `was_asset`, DIR's asset, when DIR listed it under another; `gone`: each that DIR listed and this export does not find, with `was` and its asset; and `not_checked`, the accounts not checked: with rows and no snapshot, or, for PP, with snapshots and nothing that PP holds; for PP, `cash`: each account whose cash that the records leave differs from its latest snapshot's, with the snapshot's day, `snapshot_cash`, `written_cash`, and `before` or `was` likewise; `cash_gone`: each account whose difference DIR listed and this export finds none of, with `was`; and `cash_not_checked`: each account whose cash the export does not check, with the snapshot's day, `why` (`margin`: its latest snapshot is of a margin account with a margin or short balance; `no_cash`: its latest snapshot holds no cash figure), and `was`, the difference listed before, carried on |
+| `holdings` | `differences`: each difference from the latest snapshot, of a security as the tool holds it, under its least key (`security_key`, with `security_keys` when the store has several) and as the tool finds it: for PP `pp_security`, the `ticker`, `wkn` and `name` written, and for Ghostfolio `ghostfolio_asset`, the asset that holds it (its `data_source`, `symbol` and a MANUAL asset's `name`); with the snapshot's day, `snapshot_shares`, `written_shares` and their `difference`, the first less the second; `left_out` when a row of the account left out, of the rows that the snapshot holds, moves its shares; `before` when DIR listed it alike; and `carried` when this export could not check its account and copied it from DIR; `gone`: each that DIR listed, of an account that this export checks, and that it does not find, with `was`, DIR's difference; and `not_checked`, the accounts not checked: with rows and no snapshot, or, for PP, with snapshots and nothing that PP holds; for PP, `cash`: each account whose cash that the records leave differs from its latest snapshot's, with the snapshot's day, `snapshot_cash`, `written_cash` and their `difference`, `left_out` when a row of the account left out moves cash, and `before` and `carried` likewise; `cash_gone`: each account whose difference DIR listed and this export finds none of, with `was`; and `cash_not_checked`: each account whose cash the export does not check, with the snapshot's day and `why` (`margin`: its latest snapshot is of a margin account with a margin or short balance; `no_cash`: its latest snapshot holds no cash figure) |
 | `ghostfolio` | Ghostfolio: `yahoo`, the symbols its import asks Yahoo about; `yahoo_idle`, those of them with no row for a year before `-to` that no account holds; `manual`, each MANUAL security with why (`option`, `bond`, `no_ticker`, `delisted`, `not_plain`, `asked`); `profiles`, each asset `used` or written for its prices only (`prices_only`) |
 | `symbols_changed` | PP: each security that PP may hold otherwise than written, or that may no longer trade, as PP holds it: its key (the least, with `security_keys` when the store has several); how it is written now (`written_as`: its ticker, or `MANUAL` when PP gets no price feed for it); every symbol it has had (`names`), once for each source that named it, with its `source`, `api` or `history`, and `last_seen_at`, when that source saw it last; `why`, of `renamed`, `no_ticker` and, with `-since`, `changed`; `because` for `no_ticker` (`delisted`); and, with `-since`, `new` when no export of the chain wrote it |
 | `keys_unsure` | each key of the store that knows no CUSIP and had a ticker that other securities have had too, of other CUSIPs or at other times, which the export writes or prices: its key (with `security_keys` when the export takes several for one), the `tickers` it shares with them, the key of the one it is written as (`taken_for`, null when it stays on its own), and each of those `securities`, by its key, with its `cusip` ("" for none), `apart` when the two had the ticker at times that do not meet, and the `command` that joins the key to it in the store |
@@ -1764,23 +1791,24 @@ whatever its day:
   a full export makes the list too;
 - left-out rows that DIR listed alike are marked `before`, and stderr
   counts only the others; so are the differences of the holdings check
-  and, for PP, of the cash check that DIR listed alike, of an account and
-  a security that shares a key with DIR's, and for Ghostfolio under the
-  same asset. One that DIR listed otherwise keeps DIR's difference, the
-  snapshot's less the records', as `was`, and one that DIR listed under
-  another Ghostfolio asset, as after a rename, a delisting or `-manual`,
-  keeps that asset too, as `was_asset`: Ghostfolio ties what you added by
-  hand for it to the asset, and does not follow the change. One that DIR
-  listed and this export does not find is listed under `holdings.gone`,
-  or `holdings.cash_gone`, with `was`: stderr lists each with its change,
-  by which to change what you booked by hand for it, or to delete it, as
-  the rows written now stand for it, in PP before importing, since PP
-  marks a new row equal to one that it holds as existing (in
-  [the how-to](tools.md#the-first-import), step 4), and in Ghostfolio
-  after, or to move it to the asset that holds the security now ([step
-  6](tools.md#ghostfolio)). An account whose cash is not checked carries
-  DIR's difference on, as the `was` of its `cash_not_checked` entry, for
-  the export that checks it again.
+  and, for PP, of the cash check that DIR listed alike: of one account, of
+  a security as the tool finds it (PP by its WKN, else its ticker, else
+  its name, as written; Ghostfolio by its asset), and of one value. A
+  difference that DIR listed, of an account that this export checks, and
+  that this export does not find is listed under `holdings.gone`, or
+  `holdings.cash_gone` for cash, with DIR's difference as `was`: what you
+  added by hand for it is to go. stderr lists those first, then every
+  other difference with its value, which what you add by hand for it is to
+  equal, less what the rows left out that you book by hand move: in PP
+  before importing, since PP marks a new row equal to one that it holds as
+  existing (in [the how-to](tools.md#the-first-import), step 4), and in
+  Ghostfolio after ([step 6](tools.md#ghostfolio)). Ghostfolio ties what
+  you added to its asset: a security that another asset holds now, after
+  a rename, a delisting or `-manual`, has its difference gone under the
+  old asset and new under the new one. An account that this export cannot
+  check carries DIR's differences of it on (`carried`), uncounted, so that
+  the next export that checks it lists each again or as gone; so does an
+  account whose cash it cannot check, for its cash.
 
 The chain keeps its account and its `-manual` list: a `-since` export takes
 no `-account`, and adds what `-manual` names to the chain's. It refuses a
@@ -1800,10 +1828,9 @@ MANUAL assets that Ghostfolio holds for Yahoo. Neither tool has a redo of
 one account: Portfolio Performance checks a transfer against the other
 account's side, and a full export imported over accounts that the tool
 holds writes their rows again, those whose values you changed in
-Ghostfolio, as a value set by hand, beside them, and lists their
-differences anew. Only the import that makes a Ghostfolio account sets its
-balances: between redos, set its cash from the lines that each `-since`
-export prints.
+Ghostfolio, as a value set by hand, beside them. Only the import that
+makes a Ghostfolio account sets its balances: between redos, set its cash
+from the lines that each `-since` export prints.
 
 ## Backup and restore
 

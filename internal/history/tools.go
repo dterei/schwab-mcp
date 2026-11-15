@@ -111,21 +111,21 @@ type ToolExport struct {
 	// Flagged counts the rows written, given, combined or in the balances
 	// that carry a flag that needs you, which the next export lists as
 	// gone once you uncount them; Waiting the file rows that wait for you
-	// to resolve them, which no export writes until you have; Holdings the
-	// securities of an account whose shares differ from its latest
-	// snapshot's, but those that the export it goes on from listed, alike
-	// or otherwise (DifferencesChanged); and, for PP, SymbolsChanged the
-	// securities, as PP holds them, that PP may hold otherwise than written
-	// or that may no longer trade (the manifest's symbols_changed), and Cash
-	// the accounts whose cash differs from their latest snapshot's, but
-	// those that the export it goes on from listed likewise.
-	Flagged, Waiting, Holdings, SymbolsChanged, Cash int
-	// DifferencesChanged are, going on from another export, the
-	// differences of the holdings check and, for PP, of the cash check that
-	// that export listed and that this one lists with another, or not at
-	// all: what you added or booked by hand in the tool for one is to
-	// change by its change, or to delete.
-	DifferencesChanged []ToolDifference
+	// to resolve them, which no export writes until you have; and, for PP,
+	// SymbolsChanged the securities, as PP holds them, that PP may hold
+	// otherwise than written or that may no longer trade (the manifest's
+	// symbols_changed).
+	Flagged, Waiting, SymbolsChanged int
+	// Differences are the differences from the latest snapshots that
+	// stderr lists (K-7 of the consolidation): going on from another
+	// export, first those that it listed, of an account that this one
+	// checks, and that this one does not find (Gone), the holdings' and then,
+	// for PP, the cash's; then this export's differences of the holdings
+	// check and, for PP, of the cash check, but those that the export it goes
+	// on from listed alike (before) and those that it carries on for an
+	// account that it does not check. What you add by hand in the tool for
+	// one is to equal it, and to go for one gone.
+	Differences []ToolDifference
 	// CashNotChecked are, for PP, the accounts whose cash the cash check
 	// does not check, each with why (the manifest's
 	// holdings.cash_not_checked).
@@ -249,23 +249,24 @@ type ToolCashRows struct {
 }
 
 // A ToolDifference is a difference of the holdings check, or of PP's cash
-// check, that the export that a tool export goes on from listed and that
-// this one lists with another, or not at all: its account's label; for
-// shares, the security's key (the least, when the tool holds it under
-// several) and symbol, both "" for cash (Cash), and, for Ghostfolio, the
-// asset that holds it, as Ghostfolio shows it (a MANUAL asset's name, else
-// its symbol), and, when Ghostfolio is to hold it under another asset now,
-// the one that the export it goes on from listed it under (WasAsset); and
-// the difference, the snapshot's shares or cash less what the records
-// leave, as listed then (Was) and now (Now, "" when it is gone), with the
-// change from one to the other (Now less Was, or less Was alone when gone),
-// each as the manifest writes it, signed: shares, or dollars with two
-// places.
+// check, as stderr lists it (K-7 of the consolidation): its account's
+// label; for shares, the security's key (the least, when the tool holds it
+// under several) and symbol, both "" for cash (Cash); and how the tool finds
+// the security, which holds what you add by hand for it there (Finds): for
+// PP its WKN, else its ticker, else its name, as written ("WKN 98389B100",
+// "ticker VBR" or "name ..."), and for Ghostfolio its asset, as Ghostfolio
+// shows it (Asset: a MANUAL asset's name, else its symbol), and its data
+// source. Value is the difference, the snapshot's shares or cash less what
+// the records leave, as the manifest writes it, signed: shares, or dollars
+// with two places; for one gone, the one that the export it goes on from
+// listed. LeftOut says that a row that the export leaves out moves it
+// (left_out).
 type ToolDifference struct {
 	Account, Key, Symbol string
 	Cash                 bool
-	Asset, WasAsset      string
-	Was, Now, Change     string
+	Asset, Finds         string
+	Value                string
+	Gone, LeftOut        bool
 }
 
 // A ToolCashUnchecked is, for PP, an account whose cash the cash check does
@@ -567,7 +568,7 @@ func yearBefore(d nytime.Date) nytime.Date {
 // count counts the export's rows by their outcome, and what stderr counts
 // of them: the rows left out, by reason, but those that the export it goes
 // on from left out alike; the rows written with each caveat; the flagged
-// ones; and the holdings that differ, but those listed before.
+// ones; and it lists the differences from the snapshots that stderr lists.
 func (e *ToolExport) count() {
 	caveats, reasons := map[string]int{}, map[string]int{}
 	for i, o := range e.res.outcomes {
@@ -609,14 +610,25 @@ func (e *ToolExport) count() {
 			e.Caveats = append(e.Caveats, ToolCount{Code: c.code, Count: n})
 		}
 	}
+	for _, g := range e.res.holdingsGone {
+		e.Differences = append(e.Differences, ToolDifference{
+			Account: g.Account, Key: g.SecurityKey, Symbol: g.Symbol, Asset: g.Asset.shown(), Finds: toolFinds(g.PP, g.Asset), Value: string(g.Was), Gone: true,
+		})
+	}
+	for _, g := range e.res.cashGone {
+		e.Differences = append(e.Differences, ToolDifference{Account: g.Account, Cash: true, Value: string(g.Was), Gone: true})
+	}
 	for _, h := range e.res.holdings {
-		if !h.Before && h.Was == "" {
-			e.Holdings++
+		if !h.Before && !h.Carried {
+			e.Differences = append(e.Differences, ToolDifference{
+				Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Asset: h.Asset.shown(), Finds: toolFinds(h.PP, h.Asset),
+				Value: string(h.Difference), LeftOut: h.LeftOut,
+			})
 		}
 	}
 	for _, c := range e.res.cash {
-		if !c.Before && c.Was == "" {
-			e.Cash++
+		if !c.Before && !c.Carried {
+			e.Differences = append(e.Differences, ToolDifference{Account: c.Account, Cash: true, Value: string(c.Difference), LeftOut: c.LeftOut})
 		}
 	}
 	for _, u := range e.res.cashUnchecked {
@@ -629,7 +641,6 @@ func (e *ToolExport) count() {
 			e.NoSnapshot = append(e.NoSnapshot, a.label())
 		}
 	}
-	e.DifferencesChanged = e.res.differencesChanged()
 	for _, c := range e.res.changed {
 		e.Changed = append(e.Changed, ToolChange{Ref: c.Ref, Account: c.Account, Was: c.Was, NoteRef: c.NoteRef, Transfer: c.Transfer, Now: c.Now})
 	}
@@ -639,6 +650,16 @@ func (e *ToolExport) count() {
 	for _, t := range ppTickList(e.marks) {
 		e.Tick = append(e.Tick, ToolTick(t))
 	}
+}
+
+// toolFinds returns how the tool finds the security of a difference, as
+// ToolDifference.Finds says it: PP by pp's WKN, else its ticker, else its
+// name; Ghostfolio by asset, of its data source.
+func toolFinds(pp *chainPPSecurity, asset *chainAsset) string {
+	if asset != nil {
+		return asset.DataSource
+	}
+	return pp.shown()
 }
 
 // carried reports whether row i, combined with its cash row's sale, is

@@ -654,63 +654,99 @@
         "account": "A1 ...135",
         "security_key": "c:00507V109",
         "symbol": "00507V109",
+        "pp_security": {
+          "wkn": "00507V109"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 10,
         "written_shares": 0,
+        "difference": 10,
         "before": true
       },
       {
         "account": "A1 ...135",
         "security_key": "c:808515779",
         "symbol": "SWVXX",
+        "pp_security": {
+          "ticker": "SWVXX",
+          "wkn": "808515779",
+          "name": "SCHWAB VALUE ADVANTAGE MONEY FUND"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 1220.89,
         "written_shares": 0,
+        "difference": 1220.89,
         "before": true
       },
       {
         "account": "A1 ...135",
         "security_key": "c:922908769",
         "symbol": "VTI",
+        "pp_security": {
+          "ticker": "VTI",
+          "wkn": "922908769",
+          "name": "VANGUARD TOTAL STOCK MARKET ETF"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 12,
         "written_shares": 0,
+        "difference": 12,
         "before": true
       },
       {
         "account": "A1 ...135",
         "security_key": "i:1973757747",
         "symbol": "AAPL",
+        "pp_security": {
+          "ticker": "AAPL",
+          "wkn": "037833100"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 2.1788,
         "written_shares": 1,
+        "difference": 1.1788,
         "before": true
       },
       {
         "account": "A1 ...135",
         "security_key": "i:4417302",
         "symbol": "BND",
+        "pp_security": {
+          "ticker": "BND",
+          "name": "VANGUARD TOTAL BOND MARKET ETF"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 0.0378,
+        "difference": -0.0378,
         "before": true
       },
       {
         "account": "A1 ...135",
         "security_key": "i:4417355",
         "symbol": "VBR",
+        "pp_security": {
+          "ticker": "VBR",
+          "name": "VANGUARD SMALL-CAP VALUE ETF"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": -0.4513,
+        "difference": 0.4513,
         "before": true
       },
       {
         "account": "A2 ...398",
         "security_key": "c:0XYZ..RI60045000",
         "symbol": "XYZ   260619P00045000",
+        "pp_security": {
+          "ticker": "XYZ260619P00045000",
+          "name": "XYZ 06/19/2026 45.00 P"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": -200,
         "written_shares": 0,
+        "difference": -200,
         "before": true
       },
       {
@@ -721,63 +757,99 @@
           "i:1940083512"
         ],
         "symbol": "META",
+        "pp_security": {
+          "ticker": "META",
+          "wkn": "30303M102",
+          "name": "META PLATFORMS INC CLASS A"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 1,
         "written_shares": -1,
+        "difference": 2,
         "before": true
       },
       {
         "account": "A2 ...398",
         "security_key": "i:1973757747",
         "symbol": "AAPL",
+        "pp_security": {
+          "ticker": "AAPL",
+          "wkn": "037833100"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 2,
+        "difference": -2,
         "before": true
       },
       {
         "account": "A2 ...398",
         "security_key": "i:205187341",
         "symbol": "/ESH25_P5050:XCME",
+        "pp_security": {
+          "ticker": "/ESH25_P5050:XCME",
+          "name": "E-MINI S&P 500 OPTIONS MAR 25 5050 PUT"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 50,
+        "difference": -50,
         "before": true
       },
       {
         "account": "A2 ...398",
         "security_key": "i:219771034",
         "symbol": "XYZ   250221P00040000",
+        "pp_security": {
+          "ticker": "XYZ250221P00040000",
+          "name": "XYZ 02/21/2025 40.00 P"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 200,
+        "difference": -200,
         "before": true
       },
       {
         "account": "A2 ...398",
         "security_key": "i:219834765",
         "symbol": "XYZ   260918C00050000",
+        "pp_security": {
+          "ticker": "XYZ260918C00050000",
+          "name": "XYZ 09/18/2026 50.00 C"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": -100,
+        "difference": 100,
         "before": true
       },
       {
         "account": "A2 ...398",
         "security_key": "i:219950001",
         "symbol": "XYZ   261016P00045000",
+        "pp_security": {
+          "ticker": "XYZ261016P00045000",
+          "name": "XYZ 10/16/2026 45.00 P"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": 100,
+        "difference": -100,
         "before": true
       },
       {
         "account": "A2 ...398",
         "security_key": "i:219950002",
         "symbol": "XYZ   261016P00040000",
+        "pp_security": {
+          "ticker": "XYZ261016P00040000",
+          "name": "XYZ 10/16/2026 40.00 P"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
         "written_shares": -100,
+        "difference": 100,
         "before": true
       }
     ],
@@ -788,6 +860,7 @@
         "snapshot": "2026-11-10",
         "snapshot_cash": 1532.17,
         "written_cash": 12628.75,
+        "difference": -11096.58,
         "before": true
       },
       {
@@ -795,7 +868,7 @@
         "snapshot": "2026-11-10",
         "snapshot_cash": -12.34,
         "written_cash": -645.16,
-        "was": 1132.82
+        "difference": 632.82
       }
     ],
     "cash_gone": [],

@@ -193,7 +193,8 @@
         },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
-        "written_shares": 2
+        "written_shares": 2,
+        "difference": -2
       }
     ],
     "gone": [],

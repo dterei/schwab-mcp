@@ -70,9 +70,7 @@ made up.
   accounts, or a redo of every account (in [PP](#starting-over), in
   [Ghostfolio](#redoing-every-account)). Imported over what the tool holds,
   it is not a redo: the tool keeps all that it holds, takes a row that it
-  holds in another form, as one changed since, for a new one beside it,
-  and the export lists every difference from the snapshots anew, those
-  that you booked by hand too.
+  holds in another form, as one changed since, for a new one beside it.
 
 ## Portfolio Performance
 
@@ -102,8 +100,20 @@ and the types' names, whatever PP's language and locale.
      A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
-   11 holdings differ from the latest snapshot (pp-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
-   2 accounts' cash in Portfolio Performance differs from their latest snapshots' (pp-1/manifest.json): cash held before the store's first row of each, or rows left out; book each difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)
+   13 differences from the latest snapshots (pp-1/manifest.json lists each under holdings, with the snapshot's figure and the records'): after importing, make what you add by hand in Portfolio Performance for each equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 4 says what to book for each):
+     Schwab A1 ...135: 00507V109 (WKN 00507V109): 10
+     Schwab A1 ...135: SWVXX (WKN 808515779): 1220.89
+     Schwab A1 ...135: VTI (WKN 922908769): 12
+     Schwab A1 ...135: AAPL (WKN 037833100): -0.8212
+     Schwab A1 ...135: BND (ticker BND): -0.0378
+     Schwab A1 ...135: VBR (ticker VBR): -1.5487
+     Schwab A2 ...398: XYZ 260619P00045000 (ticker XYZ260619P00045000): -200
+     Schwab A2 ...398: META (WKN 30303M102): 2
+     Schwab A2 ...398: /ESH25_P5050:XCME (ticker /ESH25_P5050:XCME): -50
+     Schwab A2 ...398: XYZ 250221P00040000 (ticker XYZ250221P00040000): -200
+     Schwab A2 ...398: XYZ 260918C00050000 (ticker XYZ260918C00050000): 100
+     Schwab A1 ...135: cash: -10776.43
+     Schwab A2 ...398: cash: 5724.26
    1 account has snapshots and nothing in Portfolio Performance (pp-1/manifest.json lists it under holdings.not_checked): A3 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
    in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
      A1 ...135: Schwab A1 ...135
@@ -154,67 +164,71 @@ and the types' names, whatever PP's language and locale.
      one it holds: a withdrawal of the day and amount of a transfer's, or a
      trade equal to one that PP holds. What you booked by hand counts too:
      no list knows of it, so a row that a later export brings, equal to an
-     entry that you booked for it, would be marked and left out. Change or
-     delete what you booked before you import the export that lists its
-     difference as changed or gone (step 4).
-4. **Negative shares.** After an import, PP opens a dialog that names each
-   security whose shares fall below zero ("Security '...' in portfolio
-   '...' has negative shares"). While a short position is open, a written
-   option or a short sale, that is expected. Otherwise a position was opened
-   before the store's rows: stderr says that holdings differ from the latest
-   snapshot, and the manifest's `holdings` lists each, with the snapshot's
-   shares and those that the export wrote, once for a security that the
-   store holds under two keys (a History file's and the API's), as PP holds
-   it. Import the History files that go back to the purchase
-   (`schwabtx import`), and the next export writes the rows they add; or
-   add the opening position in PP, a Delivery (Inbound) dated before its
-   first row. A row left out that moved shares, such as a split, is in the
-   difference too: book it by hand as step 5 says, and only the rest as the
-   opening position.
+     entry that you booked for it, would be marked and left out. Before
+     you import an export, delete what you booked for each difference that
+     it lists as gone, and make what you booked for each other equal to it
+     (step 4).
+4. **What the records lack.** The holdings check compares, for each
+   account and security, the shares that Schwab's latest snapshot holds
+   with those that the records leave; PP's cash check does the same for
+   cash. stderr lists each difference with its value, the snapshot's
+   figure less the records' (the manifest's `holdings` has both). What you
+   add by hand for it is to equal it, less what the rows left out that you
+   book by hand move (step 5): a line says "less the rows left out of it"
+   where the account has such a row of the security. On a first import,
+   add it after importing. After an import, PP names each security whose
+   shares fall below zero ("Security '...' in portfolio '...' has negative
+   shares"): expected while a short position is open, a written option or
+   a short sale, and otherwise one of these differences.
 
-   **Opening cash.** PP's deposit account holds the sum of its records, from
-   the account's first row in the store, so it lacks the cash that the
-   account held before, and what a row left out moved: stderr says that an
-   account's cash differs from its latest snapshot's, and the manifest's
-   `holdings.cash` lists each, with the snapshot's cash and what the records
-   leave of the rows that it holds: the API's rows by their time, a History
-   file's by their posted date, which an evening snapshot of that day holds.
-   Import the History files that go back to the account's first deposit, and
-   the next export writes the rows they add; or book the difference in PP as
-   a Deposit, or a Withdrawal when the records leave more, dated before the
-   account's first row, less the rows left out that you book by hand (step
-   5), whose cash it holds too. The cash check compares with the snapshot
-   that the holdings check does, and does not check an account whose
-   latest snapshot holds no cash figure (`no_cash`: take another), nor a
-   margin account with a margin or short balance at its latest snapshot
-   (`margin`), as Schwab can report its cash as 0 with a debit or short
-   positions, its cash then in other figures: stderr names each, with why,
-   and the manifest lists it under `holdings.cash_not_checked`. Compare the
-   cash that Schwab shows for it with the balance of its PP deposit
-   account, and book the difference as above. An account with rows and no
-   snapshot is checked by neither check: stderr names it, and the manifest
-   lists it under `holdings.not_checked`; take one with `schwabtx
-   snapshot`.
+   - **Positive**: Schwab holds shares that the records lack: a position
+     opened before the store's rows, or the close of a short sale or a
+     written option that the store does not hold. Book a Delivery
+     (Inbound) of that many shares, dated the day before the account's
+     first row in the store for an opening position, or on the day of the
+     close.
+   - **Negative**: the records hold shares that Schwab does not: a sale, a
+     transfer out, or an option's expiry, assignment or exercise that the
+     store does not hold yet, or a short opened before its rows. Book a
+     Delivery (Outbound) on the day it happened (at 0 for an option that
+     expired), or the day before the first row for an opening short.
+   - Better, either way: import the History file or the `transactions
+     -json` that holds the row; the next export writes it, and lists the
+     difference as gone, or with what is left of it.
+   - **Two opposite differences** in one account, under an old and a new
+     ticker of one company that no CUSIP joins: one security under two
+     keys. Take their `security_key`s from the manifest, run `schwabtx edit
+     K:<one> -same K:<other>`, export again, and book nothing for them.
+   - **Cash**: book its difference as a Deposit when positive, or a
+     Withdrawal when negative, dated the day before the account's first
+     row, less the rows left out that you book by hand. PP's deposit
+     account holds the sum of the records from the account's first row in
+     the store, so it lacks the cash held before; the cash check compares
+     it with the latest snapshot that the holdings check takes, of the rows
+     that the snapshot holds (docs/store.md). stderr names each account
+     whose cash is not checked, with why, and the manifest lists it under
+     `holdings.cash_not_checked`: a margin account with a margin or short
+     balance at its latest snapshot (`margin`), as Schwab can report its
+     cash as 0 with a debit or short positions, or a snapshot with no cash
+     figure (`no_cash`: take another). Compare the cash that Schwab shows
+     for it with the balance of its PP deposit account by hand; the next
+     export that checks it lists its difference again. An account with
+     rows and no snapshot is checked by neither check: stderr names it, and
+     the manifest lists it under `holdings.not_checked`; take one with
+     `schwabtx snapshot`.
 
-   **Later exports.** The two ways exclude each other: what you add or book
-   by hand stands for rows that the store lacks, and once a later export
-   writes them, it is to go. So each later export compares every difference,
-   of shares or cash, with the one before it. One listed alike is marked
-   `before`, and not counted again; one listed otherwise keeps the earlier
-   difference, the snapshot's less the records', as `was`; and one that it
-   no longer finds is listed under `holdings.gone`, or `holdings.cash_gone`
-   for cash, with `was`. A difference changes when what the export writes,
-   gives or leaves out does: History files imported, a row left out,
-   uncounted or revised since, or one that the store lacked. stderr lists
-   each that changed or went with its change, signed as the manifest's
-   amounts are: change what you added or booked by hand for it by that
-   change, less the rows left out that you book by hand, or delete it,
-   before you import the export, as PP marks a new row equal to one that it
-   holds as existing (step 3): an entry that you booked as the rows were,
-   their day, amount and shares, would otherwise keep out the rows that it
-   stood for. If you booked nothing for it, take its difference as a new
-   one. An account whose cash is not checked keeps, as its `was`, the
-   difference listed before, for the export that checks it again.
+   **Later exports.** The two ways exclude each other: once a later export
+   writes the rows that a hand entry stood for, the entry is to go. Each
+   `-since` export lists every difference that it finds otherwise than the
+   export before it, with its value, and each that it no longer finds, as
+   gone, gone ones first; the manifest marks those that it finds alike
+   `before`. Before you import it, delete what you added for each that is
+   gone, then make what you added for each other equal to its value, less
+   what the rows left out that you book by hand move. PP marks a new row
+   equal to one that it holds as existing (step 3), so an entry left as it
+   was would keep out the rows it stood for. An account that one export
+   could not check, the next that checks it lists in full again: the
+   export between carries its differences on, marked `carried`.
 5. **What the manifest asks of you**: the rows left out, each with its
    reason and what to do, and the rows written with a caveat
    ([below](#what-the-manifest-asks-of-you)). A row that PP refuses for its
@@ -227,8 +241,9 @@ and the types' names, whatever PP's language and locale.
    have imported it, and a new folder. Before importing, set each security
    that it lists under `symbols_changed` as step 8 says; delete in PP what
    it lists as changed or gone, each transfer once: deleting either half of
-   a transfer in PP deletes both; and change or delete what you booked by
-   hand for the differences that it lists (step 4). Each is listed with how
+   a transfer in PP deletes both; and delete what you booked by hand for
+   the differences that it lists as gone, then make what you booked for
+   each other equal to it (step 4). Each is listed with how
    its note begins; a transfer's note names its paying side first, in both
    accounts (`schwabtx A2 ...398 T73600000101 to A1 ...135 T73600000102`),
    and once you have paired transfers of one day again, perhaps another
@@ -250,9 +265,9 @@ and the types' names, whatever PP's language and locale.
      A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
-   1 account has snapshots and nothing in Portfolio Performance (pp-2/manifest.json lists it under holdings.not_checked): A3 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
    before importing, delete in Portfolio Performance what changed or went (pp-2/manifest.json lists each):
      Schwab A1 ...135: 2024-04-30 Interest 0.42 (note schwabtx A1 ...135 T73508261949): changed; the new form is in this export
+   1 account has snapshots and nothing in Portfolio Performance (pp-2/manifest.json lists it under holdings.not_checked): A3 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
    import in this order: securities.csv, account-transactions-A1-135.csv
    next time: schwabtx export -format pp -since pp-2 -dir <a new folder>
    ```
@@ -271,8 +286,8 @@ and the types' names, whatever PP's language and locale.
    that waits for you comes in a later export once you decide it; the
    left-out rows that an earlier export listed are marked `before`, so
    that you are not asked twice, and so are its differences from the
-   snapshots that stayed as they were, while those that changed or went
-   are listed with their change (step 4).
+   snapshots that stayed as they were, while those that changed are listed
+   with their value, and those that went as gone (step 4).
    Never name an export that you have not imported: the next one would
    take for granted what it gave PP.
 
@@ -371,8 +386,19 @@ with its description in its comment.
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
    4 deposits, withdrawals and journals are in the accounts' balances
-   11 holdings differ from the latest snapshot (gf-1/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
    2 symbols for Yahoo have no row since 2025-11-13 and are not held (gf-1/manifest.json lists them): Yahoo may no longer know them; look them up, and name those it lacks in one -manual
+   11 holdings differ from the latest snapshots (gf-1/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
+     Schwab A1 ...135: Security (00507V109) (MANUAL): 10
+     Schwab A1 ...135: SWVXX (YAHOO): 1220.89
+     Schwab A1 ...135: VTI (YAHOO): 12
+     Schwab A1 ...135: AAPL (YAHOO): -0.8212
+     Schwab A1 ...135: BND (YAHOO): -0.0378
+     Schwab A1 ...135: VBR (YAHOO): -1.5487
+     Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200
+     Schwab A2 ...398: META (YAHOO): 2
+     Schwab A2 ...398: Security (i:205187341) (MANUAL): -50
+     Schwab A2 ...398: XYZ 2025-02-21 40 put (XYZ250221P00040000) (MANUAL): -200
+     Schwab A2 ...398: XYZ 2026-09-18 50 call (XYZ260918C00050000) (MANUAL): 100
    Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
    next time: schwabtx export -format ghostfolio -since gf-1 -dir <a new folder>
    ```
@@ -397,8 +423,19 @@ with its description in its comment.
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
    4 deposits, withdrawals and journals are in the accounts' balances
-   11 holdings differ from the latest snapshot (gf-2/manifest.json): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)
    1 symbol for Yahoo has no row since 2025-11-13 and is not held (gf-2/manifest.json lists it): Yahoo may no longer know it; look it up, and if Yahoo lacks it, name it in -manual
+   11 holdings differ from the latest snapshots (gf-2/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
+     Schwab A1 ...135: Security (00507V109) (MANUAL): 10
+     Schwab A1 ...135: SWVXX (YAHOO): 1220.89
+     Schwab A1 ...135: VTI (YAHOO): 12
+     Schwab A1 ...135: AAPL (YAHOO): -0.8212
+     Schwab A1 ...135: Security (BND) (MANUAL): -0.0378
+     Schwab A1 ...135: VBR (YAHOO): -1.5487
+     Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200
+     Schwab A2 ...398: META (YAHOO): 2
+     Schwab A2 ...398: Security (i:205187341) (MANUAL): -50
+     Schwab A2 ...398: XYZ 2025-02-21 40 put (XYZ250221P00040000) (MANUAL): -200
+     Schwab A2 ...398: XYZ 2026-09-18 50 call (XYZ260918C00050000) (MANUAL): 100
    Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
    next time: schwabtx export -format ghostfolio -since gf-2 -dir <a new folder>
    ```
@@ -446,33 +483,33 @@ with its description in its comment.
    refunded stays counted there. Interest is interest of `Schwab interest`.
    Ghostfolio's own **Import Dividends...** books dividends of its own beside
    these: do not use both.
-6. **Positions opened before the store's rows**: as for PP (step 4); in
-   Ghostfolio a later sale shows as a negative holding, and a dividend of it
-   sets the portfolio's dividend yield to 0. Add the opening position as a
-   BUY dated before its first row, of the asset that the manifest lists the
-   difference under (`ghostfolio_asset`, which Ghostfolio shows by its
-   symbol, or a MANUAL asset by its name), or import the History files back
-   to the purchase and export again. The two exclude each other, as in PP:
-   once a later export writes the purchase, stderr lists the difference as
-   gone, and you delete the BUY, or as changed, and you change its quantity
-   by the change, once you have imported the export (Ghostfolio takes no
-   activity of an export for one added by hand, whose comment is not the
-   export's). Ghostfolio ties the BUY to its asset, and does not follow a
-   change of symbol: once an export holds the security under another
-   asset, after a rename, a delisting or `-manual`, it lists the difference
-   as changed even when it is the same, with the asset that it was under
-   (`was_asset`), and stderr says to delete the BUY there and add it under
-   the new one, which the import makes when it is a new MANUAL asset,
-   changed by the change, if any.
+6. **What the records lack**: as for PP (step 4), with its signs and its
+   clause on the rows left out; in Ghostfolio the sale of a position
+   opened before the store's rows shows as a negative holding, and a
+   dividend of it sets the portfolio's dividend yield to 0. After
+   importing, add a BUY for a positive difference, or a SELL for a
+   negative one, dated as step 4 dates PP's deliveries, of the asset that
+   the manifest lists the difference under (`ghostfolio_asset`, which
+   Ghostfolio shows by its symbol, or a MANUAL asset by its name); or
+   import the History files back to the purchase and export again. After
+   importing a later export, delete what it lists as gone, then make what
+   you added for each other equal to the listed value, less what the rows
+   left out that you book by hand move (Ghostfolio takes no activity of an
+   export for one added by hand, whose comment is not the export's).
+   Ghostfolio ties an activity to its asset, and does not follow a change
+   of symbol: after a rename, a delisting or `-manual`, the export lists
+   the old asset's difference as gone and the new asset's as new; the
+   import makes the new asset when it is a new MANUAL asset.
 
 ### Later imports
 
 7. **With `-since`**, as for PP, each export imported before the next is
    made. Delete in Ghostfolio what it lists as changed or gone (the
    activities page filters by account and date, and each activity's comment
-   names its row), import the file, change, move or delete what you added by
-   hand for the differences that it lists (step 6), and set the cash it
-   prints. Say you withdraw the decision of PP's example:
+   names its row), import the file, delete what you added by hand for the
+   differences that it lists as gone, then make what you added for each
+   other equal to it (step 6), and set the cash it prints. Say you
+   withdraw the decision of PP's example:
 
    ```
    $ schwabtx edit T73508261949 -category auto
@@ -504,16 +541,14 @@ with its description in its comment.
    A security renamed, delisted or named by `-manual` since is another
    asset to Ghostfolio, which ties activities to their asset: the export
    lists the activities that it gave of it as changed, to delete, writes
-   them under the new asset, and lists each of its differences that the
-   export before listed with the asset that it was under, from which to
-   move what you added for it by hand (step 6).
+   them under the new asset, and lists its difference under the old asset
+   as gone and under the new one with its value (step 6).
    A full export imported again over what Ghostfolio holds is not a redo,
    as its line "this assumes Ghostfolio holds none of these accounts" says:
    it says nothing of what changed or went, which stays; an activity whose
    values you changed in Ghostfolio, as a delivery's that the export wrote
    at 0 (`value_unknown`), is another than the export's, which comes in
-   again beside it; and it lists every difference from the snapshots anew,
-   those you added BUYs for too. Redo every account as below.
+   again beside it. Redo every account as below.
 8. **Limits.** On ghostfol.io, which data sources are enabled and how many
    activities one import may hold are the deployment's settings: a dry run,
    which the dialog makes first, tells. An import over that limit ("Too many
@@ -580,4 +615,7 @@ that carry a flag that needs you are listed under `flagged`, among them
 those that the store may count twice until you decide them; `schwabtx
 status -review` says why each is flagged. If you uncount one, the next
 `-since` export lists it to delete. The file rows that wait for you, under
-`waiting`, come in a later export once you decide them.
+`waiting`, come in a later export once you decide them. A difference
+under `holdings` marked `left_out` is one that a row of its account left
+out moves: what you add by hand for it is the difference less what you
+book by hand for that row (PP step 4, Ghostfolio step 6).

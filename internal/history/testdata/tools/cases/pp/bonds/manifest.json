@@ -190,9 +190,15 @@
         "account": "A1 ...135",
         "security_key": "s:FILE:ZZT10A109@2025-06-01",
         "symbol": "ZZT10A109",
+        "pp_security": {
+          "wkn": "ZZT10A109",
+          "name": "EXAMPLE CITY REVENUE BOND 5% 06/01/2040"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 10000,
-        "written_shares": 0
+        "written_shares": 0,
+        "difference": 10000,
+        "left_out": true
       }
     ],
     "gone": [],
@@ -201,7 +207,9 @@
         "account": "A1 ...135",
         "snapshot": "2026-11-10",
         "snapshot_cash": 1000.00,
-        "written_cash": 373.75
+        "written_cash": 373.75,
+        "difference": 626.25,
+        "left_out": true
       }
     ],
     "cash_gone": [],

@@ -478,10 +478,10 @@ func sinceManifest(dir, format string) ([]byte, error) {
 // holds: for a full export, none of its accounts, as on a first import or a
 // redo of every account, and going on, the exports of the chain; each
 // account's coverage; what it counted that needs you (toolCountLines); what
-// to delete in the tool before importing (toolDeletions); going on, the
-// differences from the snapshots that the export it goes on from listed
-// and that changed or went, with what to do with what you added by hand
-// for them (differenceLines); for PP, the accounts to make, the order of
+// to delete in the tool before importing (toolDeletions); the differences
+// from the snapshots, which what you add by hand is to equal, going on those
+// new, changed or gone (differenceLines), and the accounts that the checks
+// do not check (notCheckedLines); for PP, the accounts to make, the order of
 // the files and the rows to tick; for Ghostfolio, the cash that its imports
 // leave as it is; going on, when the chain selects an account or, for
 // Ghostfolio, names -manual symbols, the full export that a redo imports;
@@ -517,6 +517,7 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 	toolCountLines(w, path, e, manifest)
 	toolDeletions(w, e, manifest)
 	differenceLines(w, e, manifest, since)
+	notCheckedLines(w, e, manifest)
 	if gf {
 		fmt.Fprintf(w, "%s takes an account's balances only in the import that makes the account; later imports leave its cash as it is\n", tool)
 		if since != "" {
@@ -676,13 +677,11 @@ func toolAccountName(e *history.ToolExport, label string) string {
 // rows left out and those written with a caveat, by code; for PP, the
 // securities that it may hold otherwise than written, or that may no longer
 // trade, in one wording for a full export, which may be a first import or
-// a redo, and one for -since; the holdings that differ from the latest
-// snapshot; for PP, the accounts whose cash differs from it; the accounts
-// that the checks do not check (notCheckedLines); the rows flagged; the file
-// transactions that wait for you; and for Ghostfolio, the -manual symbols
-// that nothing uses, masked, and the symbols that Yahoo may no longer
-// know. Going on from another export, it counts no row or holding that
-// that one listed alike.
+// a redo, and one for -since; the keys of the store that the export cannot
+// be sure of (unsureLines); the rows flagged; the file transactions that
+// wait for you; and for Ghostfolio, the -manual symbols that nothing uses,
+// masked, and the symbols that Yahoo may no longer know. Going on from
+// another export, it counts no row that that one listed alike.
 func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest string) {
 	tool, gf := toolFormats[e.Tool].name, e.Tool == "ghostfolio"
 	if gf {
@@ -728,19 +727,6 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 		fmt.Fprintf(w, "%d securities have changed symbol or may no longer trade (%s lists each under symbols_changed, with why): before you import, set each that %s holds as docs/tools.md step 8 says; one that is new to it asks nothing\n", n, manifest, tool)
 	}
 	unsureLines(w, path, e.Unsure, manifest)
-	switch n := e.Holdings; {
-	case n == 1:
-		fmt.Fprintf(w, "1 holding differs from the latest snapshot (%s): a position opened before the store's rows, or a split left out; add it by hand, less the rows left out that you book by hand (docs/tools.md)\n", manifest)
-	case n > 1:
-		fmt.Fprintf(w, "%d holdings differ from the latest snapshot (%s): positions opened before the store's rows, or splits left out; add them by hand, less the rows left out that you book by hand (docs/tools.md)\n", n, manifest)
-	}
-	switch n := e.Cash; {
-	case n == 1:
-		fmt.Fprintf(w, "1 account's cash in %s differs from its latest snapshot's (%s): cash held before the store's first row of the account, or rows left out; book the difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)\n", tool, manifest)
-	case n > 1:
-		fmt.Fprintf(w, "%d accounts' cash in %s differs from their latest snapshots' (%s): cash held before the store's first row of each, or rows left out; book each difference, less the rows left out that you book by hand, as an opening deposit or withdrawal (docs/tools.md)\n", n, tool, manifest)
-	}
-	notCheckedLines(w, e, manifest)
 	// The rows flagged are written, given, combined or, for Ghostfolio, in
 	// the balances, which no export lists to delete: a balance is Schwab's.
 	if n := e.Flagged; n > 0 {
@@ -773,7 +759,9 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 // check, with the step that checks it or what to do instead: for PP, the
 // accounts whose cash is not checked, each with why; the accounts with rows
 // and no snapshot to check against; and, for PP, those with snapshots that
-// PP holds nothing of.
+// PP holds nothing of. The manifest carries on what the export before it
+// listed of the first two kinds, so the next export that checks one lists
+// its differences again, never as before, or as gone.
 func notCheckedLines(w io.Writer, e *history.ToolExport, manifest string) {
 	tool := toolFormats[e.Tool].name
 	names := func(labels []string) string {
@@ -792,12 +780,14 @@ func notCheckedLines(w io.Writer, e *history.ToolExport, manifest string) {
 				why = append(why, toolAccountName(e, u.Account)+", whose latest snapshot holds no cash figure (take another with schwabtx snapshot)")
 			}
 		}
-		fmt.Fprintf(w, "%s cash in %s is not checked (%s lists %s under holdings.cash_not_checked): %s: compare the cash that Schwab shows for %s with the balance of its deposit account in %s, and book the difference as step 4 says (docs/tools.md step 4)\n",
-			pluralWord(n, "1 account's", fmt.Sprintf("%d accounts'", n)), tool, manifest, pluralWord(n, "it", "them"), strings.Join(why, ", and "), pluralWord(n, "it", "each"), tool)
+		it := pluralWord(n, "it", "each")
+		fmt.Fprintf(w, "%s cash in %s is not checked (%s lists %s under holdings.cash_not_checked): %s: compare the cash that Schwab shows for %s with the balance of its deposit account in %s, and book the difference as step 4 says; the next export that checks %s lists its difference again (docs/tools.md step 4)\n",
+			pluralWord(n, "1 account's", fmt.Sprintf("%d accounts'", n)), tool, manifest, pluralWord(n, "it", "them"), strings.Join(why, ", and "), it, tool, it)
 	}
 	if n := len(e.NoSnapshot); n > 0 {
-		fmt.Fprintf(w, "%s rows and no snapshot to check against (%s lists %s under holdings.not_checked): %s: %s with schwabtx snapshot (an account that Schwab has closed has none)\n",
-			pluralWord(n, "1 account has", fmt.Sprintf("%d accounts have", n)), manifest, pluralWord(n, "it", "them"), names(e.NoSnapshot), pluralWord(n, "take one", "take one of each"))
+		fmt.Fprintf(w, "%s rows and no snapshot to check against (%s lists %s under holdings.not_checked): %s: %s with schwabtx snapshot (an account that Schwab has closed has none); the next export that checks %s lists its differences\n",
+			pluralWord(n, "1 account has", fmt.Sprintf("%d accounts have", n)), manifest, pluralWord(n, "it", "them"), names(e.NoSnapshot), pluralWord(n, "take one", "take one of each"),
+			pluralWord(n, "it", "each"))
 	}
 	if n := len(e.NotInTool); n > 0 {
 		fmt.Fprintf(w, "%s snapshots and nothing in %s (%s lists %s under holdings.not_checked): %s %s no row that this export or its chain writes or names; import %s History files (docs/store.md) to have %s there\n",
@@ -897,53 +887,88 @@ func toolDeletions(w io.Writer, e *history.ToolExport, manifest string) {
 }
 
 // differenceLines says on w, of the export e for a tool, going on from the
-// export in the folder since, whose manifest is manifest, each difference
-// of the holdings check and of PP's cash check that that export listed and
-// that this one lists with another, or not at all (e.DifferencesChanged),
-// with its change: what you added or booked by hand in the tool for it is
-// to change by the change, less the rows left out that you book by hand,
-// or to delete, as the rows written stand for it now; in Ghostfolio, which
-// does not follow a change of symbol, it is to move to the asset that holds
-// the security now, when that is another, each named as Ghostfolio shows
-// it. In PP that comes before importing, since PP marks a new row equal to
-// one that it holds as existing, and the rows that a hand entry stood for,
+// export in the folder since, "" for a full export, whose manifest is
+// manifest, each difference from the latest snapshots that the export lists
+// (e.Differences, K-7 of the consolidation), gone ones first: what you add
+// by hand in the tool for a security, or for an account's opening cash, is
+// to equal its difference, less what the rows left out that you book by
+// hand move, which a line says where they move it, and is to go for one
+// gone. Each line names the security as the tool finds it, which holds what
+// you added: for PP by its WKN, ticker or name, for Ghostfolio by its asset,
+// as Ghostfolio shows it, with its data source. For a full export you add
+// it after importing, into accounts that held none of its rows. Going on,
+// in PP that comes before importing, since PP marks a new row equal to one
+// that it holds as existing, and the rows that a hand entry stood for,
 // arriving as it was booked, would stay out; in Ghostfolio after, since the
-// import makes the MANUAL asset to move to, and an activity that an export
-// writes, its comment its own, is never equal to one added by hand.
+// import makes a new MANUAL asset to add under, and an activity that an
+// export writes, its comment its own, is never equal to one added by hand.
 func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string) {
-	n := len(e.DifferencesChanged)
-	if n == 0 {
+	gone := 0
+	for _, d := range e.Differences {
+		if d.Gone {
+			gone++
+		}
+	}
+	n := len(e.Differences) - gone
+	if n+gone == 0 {
 		return
 	}
-	tool := toolFormats[e.Tool].name
-	move, when, why := "", "before", ": "+tool+" marks a new row equal to one that it holds as existing"
-	if e.Tool == "ghostfolio" {
-		when, why = "after", ""
+	tool, gf := toolFormats[e.Tool].name, e.Tool == "ghostfolio"
+	// Ghostfolio's hand entry is of the asset that a line names.
+	under, signs := "", "; a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not"
+	equal := " equal to it, less what the rows left out that you book by hand move (a line says so where they move it)"
+	underEqual := equal
+	if gf {
+		under = ", under the asset named"
+		underEqual = under + "," + equal
 	}
-	if slices.ContainsFunc(e.DifferencesChanged, func(d history.ToolDifference) bool { return d.WasAsset != "" }) {
-		move = ", or move it to the asset that Ghostfolio holds the security under now"
+	switch {
+	case since == "" && gf:
+		fmt.Fprintf(w, "%s from the latest snapshots (%s lists %s under holdings, with the asset that holds it): after importing, make what you add by hand in %s for each%s%s (docs/tools.md step 6):\n",
+			pluralWord(n, "1 holding differs", fmt.Sprintf("%d holdings differ", n)), manifest, pluralWord(n, "it", "each"), tool, underEqual, signs)
+	case since == "":
+		fmt.Fprintf(w, "%s from the latest snapshots (%s lists %s under holdings, with the snapshot's figure and the records'): after importing, make what you add by hand in %s for each%s%s (docs/tools.md step 4 says what to book for each):\n",
+			plural(n, "difference"), manifest, pluralWord(n, "it", "each"), tool, equal, signs)
+	default:
+		var head string
+		switch {
+		case n > 0 && gone > 0:
+			head = fmt.Sprintf("%s from the latest snapshots %s new or changed since %s, and %d %s gone", plural(n, "difference"), pluralWord(n, "is", "are"), since, gone, pluralWord(gone, "is", "are"))
+		case n > 0:
+			head = fmt.Sprintf("%s from the latest snapshots %s new or changed since %s", plural(n, "difference"), pluralWord(n, "is", "are"), since)
+		default:
+			head = fmt.Sprintf("%s from the latest snapshots that %s listed %s gone", plural(gone, "difference"), since, pluralWord(gone, "is", "are"))
+		}
+		var do string
+		switch {
+		case n > 0 && gone > 0:
+			do = fmt.Sprintf("delete what you added by hand in %s for each that is gone%s, then make what you added for each other%s", tool, under, equal)
+		case n > 0:
+			do = fmt.Sprintf("make what you added by hand in %s for each%s", tool, underEqual)
+		default:
+			do = fmt.Sprintf("delete what you added by hand in %s for each%s", tool, under)
+		}
+		when, why := "before", "; "+tool+" marks a new row equal to one that it holds as existing (docs/tools.md step 4)"
+		if gf {
+			when, why = "after", signs+" (docs/tools.md step 6)"
+		}
+		fmt.Fprintf(w, "%s (%s lists each): %s importing, %s%s:\n", head, manifest, when, do, why)
 	}
-	fmt.Fprintf(w, "%d %s that %s listed %s changed or gone (%s lists each, with was): %s importing, change what you added in %s by hand for %s by its change, less the rows left out that you book by hand%s, or delete it%s (docs/tools.md):\n",
-		n, pluralWord(n, "difference", "differences"), since, pluralWord(n, "has", "have"), manifest, when, tool, pluralWord(n, "it", "each"), move, why)
-	for _, d := range e.DifferencesChanged {
+	for _, d := range e.Differences {
 		what := "cash"
 		if !d.Cash {
-			what = plainCell(mask.Text(cmp.Or(d.Asset, d.Symbol, d.Key)))
+			what = strings.Join(strings.Fields(plainCell(cmp.Or(d.Asset, d.Symbol, d.Key))), " ") + " (" + plainCell(d.Finds) + ")"
 		}
+		value := d.Value
 		switch {
-		case d.Now == "":
-			fmt.Fprintf(w, "  %s: %s: gone, was %s: delete\n", toolAccountName(e, d.Account), what, d.Was)
-		case d.WasAsset != "":
-			was := plainCell(mask.Text(d.WasAsset))
-			change := ""
-			if d.Change != "0" {
-				change = ", changed by " + d.Change
-			}
-			fmt.Fprintf(w, "  %s: %s: %s, was %s under %s: delete it under %s and add it under %s%s\n",
-				toolAccountName(e, d.Account), what, d.Now, d.Was, was, was, what, change)
-		default:
-			fmt.Fprintf(w, "  %s: %s: %s, was %s: change by %s\n", toolAccountName(e, d.Account), what, d.Now, d.Was, d.Change)
+		case d.Gone && d.Cash:
+			value = "gone: delete the opening deposit or withdrawal that you booked for it, if any"
+		case d.Gone:
+			value = "gone: delete what you added for it, if anything"
+		case d.LeftOut:
+			value += ", less the rows left out of it that you book by hand"
 		}
+		fmt.Fprintf(w, "  %s: %s: %s\n", toolAccountName(e, d.Account), what, value)
 	}
 }
 

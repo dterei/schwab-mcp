@@ -147,33 +147,54 @@
         "account": "A1 ...135",
         "security_key": "i:1000001",
         "symbol": "ABCD",
+        "pp_security": {
+          "ticker": "ABCD",
+          "wkn": "ZZB123458",
+          "name": "ABCD INDUSTRIES INC"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
-        "written_shares": 1
+        "written_shares": 1,
+        "difference": -1
       },
       {
         "account": "A1 ...135",
         "security_key": "i:1000002",
         "symbol": "EFGH",
+        "pp_security": {
+          "ticker": "EFGH",
+          "name": "EFGH TOTAL MARKET ETF"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
-        "written_shares": 1
+        "written_shares": 1,
+        "difference": -1
       },
       {
         "account": "A1 ...135",
         "security_key": "i:1000004",
         "symbol": "QRS.PRK",
+        "pp_security": {
+          "name": "QRS TRUST PFD SER K"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
-        "written_shares": 1
+        "written_shares": 1,
+        "difference": -1
       },
       {
         "account": "A1 ...135",
         "security_key": "i:1854092",
         "symbol": "XYZ",
+        "pp_security": {
+          "ticker": "XYZ",
+          "wkn": "98389B100",
+          "name": "XYZ CORP COMMON STOCK"
+        },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
-        "written_shares": 1
+        "written_shares": 1,
+        "difference": -1
       }
     ],
     "gone": [],
@@ -182,7 +203,8 @@
         "account": "A1 ...135",
         "snapshot": "2026-11-10",
         "snapshot_cash": 10.00,
-        "written_cash": -145.00
+        "written_cash": -145.00,
+        "difference": 155.00
       }
     ],
     "cash_gone": [],

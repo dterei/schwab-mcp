@@ -964,7 +964,8 @@ func TestToolMapping(t *testing.T) {
 			for _, a := range s.e.Accounts {
 				out = append(out, fmt.Sprintf("%s exported %v new %v", a.Label, a.Exported, a.New))
 			}
-			return append(out, fmt.Sprintf("counted %d %d", s.e.Holdings, s.e.Cash))
+			holdings, cash := counted(s.e)
+			return append(out, fmt.Sprintf("counted %d %d", holdings, cash))
 		}
 		deposit := rcCash("T7c620301", 3, "2026-02-20 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 250_000)
 		e1 := chainStepOf(t, snapshotOnly(), toolPP, nil, rcAt1)
@@ -2466,8 +2467,8 @@ func TestToolMapping(t *testing.T) {
 			in, events, _ := mapCase(o, tool)
 			e := caseExport(t, o, tool)
 			if tool == toolGF {
-				if e.Cash != 0 {
-					t.Errorf("Ghostfolio counts %d accounts' cash", e.Cash)
+				if _, cash := counted(e); cash != 0 {
+					t.Errorf("Ghostfolio counts %d accounts' cash", cash)
 				}
 				continue
 			}
@@ -2475,8 +2476,8 @@ func TestToolMapping(t *testing.T) {
 			if got, _ := cashCheck(in, events); !reflect.DeepEqual(got, want) {
 				t.Errorf("the opening cash: differences %+v, want %+v", got, want)
 			}
-			if e.Cash != 1 {
-				t.Errorf("stderr counts %d accounts' cash", e.Cash)
+			if _, cash := counted(e); cash != 1 {
+				t.Errorf("stderr counts %d accounts' cash", cash)
 			}
 			// An export of A1 checks A1's cash alone, whatever other
 			// account's snapshot it is given.
@@ -2507,9 +2508,9 @@ func TestToolMapping(t *testing.T) {
 			for _, a := range s.res.unchecked {
 				got = append(got, a.label()+" not checked")
 			}
-			if !slices.Equal(got, []string{"A1 ...135", "A3 ...783 not checked", "A4 not checked", "A5 not checked"}) || s.e.Cash != 1 || len(s.e.CashNotChecked) != 0 ||
+			if _, cash := counted(s.e); !slices.Equal(got, []string{"A1 ...135", "A3 ...783 not checked", "A4 not checked", "A5 not checked"}) || cash != 1 || len(s.e.CashNotChecked) != 0 ||
 				!slices.Equal(s.e.NoSnapshot, []string{"A3 ...783"}) || !slices.Equal(s.e.NotInTool, []string{"A4", "A5"}) {
-				t.Errorf("snapshots alone of A4 and A5: %q, counted %d, cash not checked %q, no snapshot %q, nothing in PP %q", got, s.e.Cash, s.e.CashNotChecked, s.e.NoSnapshot, s.e.NotInTool)
+				t.Errorf("snapshots alone of A4 and A5: %q, counted %d, cash not checked %q, no snapshot %q, nothing in PP %q", got, cash, s.e.CashNotChecked, s.e.NoSnapshot, s.e.NotInTool)
 			}
 			// A later snapshot of A1 by -to holds no cash figure: one
 			// snapshot serves both checks, so A1's cash is not checked,
@@ -2522,8 +2523,8 @@ func TestToolMapping(t *testing.T) {
 				t.Errorf("a later snapshot without cash: differences %+v, unchecked %+v", diffs, unchecked)
 			}
 			s = chainStepFrom(t, caseExport(t, toolCase{name: "a later snapshot without cash", in: noCash}, toolPP), t.TempDir())
-			if s.e.Cash != 0 || !slices.Equal(s.e.CashNotChecked, []ToolCashUnchecked{{Account: "A1 ...135", Why: "no_cash"}}) {
-				t.Errorf("a later snapshot without cash: counted %d, cash not checked %q", s.e.Cash, s.e.CashNotChecked)
+			if _, cash := counted(s.e); cash != 0 || !slices.Equal(s.e.CashNotChecked, []ToolCashUnchecked{{Account: "A1 ...135", Why: "no_cash"}}) {
+				t.Errorf("a later snapshot without cash: counted %d, cash not checked %q", cash, s.e.CashNotChecked)
 			}
 		}
 
@@ -2588,8 +2589,8 @@ func TestToolMapping(t *testing.T) {
 			if c.why != "" {
 				want = []chainCashUnchecked{{Account: "A2 ...398", Snapshot: "2026-01-30", Why: c.why}}
 			}
-			if got := *m.Holdings.CashNotChecked; !slices.Equal(got, want) && len(got)+len(want) > 0 || e.Cash != c.diffs {
-				t.Errorf("%s: stderr counts %d, the manifest lists %+v as not checked", c.name, e.Cash, got)
+			if _, cash := counted(e); !slices.Equal(*m.Holdings.CashNotChecked, want) && len(*m.Holdings.CashNotChecked)+len(want) > 0 || cash != c.diffs {
+				t.Errorf("%s: stderr counts %d, the manifest lists %+v as not checked", c.name, cash, *m.Holdings.CashNotChecked)
 			}
 		}
 	})

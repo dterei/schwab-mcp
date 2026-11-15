@@ -125,9 +125,16 @@
         "account": "A1 ...135",
         "security_key": "i:1854092",
         "symbol": "XYZ",
+        "pp_security": {
+          "ticker": "XYZ",
+          "wkn": "98389B100",
+          "name": "XYZ CORP COMMON STOCK"
+        },
         "snapshot": "2026-01-08",
         "snapshot_shares": 3,
-        "written_shares": 1
+        "written_shares": 1,
+        "difference": 2,
+        "left_out": true
       }
     ],
     "gone": [],
@@ -136,7 +143,8 @@
         "account": "A1 ...135",
         "snapshot": "2026-01-08",
         "snapshot_cash": 1000.00,
-        "written_cash": -40.00
+        "written_cash": -40.00,
+        "difference": 1040.00
       }
     ],
     "cash_gone": [],

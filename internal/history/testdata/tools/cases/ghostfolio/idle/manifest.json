@@ -135,7 +135,8 @@
         },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
-        "written_shares": 1
+        "written_shares": 1,
+        "difference": -1
       },
       {
         "account": "A1 ...135",
@@ -147,7 +148,8 @@
         },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
-        "written_shares": 1
+        "written_shares": 1,
+        "difference": -1
       },
       {
         "account": "A1 ...135",
@@ -160,7 +162,8 @@
         },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
-        "written_shares": 1
+        "written_shares": 1,
+        "difference": -1
       },
       {
         "account": "A1 ...135",
@@ -172,7 +175,8 @@
         },
         "snapshot": "2026-11-10",
         "snapshot_shares": 0,
-        "written_shares": 1
+        "written_shares": 1,
+        "difference": -1
       }
     ],
     "gone": [],

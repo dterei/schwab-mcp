@@ -133,7 +133,9 @@
         },
         "snapshot": "2026-01-08",
         "snapshot_shares": 3,
-        "written_shares": 1
+        "written_shares": 1,
+        "difference": 2,
+        "left_out": true
       }
     ],
     "gone": [],

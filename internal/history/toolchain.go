@@ -208,14 +208,17 @@ type chainLeftOut struct {
 }
 
 // A chainHoldings is the holdings check of the manifest (4.15 of the
-// design): each difference; with -since, each that the export it goes on
-// from listed and this one does not find (Gone); for PP each difference of
-// the cash check, those gone likewise, and each account whose cash it could
-// not check; and the labels of the accounts that neither check checked: of
-// one with rows, for want of a snapshot, and, for PP, of one with a
-// snapshot, for want of a PP account to check (ppHolds), as no export of the
-// chain writes or names it. Cash, CashGone and CashNotChecked are nil for
-// Ghostfolio, whose cash is the balances'.
+// design, K-3 to K-6 of the consolidation): each difference, and, with
+// -since, each that the export it goes on from listed of an account that
+// this one does not check, carried on as it was; each that the export it
+// goes on from listed, of an account that this one checks, and that this one
+// does not find (Gone); for PP each difference of the cash check, carried
+// and gone likewise, and each account whose cash it could not check; and
+// the labels of the accounts that neither check checked: of one with rows,
+// for want of a snapshot, and, for PP, of one with a snapshot, for want of a
+// PP account to check (ppHolds), as no export of the chain writes or names
+// it. Cash, CashGone and CashNotChecked are nil for Ghostfolio, whose cash is
+// the balances'.
 type chainHoldings struct {
 	Differences    []chainHolding        `json:"differences"`
 	Gone           []chainHoldingGone    `json:"gone"`
@@ -229,60 +232,115 @@ type chainHoldings struct {
 // check (toolCashUnchecked): its label, the market date of its snapshot, and
 // why: "margin", the snapshot is of a margin account with a margin or a
 // short balance, whose cash Schwab's figures do not settle
-// (docs/schwab-api.md); "no_cash", the snapshot holds no cash figure. Was
-// is, with -since, the difference that the export it goes on from listed for
-// the account, or carried as this one does, "" for none: the export that
-// checks the account again compares its difference with it.
+// (docs/schwab-api.md); "no_cash", the snapshot holds no cash figure. The
+// cash difference that the export it goes on from listed for the account
+// is carried on (chainCashHolding.Carried).
 type chainCashUnchecked struct {
 	Account  string      `json:"account"`
 	Snapshot nytime.Date `json:"snapshot"`
 	Why      string      `json:"why"`
-	Was      json.Number `json:"was,omitempty"`
 }
 
 // A chainCashHolding is a difference of PP's cash check (toolCash): the
 // account, the market date of the snapshot, its cash and what the records
-// leave of it in PP, and, with -since, whether the export it goes on from
-// listed the same account with the same difference, the snapshot's cash
-// less the records' (before), or with another, which Was is, "" for none:
-// an opening deposit booked in PP changes nothing in the store, so its
-// difference comes back in every export, and one booked for a difference
-// that has changed since is to change by the change.
+// leave of it in PP, and the difference, the first less the second, which
+// what you book by hand for the account's opening cash is to equal.
+// LeftOut, Before and Carried are as a chainHolding's, of a row left out
+// that moves cash.
 type chainCashHolding struct {
 	Account      string      `json:"account"`
 	Snapshot     nytime.Date `json:"snapshot"`
 	SnapshotCash json.Number `json:"snapshot_cash"`
 	WrittenCash  json.Number `json:"written_cash"`
+	Difference   json.Number `json:"difference"`
+	LeftOut      bool        `json:"left_out,omitempty"`
 	Before       bool        `json:"before,omitempty"`
-	Was          json.Number `json:"was,omitempty"`
+	Carried      bool        `json:"carried,omitempty"`
 }
 
-// A chainHolding is a difference of the holdings check (toolHolding), its
-// shares signed, and, with -since, whether the export it goes on from listed
-// the same account and security (chainSameHolding) with the same
-// difference, the snapshot's shares less the written ones, under the same
-// Ghostfolio asset (before), or with another difference or under another
-// asset, which Was and WasAsset are, "" and nil for none: an opening
-// position added by hand changes nothing in the store, whose trades leave
-// its difference as it is, and one added for a difference that has changed
-// since is to change by the change, or to move to the asset that Ghostfolio
-// holds the security under now, which does not follow a change of symbol
-// or data source. SecurityKeys are, for a security that the tool holds
-// under several of the store's keys, every one of them; Asset is, for
-// Ghostfolio, the asset that it holds the security under, which a BUY added
-// by hand for the difference is of.
+// A chainHolding is a difference of the holdings check (toolHolding): the
+// account and the security as the tool holds it, its shares signed, and the
+// difference, the snapshot's shares less the written ones, which what you
+// add by hand for the security is to equal (K-3 of the consolidation).
+// SecurityKeys are, for a security that the tool holds under several of the
+// store's keys, every one of them. PP is, for PP, the security's Ticker
+// Symbol, WKN and Security Name as written, by which PP finds it, and
+// Asset, for Ghostfolio, the asset that it holds the security under: what
+// holds what you add by hand for it in the tool (key). LeftOut says that
+// the export leaves out a row of the account that moves the security, which
+// the snapshot holds: the difference holds what it moved. With -since,
+// Before says that the export it goes on from listed the same difference
+// under the same key as its own; Carried that this export could not check
+// the account and copied the difference, as it was, from the export it goes
+// on from, for the next export that checks the account (K-6).
 type chainHolding struct {
-	Account        string      `json:"account"`
-	SecurityKey    string      `json:"security_key"`
-	SecurityKeys   []string    `json:"security_keys,omitempty"`
-	Symbol         string      `json:"symbol"`
-	Asset          *chainAsset `json:"ghostfolio_asset,omitempty"`
-	Snapshot       nytime.Date `json:"snapshot"`
-	SnapshotShares json.Number `json:"snapshot_shares"`
-	WrittenShares  json.Number `json:"written_shares"`
-	Before         bool        `json:"before,omitempty"`
-	Was            json.Number `json:"was,omitempty"`
-	WasAsset       *chainAsset `json:"was_asset,omitempty"`
+	Account        string           `json:"account"`
+	SecurityKey    string           `json:"security_key"`
+	SecurityKeys   []string         `json:"security_keys,omitempty"`
+	Symbol         string           `json:"symbol"`
+	PP             *chainPPSecurity `json:"pp_security,omitempty"`
+	Asset          *chainAsset      `json:"ghostfolio_asset,omitempty"`
+	Snapshot       nytime.Date      `json:"snapshot"`
+	SnapshotShares json.Number      `json:"snapshot_shares"`
+	WrittenShares  json.Number      `json:"written_shares"`
+	Difference     json.Number      `json:"difference"`
+	LeftOut        bool             `json:"left_out,omitempty"`
+	Before         bool             `json:"before,omitempty"`
+	Carried        bool             `json:"carried,omitempty"`
+}
+
+// key returns what h is a difference of, by which two exports' differences
+// are compared (K-6 of the consolidation): its account, and the security as
+// the tool finds it, which holds what you add by hand for it there: for PP
+// by its WKN, else its ticker, else its name (ppFinds), for Ghostfolio by
+// its asset's data source and symbol. A security that the tool finds
+// otherwise now, as after a rename without a CUSIP, a CUSIP learned or
+// -manual, is another key: its difference is gone under the old one and
+// listed under the new.
+func (h chainHolding) key() string {
+	return holdingKey(h.Account, h.PP, h.Asset)
+}
+
+// holdingKey returns the key (chainHolding.key) of a difference of the
+// account labelled account of a security that PP finds by pp, or that
+// Ghostfolio holds under asset.
+func holdingKey(account string, pp *chainPPSecurity, asset *chainAsset) string {
+	k := []string{account}
+	if pp != nil {
+		k = append(k, ppFinds(pp.Ticker, pp.WKN, pp.Name))
+	}
+	if asset != nil {
+		k = append(k, asset.DataSource, asset.Symbol)
+	}
+	return strings.Join(k, "\x1f")
+}
+
+// A chainPPSecurity is a security as a PP export writes it: its Ticker
+// Symbol, WKN and Security Name (ppIdentifiers).
+type chainPPSecurity struct {
+	Ticker string `json:"ticker,omitempty"`
+	WKN    string `json:"wkn,omitempty"`
+	Name   string `json:"name,omitempty"`
+}
+
+// ppSecurityOf returns security s as PP's records of it name it.
+func ppSecurityOf(s *toolSecurity) *chainPPSecurity {
+	ticker, wkn, name := ppIdentifiers(s)
+	return &chainPPSecurity{Ticker: ticker, WKN: wkn, Name: name}
+}
+
+// shown returns how PP finds the security, as stderr names it: by its WKN,
+// else its ticker, else its name (ppFinds), as "WKN 98389B100".
+func (p *chainPPSecurity) shown() string {
+	switch {
+	case p == nil:
+		return ""
+	case p.WKN != "":
+		return "WKN " + p.WKN
+	case p.Ticker != "":
+		return "ticker " + p.Ticker
+	}
+	return "name " + p.Name
 }
 
 // A chainAsset is a Ghostfolio asset: its data source and symbol, by which
@@ -303,12 +361,6 @@ func gfAssetOf(s *toolSecurity) *chainAsset {
 	return a
 }
 
-// sameAsset reports whether a and b are one Ghostfolio asset, by their data
-// source and symbol; nil, as of a PP export, is any asset.
-func sameAsset(a, b *chainAsset) bool {
-	return a == nil || b == nil || a.DataSource == b.DataSource && a.Symbol == b.Symbol
-}
-
 // shown returns how Ghostfolio shows asset a: by its name when it is MANUAL,
 // else by its symbol; "" for none.
 func (a *chainAsset) shown() string {
@@ -319,24 +371,26 @@ func (a *chainAsset) shown() string {
 }
 
 // A chainHoldingGone is a difference of the holdings check that the export
-// it goes on from listed and that this one does not find: the records now
-// leave of the security what the account's latest snapshot holds. It is as
-// that export listed it, with its difference, the snapshot's shares less
-// the written ones, as Was, and its Ghostfolio asset: an opening position
-// added by hand for it is to delete, as the rows written now stand for it.
+// it goes on from listed, of an account that this one checks, and whose key
+// this one does not list (K-6 of the consolidation): the records now leave
+// of the security what the account's latest snapshot holds, or the tool
+// finds the security otherwise now. It is as that export listed it, with
+// its difference as Was: what you added by hand for it is to delete.
 type chainHoldingGone struct {
-	Account      string      `json:"account"`
-	SecurityKey  string      `json:"security_key"`
-	SecurityKeys []string    `json:"security_keys,omitempty"`
-	Symbol       string      `json:"symbol"`
-	Asset        *chainAsset `json:"ghostfolio_asset,omitempty"`
-	Was          json.Number `json:"was"`
+	Account      string           `json:"account"`
+	SecurityKey  string           `json:"security_key"`
+	SecurityKeys []string         `json:"security_keys,omitempty"`
+	Symbol       string           `json:"symbol"`
+	PP           *chainPPSecurity `json:"pp_security,omitempty"`
+	Asset        *chainAsset      `json:"ghostfolio_asset,omitempty"`
+	Was          json.Number      `json:"was"`
 }
 
 // A chainCashGone is, for PP, an account whose cash the export it goes on
 // from listed as differing from its latest snapshot's, by Was, the
-// snapshot's cash less the records', and which this one finds alike: an
-// opening deposit or withdrawal booked by hand for it is to delete.
+// snapshot's cash less the records', and which this one checks and finds
+// alike: an opening deposit or withdrawal booked by hand for it is to
+// delete.
 type chainCashGone struct {
 	Account string      `json:"account"`
 	Was     json.Number `json:"was"`
@@ -674,19 +728,20 @@ type chainResult struct {
 	// imported.
 	given map[string]map[string]chainGiven
 	// leftOut, holdings and unchecked are the rows left out, the differences
-	// of the holdings check and the accounts that it did not check, with
-	// what the earlier export listed of them; notHeld are, for PP, those of
-	// unchecked that have a snapshot and that PP holds nothing of (ppHolds),
-	// the others having rows and no snapshot to check against.
+	// of the holdings check, with those that the earlier export listed of
+	// the accounts that it did not check, carried on, and those accounts;
+	// notHeld are, for PP, those of unchecked that have a snapshot and that
+	// PP holds nothing of (ppHolds), the others having rows and no snapshot
+	// to check against.
 	leftOut   []chainLeftOut
 	holdings  []chainHolding
 	unchecked []toolAccount
 	notHeld   []toolAccount
-	// holdingsGone are the differences that the earlier export listed and
-	// that the holdings check no longer finds; cash, cashGone and
-	// cashUnchecked are, for PP, the cash check's differences, those gone,
-	// and the accounts whose cash it could not check, each as the manifest
-	// lists it.
+	// holdingsGone are the differences that the earlier export listed, of
+	// the accounts that the holdings check checks, and that it no longer
+	// finds; cash, cashGone and cashUnchecked are, for PP, the cash check's
+	// differences, carried ones among them, those gone, and the accounts
+	// whose cash it could not check, each as the manifest lists it.
 	holdingsGone  []chainHoldingGone
 	cash          []chainCashHolding
 	cashGone      []chainCashGone
@@ -741,8 +796,9 @@ func (o chainOld) tx() string {
 // with the other half of a transfer, or its Note names a row that PP will
 // hold under its own. A row given whose Note names such a row is changed,
 // so that each transaction that PP holds has a Note of its own row. The rows
-// left out and the holdings that differ are marked before when since listed
-// them alike.
+// left out and the differences from the snapshots are marked before when
+// since listed them alike, and since's differences of an account that this
+// export cannot check are carried on.
 func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, since *toolChain) *chainResult {
 	c := &chainResult{
 		in: in, ix: newToolIndex(in), since: since, outcomes: slices.Clone(outcomes),
@@ -989,8 +1045,9 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 	c.replayStart(old, unknown)
 	c.nextGiven(records)
 	c.compareLeftOut()
-	c.compareHoldings(events)
-	c.compareCash(events)
+	shares, cash := c.leftOutMoves()
+	c.compareHoldings(events, shares)
+	c.compareCash(events, cash)
 	c.compareSecurities(events)
 	return c
 }
@@ -1155,116 +1212,188 @@ func (c *chainResult) compareLeftOut() {
 	}
 }
 
+// leftOutMoves returns what the rows that this export leaves out move of
+// what the snapshots hold (K-3 of the consolidation): by key
+// (chainHolding.key), the securities, as the tool finds them, that a row
+// left out moves by its quantity or a leg's; and, by label, the accounts
+// whose cash a row left out moves by its amount; each of a row that its
+// account's snapshot holds (checkedSnapshot, inSnapshot). A difference of
+// one holds what the row moved, which you book by hand or not, as its
+// left_out entry advises.
+func (c *chainResult) leftOutMoves() (shares, cash map[string]bool) {
+	shares, cash = map[string]bool{}, map[string]bool{}
+	legs := map[rowKey][]toolLeg{}
+	for _, l := range c.in.legs {
+		legs[rowKey{l.account, l.ref}] = append(legs[rowKey{l.account, l.ref}], l)
+	}
+	for i, o := range c.outcomes {
+		r := &c.in.rows[i]
+		snap, ok := checkedSnapshot(c.in, r.account)
+		if o.outcome != outcomeLeftOut || !ok || !inSnapshot(r, snap) {
+			continue
+		}
+		label := o.account.label()
+		if r.amount.Valid && r.amount.Int64 != 0 {
+			cash[label] = true
+		}
+		for _, m := range append([]toolLeg{{symbol: r.symbol, securityKey: r.securityKey, quantity: r.quantity}}, legs[rowKey{r.account, r.ref}]...) {
+			if s := c.ix.security(m.securityKey, m.symbol); s != nil && m.quantity.Valid && m.quantity.Int64 != 0 {
+				shares[holdingKey(label, c.ppSecurity(s), c.gfAsset(s))] = true
+			}
+		}
+	}
+	return shares, cash
+}
+
+// ppSecurity returns, for PP, how PP's records name security s
+// (ppSecurityOf); nil for Ghostfolio.
+func (c *chainResult) ppSecurity(s *toolSecurity) *chainPPSecurity {
+	if c.in.tool != toolPP {
+		return nil
+	}
+	return ppSecurityOf(s)
+}
+
+// gfAsset returns, for Ghostfolio, the asset that it holds security s under
+// (gfAssetOf); nil for PP.
+func (c *chainResult) gfAsset(s *toolSecurity) *chainAsset {
+	if c.in.tool != toolGF {
+		return nil
+	}
+	return gfAssetOf(s)
+}
+
+// A chainEntry is a difference from the snapshots as compareEntries compares
+// it: its account's label, its key (chainHolding.key, or the label for
+// cash), its value, and whether the export that listed it carried it.
+type chainEntry struct {
+	account, key string
+	value        *big.Rat
+	carried      bool
+}
+
+// compareEntries compares the differences of this export, now, with those
+// that the export that it goes on from listed, then (K-6 of the
+// consolidation), for the holdings check or the cash check, whose accounts
+// that this export checks are checked. It returns, for each of now, whether
+// it is before: one of then that is not carried has its key and value, as
+// what you add by hand for a difference is to equal it, whatever you did
+// before; and, of then, those to carry on, of an account that this export
+// does not check, and those gone, of an account that it checks, whose key it
+// does not list. Any other of then is listed again in now, with its value.
+func compareEntries(now, then []chainEntry, checked map[string]bool) (before []bool, carry, gone []int) {
+	own, found := map[string]*big.Rat{}, map[string]bool{}
+	for _, e := range then {
+		if !e.carried {
+			own[e.key] = e.value
+		}
+	}
+	for _, e := range now {
+		found[e.key] = true
+		v, ok := own[e.key]
+		before = append(before, ok && v.Cmp(e.value) == 0)
+	}
+	for i, e := range then {
+		switch {
+		case !checked[e.account]:
+			carry = append(carry, i)
+		case !found[e.key]:
+			gone = append(gone, i)
+		}
+	}
+	return before, carry, gone
+}
+
 // compareHoldings runs the holdings check over the records of every row
-// written or given, events (4.15 of the design), and compares each
-// difference with those that the earlier export listed for the same account
-// and security (chainSameHolding), each taken once: an opening position
-// added by hand in the tool changes nothing in the store, so its difference
-// comes back in every export. One listed alike, under the same Ghostfolio
-// asset, is marked before; one listed otherwise keeps the difference listed
-// (Was), by which the hand entry is to change, and, when Ghostfolio is to
-// hold the security under another asset now, as after a rename, a
-// delisting or -manual, that asset (WasAsset), from which the hand entry is
-// to move: Ghostfolio ties an activity to its symbol and data source, and
-// does not follow the change; and one listed that this export does not
-// find, of an account that it checks, is gone, for the hand entry to go
-// too: the rows written now stand for it. For PP, an account that PP holds
-// nothing of (ppHolds), as one with snapshots and no row, is not checked:
-// no account of PP's would hold what you added for it by hand.
-func (c *chainResult) compareHoldings(events []toolEvent) {
+// written or given, events (4.15 of the design), and compares its
+// differences with those that the earlier export listed (compareEntries):
+// what you add by hand for a security, as an opening position, changes
+// nothing in the store, so its difference comes back in every export, and
+// the rows that a later export writes for it take it away. Each difference
+// is of the security as the tool finds it, which holds what you added: for
+// Ghostfolio its asset, which does not follow a rename, a delisting or
+// -manual, for PP its identifiers. A difference of a security that a row
+// left out moves, by shares (moves, leftOutMoves), is marked left_out. For
+// PP, an account that PP holds nothing of (ppHolds), as one with snapshots
+// and no row, is not checked: no account of PP's would hold what you added
+// for it by hand. The earlier export's differences of an account that this
+// one does not check, as one whose snapshot a store restored from an older
+// backup lacks, are carried on as they were, for the next export that
+// checks it.
+func (c *chainResult) compareHoldings(events []toolEvent, moves map[string]bool) {
 	diffs, unchecked := holdingsCheck(c.in, events)
+	holds := map[string]bool{}
 	if c.in.tool == toolPP {
 		// An account that PP holds nothing of has nothing in PP to check:
 		// it is not checked.
-		holds := c.ppHolds()
+		holds = c.ppHolds()
 		diffs = slices.DeleteFunc(diffs, func(d toolHolding) bool { return !holds[d.account.label()] })
-		for _, id := range snapshotAccounts(c.in) {
-			a := c.ix.account(id)
-			if _, ok := checkedSnapshot(c.in, id); ok && !holds[a.label()] {
-				c.notHeld = append(c.notHeld, a)
-			}
-		}
-		unchecked = append(unchecked, c.notHeld...)
-		slices.SortFunc(unchecked, func(a, b toolAccount) int { return cmp.Compare(a.id, b.id) })
 	}
+	checked := map[string]bool{}
+	for _, id := range snapshotAccounts(c.in) {
+		a := c.ix.account(id)
+		_, ok := checkedSnapshot(c.in, id)
+		switch {
+		case ok && c.in.tool == toolPP && !holds[a.label()]:
+			c.notHeld = append(c.notHeld, a)
+		case ok:
+			checked[a.label()] = true
+		}
+	}
+	unchecked = append(unchecked, c.notHeld...)
+	slices.SortFunc(unchecked, func(a, b toolAccount) int { return cmp.Compare(a.id, b.id) })
 	c.unchecked = unchecked
+	var now, then []chainEntry
+	for _, d := range diffs {
+		h := chainHolding{
+			Account: d.account.label(), SecurityKey: d.key, SecurityKeys: d.keys, Symbol: d.symbol,
+			PP: c.ppSecurity(d.security), Asset: c.gfAsset(d.security), Snapshot: d.snapshot,
+			SnapshotShares: json.Number(formatMicros(d.snapshotShares)), WrittenShares: json.Number(formatMicros(d.writtenShares)),
+			Difference: json.Number(formatMicros(d.snapshotShares - d.writtenShares)),
+		}
+		h.LeftOut = moves[h.key()]
+		c.holdings = append(c.holdings, h)
+		now = append(now, chainEntry{h.Account, h.key(), chainRat(h.Difference), false})
+	}
 	var listed []chainHolding
 	if c.since != nil {
 		listed = c.since.Holdings.Differences
 	}
-	taken := make([]bool, len(listed))
-	for _, d := range diffs {
-		h := chainHolding{
-			Account: d.account.label(), SecurityKey: d.key, SecurityKeys: d.keys, Symbol: d.symbol, Snapshot: d.snapshot,
-			SnapshotShares: json.Number(formatMicros(d.snapshotShares)), WrittenShares: json.Number(formatMicros(d.writtenShares)),
-		}
-		if c.in.tool == toolGF {
-			h.Asset = gfAssetOf(d.security)
-		}
-		was, found := new(big.Rat), false
-		var moved *chainAsset
-		for i, l := range listed {
-			if !taken[i] && chainSameHolding(l, h) {
-				taken[i], found = true, true
-				was.Add(was, chainDifference(l.SnapshotShares, l.WrittenShares))
-				if moved == nil && !sameAsset(l.Asset, h.Asset) {
-					moved = l.Asset
-				}
-			}
-		}
-		switch {
-		case found && moved == nil && was.Cmp(big.NewRat(d.snapshotShares-d.writtenShares, 1_000_000)) == 0:
-			h.Before = true
-		case found:
-			h.Was, h.WasAsset = chainNumber(was, false), moved
-		}
-		c.holdings = append(c.holdings, h)
+	for _, l := range listed {
+		then = append(then, chainEntry{l.Account, l.key(), chainRat(l.Difference), l.Carried})
 	}
-	// An account that the earlier export checked and this one cannot, as a
-	// store restored from an older backup may lack its snapshot, has
-	// nothing gone: this export cannot tell.
-	for i, l := range listed {
-		if !taken[i] && !slices.ContainsFunc(c.unchecked, func(a toolAccount) bool { return a.label() == l.Account }) {
-			c.holdingsGone = append(c.holdingsGone, chainHoldingGone{
-				Account: l.Account, SecurityKey: l.SecurityKey, SecurityKeys: l.SecurityKeys, Symbol: l.Symbol, Asset: l.Asset,
-				Was: chainNumber(chainDifference(l.SnapshotShares, l.WrittenShares), false),
-			})
-		}
+	before, carry, gone := compareEntries(now, then, checked)
+	for i, b := range before {
+		c.holdings[i].Before = b
+	}
+	for _, i := range carry {
+		l := listed[i]
+		l.Before, l.Carried = false, true
+		c.holdings = append(c.holdings, l)
+	}
+	slices.SortStableFunc(c.holdings, func(a, b chainHolding) int { return cmp.Compare(c.labelOrder(a.Account), c.labelOrder(b.Account)) })
+	for _, i := range gone {
+		l := listed[i]
+		c.holdingsGone = append(c.holdingsGone, chainHoldingGone{
+			Account: l.Account, SecurityKey: l.SecurityKey, SecurityKeys: l.SecurityKeys, Symbol: l.Symbol, PP: l.PP, Asset: l.Asset, Was: l.Difference,
+		})
 	}
 }
 
 // compareCash runs PP's cash check over the records of every row written
 // or given, events, and compares each account's difference, the snapshot's
-// cash less the records', with the one that the earlier export listed for
-// it, or carried for an account that it could not check
-// (chainCashUnchecked.Was), as compareHoldings does: alike, it is marked
-// before; otherwise it keeps the difference listed (Was); and one listed of
-// an account whose cash this export checks and finds alike is gone. An
-// account whose cash it does not check, a margin account in use or one
-// whose snapshot holds no cash figure, carries the difference listed on,
-// for the export that checks it again. An account that PP holds nothing of
-// (ppHolds) is not checked.
-func (c *chainResult) compareCash(events []toolEvent) {
+// cash less the records', with those that the earlier export listed
+// (compareEntries), as compareHoldings does, by account: what you book by
+// hand for an account's opening cash is to equal its difference, marked
+// left_out when a row left out moves the account's cash (moves,
+// leftOutMoves). An account whose cash it does not check, a margin account
+// in use or one whose snapshot holds no cash figure, is listed apart with
+// why, and so is not checked, nor is one that the holdings check does not
+// check: the earlier export's difference of either is carried on. An account
+// that PP holds nothing of (ppHolds) is not checked.
+func (c *chainResult) compareCash(events []toolEvent, moves map[string]bool) {
 	if c.in.tool != toolPP {
 		return
-	}
-	listed := map[string]*big.Rat{}
-	var order []string
-	if c.since != nil {
-		if c.since.Holdings.Cash != nil {
-			for _, h := range *c.since.Holdings.Cash {
-				listed[h.Account] = chainDifference(h.SnapshotCash, h.WrittenCash)
-				order = append(order, h.Account)
-			}
-		}
-		if c.since.Holdings.CashNotChecked != nil {
-			for _, u := range *c.since.Holdings.CashNotChecked {
-				if u.Was != "" {
-					listed[u.Account] = chainRat(u.Was)
-					order = append(order, u.Account)
-				}
-			}
-		}
 	}
 	// An account that PP holds nothing of has no cash in PP to check:
 	// compareHoldings lists it as not checked.
@@ -1272,43 +1401,45 @@ func (c *chainResult) compareCash(events []toolEvent) {
 	diffs, unchecked := cashCheck(c.in, events)
 	diffs = slices.DeleteFunc(diffs, func(d toolCash) bool { return !holds[d.account.label()] })
 	unchecked = slices.DeleteFunc(unchecked, func(u toolCashUnchecked) bool { return !holds[u.account.label()] })
-	for _, u := range unchecked {
-		n := chainCashUnchecked{Account: u.account.label(), Snapshot: u.snapshot, Why: u.why}
-		if was, ok := listed[n.Account]; ok {
-			n.Was = chainNumber(was, true)
-			delete(listed, n.Account)
+	checked := map[string]bool{}
+	for _, id := range snapshotAccounts(c.in) {
+		if _, ok := checkedSnapshot(c.in, id); ok && holds[c.ix.account(id).label()] {
+			checked[c.ix.account(id).label()] = true
 		}
-		c.cashUnchecked = append(c.cashUnchecked, n)
 	}
+	for _, u := range unchecked {
+		c.cashUnchecked = append(c.cashUnchecked, chainCashUnchecked{Account: u.account.label(), Snapshot: u.snapshot, Why: u.why})
+		delete(checked, u.account.label())
+	}
+	var now, then []chainEntry
 	for _, d := range diffs {
 		h := chainCashHolding{
 			Account: d.account.label(), Snapshot: d.snapshot,
 			SnapshotCash: json.Number(formatCents(d.snapshotCash)), WrittenCash: json.Number(formatCents(d.writtenCash)),
-		}
-		if was, ok := listed[h.Account]; ok {
-			if was.Cmp(big.NewRat(d.snapshotCash-d.writtenCash, 100)) == 0 {
-				h.Before = true
-			} else {
-				h.Was = chainNumber(was, true)
-			}
-			delete(listed, h.Account)
+			Difference: json.Number(formatCents(d.snapshotCash - d.writtenCash)), LeftOut: moves[d.account.label()],
 		}
 		c.cash = append(c.cash, h)
+		now = append(now, chainEntry{h.Account, h.Account, chainRat(h.Difference), false})
 	}
-	// An account with no snapshot to check against, as in a store restored
-	// from an older backup, has nothing gone: this export cannot tell. One
-	// whose cash it does not check carries what was listed (above).
-	checked := map[string]bool{}
-	for _, id := range snapshotAccounts(c.in) {
-		if _, ok := checkedSnapshot(c.in, id); ok {
-			checked[c.in.accountOf(id).label()] = true
-		}
+	var listed []chainCashHolding
+	if c.since != nil && c.since.Holdings.Cash != nil {
+		listed = *c.since.Holdings.Cash
 	}
-	for _, a := range order {
-		if was, ok := listed[a]; ok && checked[a] {
-			c.cashGone = append(c.cashGone, chainCashGone{Account: a, Was: chainNumber(was, true)})
-			delete(listed, a)
-		}
+	for _, l := range listed {
+		then = append(then, chainEntry{l.Account, l.Account, chainRat(l.Difference), l.Carried})
+	}
+	before, carry, gone := compareEntries(now, then, checked)
+	for i, b := range before {
+		c.cash[i].Before = b
+	}
+	for _, i := range carry {
+		l := listed[i]
+		l.Before, l.Carried = false, true
+		c.cash = append(c.cash, l)
+	}
+	slices.SortStableFunc(c.cash, func(a, b chainCashHolding) int { return cmp.Compare(c.labelOrder(a.Account), c.labelOrder(b.Account)) })
+	for _, i := range gone {
+		c.cashGone = append(c.cashGone, chainCashGone{Account: listed[i].Account, Was: listed[i].Difference})
 	}
 }
 
@@ -1325,81 +1456,6 @@ func (c *chainResult) ppHolds() map[string]bool {
 		holds[a.Label] = true
 	}
 	return holds
-}
-
-// chainSameHolding reports whether the difference l, that an earlier export
-// listed, and h are of one account and one security: of keys one of which
-// the other has too, or, for two of a row's securities without a key, of
-// one symbol. A security that the tool holds under several of the store's
-// keys lists them all, so that a key that joins it later finds it still.
-func chainSameHolding(l, h chainHolding) bool {
-	if l.Account != h.Account {
-		return false
-	}
-	if l.SecurityKey == "" || h.SecurityKey == "" {
-		return l.SecurityKey == h.SecurityKey && l.Symbol == h.Symbol
-	}
-	keys := append([]string{l.SecurityKey}, l.SecurityKeys...)
-	return slices.ContainsFunc(append([]string{h.SecurityKey}, h.SecurityKeys...), func(k string) bool { return slices.Contains(keys, k) })
-}
-
-// chainDifference returns a difference that an earlier export listed: the
-// snapshot's shares or cash less the written.
-func chainDifference(snapshot, written json.Number) *big.Rat {
-	return new(big.Rat).Sub(chainRat(snapshot), chainRat(written))
-}
-
-// chainNumber writes r as the manifest writes shares, in up to six places,
-// or with cash, as dollars in two; a number off that grid, of a manifest
-// edited by hand, in as many as it takes, up to twelve.
-func chainNumber(r *big.Rat, cash bool) json.Number {
-	scale := int64(1_000_000)
-	if cash {
-		scale = 100
-	}
-	if n := new(big.Rat).Mul(r, big.NewRat(scale, 1)); n.IsInt() && n.Num().IsInt64() {
-		if cash {
-			return json.Number(formatCents(n.Num().Int64()))
-		}
-		return json.Number(formatMicros(n.Num().Int64()))
-	}
-	return json.Number(strings.TrimSuffix(strings.TrimRight(r.FloatString(12), "0"), "."))
-}
-
-// differencesChanged returns the differences that the earlier export listed
-// and that this one lists with another, or not at all, as ToolExport gives
-// them: the holdings', then, for PP, the cash's, each those changed in the
-// manifest's order, then those gone in the earlier export's.
-func (c *chainResult) differencesChanged() []ToolDifference {
-	var out []ToolDifference
-	changed := func(d ToolDifference, now *big.Rat, cash bool) {
-		d.Now = string(chainNumber(now, cash))
-		d.Change = string(chainNumber(now.Sub(now, chainRat(json.Number(d.Was))), cash))
-		out = append(out, d)
-	}
-	gone := func(d ToolDifference, cash bool) {
-		d.Change = string(chainNumber(new(big.Rat).Neg(chainRat(json.Number(d.Was))), cash))
-		out = append(out, d)
-	}
-	for _, h := range c.holdings {
-		if h.Was != "" {
-			changed(ToolDifference{
-				Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Asset: h.Asset.shown(), WasAsset: h.WasAsset.shown(), Was: string(h.Was),
-			}, chainDifference(h.SnapshotShares, h.WrittenShares), false)
-		}
-	}
-	for _, g := range c.holdingsGone {
-		gone(ToolDifference{Account: g.Account, Key: g.SecurityKey, Symbol: g.Symbol, Asset: g.Asset.shown(), Was: string(g.Was)}, false)
-	}
-	for _, h := range c.cash {
-		if h.Was != "" {
-			changed(ToolDifference{Account: h.Account, Cash: true, Was: string(h.Was)}, chainDifference(h.SnapshotCash, h.WrittenCash), true)
-		}
-	}
-	for _, g := range c.cashGone {
-		gone(ToolDifference{Account: g.Account, Cash: true, Was: string(g.Was)}, true)
-	}
-	return out
 }
 
 // A symbolsChange is a security of PP's symbols_changed (R-10 of the

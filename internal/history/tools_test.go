@@ -6,7 +6,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"maps"
-	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -242,69 +241,68 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	check("rows with a caveat", e.CaveatRows, len(caveatRows))
 	check("rows flagged", e.Flagged, len(m.Flagged))
 	check("rows waiting", e.Waiting, len(m.Waiting))
-	// The differences that the export it goes on from listed otherwise
-	// (was), or that went, each with its change, which stderr lists, and
-	// the new ones, which it counts.
+	// The differences from the snapshots that stderr lists (K-7 of the
+	// consolidation): those gone, of shares and then of cash, then the
+	// others, but those before or carried, each by its value and named as
+	// the tool finds its security: by PP's WKN, else its ticker, else its
+	// name; by Ghostfolio's asset. Each difference is the snapshot's figure
+	// less the records', and a carried one is never before.
 	var differences []ToolDifference
-	difference := func(d ToolDifference, snapshot, written json.Number, cash bool) {
-		was, _ := new(big.Rat).SetString(d.Was)
-		now := new(big.Rat)
-		if d.Now != "gone" {
-			s, _ := new(big.Rat).SetString(snapshot.String())
-			w, _ := new(big.Rat).SetString(written.String())
-			now.Sub(s, w)
-			d.Now = string(chainNumber(now, cash))
-		} else {
-			d.Now = ""
-		}
-		d.Change = string(chainNumber(now.Sub(now, was), cash))
-		differences = append(differences, d)
-	}
-	holdings := 0
-	for _, h := range m.Holdings.Differences {
-		// Ghostfolio's differences name the asset that holds the security.
-		if (h.Asset != nil) != (e.Tool == toolGF) || h.WasAsset != nil && h.Was == "" {
-			t.Errorf("the %s manifest lists %s of %s under the asset %+v, was %+v", e.Tool, h.SecurityKey, h.Account, h.Asset, h.WasAsset)
+	finds := func(what string, pp *chainPPSecurity, asset *chainAsset) string {
+		t.Helper()
+		if (pp != nil) != (e.Tool == toolPP) || (asset != nil) != (e.Tool == toolGF) {
+			t.Errorf("the %s manifest lists %s as of the PP security %+v and the asset %+v", e.Tool, what, pp, asset)
 		}
 		switch {
-		case h.Was != "":
-			difference(ToolDifference{
-				Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Asset: h.Asset.shown(), WasAsset: h.WasAsset.shown(), Was: string(h.Was),
-			}, h.SnapshotShares, h.WrittenShares, false)
-		case !h.Before:
-			holdings++
+		case asset != nil:
+			return asset.DataSource
+		case pp == nil:
+			return ""
+		case pp.WKN != "":
+			return "WKN " + pp.WKN
+		case pp.Ticker != "":
+			return "ticker " + pp.Ticker
+		}
+		return "name " + pp.Name
+	}
+	same := func(what string, snapshot, written, difference json.Number, before, carried bool) {
+		t.Helper()
+		if chainRat(snapshot).Sub(chainRat(snapshot), chainRat(written)).Cmp(chainRat(difference)) != 0 || difference == "" || before && carried {
+			t.Errorf("the manifest lists %s with %s less %s as %q, before %v, carried %v", what, snapshot, written, difference, before, carried)
 		}
 	}
 	if m.Holdings.Gone == nil {
 		t.Errorf("the %s manifest's holdings list no differences gone", e.Tool)
 	} else {
 		for _, g := range *m.Holdings.Gone {
-			difference(ToolDifference{Account: g.Account, Key: g.SecurityKey, Symbol: g.Symbol, Asset: g.Asset.shown(), Was: string(g.Was), Now: "gone"}, "", "", false)
+			differences = append(differences, ToolDifference{
+				Account: g.Account, Key: g.SecurityKey, Symbol: g.Symbol, Asset: g.Asset.shown(), Finds: finds(g.SecurityKey, g.PP, g.Asset), Value: string(g.Was), Gone: true,
+			})
 		}
 	}
-	check("holdings that differ", e.Holdings, holdings)
 	// PP's cash check, which Ghostfolio's manifest has none of.
 	if (m.Holdings.Cash != nil) != (e.Tool == toolPP) || (m.Holdings.CashGone != nil) != (e.Tool == toolPP) {
 		t.Errorf("the %s manifest's holdings hold a cash check: %v, %v", e.Tool, m.Holdings.Cash != nil, m.Holdings.CashGone != nil)
 	}
-	cash := 0
-	if m.Holdings.Cash != nil {
-		for _, c := range *m.Holdings.Cash {
-			switch {
-			case c.Was != "":
-				difference(ToolDifference{Account: c.Account, Cash: true, Was: string(c.Was)}, c.SnapshotCash, c.WrittenCash, true)
-			case !c.Before:
-				cash++
-			}
+	for _, g := range deref(m.Holdings.CashGone) {
+		differences = append(differences, ToolDifference{Account: g.Account, Cash: true, Value: string(g.Was), Gone: true})
+	}
+	for _, h := range m.Holdings.Differences {
+		same(h.Account+" "+h.SecurityKey, h.SnapshotShares, h.WrittenShares, h.Difference, h.Before, h.Carried)
+		f := finds(h.SecurityKey, h.PP, h.Asset)
+		if !h.Before && !h.Carried {
+			differences = append(differences, ToolDifference{
+				Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Asset: h.Asset.shown(), Finds: f, Value: string(h.Difference), LeftOut: h.LeftOut,
+			})
 		}
 	}
-	if m.Holdings.CashGone != nil {
-		for _, g := range *m.Holdings.CashGone {
-			difference(ToolDifference{Account: g.Account, Cash: true, Was: string(g.Was), Now: "gone"}, "", "", true)
+	for _, c := range deref(m.Holdings.Cash) {
+		same(c.Account+"'s cash", c.SnapshotCash, c.WrittenCash, c.Difference, c.Before, c.Carried)
+		if !c.Before && !c.Carried {
+			differences = append(differences, ToolDifference{Account: c.Account, Cash: true, Value: string(c.Difference), LeftOut: c.LeftOut})
 		}
 	}
-	check("accounts whose cash differs", e.Cash, cash)
-	check("differences changed or gone", e.DifferencesChanged, differences)
+	check("differences listed", e.Differences, differences)
 	if (m.Holdings.CashNotChecked != nil) != (e.Tool == toolPP) {
 		t.Errorf("the %s manifest's holdings list accounts whose cash is not checked: %v", e.Tool, m.Holdings.CashNotChecked != nil)
 	}
@@ -429,6 +427,21 @@ func deref[T any](p *T) T {
 		return zero
 	}
 	return *p
+}
+
+// counted returns how many differences of shares and of cash the export e
+// lists on stderr with their value, those gone left aside.
+func counted(e *ToolExport) (holdings, cash int) {
+	for _, d := range e.Differences {
+		switch {
+		case d.Gone:
+		case d.Cash:
+			cash++
+		default:
+			holdings++
+		}
+	}
+	return holdings, cash
 }
 
 // orNil returns s, or nil for an empty s, as the export holds an empty list.
