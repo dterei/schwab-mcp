@@ -665,6 +665,36 @@ func TestTransactionsNeverSplitAnAccount(t *testing.T) {
 	}
 }
 
+// Pages cover every row once by limit too (design 8.5): in pages of 4
+// rows, far fewer than the page budget holds, ...398's rows of 2025 in the
+// store, more than a page's worth, merge with Schwab's rows of ...135,
+// older than any of them, as one page of every row holds them. Each page
+// reads limit rows of the store after its cursor: with fewer, a page that
+// ends at an older row of Schwab's would pass store rows that no page
+// holds.
+func TestPagesByLimitCoverEveryRowOnce(t *testing.T) {
+	t.Parallel()
+	var rows []string
+	for i := range 6 {
+		rows = append(rows, txnJSON(individual, 73508265501+int64(i), ny(2025, time.January, 2+i, 10, 0),
+			"DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.01))
+	}
+	e := newEnv(t, withTxnRows(individual, rows...))
+	const args = `{"from":"2025-01-01","to":"2025-12-31","include_uncounted":true,"limit":%d}`
+	want := txnRefsOf(txnRowsOf(e.call("get_transactions", fmt.Sprintf(args, 200))))
+	pages := e.txnPages("get_transactions", fmt.Sprintf(args, 4), 50)
+	var got []string
+	for _, p := range pages {
+		if n := len(txnRowsOf(p)); n > 4 {
+			t.Errorf("a page of %d rows, over the limit", n)
+		}
+		got = append(got, txnRefsOf(txnRowsOf(p))...)
+	}
+	if len(want) < 15 || !slices.Equal(got, want) {
+		t.Errorf("pages of 4 hold\n%v\none page holds\n%v", got, want)
+	}
+}
+
 // Pages cover every row once, in order (design 8.5, 15.7): 56 rows of
 // ...135 read from Schwab, 36 of them in one window, and 8 of ...398 read
 // from the shared store, which holds its whole year, with the rows it does
@@ -1102,8 +1132,10 @@ func TestOlderWindows(t *testing.T) {
 	if !slices.Contains(r.warnings(), "empty_not_proof") || !strings.Contains(r.text, "Schwab sent no transactions of ...135 from 2024-07-01 to 2024-12-29") {
 		t.Errorf("an empty older window: %v", r.warnings())
 	}
-	if c := txnCoverageOf(r, "...135"); c["reached_back"] != "2024-07-01" {
-		t.Errorf("two windows read reach back to %v", c["reached_back"])
+	c = txnCoverageOf(r, "...135")
+	whole, _ = json.Marshal(c["whole"])
+	if c["reached_back"] != "2024-07-01" || string(whole) != `[{"from":"2024-12-30","to":"2025-06-30"}]` {
+		t.Errorf("two windows read, the older empty: reached back to %v, whole %s", c["reached_back"], whole)
 	}
 	if r := e.call("get_transactions", `{"source":"schwab","account":"783","from":"2024-07-01","to":"2025-06-30"}`); slices.Contains(r.warnings(), "empty_not_proof") {
 		t.Errorf("an account with no rows at all: %v", r.warnings())
@@ -1397,6 +1429,97 @@ func TestCappedWindow(t *testing.T) {
 	}
 	if got := txnRefsOf(txnRowsOf(r)); !slices.Contains(got, "T73508261943@...135") || !slices.Contains(got, "T73508265201@...135") {
 		t.Errorf("the rows read: %v", got)
+	}
+}
+
+// A window that Schwab may have cut ends the days that coverage calls
+// whole, though an older one was read whole: whole runs from the newest
+// window back, and the newest here holds two rows of one instant, which no
+// halving parts at a cap of 2 rows.
+func TestNewerWindowCapped(t *testing.T) {
+	t.Parallel()
+	at := ny(2025, time.June, 20, 12, 0)
+	e := newEnv(t, withoutStore(), withTxnRows(individual,
+		txnJSON(individual, 73508265301, at, "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.01),
+		txnJSON(individual, 73508265302, at, "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.02),
+		txnJSON(individual, 73508265303, ny(2024, time.September, 16, 10, 0), "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.03),
+	), withTools(func(s *Server) {
+		windows := newWindowCache()
+		windows.full = 2
+		testTool(s, "get_transactions_2", getTransactionsDef.args, func(ctx context.Context, c *call, in getTransactionsIn) (getTransactionsOut, error) {
+			return getTransactions(ctx, c, windows, in)
+		})
+	}))
+	r := e.call("get_transactions_2", `{"source":"schwab","account":"135","from":"2024-07-01","to":"2025-06-30"}`)
+	c := txnCoverageOf(r, "...135")
+	if r.isError || len(c["whole"].([]any)) != 0 || c["reached_back"] != "2024-07-01" || slices.Contains(r.warnings(), "empty_not_proof") {
+		t.Errorf("the newer window capped, the older read whole: %.800s", r.text)
+	}
+	if !strings.Contains(r.text, "for part of the transactions of ...135 from 2024-12-30 to 2025-06-30") ||
+		strings.Contains(r.text, "for part of the transactions of ...135 from 2024-07-01") {
+		t.Errorf("the capped window, and only it, is named: %v", r.warnings())
+	}
+}
+
+// A login that Schwab ends between an account's two windows is no refusal
+// of the older window as too old: the refresh's refusal is a 400 too, but
+// it is the login's, so the call is login_expired, Schwab's detail beside.
+func TestLoginEndsBetweenWindows(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, withoutStore(), withLoginAt(testNow.Add(-10*time.Minute)), withFake(func(f *schwabtest.Server) {
+		f.EndLogin()
+		f.Queue(schwabtest.TransactionsRoute, nil, schwabtest.NotAuthorized)
+	}))
+	r := e.call("get_transactions", `{"source":"schwab","account":"135","from":"2024-03-01","to":"2025-06-30"}`)
+	if r.code() != "login_expired" || !strings.Contains(r.text, "Detail: HTTP 400 from Schwab") || strings.Contains(r.text, "too old") {
+		t.Errorf("a login ended between two windows: %.600s", r.text)
+	}
+}
+
+// store_waiting counts the rows that wait for the user's decision, held out
+// and uncertain alike: here an export's dividend between two of Schwab's
+// that it could be either of.
+func TestStoreWaitingCountsUncertain(t *testing.T) {
+	t.Parallel()
+	path := storeCopy(t)
+	s, err := history.Open(t.Context(), history.Options{Path: path, Now: func() time.Time { return testNow }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := history.TransactionsRead{
+		Read:    history.Read{SentAt: ny(2026, time.July, 1, 9, 0), AnsweredAt: ny(2026, time.July, 1, 9, 0).Add(time.Second)},
+		Account: individual,
+		Query:   schwab.TransactionQuery{Start: ny(2026, time.June, 1, 0, 0), End: ny(2026, time.July, 1, 0, 0)},
+	}
+	for _, raw := range []string{
+		txnJSON(individual, 73508265401, ny(2026, time.June, 10, 10, 0), "DIVIDEND_OR_INTEREST", "Ordinary Dividend~EFGH", 2),
+		txnJSON(individual, 73508265402, ny(2026, time.June, 12, 10, 0), "DIVIDEND_OR_INTEREST", "Ordinary Dividend~EFGH", 2),
+	} {
+		var row schwab.Transaction
+		if err := json.Unmarshal([]byte(raw), &row); err != nil {
+			t.Fatal(err)
+		}
+		read.Rows = append(read.Rows, row)
+	}
+	_, err = s.RecordTransactions(t.Context(), read)
+	if err == nil {
+		csv := `"Date","Action","Symbol","Description","Quantity","Price","Fees & Comm","Amount"` + "\n" +
+			`"06/11/2026","Qualified Dividend","EFGH","EFGH INC","","","","$2.00"` + "\n"
+		_, err = s.Import(t.Context(), []history.FileInput{{Name: "Individual_XXX135_Transactions_20260701-120000.csv", Content: []byte(csv)}},
+			history.ImportOptions{Account: individual, From: "2026-06-01", To: "2026-06-30", Completeness: "complete"})
+	}
+	if cerr := s.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newEnv(t, withStore(path))
+	r := e.call("get_transactions", `{"source":"store","account":"135","from":"2026-06-01","to":"2026-06-30"}`)
+	w, _ := txnCoverageOf(r, "...135")["waiting"].(map[string]any)
+	if r.isError || w["uncertain"] != 1.0 || w["held_out"] != 0.0 ||
+		!strings.Contains(r.text, "1 row of ...135 in these days waits for the user's decision") {
+		t.Errorf("an uncertain row: %.800s", r.text)
 	}
 }
 

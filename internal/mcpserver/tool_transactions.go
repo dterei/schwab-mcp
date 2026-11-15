@@ -959,7 +959,7 @@ func (w *txnWalk) coverage(ta *txnAccount) coverageRow {
 		}
 		var oldestWhole nytime.Date
 		for i, rd := range ta.reads {
-			if rd.capped {
+			if rd.capped || i == ta.empty {
 				break
 			}
 			oldestWhole = w.windows[i].first
