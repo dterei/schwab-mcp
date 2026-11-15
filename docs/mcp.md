@@ -258,7 +258,7 @@ codes are fixed; their sentences may change.
 | `too_big` | The answer is too big even cut, or the login shares more accounts than the 50 that `list_accounts` lists. Ask for less: one account, or a shorter period. |
 | `account_not_found` | No account matches the `account` argument; the error lists the accounts. |
 | `account_ambiguous` | The `account` argument matches several accounts; give more of the last digits, or the `account_hash`. |
-| `account_not_shared` | Schwab no longer shares the account: run `schwabtx login` and tick it. |
+| `account_not_shared` | Schwab no longer shares the account, or a tool that reads Schwab was given one that only the local history knows: run `schwabtx login` and tick it; `get_transactions` with `source` `store` reads its local history. |
 | `not_found` | Schwab or the local history has no transaction of that ID. |
 | `bad_argument` | An argument is not one the tool takes; the error says what it takes. |
 | `bad_cursor` | The cursor belongs to other arguments or another tool; call again without it. |

@@ -326,7 +326,8 @@ func (c *call) pickAccounts(ctx context.Context, arg string) ([]dirAccount, erro
 
 // pick returns the accounts that arg names, as design 6.4 says: all of
 // them when arg is "", else exactly one, or an error. withStoreOnly lets
-// it name an account that only the store knows.
+// it name an account that only the store knows; without it, such an
+// account is not shared, and the error says so.
 func (v *dirView) pick(c *call, arg string, withStoreOnly bool) ([]dirAccount, error) {
 	from := v.accounts
 	if !withStoreOnly {
@@ -336,6 +337,31 @@ func (v *dirView) pick(c *call, arg string, withStoreOnly bool) ([]dirAccount, e
 	if arg == "" {
 		return from, nil
 	}
+	got, err := matches(c, from, arg)
+	if err != nil {
+		return nil, err
+	}
+	switch len(got) {
+	case 1:
+		return got, nil
+	case 0:
+		if !withStoreOnly {
+			if all, err := matches(c, v.accounts, arg); err == nil && len(all) == 1 && !all[0].shared {
+				return nil, c.failf(codeAccountNotShared, "The login does not share %s, which only the local history knows; "+
+					"ask the user to run schwabtx login and tick it. get_transactions with source store reads its history.",
+					c.mask.masked(all[0].number))
+			}
+		}
+		return nil, c.notFound(arg, v, withStoreOnly)
+	}
+	return nil, c.ambiguous(arg, got, "pass the account_hash or the last digits instead")
+}
+
+// matches returns the accounts of from that arg, an account argument that
+// is not "", matches: by its hash or a prefix of one, its store ref, the
+// digits its number ends in, or its nickname. Several that the digits
+// match, rather than a nickname, are an error that asks for more of them.
+func matches(c *call, from []dirAccount, arg string) ([]dirAccount, error) {
 	var got []dirAccount
 	switch {
 	case hashLike(arg):
@@ -377,13 +403,7 @@ func (v *dirView) pick(c *call, arg string, withStoreOnly bool) ([]dirAccount, e
 			return nil, c.ambiguous(arg, got, "pass more of the last digits, or the account_hash, instead")
 		}
 	}
-	switch len(got) {
-	case 1:
-		return got, nil
-	case 0:
-		return nil, c.notFound(arg, v)
-	}
-	return nil, c.ambiguous(arg, got, "pass the account_hash or the last digits instead")
+	return got, nil
 }
 
 var (
@@ -429,9 +449,11 @@ func (c *call) shown(arg string) FreeText {
 
 // notFound is the error for an account argument that no account matches,
 // which lists the accounts the login shares, each with its hash whole, so
-// that the model can pass one back.
-func (c *call) notFound(arg string, v *dirView) error {
-	var listed []FreeText
+// that the model can pass one back; and, when withStoreOnly lets the call
+// name one, those that only the local history knows, each with its store
+// ref.
+func (c *call) notFound(arg string, v *dirView, withStoreOnly bool) error {
+	var shared, storeOnly []FreeText
 	for _, a := range v.accounts {
 		r := c.ref(a)
 		name := c.mask.compose("")
@@ -439,17 +461,23 @@ func (c *call) notFound(arg string, v *dirView) error {
 			name = c.mask.compose(` "%s"`, *r.Nickname)
 		}
 		switch {
-		case a.hash != "":
-			listed = append(listed, c.mask.compose("%s%s (account_hash %s)", r.Account, name, Ident(a.hash)))
-		case a.storeRef != "":
-			listed = append(listed, c.mask.compose("%s%s (store_ref %s, only in the local history)", r.Account, name, Ident(a.storeRef)))
+		case a.shared:
+			shared = append(shared, c.mask.compose("%s%s (account_hash %s)", r.Account, name, Ident(a.hash)))
+		case withStoreOnly && a.storeRef != "":
+			storeOnly = append(storeOnly, c.mask.compose("%s%s (store_ref %s)", r.Account, name, Ident(a.storeRef)))
 		}
 	}
-	if len(listed) == 0 {
+	var lists []FreeText
+	if len(shared) > 0 {
+		lists = append(lists, c.mask.compose("The login shares %s.", c.mask.join(shared, ", ")))
+	}
+	if len(storeOnly) > 0 {
+		lists = append(lists, c.mask.compose("Only the local history knows %s.", c.mask.join(storeOnly, ", ")))
+	}
+	if len(lists) == 0 {
 		return c.failf(codeAccountNotFound, `No account matches "%s", and the login shares none.`, c.shown(arg))
 	}
-	return c.failf(codeAccountNotFound, `No account matches "%s". The login shares %s. Pass one of those.`,
-		c.shown(arg), c.mask.join(listed, ", "))
+	return c.failf(codeAccountNotFound, `No account matches "%s". %s Pass one of those.`, c.shown(arg), c.mask.join(lists, " "))
 }
 
 // ambiguous is the error for an account argument that several accounts

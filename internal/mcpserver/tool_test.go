@@ -973,6 +973,38 @@ func TestAccountSelection(t *testing.T) {
 	}
 }
 
+// An account that only the local history knows, which Schwab does not
+// share, is none of the accounts of a tool that reads Schwab: an argument
+// that names it is account_not_shared, which names it, and the error for
+// one that names no account lists only the accounts that the login shares.
+// get_transactions, which reads the local history too, lists it apart, by
+// its store ref, and reads it there.
+func TestStoreOnlyAccount(t *testing.T) {
+	t.Parallel()
+	path := storeCopy(t)
+	exec(t, rawStore(t, path), "INSERT INTO account (number, created_from, first_seen_at, last_seen_at) "+
+		"VALUES ('12345678', 'user', '2026-01-05T19:11:00.000Z', '2026-01-05T19:11:00.000Z')")
+	e := newEnv(t, withStore(path), withPick())
+	e.plant("12345678")
+	const notShared = "The login does not share ...678, which only the local history knows; ask the user to run schwabtx login and tick it."
+	for _, tc := range []struct{ tool, arg string }{{"pick", "A4"}, {"pick", "678"}, {"get_balances", "12345678"}, {"get_positions", "a4"}} {
+		if r := e.call(tc.tool, map[string]string{"account": tc.arg}); r.code() != "account_not_shared" || !strings.Contains(r.text, notShared) {
+			t.Errorf("%s of %q: %s", tc.tool, tc.arg, r.text)
+		}
+	}
+	if r := e.call("pick", `{"account":"999"}`); r.code() != "account_not_found" || strings.Contains(r.text, "...678") ||
+		!strings.Contains(r.text, `The login shares ...135 "Individual" (account_hash `) {
+		t.Errorf("an account of none, to a tool that reads Schwab: %s", r.text)
+	}
+	if r := e.call("get_transactions", `{"account":"999"}`); r.code() != "account_not_found" ||
+		!strings.Contains(r.text, `(account_hash `+schwabtest.HashFor(empty)+"). Only the local history knows ...678 (store_ref A4). Pass one of those.") {
+		t.Errorf("an account of none, to get_transactions: %s", r.text)
+	}
+	if r := e.call("get_transactions", `{"account":"A4","source":"store"}`); r.isError || txnCoverageOf(r, "...678")["read_from"] != "store" {
+		t.Errorf("the account that only the store knows, from the store: %.300s", r.text)
+	}
+}
+
 // When the preferences cannot be read, the nicknames are null and the
 // answer says so; when they differ from what Schwab has sent before, the
 // answer says where, with Schwab's values masked.
