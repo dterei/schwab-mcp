@@ -132,8 +132,11 @@ func TestMaskerCompose(t *testing.T) {
 }
 
 // schwabDetail shows Schwab's words masked as free text, and the status,
-// the tries, the code, the correlation ID and the reference as sent, cut at
-// 300 characters.
+// the tries, the correlation ID and the reference as sent, cut at 300
+// characters. A code comes as sent when it is one of Schwab's codes, and
+// masked as free text when Schwab's "error" or "errorcode" holds a
+// sentence instead: an account no one knows, of 8 or more digits, shows
+// as its last three, as one the server knows does.
 func TestSchwabDetail(t *testing.T) {
 	t.Parallel()
 	m := testMasker("")
@@ -146,8 +149,24 @@ func TestSchwabDetail(t *testing.T) {
 	if got := m.schwabDetail(e); string(got) != want {
 		t.Errorf("schwabDetail =\n%s\nwant\n%s", got, want)
 	}
-	if got := m.schwabDetail(&schwab.Error{Status: 400, Code: "invalid_grant", Detail: "expired"}); got != "HTTP 400 from Schwab: invalid_grant (expired)" {
-		t.Errorf("schwabDetail of an OAuth error = %q", got)
+	for _, tc := range []struct {
+		e    *schwab.Error
+		want string
+	}{
+		{&schwab.Error{Status: 400, Code: "invalid_grant", Detail: "expired"}, "HTTP 400 from Schwab: invalid_grant (expired)"},
+		{&schwab.Error{Status: 400, Code: "unsupported_token_type", Detail: "invalid_grant"}, "HTTP 400 from Schwab: unsupported_token_type (invalid_grant)"},
+		{&schwab.Error{Status: 502, Code: "protocol.http.TooBigBody", Message: "Body buffer overflow"}, "HTTP 502 from Schwab: Body buffer overflow (protocol.http.TooBigBody)"},
+		{&schwab.Error{Status: 401, Code: "oauth.v2.InvalidApiKey"}, "HTTP 401 from Schwab: oauth.v2.InvalidApiKey"},
+		{&schwab.Error{Status: 504, Code: "messaging.adaptors.http.flow.GatewayTimeout"}, "HTTP 504 from Schwab: messaging.adaptors.http.flow.GatewayTimeout"},
+		{
+			&schwab.Error{Status: 403, Code: "Account 31415926 and 29470135 restricted", Detail: "acct 27182818284"},
+			"HTTP 403 from Schwab: Account ...926 and ...135 restricted (acct ...284)",
+		},
+		{&schwab.Error{Status: 502, Message: "Bad 27182818284", Code: "acct.27182818284"}, "HTTP 502 from Schwab: Bad ...284 (acct....284)"},
+	} {
+		if got := m.schwabDetail(tc.e); string(got) != tc.want {
+			t.Errorf("schwabDetail(%+v) = %q, want %q", *tc.e, got, tc.want)
+		}
 	}
 	long := m.schwabDetail(&schwab.Error{Status: 500, Message: strings.Repeat("x", 400)})
 	if n := len([]rune(string(long))); n != maxDetail+3 || !strings.HasSuffix(string(long), "...") {

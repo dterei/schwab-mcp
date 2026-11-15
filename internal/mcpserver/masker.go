@@ -208,15 +208,20 @@ const maxDetail = 300
 
 // schwabDetail returns what a tool error shows of e, in the form of
 // e.Error(), from its fields: Schwab's own words masked as free text, and
-// its status, tries, code, correlation ID and reference as sent, so that
-// the user can quote them to Schwab. It is cut at 300 characters.
+// its status, tries, correlation ID and reference as sent, so that the
+// user can quote them to Schwab. Its code and the code nested in an OAuth
+// error's description are masked as free text too: they come from the
+// body's "error" or the gateway's "errorcode", which Schwab may fill with
+// a sentence that quotes an account, and mask.Text leaves a code such as
+// invalid_grant or protocol.http.TooBigBody as it is, since it changes only
+// runs of 8 or more digits. It is cut at 300 characters.
 func (m *masker) schwabDetail(e *schwab.Error) FreeText {
 	var b strings.Builder
 	fmt.Fprintf(&b, "HTTP %d from Schwab", e.Status)
 	if e.Tries > 1 {
 		fmt.Fprintf(&b, " after %d tries", e.Tries)
 	}
-	said, code, detail := m.free(e.Said()), m.stored(e.Code), m.stored(e.Detail)
+	said, code, detail := m.free(e.Said()), m.free(e.Code), m.free(e.Detail)
 	switch {
 	case said != "" && code != "":
 		fmt.Fprintf(&b, ": %s (%s)", said, code)
