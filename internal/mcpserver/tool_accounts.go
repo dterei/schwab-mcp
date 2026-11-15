@@ -564,14 +564,15 @@ func (s *Server) getPositions(ctx context.Context, c *call, in positionsIn) (get
 		return getPositionsOut{}, err
 	}
 	portfolio := lookup.FromCents(0) // every shared account's value
-	var picks, unvalued []int        // the accounts picked, and those not picked that sent no value
+	var picks, unvalued []int        // the accounts picked, and those not picked whose value is null
 	for i, a := range accounts {
 		b := lookup.BalanceOf(a)
 		portfolio = portfolio.Plus(b.Value)
+		_, valued := b.Value.Cents()
 		switch {
 		case !one || a.SecuritiesAccount.AccountNumber == picked[0].number:
 			picks = append(picks, i)
-		case b.NoValue:
+		case !valued:
 			unvalued = append(unvalued, i)
 		}
 	}
@@ -587,9 +588,15 @@ func (s *Server) getPositions(ctx context.Context, c *call, in positionsIn) (get
 	}
 	c.warnExtendedHours()
 	// The portfolio's weights divide by every shared account's value, the
-	// accounts not picked included.
+	// accounts not picked included, whose problems the answer does not
+	// list: a value that Schwab did not send, or that could not be read.
 	for _, i := range unvalued {
-		c.warn("figures_missing", "Schwab sent no current value for %s, so every portfolio_weight is null.", c.accountLabel(c.ref(dirs[i])))
+		label := c.accountLabel(c.ref(dirs[i]))
+		if lookup.BalanceOf(accounts[i]).NoValue {
+			c.warn("figures_missing", "Schwab sent no current value for %s, so every portfolio_weight is null.", label)
+		} else {
+			c.warn("problems", "Schwab's current value for %s could not be read, so every portfolio_weight is null.", label)
+		}
 	}
 	var rows []positionRow
 	problems := make([][]schwab.Problem, len(picks))

@@ -994,7 +994,9 @@ func TestPositionsOfAnUnreadableAccount(t *testing.T) {
 // shared account's value, so an account that is not picked and sent no
 // value, as the fixtures' ...783 does, leaves each null, and the warning
 // figures_missing says why, in get_positions and in the positions resource
-// alike.
+// alike; and so does one whose value could not be read, here ...135's two
+// values sent as strings beside ...783's value, which the warning problems
+// names.
 func TestPortfolioWeightsOfOneAccount(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, withoutStore())
@@ -1014,6 +1016,27 @@ func TestPortfolioWeightsOfOneAccount(t *testing.T) {
 	}
 	if r := e.call("get_positions", `{"account":"783"}`); strings.Contains(r.text, "every portfolio_weight is null") {
 		t.Errorf("the account of no value picked: %.600s", r.text)
+	}
+
+	e = newEnv(t, withoutStore(), withFake(func(f *schwabtest.Server) {
+		changeAccount(f, individual, func(a map[string]any) {
+			balancesOf(a)["liquidationValue"] = "6997.68"
+			a["aggregatedBalance"].(map[string]any)["currentLiquidationValue"] = "6997.68"
+		})
+		changeAccount(f, empty, func(a map[string]any) { balancesOf(a)["liquidationValue"] = 100.0 })
+	}))
+	const unread = "Schwab's current value for ...135 (Individual) could not be read, so every portfolio_weight is null."
+	r = e.call("get_positions", `{"account":"398"}`)
+	if r.isError || !slices.Contains(r.warnings(), "problems") || !strings.Contains(r.text, unread) {
+		t.Errorf("one account's positions beside an account whose value cannot be read: %.600s", r.text)
+	}
+	for _, p := range positionsOf(r) {
+		if p["portfolio_weight"] != nil || p["account_weight"] == nil {
+			t.Errorf("%v's weights: %v and %v", p["symbol"], p["account_weight"], p["portfolio_weight"])
+		}
+	}
+	if r := e.call("get_positions", `{"account":"135"}`); strings.Contains(r.text, "every portfolio_weight is null") {
+		t.Errorf("the account whose value cannot be read picked: %.600s", r.text)
 	}
 }
 
