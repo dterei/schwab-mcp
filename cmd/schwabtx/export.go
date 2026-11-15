@@ -479,7 +479,9 @@ func sinceManifest(dir, format string) ([]byte, error) {
 // (toolCountLines); what to delete in the tool before importing
 // (toolDeletions); for PP, the accounts to make, the order of the files
 // and the rows to tick; for Ghostfolio, the cash that its imports leave as
-// it is; and the command that goes on from it.
+// it is; going on, when the chain selects an account or, for Ghostfolio,
+// names -manual symbols, the full export that a redo imports; and the
+// command that goes on from it.
 func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since string) {
 	tool, gf := toolFormats[e.Tool].name, e.Tool == "ghostfolio"
 	manifest := filepath.Join(dir, "manifest.json")
@@ -546,6 +548,21 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 				fmt.Fprintf(w, "  %s: %s: %s (%s)\n", t.File, toolAccountName(e, t.Account), ppShown(t.As), t.Ref)
 			}
 		}
+	}
+	if since != "" && (e.RedoAccount != "" || len(e.RedoManual) > 0) {
+		args := []string{"export", "-format", e.Tool}
+		if e.RedoAccount != "" {
+			args = append(args, "-account", quoteArg(e.RedoAccount))
+		}
+		if len(e.RedoManual) > 0 {
+			var manual []string
+			for _, m := range e.RedoManual {
+				manual = append(manual, mask.Text(m))
+			}
+			args = append(args, "-manual", quoteArg(strings.Join(manual, ",")))
+		}
+		args = append(args, "-dir", "<a new folder>")
+		fmt.Fprintf(w, "a redo (docs/tools.md) imports a full export of this chain's selection: %s\n", copyCommand(path, args...))
 	}
 	fmt.Fprintf(w, "next time: %s\n", copyCommand(path, "export", "-format", e.Tool, "-since", quoteArg(dir), "-dir", "<a new folder>"))
 }

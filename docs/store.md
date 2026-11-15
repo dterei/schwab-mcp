@@ -1692,7 +1692,12 @@ has gone on already: naming an export older than the last would list its
 rows to tick again. A full export assumes the tool holds nothing of its
 accounts: a first import, or a redo after deleting them there (in
 [Portfolio Performance](tools.md#starting-over), in
-[Ghostfolio](tools.md#redoing-an-account)).
+[Ghostfolio](tools.md#redoing-an-account)). A full export reads no chain,
+so a redo's must name the chain's account and, for Ghostfolio, every
+symbol of its `-manual` again, or it writes the other accounts' rows, or
+the activities of the MANUAL assets that Ghostfolio holds for Yahoo: a
+`-since` export of a chain that has either prints that full export's
+command.
 
 ## Backup and restore
 

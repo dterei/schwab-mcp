@@ -44,9 +44,10 @@ func toolExportTo(t *testing.T, ts *toolStore, o ToolOptions, dir string) *chain
 // what was left out, with a caveat, flagged, waiting, holding other shares
 // than the snapshot, or under another symbol, those listed by the export it
 // goes on from aside; what changed, went and is to tick; the -manual
-// symbols that nothing uses; for PP, the securities and prices of
-// securities.csv; and for Ghostfolio, the profiles, the symbols for Yahoo,
-// and the cash rows that no balance carries yet.
+// symbols that nothing uses; going on, the redo's selection, the chain's
+// account and, for Ghostfolio, its -manual symbols; for PP, the securities
+// and prices of securities.csv; and for Ghostfolio, the profiles, the
+// symbols for Yahoo, and the cash rows that no balance carries yet.
 func checkToolSummary(t *testing.T, e *ToolExport) {
 	t.Helper()
 	var m struct {
@@ -56,7 +57,8 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 			Since   *string     `json:"since"`
 		} `json:"filters"`
 		Chain struct {
-			Manual []struct {
+			Account *string `json:"account"`
+			Manual  []struct {
 				Symbol string `json:"symbol"`
 				Unused bool   `json:"unused"`
 			} `json:"manual"`
@@ -117,6 +119,18 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	check("account", e.Account, deref(m.Filters.Account))
 	check("last day", e.To, m.Filters.To)
 	check("export it goes on from", e.Since, deref(m.Filters.Since))
+	var redoAccount string
+	var redoManual []string
+	if e.Since != "" {
+		redoAccount = deref(m.Chain.Account)
+		for _, s := range m.Chain.Manual {
+			if e.Tool == toolGF {
+				redoManual = append(redoManual, s.Symbol)
+			}
+		}
+	}
+	check("redo's account", e.RedoAccount, redoAccount)
+	check("redo's -manual", e.RedoManual, redoManual)
 	check("coverage", orNil(e.Coverage), orNil(m.Coverage))
 
 	var files []ToolFile

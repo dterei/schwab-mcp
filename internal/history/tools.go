@@ -124,6 +124,16 @@ type ToolExport struct {
 	// Unused are the symbols that the chain's -manual names and that
 	// nothing in the export uses, as given.
 	Unused []string
+	// RedoAccount and RedoManual are, going on from another export, what a
+	// full export of a redo in the tool must repeat of the chain's
+	// selection (docs/tools.md): the account that the chain selects, as
+	// "A1", "" for every account, and, for Ghostfolio, every symbol that its
+	// -manual has named, as given. A full export without them would write
+	// the rows of accounts that the tool never had, or the activities of
+	// the MANUAL assets that Ghostfolio holds for Yahoo, which it would take
+	// for new beside them.
+	RedoAccount string
+	RedoManual  []string
 	// NotInBalances are, for Ghostfolio, the accounts with cash rows that
 	// no balance of the file carries yet, in the order of their ids.
 	NotInBalances []ToolCashRows
@@ -423,6 +433,12 @@ func exportTool(in *toolInput, o ToolOptions, since *toolChain, at time.Time, v 
 	}
 	if since != nil {
 		e.Since, e.SinceTo = since.ExportedAt, since.Chain.To
+		if a := since.Chain.Account; a != nil {
+			e.RedoAccount = *a
+		}
+		if in.tool == toolGF {
+			e.RedoManual = chainManualUnion(in.manual)
+		}
 	}
 	switch in.tool {
 	case toolPP:

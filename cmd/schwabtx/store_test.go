@@ -680,7 +680,8 @@ func TestStoreCommandsMaskNumbers(t *testing.T) {
 	}
 	// The exports for a tool: one of an account that -account names by its
 	// whole number, which nothing says back; and one that goes on from it,
-	// with its account, and gives the tool what it gave, writing nothing.
+	// with its account, and gives the tool what it gave, writing nothing,
+	// and names the account by its label in the full export of a redo.
 	// Each writes its files to its folder, readable only by you, and to
 	// stderr what it wrote, the accounts to make in the tool and the files
 	// to import. (TestToolExport writes Ghostfolio's files, and
@@ -705,7 +706,9 @@ func TestStoreCommandsMaskNumbers(t *testing.T) {
 			[]string{"export", "-format", "pp", "-since", pp, "-dir", next},
 			"wrote 0 rows for Portfolio Performance to " + next + ", since " + pp + ", up to 2026-10-07\n" +
 				"  this assumes Portfolio Performance holds " + pp + " and every export before it, each imported once, with what it listed deleted and ticked\n",
-			"\nimport in this order: securities.csv\nnext time: schwabtx export -format pp -since " + quoteArg(next) + " -dir <a new folder>\n",
+			"\nimport in this order: securities.csv\n" +
+				"a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -format pp -account A1 -dir <a new folder>\n" +
+				"next time: schwabtx export -format pp -since " + quoteArg(next) + " -dir <a new folder>\n",
 			[]string{"manifest.json", "pp-account-transactions.json", "pp-portfolio-transactions.json", "pp-securities.json", "securities.csv"},
 		},
 	} {
@@ -1062,7 +1065,7 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 		{
 			name: "pp going on", dir: "pp-2026-12-01", since: "pp-2026-11-13",
 			e: history.ToolExport{
-				Tool: "pp", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 3, Late: 2, SameAs: 1,
+				Tool: "pp", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 3, Late: 2, SameAs: 1, RedoAccount: "A1",
 				Files: []history.ToolFile{
 					{Name: "securities.csv", Kind: "securities", Rows: 22},
 					{Name: "account-transactions-A1-135.csv", Kind: "account", Account: "A1 ...135", Rows: 1},
@@ -1097,6 +1100,7 @@ before importing, delete in Portfolio Performance what changed or went (pp-2026-
 import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv
 tick these rows, which Portfolio Performance will show as existing although they are new; leave every other such row unticked:
   portfolio-transactions-A1-135.csv: Schwab A1 ...135: 2026-11-20 Buy 1001.25 (T73508261960)
+a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -format pp -account A1 -dir <a new folder>
 next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 `,
 		},
@@ -1209,9 +1213,10 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-13 -dir <a new f
 			name: "ghostfolio going on", store: filepath.Join(t.TempDir(), "other.db"), dir: "gf-2026-12-01", since: "gf-2026-11-13",
 			e: history.ToolExport{
 				Tool: "ghostfolio", To: "2026-11-30", Since: "2026-11-13T12:00:00Z", SinceTo: "2026-11-12", Written: 4, Late: 1,
-				Files:    []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio", Rows: 1}},
-				Accounts: []history.ToolAccount{withCash(a1, 12, "10234.56", "2026-11-28"), withCash(a2, 10, "-12.34", "2026-11-28"), {Label: "A3 ...777", Name: "Schwab A3 ...777"}},
-				Profiles: 1, Yahoo: 1,
+				RedoManual: []string{"BND", "efgh"},
+				Files:      []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio", Rows: 1}},
+				Accounts:   []history.ToolAccount{withCash(a1, 12, "10234.56", "2026-11-28"), withCash(a2, 10, "-12.34", "2026-11-28"), {Label: "A3 ...777", Name: "Schwab A3 ...777"}},
+				Profiles:   1, Yahoo: 1,
 				NotInBalances:  []history.ToolCashRows{{Account: "A2 ...398", Rows: 1, Snapshot: "2026-11-28", Taken: evening.AddDate(0, 0, 18)}, {Account: "A3 ...777", Rows: 1}},
 				LeftOut:        []history.ToolCount{{Code: "gf_cash", Count: 2}},
 				SymbolsChanged: 1, Holdings: 3, Flagged: 1, YahooIdle: 1, IdleSince: "2025-11-30",
@@ -1239,6 +1244,7 @@ Ghostfolio takes an account's balances only in the import that makes the account
 set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
   Schwab A1 ...135: 10234.56 (2026-11-28)
   Schwab A2 ...398: -12.34 (2026-11-28)
+a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -store STORE -format ghostfolio -manual BND,efgh -dir <a new folder>
 next time: schwabtx export -store STORE -format ghostfolio -since gf-2026-12-01 -dir <a new folder>
 `,
 		},

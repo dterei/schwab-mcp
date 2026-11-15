@@ -2323,6 +2323,89 @@ func TestToolReimport(t *testing.T) {
 		gfReconcile(t, full.in, full.events, full.outcomes, g)
 	})
 
+	t.Run("5b a redo of a chain that names -manual or an account", func(t *testing.T) {
+		t.Parallel()
+		// Ghostfolio holds the chain's -manual security, which both accounts
+		// hold, as a MANUAL asset. A redo of A1 imports a full export of the
+		// chain's selection, which the -since export names (RedoManual): A1's
+		// buys come in again, and A2's is skipped as existing. Without the
+		// chain's -manual, the full export writes A2's buy for Yahoo, which
+		// Ghostfolio takes for new beside its MANUAL one.
+		rows := []toolRow{
+			rcCash("T7d000100", 1, "2026-01-02 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000),
+			rcCash("T7d000200", 2, "2026-01-02 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 1_000_000),
+			rcTrade("T7d000101", 1, "2026-02-02 10:00:00", "buy", keyEFGH, "EFGH", 2_000_000, 30, -6000, 0),
+			rcTrade("T7d000201", 2, "2026-02-03 10:00:00", "buy", keyEFGH, "EFGH", 3_000_000, 30, -9000, 0),
+		}
+		snaps := []toolSnapshot{rcSnapshot(1, "2026-02-27", 994_000), rcSnapshot(2, "2026-02-27", 991_000)}
+		first := tcInput(toolInput{to: "2026-02-27", rows: rows, snapshots: snaps, manual: []string{"EFGH"}})
+		later := tcInput(toolInput{to: "2026-03-31", rows: append(slices.Clone(rows),
+			rcTrade("T7d000102", 1, "2026-03-02 10:00:00", "buy", keyEFGH, "EFGH", 1_000_000, 31, -3100, 0)), snapshots: snaps})
+		g1 := chainStepOf(t, first, toolGF, nil, rcAt1)
+		g2 := chainStepOf(t, later, toolGF, g1, rcAt2)
+		if g2.e.RedoAccount != "" || !slices.Equal(g2.e.RedoManual, []string{"EFGH"}) {
+			t.Errorf("the redo of the chain: -account %q, -manual %q", g2.e.RedoAccount, g2.e.RedoManual)
+		}
+		g := newGFModel()
+		for _, s := range []*chainStep{g1, g2} {
+			if _, err := gfApply(t, g, s); err != nil {
+				t.Fatal(err)
+			}
+		}
+		plain := chainStepOf(t, later, toolGF, nil, rcAt3)
+		if !slices.ContainsFunc(plain.gf.file.Activities, func(a gfActivity) bool { return a.Comment == "schwabtx A2 ...398 T7d000201" && a.DataSource == "YAHOO" }) {
+			t.Errorf("a full export without the chain's -manual writes A2's buy as %+v", plain.gf.file.Activities)
+		}
+		redo := later
+		redo.manual = g2.e.RedoManual
+		full := chainStepOf(t, redo, toolGF, nil, rcAt3)
+		gfDeleteAccount(t, g, "Schwab A1 ...135")
+		if n, err := gfImport(g, full.file); err != nil || n != 2 {
+			t.Errorf("the redo of A1 imports %d of %d activities, %v", n, len(full.gf.file.Activities), err)
+		}
+		gfReconcile(t, full.in, full.events, full.outcomes, g)
+
+		// A chain of one account: its -since exports name the account, and
+		// the redo's full export of it writes no row of the other, which
+		// Ghostfolio never had; in PP likewise, every row of the account
+		// deleted, and the full export of it imported as at first.
+		for _, tool := range []string{toolGF, toolPP} {
+			e1 := chainStepOf(t, onlyAccount(first, 1), tool, nil, rcAt1)
+			e2 := chainStepOf(t, onlyAccount(later, 1), tool, e1, rcAt2)
+			if e2.e.RedoAccount != "A1" {
+				t.Errorf("%s: the redo of a chain of A1 names -account %q", tool, e2.e.RedoAccount)
+			}
+			redo := onlyAccount(later, 1)
+			redo.manual = e2.e.RedoManual
+			full := chainStepOf(t, redo, tool, nil, rcAt3)
+			if tool == toolPP {
+				m := newPPModel()
+				ppApply(t, m, e1)
+				ppApply(t, m, e2)
+				for _, name := range ppAccountNames(full.e) {
+					m.deleteAccount(name)
+				}
+				ppApply(t, m, full)
+				ppReconcile(t, m, full.in, full.events, full.outcomes)
+				continue
+			}
+			g := newGFModel()
+			for _, s := range []*chainStep{e1, e2} {
+				if _, err := gfApply(t, g, s); err != nil {
+					t.Fatal(err)
+				}
+			}
+			gfDeleteAccount(t, g, "Schwab A1 ...135")
+			if n, err := gfImport(g, full.file); err != nil || n != 2 {
+				t.Errorf("the redo of a chain of A1 imports %d of %d activities, %v", n, len(full.gf.file.Activities), err)
+			}
+			if slices.ContainsFunc(g.accounts, func(a *gfmAccount) bool { return a.name == "Schwab A2 ...398" }) {
+				t.Errorf("the redo of a chain of A1 makes A2 in Ghostfolio")
+			}
+			gfReconcile(t, full.in, full.events, full.outcomes, g)
+		}
+	})
+
 	t.Run("6 an account of the same masked number joins", func(t *testing.T) {
 		t.Parallel()
 		rows := []toolRow{

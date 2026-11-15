@@ -204,11 +204,12 @@ and the types' names, whatever PP's language and locale.
 7. **A redo**, to start over, or when a chain broke (a store made again, a
    manifest lost, an export not imported before the next was made): delete
    in PP every transaction of every account of the export, then import a
-   full export as in step 3, ticking its `tick` list, and name it in the
-   next `-since`. Every account at once, not some: PP checks a transfer
-   against the other account's side, so a row that an account kept could
-   mark a new row that no list names. Neither a changed symbol nor a bond's
-   unit needs a redo.
+   full export as in step 3, of the chain's `-account` when it has one (a
+   `-since` export of such a chain prints the command), ticking its `tick`
+   list, and name it in the next `-since`. Every account at once, not
+   some: PP checks a transfer against the other account's side, so a row
+   that an account kept could mark a new row that no list names. Neither a
+   changed symbol nor a bond's unit needs a redo.
 
 ### Securities, options and bonds
 
@@ -363,6 +364,7 @@ with its description in its comment.
    set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
      Schwab A1 ...135: 1532.17 (2026-11-10)
      Schwab A2 ...398: 5210.44 (2026-11-10)
+   a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -format ghostfolio -manual BND -dir <a new folder>
    next time: schwabtx export -format ghostfolio -since gf-3 -dir <a new folder>
    ```
 
@@ -372,8 +374,11 @@ with its description in its comment.
    line on `-manual` names the chain's symbols that nothing in this export
    uses, here BND, whose activities Ghostfolio holds already: nothing to do.
    A full export imported again is safe for the rows that did not change,
-   which Ghostfolio skips as existing, but says nothing of what changed or
-   went, which stays.
+   which Ghostfolio skips as existing, when it names the chain's `-account`
+   and every symbol of its `-manual`: a full export reads no chain, and
+   without them it writes the activities of the MANUAL assets that
+   Ghostfolio holds for Yahoo, which it takes for new beside them. It says
+   nothing of what changed or went, which stays.
 8. **Limits.** On ghostfol.io, which data sources are enabled and how many
    activities one import may hold are the deployment's settings: a dry run,
    which the dialog makes first, tells. An import over that limit ("Too many
@@ -390,15 +395,22 @@ the account's activities (filter the activities by the account, then
 Delete Activities), then the account; import a full export made right
 after, which makes the account again with every balance, while Ghostfolio
 skips the other accounts' activities as existing; and name it in the next
-`-since`. When the account has no activity, the dialog cannot import the
-file: send it by `POST /api/v1/import`, or set the account's cash by hand.
+`-since`. The full export must name the chain's `-account`, when it has
+one, and every symbol of its `-manual` (`chain.manual` in the last
+manifest), which a `-since` export prints as the full export that a redo
+imports (`gf-3` above): Ghostfolio holds those securities' activities as
+MANUAL assets, and a full export without `-manual` writes the other
+accounts' activities of them for Yahoo, which Ghostfolio takes for new
+beside its own, counting their shares twice. When the account has no
+activity, the dialog cannot import the file: send it by
+`POST /api/v1/import`, or set the account's cash by hand.
 
 **After a store is made again**, no export of it goes on from one of the
 old store (`-since` refuses it as another store's), and its accounts may be
 numbered otherwise: skip the `-since` step and redo every account. Delete
 each account's activities, then the account; import one full export of the
-new store, which makes every account again with its balances; and name it
-in the next `-since`.
+new store, with the old chain's `-account` and `-manual`, which makes every
+account again with its balances; and name it in the next `-since`.
 
 ## What the manifest asks of you
 
