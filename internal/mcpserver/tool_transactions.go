@@ -365,7 +365,7 @@ func (c *call) txnAfter(cur string, args txnArgs) (*history.LedgerKey, error) {
 	if _, ok := dayOf(nytime.Date(k[0])); !ok || k[2] == "" || k[3] == "" {
 		return nil, c.badCursor()
 	}
-	return &history.LedgerKey{Day: nytime.Date(k[0]), Time: k[1], Ref: k[2], Account: k[3]}, nil
+	return &history.LedgerKey{Day: nytime.Date(k[0]), Time: k[1], Ref: c.mask.storeRef(k[2]), Account: k[3]}, nil
 }
 
 // The sources an account is read from.
@@ -958,9 +958,9 @@ func (w *txnWalk) answer(ctx context.Context, args txnArgs) (getTransactionsOut,
 		switch {
 		case n > 0:
 			last := cands[n-1].key
-			k = &[4]string{string(last.Day), last.Time, last.Ref, last.Account}
+			k = &[4]string{string(last.Day), last.Time, string(c.mask.ref(last.Ref)), last.Account}
 		case w.after != nil:
-			k = &[4]string{string(w.after.Day), w.after.Time, w.after.Ref, w.after.Account}
+			k = &[4]string{string(w.after.Day), w.after.Time, string(c.mask.ref(w.after.Ref)), w.after.Account}
 		}
 		if out.NextCursor, err = c.newCursor(args, k); err != nil {
 			return out, err
@@ -1402,7 +1402,7 @@ func (c *call) storedText(s string) *FreeText {
 // the store derives of it, as a row of an answer; full adds its detail.
 func (c *call) schwabRow(a dirAccount, t schwab.Transaction, e history.APIEntry, full bool) txnRow {
 	r := txnRow{
-		Ref: Ident(e.Ref), ReadFrom: fromSchwab, RowKind: "api", Account: c.mask.masked(a.number),
+		Ref: c.mask.ref(e.Ref), ReadFrom: fromSchwab, RowKind: "api", Account: c.mask.masked(a.number),
 		AccountHash: identPtr(string(a.hash)), Date: Date(e.Day), Time: rowTime(t.Time),
 		Type: identPtr(string(t.Type)), Status: identPtr(string(t.Status)), Category: identPtr(e.Category),
 		Symbol: identPtr(e.Symbol), Quantity: qtyMicros(e.QuantityMicros), Price: priceAt(e.Price),
@@ -1468,7 +1468,7 @@ func pricedLegs(t schwab.Transaction) []bool {
 // its detail.
 func (c *call) storeRow(a dirAccount, x history.LedgerRow, legs []history.LegRow, full bool) txnRow {
 	r := txnRow{
-		Ref: Ident(x.Ref), ReadFrom: fromStore, RowKind: Ident(x.Source), Account: c.mask.masked(a.number),
+		Ref: c.mask.ref(x.Ref), ReadFrom: fromStore, RowKind: Ident(x.Source), Account: c.mask.masked(a.number),
 		AccountHash: identPtr(string(a.hash)), Date: Date(x.Day), Time: rowTime(x.Time), Status: identPtr(x.Status),
 		Category: identPtr(x.Category), Symbol: identPtr(x.Symbol), Quantity: qtyMicros(x.QuantityMicros),
 		Price: priceAt(x.Price), Amount: moneyCents(x.AmountCents), Fees: moneyCents(x.FeesCents),
@@ -1484,7 +1484,7 @@ func (c *call) storeRow(a dirAccount, x history.LedgerRow, legs []history.LegRow
 		return r
 	}
 	d := &txnDetail{
-		PairKind: identPtr(x.PairKind), PairRef: identPtr(x.PairRef), MatchedWith: identList(x.MatchedWith),
+		PairKind: identPtr(x.PairKind), PairRef: c.mask.refPtr(x.PairRef), MatchedWith: c.mask.refList(x.MatchedWith),
 		Problems: []problem{}, Legs: []txnLeg{},
 	}
 	for _, l := range legs {
@@ -1568,8 +1568,10 @@ var (
 
 // The store's refs exactly, as internal/history makes them: T~, the row's
 // time in UTC or none, a dot and 12 hex digits of its digest, and .2, .3
-// and so on for a second and third row of that time and digest; and C, at
-// least 8 hex digits of its file's digest, a dot and the row.
+// and so on for a second and third row of that time and digest, which is
+// the shape of a T~ ref that answers show too, its digest permuted
+// (refs.go); and C, at least 8 hex digits of its file's digest, a dot and
+// the row.
 var (
 	tildeShape = regexp.MustCompile(`^T~(?:[0-9]{8}T[0-9]{6}|none)\.[0-9a-f]{12}(?:\.[0-9]{1,9})?$`)
 	fileShape  = regexp.MustCompile(`^C[0-9a-f]{8,64}\.[0-9]{1,9}$`)
@@ -1596,7 +1598,9 @@ type txnID struct {
 	activity   int64
 }
 
-// txnIDOf reads id, get_transaction's argument.
+// txnIDOf reads id, get_transaction's argument: a T~ ref as answers show
+// it, whose store's ref it holds (refs.go), or a C ref or an activity ID,
+// which are the store's.
 func (c *call) txnIDOf(id string) (txnID, error) {
 	id = strings.TrimSpace(id)
 	bad := c.failf(codeBadArgument, "id takes a ref from get_transactions (T and digits, T~..., or C...), or Schwab's activity ID.")
@@ -1607,7 +1611,9 @@ func (c *call) txnIDOf(id string) (txnID, error) {
 			return txnID{}, bad
 		}
 		return txnID{given: id, ref: "T" + strconv.FormatInt(n, 10), activity: n}, nil
-	case tildeRef.MatchString(id), fileRowRef.MatchString(id):
+	case tildeRef.MatchString(id):
+		return txnID{given: id, ref: c.mask.storeRef(id)}, nil
+	case fileRowRef.MatchString(id):
 		return txnID{given: id, ref: id}, nil
 	}
 	return txnID{}, bad
@@ -1823,7 +1829,7 @@ func (c *call) storeViewOf(d history.EntryDetail) *storeView {
 	x := d.Entry
 	sv := &storeView{
 		Counted: x.Counted, CountedWhy: identPtr(x.CountedWhy), Category: Ident(x.Category), Rule: Ident(x.Rule),
-		PairKind: identPtr(x.PairKind), PairRef: identPtr(x.PairRef), MatchedWith: identList(x.MatchedWith),
+		PairKind: identPtr(x.PairKind), PairRef: c.mask.refPtr(x.PairRef), MatchedWith: c.mask.refList(x.MatchedWith),
 		Flags: []flagRow{},
 	}
 	for _, f := range d.Flags {

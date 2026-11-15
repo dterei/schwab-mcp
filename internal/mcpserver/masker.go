@@ -38,17 +38,21 @@ type masker struct {
 	// the key's SHA-256, the server's own digest, which no account number
 	// can be; "" without a key.
 	rateName string
+	// tildes is the key that the digests of T~ refs are shown under
+	// (refs.go).
+	tildes tildeKey
 	// off turns the backstop off, for a test.
 	off bool
 }
 
 // newMasker returns a masker that knows home, the user's home directory
-// ("" for none), and the app's key and secret ("" when not set). A home
-// that is the root of a volume, as / is for some service accounts, is none:
-// every path would be under it, and every separator of a log line would be
-// taken for it.
+// ("" for none), and the app's key and secret ("" when not set), whose
+// secret gives the key of the T~ refs that answers show. A home that is
+// the root of a volume, as / is for some service accounts, is none: every
+// path would be under it, and every separator of a log line would be taken
+// for it.
 func newMasker(home, appKey, appSecret string) *masker {
-	m := &masker{known: &mask.Known{}}
+	m := &masker{known: &mask.Known{}, tildes: newTildeKey(appSecret)}
 	for _, s := range [][2]string{{appKey, "[app key]"}, {appSecret, "[app secret]"}} {
 		if s[0] != "" {
 			m.secrets = append(m.secrets, s)
@@ -100,9 +104,10 @@ func (m *masker) free(s string) FreeText {
 // stored returns text that the store keeps as FreeText: its secrets and its
 // known numbers replaced, with no pattern, since the store masked it when
 // it stored it, and composed its details from masked text and identifiers
-// that a pattern would mangle.
+// that a pattern would mangle; and each T~ ref that it names as an answer
+// shows one (refs.go).
 func (m *masker) stored(s string) FreeText {
-	return FreeText(m.known.Text(m.hide(s)))
+	return FreeText(m.known.Text(m.hide(m.tildeText(s))))
 }
 
 // masked learns number, a full account number, so that it is masked

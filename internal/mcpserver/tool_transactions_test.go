@@ -2,7 +2,9 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -439,6 +441,15 @@ var leakRows = []string{
 		`"instrumentId":1,"closingPrice":0.0},"amount":7.0,"cost":0.0}]}`,
 }
 
+// leakTildeRow is a row of ...135 that Schwab sends without an activity
+// ID, whose ref is T~, its time and a digest of the row as the store cuts
+// it, account number included: the newest of the world's rows of ...135,
+// so that the cursor of a page of one row holds its ref too.
+var leakTildeRow = `{"time":"2026-10-20T14:00:00+0000","description":"Free Balance Interest Adjustment","accountNumber":"29470135",` +
+	`"type":"DIVIDEND_OR_INTEREST","status":"VALID","subAccount":"CASH","tradeDate":"2026-10-20T04:00:00+0000","netAmount":0.04,` +
+	`"transferItems":[{"instrument":{"assetType":"CURRENCY","status":"ACTIVE","symbol":"CURRENCY_USD","description":"USD currency",` +
+	`"instrumentId":1,"closingPrice":0.0},"amount":0.04,"cost":0.0}]}`
+
 // leakTransactionsCalls are the leak world's calls of get_transactions,
 // whose cursors' digests the world's check reads.
 var leakTransactionsCalls = []string{
@@ -449,19 +460,21 @@ var leakTransactionsCalls = []string{
 }
 
 // The world of TestNoAccountNumberLeaks that the transaction tools add:
-// Schwab's rows of ...135 above; Schwab's error bodies, which quote an
-// account number, on the first request for transactions and on those for
-// one transaction; and a History export of ...135 in the world's store
-// whose descriptions hold numbers, which the store masks but for the
-// 7-digit one, written whole and in two groups, which only the known
-// numbers catch. Nothing sent may name the planted user, and no cursor's
-// digest may be one of its arguments with a planted number for the
-// account's hash.
+// Schwab's rows of ...135 above, and one without an activity ID; Schwab's
+// error bodies, which quote an account number, on the first request for
+// transactions and on those for one transaction; and a History export of
+// ...135 in the world's store whose descriptions hold numbers, which the
+// store masks but for the 7-digit one, written whole and in two groups,
+// which only the known numbers catch. Nothing sent may name the planted
+// user, no cursor's digest may be one of its arguments with a planted
+// number for the account's hash, and no T~ ref's digest may be the
+// store's, of a row's raw JSON with a planted number put back.
 func plantTransactions(t *testing.T, w *leakWorld) {
 	w.plant(otherAccount, unknownInt, userID)
 	w.opts = append(w.opts, withFake(func(f *schwabtest.Server) {
 		// The row whose time is a number is served by the time it would have.
 		f.AddRows(schwabtest.HashFor(individual), leakRows[:4]...)
+		f.AddRows(schwabtest.HashFor(individual), leakTildeRow)
 		f.AddRow(schwabtest.HashFor(individual), schwabtest.Row{JSON: leakRows[4], Time: ny(2026, time.October, 8, 10, 0)})
 		f.Queue(schwabtest.TransactionsRoute, schwabtest.Answer(400, `{"message":"Invalid account number 29470135"}`))
 		f.Queue(schwabtest.TransactionRoute, schwabtest.NotAuthorized, schwabtest.Whitelabel, schwabtest.Whitelabel)
@@ -479,7 +492,7 @@ func plantTransactions(t *testing.T, w *leakWorld) {
 		"WIRE FROM ...432", `"accountNumber":"...135"`, `"user":{"firstName":"[withheld]"`, `"newNumber":"...321"`,
 		"Invalid account number ...135", "Client not authorized")
 	w.forbidden = append(w.forbidden, "jdoe", "Jane", "Doe")
-	w.checks = append(w.checks, checkCursorDigests)
+	w.checks = append(w.checks, checkCursorDigests, checkTildeRefs)
 	w.sides = append(w.sides, leakSide{
 		// A gateway's fault and an OAuth error, each holding numbers that no
 		// account the server knows has, in its code too; preferences that
@@ -577,6 +590,64 @@ func checkCursorDigests(t *testing.T, e *env) {
 				}
 				if slices.Contains(digests, f) && account != in.Account {
 					t.Errorf("a cursor's digest is of %s with %s for the account", args, account)
+				}
+			}
+		}
+	}
+}
+
+// checkTildeRefs fails when a T~ ref that the server sent, in a row or in
+// a cursor, holds the store's digest of a row: 12 hex digits of the
+// SHA-256 of the row's cut form, which holds its full account number, so
+// that with the row's raw JSON anyone could find the number among the
+// 10^5 that end in its last three digits. It asks for each ref's raw JSON
+// (get_transaction with include_raw), puts each planted number back in
+// place of its masked form, as the attack would when it comes to the true
+// number among its candidates, and compares the cut form's digest with
+// every ref's.
+func checkTildeRefs(t *testing.T, e *env) {
+	t.Helper()
+	refs := map[string]bool{}
+	for _, line := range e.sent() {
+		texts := []string{line}
+		for _, part := range strings.Split(line, `"next_cursor":"`)[1:] {
+			cur, _, _ := strings.Cut(part, `"`)
+			if b, err := base64.RawURLEncoding.DecodeString(cur); err == nil {
+				texts = append(texts, string(b))
+			}
+		}
+		for _, text := range texts {
+			for _, ref := range tildeInText.FindAllString(text, -1) {
+				refs[ref] = true
+			}
+		}
+	}
+	if len(refs) == 0 {
+		t.Fatal("no answer holds a T~ ref")
+	}
+	var raws []string
+	for ref := range refs {
+		r := e.call("get_transaction", `{"id":"`+ref+`","account":"135","include_raw":true}`)
+		var v struct {
+			Raw json.RawMessage `json:"raw"`
+		}
+		if r.isError || json.Unmarshal([]byte(r.text), &v) != nil || len(v.Raw) == 0 || string(v.Raw) == "null" {
+			t.Errorf("get_transaction of %s with include_raw: %.300s", ref, r.text)
+			continue
+		}
+		raws = append(raws, string(v.Raw))
+	}
+	e.assertClean()
+	for _, raw := range raws {
+		for _, n := range e.planted {
+			cut, err := history.CutForm([]byte(strings.ReplaceAll(raw, `"`+mask.Number(n)+`"`, `"`+n+`"`)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			sum := sha256.Sum256(append([]byte("cut"+strconv.Itoa(history.CutVersion)+"\n"), cut...))
+			for ref := range refs {
+				if strings.Contains(ref, "."+hex.EncodeToString(sum[:6])) {
+					t.Errorf("the T~ ref %s holds the digest of a transaction's raw JSON with %s in place of %s", ref, n, mask.Number(n))
 				}
 			}
 		}
@@ -1028,12 +1099,14 @@ func TestTransactionCursor(t *testing.T) {
 }
 
 // get_transaction reads its id's shape: Schwab's activity ID with or
-// without its T, a T~ ref or a C ref; anything else is bad_argument. An
-// error echoes the id whole only in the shape of what it names, a ref or
-// an activity ID of 10 digits or more, else as a selector's digits, so
-// that an account number given as an id shows its last three digits only.
-// The account is the one given, else the one whose ref the local history
-// holds, else the only one shared; two that hold the ref need it.
+// without its T, a T~ ref or a C ref; anything else is bad_argument. A T~
+// ref of the store's shape, in any case, is taken as answers show it,
+// whose store's ref answers show as it (refs.go). An error echoes the id
+// whole only in the shape of what it names, a ref or an activity ID of 10
+// digits or more, else as a selector's digits, so that an account number
+// given as an id shows its last three digits only. The account is the one
+// given, else the one whose ref the local history holds, else the only
+// one shared; two that hold the ref need it.
 func TestGetTransactionIDs(t *testing.T) {
 	t.Parallel()
 	c := &call{tool: "get_transaction", now: testNow, mask: testMasker("")}
@@ -1044,9 +1117,11 @@ func TestGetTransactionIDs(t *testing.T) {
 		{"T29470135", "T29470135", "T...135"},
 		{"7350826194", "T7350826194", "7350826194"},
 		{"735082619", "T735082619", "...619"},
-		{"T~20260302T143027.1f2e3d4c5b6a", "T~20260302T143027.1f2e3d4c5b6a", "T~20260302T143027.1f2e3d4c5b6a"},
-		{"T~none.1f2e3d4c5b6a", "T~none.1f2e3d4c5b6a", "T~none.1f2e3d4c5b6a"},
-		{"T~20260302T143027.1f2e3d4c5b6a.2", "T~20260302T143027.1f2e3d4c5b6a.2", "T~20260302T143027.1f2e3d4c5b6a.2"},
+		// A T~ ref as answers show it: its ref is "", the store's ref that
+		// answers show as the id, below.
+		{"T~20260302T143027.1f2e3d4c5b6a", "", "T~20260302T143027.1f2e3d4c5b6a"},
+		{"T~none.1f2e3d4c5b6a", "", "T~none.1f2e3d4c5b6a"},
+		{"T~20260302T143027.1f2e3d4c5b6a.2", "", "T~20260302T143027.1f2e3d4c5b6a.2"},
 		{"C2cdf9679.2", "C2cdf9679.2", "C2cdf9679.2"},
 		// Ids of no ref's exact shape, or that hold a known number, show
 		// as a selector's digits do; zeros before a number do not count.
@@ -1059,9 +1134,19 @@ func TestGetTransactionIDs(t *testing.T) {
 		{"5550001234", "T5550001234", "5550001234"},
 	} {
 		id, err := c.txnIDOf(tc.id)
-		if err != nil || id.ref != tc.ref || string(id.shown(c)) != tc.shown {
-			t.Errorf("%s: %+v shown %q, %v; want %s shown %q", tc.id, id, id.shown(c), err, tc.ref, tc.shown)
+		ref := tc.ref
+		if ref == "" {
+			ref = c.mask.storeRef(tc.id)
+			if ref == tc.id || string(c.mask.ref(ref)) != tc.id {
+				t.Errorf("%s: the store's ref %s, which answers show as %s", tc.id, ref, c.mask.ref(ref))
+			}
 		}
+		if err != nil || id.ref != ref || string(id.shown(c)) != tc.shown {
+			t.Errorf("%s: %+v shown %q, %v; want %s shown %q", tc.id, id, id.shown(c), err, ref, tc.shown)
+		}
+	}
+	if id, err := c.txnIDOf("t~20260302t143027.1F2E3D4C5B6A.2"); err != nil || id.ref != c.mask.storeRef("T~20260302T143027.1f2e3d4c5b6a.2") {
+		t.Errorf("a T~ ref in other cases: %+v, %v", id, err)
 	}
 	for _, bad := range []string{"0", "T", "C2cdf9679", "Cxyz.1", "73508261946x", "account 29470135", "12345678901234567890"} {
 		if _, err := c.txnIDOf(bad); err == nil {
@@ -1517,6 +1602,52 @@ func TestCappedWindow(t *testing.T) {
 	}
 }
 
+// Answers show the store's T~ refs with their digests permuted wherever
+// they name a row (refs.go): a row's own ref, from the store or from
+// Schwab, the row it is paired with, the rows it is matched with, and a
+// flag's detail; a cursor holds a ref as answers show it, and its position
+// is the store's ref again. Other refs stay as they are.
+func TestTildeRefsAsShown(t *testing.T) {
+	t.Parallel()
+	c := &call{tool: "get_transactions", now: testNow, mask: testMasker("")}
+	const ref, pair, file = "T~20250305T150000.c023c07bca8e", "T~20250305T150000.0123456789ab.2", "C2cdf9679.2"
+	shown := c.mask.ref
+	if shown(ref) == ref || shown(pair) == pair || shown(file) != file {
+		t.Fatalf("shown %s, %s and %s", shown(ref), shown(pair), shown(file))
+	}
+	a := dirAccount{number: individual, hash: schwab.AccountHash(schwabtest.HashFor(individual)), storeID: 1}
+	x := history.LedgerRow{
+		Ref: ref, AccountID: 1, Source: "api", Day: "2025-03-05", PairKind: "journal", PairRef: pair,
+		MatchedWith: []string{file, ref}, Counted: true,
+	}
+	matched := []Ident{file, shown(ref)}
+	if r := c.storeRow(a, x, nil, true); r.Ref != shown(ref) || r.Detail.PairRef == nil || *r.Detail.PairRef != shown(pair) ||
+		!slices.Equal(r.Detail.MatchedWith, matched) {
+		t.Errorf("a row of the store: %+v, %+v", r, r.Detail)
+	}
+	sv := c.storeViewOf(history.EntryDetail{Entry: x, Flags: []history.FlagRow{
+		{Code: "uncertain_match", Severity: "attention", Detail: "it could be " + ref + "; say which: schwabtx edit " + file + " -link " + ref},
+	}})
+	if sv.PairRef == nil || *sv.PairRef != shown(pair) || !slices.Equal(sv.MatchedWith, matched) || sv.Flags[0].Detail == nil ||
+		string(*sv.Flags[0].Detail) != "it could be "+string(shown(ref))+"; say which: schwabtx edit "+file+" -link "+string(shown(ref)) {
+		t.Errorf("the store's view: %+v, flag %v", sv, *sv.Flags[0].Detail)
+	}
+	if r := c.schwabRow(a, schwab.Transaction{}, history.APIEntry{Ref: ref, Day: "2025-03-05"}, false); r.Ref != shown(ref) {
+		t.Errorf("a row of Schwab's: %+v", r)
+	}
+	q, err := c.txnQueryOf(getTransactionsIn{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur, err := c.newCursor(q.args(""), &[4]string{"2025-03-05", "2025-03-05T15:00:00.000Z", string(shown(ref)), "H1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after, err := c.txnAfter(string(*cur), q.args("")); err != nil || after.Ref != ref {
+		t.Errorf("the cursor of a page that ends at %s starts after %+v, %v", shown(ref), after, err)
+	}
+}
+
 // A row that Schwab sends without an activity ID has a T~ ref, of its time
 // and digest, which get_transaction takes, in any case, whether or not the
 // local history holds the row: one the store lacks is read from Schwab's
@@ -1681,7 +1812,7 @@ func TestTransactionsOfARehashedAccount(t *testing.T) {
 		t.Fatal(r.text)
 	}
 	again := schwabtest.HashFor("rehashed again")
-	for _, tc := range []struct{ id, from, to string }{{entries[0].Ref, old, rehashed}, {"73508261943", rehashed, again}} {
+	for _, tc := range []struct{ id, from, to string }{{string(e.srv.mask.ref(entries[0].Ref)), old, rehashed}, {"73508261943", rehashed, again}} {
 		e.fake.Rehash(tc.from, tc.to)
 		from := len(e.fake.Requests())
 		r := e.call("get_transaction", `{"id":"`+tc.id+`","account":"135"}`)
@@ -2034,26 +2165,28 @@ func TestWalkWithNoTime(t *testing.T) {
 	}
 
 	// A call that continues a walk, with no time either, keeps the position
-	// that its cursor gave.
+	// that its cursor gave, a T~ ref in it as answers show it.
 	in := getTransactionsIn{Source: "schwab", From: "2024-03-01", To: "2025-12-31"}
 	q, err := c.txnQueryOf(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pos := &[4]string{"2025-06-02", "2025-06-02T14:30:27.000Z", "T73508261943", schwabtest.HashFor(individual)}
-	cur, err := c.newCursor(q.args(""), pos)
-	if err != nil {
-		t.Fatal(err)
-	}
-	in.Cursor = string(*cur)
-	out, err = getTransactions(t.Context(), callBy(time.Now()), wc, in)
-	if err != nil || out.NextCursor == nil {
-		t.Fatalf("a continued walk with no time: %v, cursor %v", err, out.NextCursor)
-	}
-	b, err = base64.RawURLEncoding.DecodeString(string(*out.NextCursor))
-	want, _ := json.Marshal(pos)
-	if err != nil || json.Unmarshal(b, &body) != nil || string(body.K) != string(want) || len(out.Transactions) != 0 {
-		t.Errorf("the cursor holds %s, want the position given, %s", b, want)
+	for _, ref := range []string{"T73508261943", string(c.mask.ref("T~20250602T143027.c023c07bca8e"))} {
+		pos := &[4]string{"2025-06-02", "2025-06-02T14:30:27.000Z", ref, schwabtest.HashFor(individual)}
+		cur, err := c.newCursor(q.args(""), pos)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.Cursor = string(*cur)
+		out, err = getTransactions(t.Context(), callBy(time.Now()), wc, in)
+		if err != nil || out.NextCursor == nil {
+			t.Fatalf("a continued walk with no time: %v, cursor %v", err, out.NextCursor)
+		}
+		b, err = base64.RawURLEncoding.DecodeString(string(*out.NextCursor))
+		want, _ := json.Marshal(pos)
+		if err != nil || json.Unmarshal(b, &body) != nil || string(body.K) != string(want) || len(out.Transactions) != 0 {
+			t.Errorf("the cursor holds %s, want the position given, %s", b, want)
+		}
 	}
 }
 

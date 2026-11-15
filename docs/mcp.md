@@ -325,6 +325,18 @@ or 1234-5678, and the key, the secret and the tokens; the tests fail if it
 ever finds one. A date written 2026-11-13, alone or in a time, is kept
 whole, even when its digits are those of an account number.
 
+A transaction that Schwab sends without an activity ID has a ref of its
+time and the start of a digest of the row, such as
+`T~20260302T143027.1f2e3d4c5b6a` (see the [store's refs](store.md#refs)).
+That digest is of the whole row, its account number included, and with
+the row's other fields it would give the number away, so the server never
+shows it: it shows each such ref with the digest scrambled under a key of
+its own, which it derives from the app secret (or, without one, makes
+anew each time it starts), and `get_transaction` takes the ref as the
+server shows it. So a `T~` ref in an answer is not the one that
+`schwabtx` prints for the same row; `schwabtx status -review` lists the
+rows that wait for you.
+
 The server reads the local history with a reader that cannot write: it
 never creates, changes or upgrades the store.
 

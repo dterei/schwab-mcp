@@ -58,6 +58,62 @@ func TestMaskerFreeAndStored(t *testing.T) {
 	}
 }
 
+// A T~ ref of the store's is shown with its digest permuted, and taken
+// back in any case: its time and its .2 kept, distinct refs kept distinct,
+// in the store's text too, and the same under the same app secret, in
+// every process, but not under another; any other ref stays as it is.
+func TestMaskerRefs(t *testing.T) {
+	t.Parallel()
+	m := testMasker("")
+	const store = "T~20250305T150000.c023c07bca8e"
+	shown := string(m.ref(store))
+	if !tildeShape.MatchString(shown) || shown[:18] != store[:18] || shown == store {
+		t.Fatalf("ref(%s) = %s", store, shown)
+	}
+	for _, given := range []string{shown, strings.ToUpper(shown), "t~20250305t150000." + strings.ToUpper(shown[18:])} {
+		if got := m.storeRef(given); got != store {
+			t.Errorf("storeRef(%s) = %s, want %s", given, got, store)
+		}
+	}
+	if got := m.ref(store + ".2"); string(got) != shown+".2" || m.storeRef(shown+".2") != store+".2" {
+		t.Errorf("ref(%s.2) = %s", store, got)
+	}
+	none := "T~none.c023c07bca8e"
+	if got := string(m.ref(none)); !strings.HasPrefix(got, "T~none.") || got == none || m.storeRef(got) != none ||
+		m.storeRef(strings.ToUpper(got)) != none {
+		t.Errorf("ref(%s) = %s", none, got)
+	}
+	for _, other := range []string{"T73508261946", "C2cdf9679.2", "T~29470135", "T~20250305T150000.c023c07bca8e9", "T~20250305T150000.c023"} {
+		if m.ref(other) != Ident(other) || m.storeRef(other) != other {
+			t.Errorf("ref(%s) = %s, storeRef = %s", other, m.ref(other), m.storeRef(other))
+		}
+	}
+	if again := testMasker(""); again.ref(store) != Ident(shown) {
+		t.Errorf("another masker of the same secret shows %s as %s, not %s", store, again.ref(store), shown)
+	}
+	if other := newMasker("", schwabtest.AppKey, "another-secret"); other.ref(store) == Ident(shown) {
+		t.Errorf("a masker of another secret shows %s as %s too", store, shown)
+	}
+	detail := "it could be " + store + " or " + none + ".2; say which: schwabtx edit Ce7a63ed0.6 -link " + store
+	want := "it could be " + shown + " or " + string(m.ref(none)) + ".2; say which: schwabtx edit Ce7a63ed0.6 -link " + shown
+	if got := m.stored(detail); string(got) != want {
+		t.Errorf("stored(%q) =\n%q\nwant\n%q", detail, got, want)
+	}
+	if longer := "of " + store + "9f"; m.stored(longer) != FreeText(longer) {
+		t.Errorf("stored(%q) = %q", longer, m.stored(longer))
+	}
+	// The digests of many refs of one time stay distinct, and come back.
+	seen := map[Ident]bool{}
+	for i := range 4096 {
+		ref := fmt.Sprintf("T~20250305T150000.%012x", i*104729)
+		got := m.ref(ref)
+		if seen[got] || m.storeRef(string(got)) != ref {
+			t.Fatalf("ref(%s) = %s, seen before %v, back %s", ref, got, seen[got], m.storeRef(string(got)))
+		}
+		seen[got] = true
+	}
+}
+
 // masked learns the number, so that it is masked wherever it appears from
 // then on, and returns it as Schwab masks it; an account number already
 // masked stays as it is.
