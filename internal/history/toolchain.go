@@ -167,10 +167,22 @@ func (s chainSecurity) ref() secRef {
 	return secRef{symbol: s.Symbol}
 }
 
-// written returns the identifiers that the tool got for the security, in
-// one string, by which two exports' are compared.
-func (s chainSecurity) written() string {
-	return strings.Join([]string{s.Ticker, s.WKN, s.GFSymbol, s.DataSource, s.Name}, "\x1f")
+// finds returns, in one string, the identifiers that tool finds the
+// security by again, of those that it got for it, by which two exports' are
+// compared: for Ghostfolio its symbol, data source and profile name; for PP
+// its Ticker Symbol and WKN, before which PP takes no name
+// (SecurityCache.java:66-159), or its Security Name when it has neither, as
+// a security that PP finds by its name alone. A name that changes beside a
+// ticker or a WKN, as the description seen first does when an older History
+// file brings an earlier one, finds the same security in PP.
+func (s chainSecurity) finds(tool string) string {
+	switch {
+	case tool == toolGF:
+		return strings.Join([]string{s.GFSymbol, s.DataSource, s.Name}, "\x1f")
+	case s.Ticker == "" && s.WKN == "":
+		return "name\x1f" + s.Name
+	}
+	return strings.Join([]string{s.Ticker, s.WKN}, "\x1f")
 }
 
 // A chainLeftOut is a row that the export left out (8.1 of the design): the
@@ -1297,16 +1309,19 @@ func (c *chainResult) differencesChanged() []ToolDifference {
 // compareSecurities makes the chain's securities, the earlier export's with
 // those that this export writes (listSecurities) as it writes them, and the
 // securities whose symbol changed: with -since, those that this export
-// writes under other identifiers than the earlier one, which a tool that
-// holds them does not follow by itself (3.5 of the design), and those that
-// the chain wrote and that a row given of events names, or that an account
-// that the export selects holds, whose identifiers would be written
-// otherwise now: PP finds a security whose CUSIP the store knows by its WKN,
-// so its rows stay given when it is renamed, and PP keeps its old ticker,
-// and that ticker's price feed, until you give it the new one (4.14);
-// without -since, those that have had another ticker or are delisted. The
-// store's securities that the tool takes for one (mergeListed) are one
-// security whose symbol changed, as the tool holds them.
+// writes under other identifiers than the earlier one, of those that the
+// tool finds it by (finds), which a tool that holds them does not follow by
+// itself (3.5 of the design), and those that the chain wrote and that a row
+// given of events names, or that an account that the export selects holds,
+// whose identifiers would be written otherwise now: PP finds a security
+// whose CUSIP the store knows by its WKN, so its rows stay given when it is
+// renamed, and PP keeps its old ticker, and that ticker's price feed, until
+// you give it the new one (4.14); without -since, those that have had
+// another ticker or are delisted. A PP Security Name that changes beside a
+// ticker or a WKN changes nothing that PP finds the security by, and the
+// chain's entry takes it all the same. The store's securities that the
+// tool takes for one (mergeListed) are one security whose symbol changed,
+// as the tool holds them.
 func (c *chainResult) compareSecurities(events []toolEvent) {
 	byRef := map[secRef]chainSecurity{}
 	if c.since != nil {
@@ -1348,7 +1363,7 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 		} else {
 			w.Ticker, w.WKN, w.Name = ppIdentifiers(s)
 		}
-		if prev, had := byRef[w.ref()]; c.since == nil && s.symbolsChanged() || c.since != nil && had && prev.written() != w.written() {
+		if prev, had := byRef[w.ref()]; c.since == nil && s.symbolsChanged() || c.since != nil && had && prev.finds(c.in.tool) != w.finds(c.in.tool) {
 			changed[s.ref()] = true
 		}
 		byRef[w.ref()] = w

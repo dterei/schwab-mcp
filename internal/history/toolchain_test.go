@@ -925,6 +925,53 @@ func TestToolChain(t *testing.T) {
 				t.Errorf("%s: the chain's securities %q", tool, secs)
 			}
 		}
+
+		// An older History file brings an earlier description of XYZ and of
+		// QRS.PRK, which becomes each one's Security Name in PP: XYZ, which
+		// PP finds by its ticker and WKN, changed nothing that PP finds it
+		// by, and its rows stay given; QRS.PRK, which has neither (a dot
+		// stays in its Yahoo form, and the store knows no CUSIP of it), PP
+		// finds by its name alone: its rows are changed, and it is named, for
+		// you to give the PP security its new name. Ghostfolio's identifiers
+		// are not the descriptions. The chain's securities take the new
+		// names all the same.
+		described := []toolRow{
+			rcTrade("T74600201", 1, "2026-01-06 10:30:00", "buy", keyXYZ, "XYZ", 10_000_000, 50, -50_000, 0),
+			rcTrade("T74600202", 1, "2026-01-06 11:30:00", "buy", keyDot, "QRS.PRK", 1_000_000, 25, -2500, 0),
+		}
+		earlier := tcInput(toolInput{rows: slices.Clone(described)})
+		older := time.Date(2022, time.June, 1, 15, 0, 0, 0, time.UTC)
+		earlier.names = append(earlier.names,
+			toolName{key: keyXYZ, kind: "description", value: "XYZ CORPORATION", firstSeen: older, lastSeen: older},
+			toolName{key: keyDot, kind: "description", value: "QRS TRUST PREFERRED K", firstSeen: older, lastSeen: older})
+		for _, c := range []struct {
+			tool           string
+			changed, given []string
+			named          []string
+		}{
+			{toolPP, []string{"T74600202"}, []string{"T74600201"}, []string{keyDot}},
+			{toolGF, nil, []string{"T74600201", "T74600202"}, nil},
+		} {
+			e1 := chainStepOf(t, tcInput(toolInput{rows: slices.Clone(described)}), c.tool, nil, rcAt1)
+			e2 := chainStepOf(t, earlier, c.tool, e1, rcAt2)
+			changed, _ := rcChanged(e2)
+			for i := range changed {
+				changed[i], _, _ = strings.Cut(changed[i], ":")
+			}
+			if got := keys(e2.res.symbolsChanged); !slices.Equal(changed, c.changed) || !slices.Equal(e2.refs(outcomeGiven), c.given) || !slices.Equal(got, c.named) {
+				t.Errorf("%s, an earlier description: changed %q, given %q, symbols changed %q", c.tool, changed, e2.refs(outcomeGiven), got)
+			}
+			if c.tool != toolPP {
+				continue
+			}
+			var names []string
+			for _, s := range e2.res.securities {
+				names = append(names, s.SecurityKey+" "+s.Name)
+			}
+			if !slices.Equal(names, []string{keyDot + " QRS TRUST PREFERRED K", keyXYZ + " XYZ CORPORATION"}) {
+				t.Errorf("an earlier description: the chain's securities %q", names)
+			}
+		}
 	})
 
 	t.Run("gone", func(t *testing.T) {

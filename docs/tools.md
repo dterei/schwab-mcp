@@ -275,7 +275,12 @@ and the types' names, whatever PP's language and locale.
    rows the new ticker, and its CUSIP as WKN if it has none (PP made it
    before the store knew the CUSIP), or, once it is delisted, no price
    feed, since its old ticker may now be another company's; PP finds it by
-   them, and else makes a second security of the new ticker. An option's
+   them, and else makes a second security of the new ticker. A security
+   that has neither ticker nor WKN, which PP finds by its name alone, is
+   listed when its name changes, as when an older History file brings an
+   earlier description: give the PP security the new name, as written in
+   `securities.csv`. Beside a ticker or a WKN, a name changes nothing that
+   PP finds a security by, and nothing is listed. An option's
    shares are its contracts times its multiplier, under its OCC symbol
    (`XYZ250221P00040000`); an option that expired, was assigned or exercised
    is closed by a delivery of value 0. A bond's shares are its face value in

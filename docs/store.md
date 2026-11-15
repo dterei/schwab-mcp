@@ -1481,12 +1481,17 @@ and the export after you decide one writes it.
   made, and Ghostfolio ties activities to their symbol. So stderr and the
   manifest's `symbols_changed` name each security, but options, that has
   had two tickers that differ in Yahoo's form, or is delisted; with
-  `-since`, each whose identifiers differ from those that the chain wrote
-  it with: of those that the export writes, and of those that a row it
+  `-since`, each whose identifiers that the tool finds it by differ from
+  those that the chain wrote it with (in PP its ticker and WKN, or its
+  name when it has neither; in Ghostfolio its symbol, data source and
+  asset name): of those that the export writes, and of those that a row it
   gives names or an exported account holds, as when PP, which finds a
   security by its CUSIP, keeps the rows of one renamed since, so that only
-  this line tells it of the new ticker. The chain then holds the new
-  identifiers, and the next export does not name it again. A security is
+  this line tells it of the new ticker. A PP name that changes beside a
+  ticker or a WKN, as the description seen first does when an older
+  History file brings an earlier one, is not a change of symbol. The chain
+  then holds the new identifiers, and the next export does not name it
+  again. A security is
   the tool's, as the holdings check takes it: one that the store holds
   under two keys is named once, under the least of them, with every one in
   `security_keys`.
