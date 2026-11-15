@@ -101,11 +101,11 @@ func fromWords(from config.Source, variable string) string {
 // configError returns the error that every tool that reads Schwab answers
 // while the config cannot be used, or nil: an argument or flag that the
 // server does not take, a config file that could not be read, a token file
-// that may not be used, or a base URL that schwab.NewAuth refused. An
-// argument comes before the config file: a path that holds a space and was
-// not quoted splits into a --config of its first part, which names no
-// file, and a stray argument, and only quoting the path mends that, not
-// schwabtx setup.
+// that may not be used, or what schwab.NewAuth refused, the API's address
+// or a token file's path that it cannot follow. An argument comes before
+// the config file: a path that holds a space and was not quoted splits into
+// a --config of its first part, which names no file, and a stray argument,
+// and only quoting the path mends that, not schwabtx setup.
 func (s *Server) configError() error {
 	for _, p := range s.o.Config.Problems {
 		if p.Code == ProblemStrayArgument || p.Code == ProblemBadFlag {
@@ -125,8 +125,16 @@ func (s *Server) configError() error {
 			"Ask the user to run `schwabtx setup` again in their own terminal.")}
 	}
 	if s.authErr != nil {
-		return &toolErr{code: codeConfigUnreadable, msg: s.mask.words("The API's address in the server's config file is not one it may send the login to: " +
-			"https, or http to this computer only. Ask the user to run `schwabtx setup` again in their own terminal.")}
+		if addressRefusal(s.o.Config.BaseURL.Value) != "" {
+			return &toolErr{code: codeConfigUnreadable, msg: s.mask.words("The API's address in the server's config file is not one it may send the login to: " +
+				"https, or http to this computer only. Ask the user to run `schwabtx setup` again in their own terminal.")}
+		}
+		// NewAuth refuses no other address, so it is the token file's path
+		// that it could not follow (New logs why).
+		file := s.o.Config.TokenFile
+		return &toolErr{code: codeConfigUnreadable, msg: s.mask.compose("The server cannot follow the token file's path, %s (%s), "+
+			"as when a link on it leads back to itself. Ask the user to mend the path, or to run `schwabtx setup` again in their own terminal.",
+			s.mask.path(file.Value), Ident(fromWords(file.From, "SCHWAB_TOKEN_FILE")))}
 	}
 	return nil
 }

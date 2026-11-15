@@ -243,7 +243,7 @@ codes are fixed; their sentences may change.
 | Code | What it means, and what to do |
 | --- | --- |
 | `not_configured` | The server has no app key and secret: run `schwabtx setup`, and start the server with `--config` and the path it prints. |
-| `config_unreadable` | The server cannot use its config: the file is missing, cannot be read, is not a config file, was written by a newer `schwabtx`, or names a path the server may not use; or the client started the server with an argument or a flag's value it does not take, usually a path with a space that was not quoted. Run `schwabtx setup` again, or quote the path. |
+| `config_unreadable` | The server cannot use its config: the file is missing, cannot be read, is not a config file, or was written by a newer `schwabtx`; it names a path the server may not use, or a token file's path that it cannot follow, as when a link leads back to itself; or it names an API address that the server may not send the login to. Or the client started the server with an argument or a flag's value it does not take, usually a path with a space that was not quoted. Run `schwabtx setup` again, mend the path, or quote it. |
 | `not_logged_in` | No login is saved at the token file the server reads. Run `schwabtx login` in your terminal; if `schwabtx` works there already, run `schwabtx setup` there too, and restart the server. |
 | `login_expired` | The login has ended, after its 7 days, or because a login elsewhere replaced it. Run `schwabtx login` in your terminal. |
 | `app_rejected` | Schwab refused the app key or secret. Check them, run `schwabtx setup` again, and check that the app says Ready For Use on developer.schwab.com. |

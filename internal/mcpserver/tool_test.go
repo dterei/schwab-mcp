@@ -1286,6 +1286,36 @@ func TestRefusedAddressIsLoggedByItsHost(t *testing.T) {
 	}
 }
 
+// A token file's path that schwab.NewAuth cannot follow, a.json being a
+// link to b.json and b.json one back to a.json, is config_unreadable that
+// names the path, in a tool's error and in auth_status's action alike: not
+// the API's address, which here is one that the server may use. Windows
+// takes such a path as it is.
+func TestTokenPathThatCannotBeFollowed(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("schwab.NewAuth takes a path of links that cannot be followed as it is on Windows")
+	}
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a.json"), filepath.Join(dir, "b.json")
+	for _, link := range [][2]string{{b, a}, {a, b}} {
+		if err := os.Symlink(link[0], link[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := newEnv(t, withoutStore(), withoutLogin(), withTokenFile(a), withPick())
+	const says = "The server cannot follow the token file's path, a.json (from config.json), as when a link on it leads back to itself."
+	if r := e.call("pick", `{}`); r.code() != "config_unreadable" || !strings.Contains(r.text, says) || strings.Contains(r.text, "address") {
+		t.Errorf("a tool: %s", r.text)
+	}
+	if r := e.call("auth_status", `{}`); !strings.HasPrefix(fmt.Sprint(r.value["action"]), says) {
+		t.Errorf("auth_status: %s", r.text)
+	}
+	if n := e.fake.APICalls(); n != 0 {
+		t.Errorf("%d requests reached the API", n)
+	}
+}
+
 // Every code has a sentence, but those that each call composes, and no
 // sentence is for a code the list lacks.
 func TestErrorCodesHaveText(t *testing.T) {
