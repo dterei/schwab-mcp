@@ -194,9 +194,25 @@ schwab.com's History exports with `schwabtx import` and ask with
   20,000 bytes. When the call's time runs out before Schwab answered for
   every asked day, the page holds what came, `complete` is false, the
   totals are null, the warning `partial` says so, and `next_cursor` goes
-  on from there. A new `schwabtx login` between two pages can give the
-  accounts new hashes; a cursor from before it is then `bad_cursor`: call
-  again without it.
+  on from there.
+
+  A cursor names the account it reads, or, of `get_transactions` over
+  every account, the account of the last row sent, as the server named it
+  when it wrote the cursor: by its `account_hash`, or by its store ref for
+  an account only the local history knows, and for every account while
+  the server cannot read Schwab's account list. Those names can change
+  between two pages: a new `schwabtx login` can give the accounts new
+  hashes, and Schwab's account list can be read for one page and not for
+  the other (Schwab failing, or a login that lapsed or came back), with
+  `source` `store` too. A cursor whose account is named otherwise now is
+  `bad_cursor`: call again without it. So is one whose next page learns
+  new hashes as it reads and would end at the instant of the last row
+  sent, among rows of several accounts there, such as a transfer's two
+  sides, that the new hashes put in another order. When only another
+  account's name changed, the cursor is answered, and a row of that
+  account at the instant of the last row sent, such as the other side of
+  a transfer, can come twice or not at all. The totals, over every page,
+  stay right.
 - **Cuts.** An answer that would pass the 24,000-byte cap on its own has
   its longest lists cut, halved until it fits: `get_balances`' figures,
   and the legs of `get_transactions` and `get_transaction`. `cut` names
@@ -266,7 +282,7 @@ codes are fixed; their sentences may change.
 | `account_not_shared` | Schwab no longer shares the account, or a tool that reads Schwab was given one that only the local history knows: run `schwabtx login` and tick it; `get_transactions` with `source` `store` reads its local history. |
 | `not_found` | Schwab or the local history has no transaction of that ID. |
 | `bad_argument` | An argument is not one the tool takes; the error says what it takes. |
-| `bad_cursor` | The cursor belongs to other arguments or another tool, or to an account's hash from before a new login; call again without it. |
+| `bad_cursor` | The cursor belongs to other arguments or another tool, or the accounts' names changed under it: a new login, or Schwab's account list read for one page and not the other (see [Pages](#arguments-and-answers)). Call again without it. |
 | `no_store` | There is no local history yet; `schwabtx import` makes one. |
 | `store_newer` | A newer `schwabtx` wrote the local history: install `schwab-mcp` of the same version, and restart it. |
 | `store_needs_update` | An older `schwabtx` last wrote the local history: run `schwabtx status` once in your terminal, which brings it up to date; the server never changes it. |
