@@ -963,11 +963,10 @@ func (w *txnWalk) answer(ctx context.Context, args txnArgs) (getTransactionsOut,
 	n := len(out.Transactions)
 	more := n < len(merged) || slices.ContainsFunc(w.pages(), func(p *history.LedgerPage) bool { return p.Next != nil }) || w.stopped >= 0
 	if more {
-		var k *[4]string
+		var next *history.LedgerKey
 		switch {
 		case n > 0:
-			last := cands[n-1].key
-			k = &[4]string{string(last.Day), last.Time, string(c.mask.ref(last.Ref)), last.Account}
+			next = &cands[n-1].key
 		case w.after != nil:
 			// The position the call began at, with its account's key as
 			// the walk left it, which the next call picks the account by.
@@ -977,13 +976,58 @@ func (w *txnWalk) answer(ctx context.Context, args txnArgs) (getTransactionsOut,
 					after.Account = ta.a.key()
 				}
 			}
-			k = &[4]string{string(after.Day), after.Time, string(c.mask.ref(after.Ref)), after.Account}
+			next = &after
+		}
+		var k *[4]string
+		if next != nil {
+			// A position that would have the next page send a row again,
+			// or leave one out, is not written: the call is bad_cursor, as
+			// when it picks the cursor's account by another key
+			// (getTransactions).
+			if !w.partsAsCursor(*next, n == 0) {
+				return out, c.badCursor()
+			}
+			k = &[4]string{string(next.Day), next.Time, string(c.mask.ref(next.Ref)), next.Account}
 		}
 		if out.NextCursor, err = c.newCursor(args, k); err != nil {
 			return out, err
 		}
 	}
 	return out, nil
+}
+
+// partsAsCursor reports whether next, the position that the next page
+// starts after, parts the rows sent from those not sent as the cursor that
+// the call continues did. Rows that tie on day, time and ref, one of each
+// account, as a transfer's two sides do, are in the order of their
+// accounts' keys, which a new hash that the walk read can change; the
+// merge places the rows not sent before by the keys as the walk left them,
+// so only a position at the cursor's own instant can part them wrongly.
+// There, the cursor had sent the rows of the accounts whose keys, as the
+// call picked them, are its account's or sort above it, and the next page
+// holds those whose keys, as the walk left them, sort below next's. So the
+// row of an account sent before whose key now sorts below next's would be
+// sent again; and when this page holds no row (empty), next being the
+// position the call began at, the row of an account not sent whose key
+// now sorts above next's would be left out. Every account counts, whether
+// or not it has a row at that instant: the store's rows before the cursor
+// are not read.
+func (w *txnWalk) partsAsCursor(next history.LedgerKey, empty bool) bool {
+	after := w.after
+	if after == nil || next.Day != after.Day || next.Time != after.Time || next.Ref != after.Ref {
+		return true
+	}
+	for _, ta := range w.accts {
+		key := ta.a.key()
+		if key == next.Account {
+			continue
+		}
+		sent, above := ta.startKey >= after.Account, key > next.Account
+		if sent && !above || empty && !sent && above {
+			return false
+		}
+	}
+	return true
 }
 
 // pages returns the store's pages that the walk read: the first, and the

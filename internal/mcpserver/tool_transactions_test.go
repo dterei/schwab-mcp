@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -1906,7 +1907,10 @@ func TestTransactionsOfARehashedAccount(t *testing.T) {
 // time and ref at the end of the store's page, where the new hashes
 // reverse the two sides' order. A new hash that the directory reads before
 // a page starts makes the cursor of the page before bad_cursor: the call
-// picks the account by a key that the cursor does not hold.
+// picks the account by a key that the cursor does not hold. So does one
+// that a page learns as it reads, when the page would end among the rows
+// of the cursor's own instant, which the new hashes reorder: no position
+// by the new keys would part the rows sent from those not sent.
 func TestCursorsAcrossANewHash(t *testing.T) {
 	t.Parallel()
 	old := schwabtest.HashFor(individual)
@@ -2007,9 +2011,10 @@ func TestCursorsAcrossANewHash(t *testing.T) {
 	}
 
 	// Every account, ...135 and ...398 from the store, which holds both sides
-	// of a journal between them: one activity ID at one time. ...783 goes to
-	// Schwab, which refuses its old hash, and the new hashes put ...398's
-	// side first, where the old ones put ...135's.
+	// of a journal between them, one activity ID at one time, and a row of
+	// ...135's five days before. ...783 goes to Schwab, which refuses its old
+	// hash, and the new hashes put ...398's side first, where the old ones
+	// put ...135's.
 	path := storeCopy(t)
 	s, err := history.Open(t.Context(), history.Options{Path: path, Now: func() time.Time { return testNow }})
 	if err != nil {
@@ -2017,19 +2022,29 @@ func TestCursorsAcrossANewHash(t *testing.T) {
 	}
 	for _, side := range []struct {
 		number string
-		net    float64
-	}{{individual, -25}, {options, 25}} {
-		var row schwab.Transaction
-		raw := txnJSON(side.number, 73508265801, ny(2026, time.June, 10, 10, 0), "JOURNAL", "Journal", side.net)
-		if err = json.Unmarshal([]byte(raw), &row); err != nil {
-			break
-		}
-		_, err = s.RecordTransactions(t.Context(), history.TransactionsRead{
+		raws   []string
+	}{
+		{individual, []string{
+			txnJSON(individual, 73508265801, ny(2026, time.June, 10, 10, 0), "JOURNAL", "Journal", -25),
+			txnJSON(individual, 73508265802, ny(2026, time.June, 5, 10, 0), "DIVIDEND_OR_INTEREST", "Free Balance Interest Adjustment", 0.03),
+		}},
+		{options, []string{txnJSON(options, 73508265801, ny(2026, time.June, 10, 10, 0), "JOURNAL", "Journal", 25)}},
+	} {
+		read := history.TransactionsRead{
 			Read:    history.Read{SentAt: ny(2026, time.July, 2, 9, 0), AnsweredAt: ny(2026, time.July, 2, 9, 0).Add(time.Second)},
 			Account: side.number, Query: schwab.TransactionQuery{Start: ny(2026, time.May, 31, 0, 0), End: ny(2026, time.July, 2, 0, 0)},
-			Rows: []schwab.Transaction{row},
-		})
+		}
+		for _, raw := range side.raws {
+			var row schwab.Transaction
+			if err = json.Unmarshal([]byte(raw), &row); err != nil {
+				break
+			}
+			read.Rows = append(read.Rows, row)
+		}
 		if err != nil {
+			break
+		}
+		if _, err = s.RecordTransactions(t.Context(), read); err != nil {
 			break
 		}
 	}
@@ -2060,8 +2075,108 @@ func TestCursorsAcrossANewHash(t *testing.T) {
 			t.Errorf("the journal's side of %s: %v", masked, c)
 		}
 	}
-	if want := []string{"T73508265801@...398", "T73508265801@...135"}; !slices.Equal(got, want) {
+	if want := []string{"T73508265801@...398", "T73508265801@...135", "T73508265802@...135"}; !slices.Equal(got, want) {
 		t.Errorf("a tie at the end of the store's page: pages of 1 hold %v, want %v", got, want)
+	}
+
+	// The first page ends at ...135's side of the journal, by the old
+	// hashes, and the second learns new ones as it reads, when Schwab
+	// refuses ...783's. A second page of one row, ending at ...398's side,
+	// cannot write its position by the new hashes when they put ...398's
+	// side first: the next page would hold ...135's side again. So it is
+	// bad_cursor. A second page that ends past the journal can; and so can
+	// one whose new hashes keep ...135's side first and ...783's above
+	// ...398's, though ...783's now sorts below ...135's: the pages then
+	// hold each row once.
+	kept := [3]string{schwabtest.HashFor("135 kept"), schwabtest.HashFor("398 kept"), schwabtest.HashFor("783 kept")}
+	if kept[0] < kept[1] || kept[2] < kept[1] || kept[2] > kept[0] {
+		t.Fatal("the kept hashes do not keep ...135's and ...783's above ...398's, with ...783's below ...135's: the case shows nothing")
+	}
+	reversed := [3]string{first135, first398, schwabtest.HashFor("783 anew")}
+	each := []string{"T73508265801@...135", "T73508265801@...398", "T73508265802@...135"}
+	for _, tc := range []struct {
+		name    string
+		hashes  [3]string // the new hashes of ...135, ...398 and ...783
+		limit   int       // the second page's
+		refused bool      // the second page is bad_cursor
+	}{
+		{"new hashes that reverse the journal's sides, a second page that ends at ...398's", reversed, 1, true},
+		{"new hashes that reverse the journal's sides, a second page that ends past them", reversed, 2, false},
+		{"new hashes that keep the journal's sides in order", kept, 1, false},
+	} {
+		e := newEnv(t, withStore(path), unkept)
+		if r := e.call("list_accounts", `{}`); r.isError {
+			t.Fatal(r.text)
+		}
+		first := e.call("get_transactions_unkept", `{"from":"2026-06-01","to":"2026-06-30","limit":1}`)
+		if refs := txnRefsOf(txnRowsOf(first)); !slices.Equal(refs, each[:1]) {
+			t.Fatalf("%s: the first page holds %v", tc.name, refs)
+		}
+		for i, number := range []string{individual, options, empty} {
+			e.fake.Rehash(schwabtest.HashFor(number), tc.hashes[i])
+		}
+		args := fmt.Sprintf(`{"from":"2026-06-01","to":"2026-06-30","limit":%d}`, tc.limit)
+		cur, _ := first.value["next_cursor"].(string)
+		second := e.call("get_transactions_unkept", txnWithCursor(t, args, cur))
+		if tc.refused {
+			if second.code() != "bad_cursor" {
+				t.Errorf("%s: %.400s", tc.name, second.text)
+			}
+			continue
+		}
+		if second.isError {
+			t.Fatalf("%s: %.400s", tc.name, second.text)
+		}
+		got := slices.Sorted(slices.Values(append(txnRefsOf(txnRowsOf(first)), pagesAfter(e, args, second)...)))
+		if !slices.Equal(got, each) {
+			t.Errorf("%s: the pages hold %v, want %v", tc.name, got, each)
+		}
+	}
+}
+
+// A position that the next page starts after, at the cursor's own day,
+// time and ref, must part the rows of that instant as the cursor did
+// (partsAsCursor). Here the accounts' keys as the call picked them are A,
+// B, C and D, and in one case 0, and the cursor is at B's row, so that it
+// had sent C's and D's rows of that instant and not A's or 0's. By the
+// keys as the walk left them, an account sent before must sort above the
+// position; one not sent must sort below it when the page holds no row,
+// the position being the cursor's own, while a page that holds rows has
+// placed them. A position at another instant parts nothing.
+func TestPositionAtTheCursorsInstant(t *testing.T) {
+	t.Parallel()
+	at := history.LedgerKey{Day: "2025-06-02", Time: "2025-06-02T14:30:27.000Z", Ref: "T73508261943"}
+	key := func(k history.LedgerKey, account string) history.LedgerKey {
+		k.Account = account
+		return k
+	}
+	other, older := at, history.LedgerKey{Day: "2025-06-01", Time: "2025-06-01T14:30:27.000Z", Ref: "T73508261943"}
+	other.Ref = "T73508261942"
+	for _, tc := range []struct {
+		name  string
+		keys  map[string]string // each account's key as the call picked it, and as the walk left it
+		next  history.LedgerKey
+		empty bool // the page holds no row
+		want  bool
+	}{
+		{"no new key, no row", map[string]string{"A": "A", "B": "B", "C": "C", "D": "D"}, key(at, "B"), true, true},
+		{"no new key, ending at A's row", map[string]string{"A": "A", "B": "B", "C": "C", "D": "D"}, key(at, "A"), false, true},
+		{"B's new key above C's, no row", map[string]string{"A": "A", "B": "Cb", "C": "C", "D": "D"}, key(at, "Cb"), true, false},
+		{"every key new, in the same order, no row", map[string]string{"A": "A", "B": "Cb", "C": "Da", "D": "Db"}, key(at, "Cb"), true, true},
+		{"A's new key above B's, no row", map[string]string{"A": "Ba", "B": "B", "C": "C", "D": "D"}, key(at, "B"), true, false},
+		{"A's new key above B's, ending at A's row", map[string]string{"A": "Ba", "B": "B", "C": "C", "D": "D"}, key(at, "Ba"), false, false},
+		{"C's new key below A's, ending at A's row", map[string]string{"A": "A", "B": "B", "C": "0", "D": "D"}, key(at, "A"), false, false},
+		{"another not sent above A's, ending at A's row", map[string]string{"0": "Z", "A": "A", "B": "B", "C": "C", "D": "D"}, key(at, "A"), false, true},
+		{"new keys, ending at another ref", map[string]string{"A": "Ba", "B": "B", "C": "0", "D": "D"}, key(other, "Ba"), false, true},
+		{"new keys, ending at an older instant", map[string]string{"A": "Ba", "B": "B", "C": "0", "D": "D"}, key(older, "Ba"), false, true},
+	} {
+		w := &txnWalk{after: new(key(at, "B"))}
+		for start, now := range tc.keys {
+			w.accts = append(w.accts, &txnAccount{a: dirAccount{hash: schwab.AccountHash(now)}, startKey: start})
+		}
+		if got := w.partsAsCursor(tc.next, tc.empty); got != tc.want {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 
@@ -2243,23 +2358,46 @@ func TestWalkWithNoTime(t *testing.T) {
 
 	// Such a call whose account Schwab gave a new hash, in the window it
 	// read before its time ran out, keeps that position with the account's
-	// new key, which the next call picks the account by.
-	rehashed := schwabtest.HashFor("rehashed")
-	w := &txnWalk{
-		c: callBy(time.Now()), q: q, stopped: 1, windows: windowsOf(q.from, q.to),
-		after: &history.LedgerKey{Day: "2025-06-02", Time: "2025-06-02T14:30:27.000Z", Ref: "T73508261943", Account: schwabtest.HashFor(individual)},
-	}
-	w.accts = []*txnAccount{{
-		a: dirAccount{number: individual, hash: schwab.AccountHash(rehashed), shared: true}, startKey: schwabtest.HashFor(individual),
-		from: fromSchwab, reads: []*windowRead{{}}, unread: true, empty: -1,
-	}}
-	if out, err = w.answer(t.Context(), q.args("")); err != nil || out.NextCursor == nil {
-		t.Fatalf("a walk with no time after a new hash: %v, cursor %v", err, out.NextCursor)
-	}
-	b, err = base64.RawURLEncoding.DecodeString(string(*out.NextCursor))
-	want, _ := json.Marshal([4]string{"2025-06-02", "2025-06-02T14:30:27.000Z", "T73508261943", rehashed})
-	if err != nil || json.Unmarshal(b, &body) != nil || string(body.K) != string(want) || len(out.Transactions) != 0 {
-		t.Errorf("the cursor holds %s, want the position given with the new key, %s", b, want)
+	// new key, which the next call picks the account by; unless the new
+	// hashes put another account on the other side of it, so that the next
+	// page would leave out that account's row of the position's instant, or
+	// hold it again: then the call is bad_cursor. By the old hashes, ...398
+	// sorts below ...135, at whose row the position is, and ...783 above.
+	pos := history.LedgerKey{Day: "2025-06-02", Time: "2025-06-02T14:30:27.000Z", Ref: "T73508261943", Account: schwabtest.HashFor(individual)}
+	for _, tc := range []struct {
+		name   string
+		hashes map[string]string // the walk's accounts, by number, and their new hashes
+		code   errorCode         // the call's, "" for none
+	}{
+		{"...135 alone", map[string]string{individual: "rehashed"}, ""},
+		{"...398 still below, ...783 still above", map[string]string{individual: "135 anew", options: "398 again", empty: "783 anew"}, ""},
+		{"...398 now above", map[string]string{individual: "135 anew", options: "398 anew", empty: "783 anew"}, codeBadCursor},
+		{"...783 now below", map[string]string{individual: "135 kept", options: "398 kept", empty: "783 kept"}, codeBadCursor},
+	} {
+		w := &txnWalk{c: callBy(time.Now()), q: q, stopped: 1, windows: windowsOf(q.from, q.to), after: &pos}
+		for _, number := range []string{individual, options, empty} {
+			if name, ok := tc.hashes[number]; ok {
+				w.accts = append(w.accts, &txnAccount{
+					a:        dirAccount{number: number, hash: schwab.AccountHash(schwabtest.HashFor(name)), shared: true},
+					startKey: schwabtest.HashFor(number), from: fromSchwab, reads: []*windowRead{{}}, unread: true, empty: -1,
+				})
+			}
+		}
+		out, err = w.answer(t.Context(), q.args(""))
+		if tc.code != "" {
+			if e, ok := errors.AsType[*toolErr](err); !ok || e.code != tc.code {
+				t.Errorf("a walk with no time, %s: %v, want %s", tc.name, err, tc.code)
+			}
+			continue
+		}
+		if err != nil || out.NextCursor == nil {
+			t.Fatalf("a walk with no time, %s: %v, cursor %v", tc.name, err, out.NextCursor)
+		}
+		b, err = base64.RawURLEncoding.DecodeString(string(*out.NextCursor))
+		want, _ := json.Marshal([4]string{string(pos.Day), pos.Time, pos.Ref, schwabtest.HashFor(tc.hashes[individual])})
+		if err != nil || json.Unmarshal(b, &body) != nil || string(body.K) != string(want) || len(out.Transactions) != 0 {
+			t.Errorf("a walk with no time, %s: the cursor holds %s, want the position given with ...135's new key, %s", tc.name, b, want)
+		}
 	}
 }
 
