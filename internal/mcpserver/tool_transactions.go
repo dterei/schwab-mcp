@@ -463,6 +463,15 @@ func getTransactions(ctx context.Context, c *call, wc *windowCache, in getTransa
 	for _, a := range accts {
 		w.accts = append(w.accts, &txnAccount{a: a, startKey: a.key(), empty: -1})
 	}
+	// The cursor's row belongs to an account that the call picks by the key
+	// the cursor holds, unless a new login gave that account a new hash
+	// that the directory read since the page before, or the call no longer
+	// reads the account: then no row can be placed after the cursor, and a
+	// page could repeat its row, or skip one that ties it on day, time and
+	// ref. A call of one account finds this by the cursor's digest.
+	if w.after != nil && !slices.ContainsFunc(w.accts, func(ta *txnAccount) bool { return ta.startKey == w.after.Account }) {
+		return out, c.badCursor()
+	}
 	if err := w.schwabReadable(ctx, v); err != nil {
 		return out, err
 	}
@@ -960,7 +969,15 @@ func (w *txnWalk) answer(ctx context.Context, args txnArgs) (getTransactionsOut,
 			last := cands[n-1].key
 			k = &[4]string{string(last.Day), last.Time, string(c.mask.ref(last.Ref)), last.Account}
 		case w.after != nil:
-			k = &[4]string{string(w.after.Day), w.after.Time, string(c.mask.ref(w.after.Ref)), w.after.Account}
+			// The position the call began at, with its account's key as
+			// the walk left it, which the next call picks the account by.
+			after := *w.after
+			for _, ta := range w.accts {
+				if ta.startKey == after.Account {
+					after.Account = ta.a.key()
+				}
+			}
+			k = &[4]string{string(after.Day), after.Time, string(c.mask.ref(after.Ref)), after.Account}
 		}
 		if out.NextCursor, err = c.newCursor(args, k); err != nil {
 			return out, err

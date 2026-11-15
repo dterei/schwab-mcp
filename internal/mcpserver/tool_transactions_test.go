@@ -1096,6 +1096,26 @@ func TestTransactionCursor(t *testing.T) {
 	if got := page(e, txnWithCursor(t, args, string(*start))); !slices.Equal(got, txnRefsOf(txnRowsOf(first))) {
 		t.Errorf("a cursor of no position: %v, want the first page, %v", got, txnRefsOf(txnRowsOf(first)))
 	}
+	// Of every account, a position at a row of an account that the call does
+	// not pick by the key it holds, as of a page before a new login gave the
+	// account a new hash, is bad_cursor; one of an account it picks is not.
+	every := `{"source":"store","from":"2023-06-12","to":"2024-12-30","limit":1}`
+	var all getTransactionsIn
+	if err := json.Unmarshal([]byte(every), &all); err != nil {
+		t.Fatal(err)
+	}
+	if q, err = c.txnQueryOf(all); err != nil {
+		t.Fatal(err)
+	}
+	for key, code := range map[string]string{schwabtest.HashFor(individual): "", schwabtest.HashFor("rehashed"): "bad_cursor"} {
+		cur, err := c.newCursor(q.args(""), &[4]string{"2024-04-04", "", "T73508261946", key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r := e.call("get_transactions", txnWithCursor(t, every, string(*cur))); r.code() != code {
+			t.Errorf("every account, a cursor at a row of the account keyed %s: %.200s, want [%s]", key, r.text, code)
+		}
+	}
 }
 
 // get_transaction reads its id's shape: Schwab's activity ID with or
@@ -1884,7 +1904,9 @@ func TestTransactionsOfARehashedAccount(t *testing.T) {
 // when Schwab then fails for it, and it is read from the store; and two
 // accounts read from the store, whose transfer to each other ties on day,
 // time and ref at the end of the store's page, where the new hashes
-// reverse the two sides' order.
+// reverse the two sides' order. A new hash that the directory reads before
+// a page starts makes the cursor of the page before bad_cursor: the call
+// picks the account by a key that the cursor does not hold.
 func TestCursorsAcrossANewHash(t *testing.T) {
 	t.Parallel()
 	old := schwabtest.HashFor(individual)
@@ -1935,6 +1957,35 @@ func TestCursorsAcrossANewHash(t *testing.T) {
 	whole := txnRefsOf(txnRowsOf(e.call("get_transactions", `{"from":"2025-01-01","to":"2025-12-31"}`)))
 	if len(whole) < 3 || !slices.Equal(got, whole) {
 		t.Errorf("from Schwab, a new hash after the first page: pages of 1 hold %v, one call %v", got, whole)
+	}
+
+	// A new hash that the directory reads before the next page starts, here
+	// when get_transaction is refused the hash it had: the call picks ...135
+	// by the new key, which no cursor of a page before holds, so that the
+	// cursor's row cannot be placed, and the cursor is bad_cursor, of every
+	// account as of ...135 alone. Of every account, the page would otherwise
+	// hold the cursor's row again, the new hash sorting before the one
+	// before.
+	again := schwabtest.HashFor("135 once more")
+	if again >= lower {
+		t.Fatal("...135's newer hash does not sort before the one before it: the case shows nothing")
+	}
+	cursors := map[string]string{}
+	for _, a := range []string{args, `{"account":"135","from":"2025-01-01","to":"2025-12-31","limit":1}`} {
+		cur, _ := e.call("get_transactions_unkept", a).value["next_cursor"].(string)
+		if r := e.call("get_transactions_unkept", txnWithCursor(t, a, cur)); r.isError {
+			t.Fatalf("%s, the second page: %.300s", a, r.text)
+		}
+		cursors[a] = cur
+	}
+	e.fake.Rehash(lower, again)
+	if r := e.call("get_transaction", `{"id":"73508265701","account":"135"}`); r.isError {
+		t.Fatal(r.text)
+	}
+	for a, cur := range cursors {
+		if r := e.call("get_transactions_unkept", txnWithCursor(t, a, cur)); r.code() != "bad_cursor" {
+			t.Errorf("%s, the cursor of a page before a new hash that the directory read: %.300s", a, r.text)
+		}
 	}
 
 	// ...135 alone, whose 2025 the store does not hold: the first page reads
@@ -2113,7 +2164,8 @@ func TestStoreWaitingCountsUncertain(t *testing.T) {
 // unread, whatever account comes after it, and the page holds no row of
 // that window's days, its last day's included: the unread rows could
 // come between them. A call that continues a walk and has no time keeps
-// the position its cursor gave.
+// the position its cursor gave, with its account's key as the walk left
+// it.
 func TestWalkWithNoTime(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, withoutStore(), withTxnRows(individual, txnJSON(individual, 73508265101, ny(2025, time.December, 31, 10, 0),
@@ -2187,6 +2239,27 @@ func TestWalkWithNoTime(t *testing.T) {
 		if err != nil || json.Unmarshal(b, &body) != nil || string(body.K) != string(want) || len(out.Transactions) != 0 {
 			t.Errorf("the cursor holds %s, want the position given, %s", b, want)
 		}
+	}
+
+	// Such a call whose account Schwab gave a new hash, in the window it
+	// read before its time ran out, keeps that position with the account's
+	// new key, which the next call picks the account by.
+	rehashed := schwabtest.HashFor("rehashed")
+	w := &txnWalk{
+		c: callBy(time.Now()), q: q, stopped: 1, windows: windowsOf(q.from, q.to),
+		after: &history.LedgerKey{Day: "2025-06-02", Time: "2025-06-02T14:30:27.000Z", Ref: "T73508261943", Account: schwabtest.HashFor(individual)},
+	}
+	w.accts = []*txnAccount{{
+		a: dirAccount{number: individual, hash: schwab.AccountHash(rehashed), shared: true}, startKey: schwabtest.HashFor(individual),
+		from: fromSchwab, reads: []*windowRead{{}}, unread: true, empty: -1,
+	}}
+	if out, err = w.answer(t.Context(), q.args("")); err != nil || out.NextCursor == nil {
+		t.Fatalf("a walk with no time after a new hash: %v, cursor %v", err, out.NextCursor)
+	}
+	b, err = base64.RawURLEncoding.DecodeString(string(*out.NextCursor))
+	want, _ := json.Marshal([4]string{"2025-06-02", "2025-06-02T14:30:27.000Z", "T73508261943", rehashed})
+	if err != nil || json.Unmarshal(b, &body) != nil || string(body.K) != string(want) || len(out.Transactions) != 0 {
+		t.Errorf("the cursor holds %s, want the position given with the new key, %s", b, want)
 	}
 }
 
