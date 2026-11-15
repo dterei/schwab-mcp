@@ -317,19 +317,21 @@ secret, and the login's tokens. `include_raw` withholds a value of
 Schwab's JSON under a key the server does not know, unless it is a time,
 a code, a number that cannot be an account number or a number already
 masked. A last pass over every string the server sends replaces any
-account number it has seen, the key, the secret and the tokens, and the
-tests fail if it ever finds one.
+account number it has seen, written whole or in groups such as 1234 5678
+or 1234-5678, and the key, the secret and the tokens; the tests fail if it
+ever finds one.
 
 The server reads the local history with a reader that cannot write: it
 never creates, changes or upgrades the store.
 
 It logs to stderr, never to stdout, which carries the protocol alone. Some
 desktop clients keep each server's stderr in a file. Every line has the
-account numbers the server has seen, the key, the secret and the tokens
-replaced, and your home folder written `~`; text from outside, such as an
-error's message, has every number of 8 or more digits masked too. A line
-can still hold symbols, dates, masked numbers and paths outside your home
-folder: read a log before you attach it to a bug report.
+account numbers the server has seen, whole or in groups, the key, the
+secret and the tokens replaced, and your home folder written `~`; text
+from outside, such as an error's message, has every number of 8 or more
+digits masked too. A line can still hold symbols, dates, masked numbers
+and paths outside your home folder: read a log before you attach it to a
+bug report.
 
 ## Limits
 

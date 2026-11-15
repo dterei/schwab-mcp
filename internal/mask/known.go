@@ -23,6 +23,8 @@ const hashRun = 32
 type Known struct {
 	mu      sync.RWMutex
 	numbers map[string]bool
+	// longest is how many digits the longest number has.
+	longest int
 }
 
 // Add adds numbers to the set, each a string of 6 or more ASCII digits; it
@@ -38,16 +40,23 @@ func (k *Known) Add(numbers ...string) {
 			k.numbers = map[string]bool{}
 		}
 		k.numbers[n] = true
+		k.longest = max(k.longest, len(n))
 	}
 }
 
-// Text returns s with each known number in it shown as Number shows it: each
-// run of digits, not preceded or followed by a digit, that is a known number,
-// but within a run of 32 or more hex digits, which is an account hash, so
-// that a hash stays whole. With 29470135 known, "ACCT29470135 TRF" reads
-// "ACCT...135 TRF", while "1294701350" and a hash that holds 29470135 stay
-// as they are. What Text returns holds no known number, and masking it again
-// changes nothing.
+// Text returns s with each known number in it shown as Number shows it: its
+// digits written whole, or in groups that Text would join, by one to three
+// spaces or a dash with at most one space on each side, of any kind, with
+// no digit before its first digit or after its last; but none of them
+// within a run of 32 or more hex digits, which is an account hash, so that
+// a hash stays whole. With 29470135 known, "ACCT29470135 TRF" reads
+// "ACCT...135 TRF", and "2947 0135" and "2947-0135" read "...135", while
+// "1294701350", "2947.0135" and a hash that holds 29470135 stay as they
+// are. Groups that join a known number and more digits are masked as far
+// as the number goes: "29 4701 35 77" reads "...135 77". What Text returns
+// holds no known number, and masking it again changes nothing: the three
+// digits a mask shows count with the groups joined after it, as Text counts
+// them.
 func (k *Known) Text(s string) string {
 	if k == nil {
 		return s
@@ -61,7 +70,8 @@ func (k *Known) Text(s string) string {
 	done := 0 // s[:done] is in b, or needs no masking
 	for i, j := range k.runs(s) {
 		b.WriteString(s[done:i])
-		b.WriteString(Number(s[i:j]))
+		b.WriteString("...")
+		b.WriteString(lastDigits(s[i:j], 3))
 		done = j
 	}
 	if done == 0 {
@@ -103,38 +113,137 @@ func (k *Known) has(n string) bool {
 	return k.numbers[n]
 }
 
-// runs yields the start and end of each run of digits in s that Text masks:
-// a known number, in a run of hex digits shorter than a hash's. Digits are
-// hex digits, so each run of digits lies in one run of hex digits, which is
-// measured once, however many numbers it holds. The caller holds k's lock.
+// A piece is a group of digits of a joined run, or a known number of it
+// that Text masks, which reads as the three digits its mask shows: the
+// mask's dots join nothing before them, and its digits join the groups
+// after it.
+type piece struct {
+	start, end int    // in s, from the first digit to the last
+	digits     string // the group's digits, or the three that the mask shows
+	masked     bool
+}
+
+// runs yields the start and end of each part of s that Text masks, in
+// order: a known number in a run of groups of digits that joiner joins,
+// each group in a run of hex digits shorter than a hash's. Digits are hex
+// digits, so each group lies in one run of hex digits, which is measured
+// once, however many numbers it holds. A number is found where its last
+// group ends, as the longest known number that ends there, made of whole
+// groups after the run's last mask, or of the three digits that mask shows
+// and groups after it, so that what Text writes holds none; the pieces
+// that no later group can join into a known number are let go, so that a
+// run of any length costs as little as a short one. The caller holds k's
+// lock.
 func (k *Known) runs(s string) iter.Seq2[int, int] {
 	return func(yield func(int, int) bool) {
+		if !atLeastDigits(s, minKnown) {
+			return
+		}
+		var run []piece // the joined run's pieces after its last mask, that mask first
+		digits := 0     // the digits of run's pieces
+		buf := make([]byte, k.longest)
+		// drop lets go of run's first piece, yielding it if it is a mask.
+		drop := func() bool {
+			p := run[0]
+			digits -= len(p.digits)
+			run = append(run[:0], run[1:]...)
+			return !p.masked || yield(p.start, p.end)
+		}
+		// push adds the group s[i:j] to run, and masks the longest known
+		// number that ends with it.
+		push := func(i, j int) bool {
+			run = append(run, piece{start: i, end: j, digits: s[i:j]})
+			digits += j - i
+			from, best := len(buf), -1
+			for t := len(run) - 1; t >= 0 && from >= len(run[t].digits); t-- {
+				from -= len(run[t].digits)
+				copy(buf[from:], run[t].digits)
+				if len(buf)-from >= minKnown && k.numbers[string(buf[from:])] {
+					best = t
+				}
+			}
+			if best >= 0 {
+				// What comes before the number, a mask included, can join no
+				// later group: the number's own mask stands between.
+				for range best {
+					if !drop() {
+						return false
+					}
+				}
+				run = append(run[:0], piece{start: run[0].start, end: j, digits: string(buf[len(buf)-3:]), masked: true})
+				digits = 3
+			}
+			for len(run) > 0 && digits >= k.longest {
+				if !drop() {
+					return false
+				}
+			}
+			return true
+		}
+		// end yields run's mask, if it has one, and empties it, at the end of
+		// a joined run.
+		end := func() bool {
+			for len(run) > 0 {
+				if !drop() {
+					return false
+				}
+			}
+			return true
+		}
+		last := -1 // where the run's last group ends, or -1 for no run
 		for i := 0; i < len(s); {
 			if !isHex(s[i]) {
 				i++
 				continue
 			}
-			end := i // the run of hex digits is s[i:end]
-			for end < len(s) && isHex(s[end]) {
-				end++
+			stop := i // the run of hex digits is s[i:stop]
+			for stop < len(s) && isHex(s[stop]) {
+				stop++
 			}
-			for j := i; end-i < hashRun && j < end; {
+			if stop-i >= hashRun {
+				// A hash's digits join no group.
+				if !end() {
+					return
+				}
+				last, i = -1, stop
+				continue
+			}
+			for j := i; j < stop; {
 				if !isDigit(s[j]) {
 					j++
 					continue
 				}
-				m := j // the run of digits is s[j:m]
-				for m < end && isDigit(s[m]) {
+				m := j // the group is s[j:m]
+				for m < stop && isDigit(s[m]) {
 					m++
 				}
-				if m-j >= minKnown && k.numbers[s[j:m]] && !yield(j, m) {
+				joined := false
+				if last >= 0 {
+					n := joiner(s[last:])
+					joined = n > 0 && last+n == j
+				}
+				if !joined && !end() {
 					return
 				}
-				j = m
+				if !push(j, m) {
+					return
+				}
+				last, j = m, m
 			}
-			i = end
+			i = stop
+		}
+		end()
+	}
+}
+
+// atLeastDigits reports whether s holds n or more ASCII digits.
+func atLeastDigits(s string, n int) bool {
+	for i := 0; i < len(s) && n > 0; i++ {
+		if isDigit(s[i]) {
+			n--
 		}
 	}
+	return n <= 0
 }
 
 // isHex reports whether c is a hex digit, in either case.

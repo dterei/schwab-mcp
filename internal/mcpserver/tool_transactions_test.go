@@ -407,8 +407,9 @@ const (
 // journal to ...398, with a user object as the spec's UserDetails has it
 // and two keys no table knows, one of text and one of an 8-digit integer;
 // a trade whose legs' descriptions hold ...398 glued to letters and an
-// account no one knows; a journal to the 7-digit account; and a row whose
-// time is a number, which its problem quotes.
+// account no one knows; two journals to the 7-digit account, whose number
+// one writes in two groups, which mask.Text leaves; and a row whose time
+// is a number, which its problem quotes.
 var leakRows = []string{
 	`{"activityId":73508263001,"time":"2026-10-05T14:00:00+0000","description":"JOURNAL TO 61803398 FROM ` + otherAccount + `",` +
 		`"accountNumber":"29470135",` +
@@ -427,6 +428,10 @@ var leakRows = []string{
 		`"type":"JOURNAL","status":"VALID","subAccount":"CASH","tradeDate":"2026-10-07T04:00:00+0000","netAmount":-5.0,` +
 		`"transferItems":[{"instrument":{"assetType":"CURRENCY","status":"ACTIVE","symbol":"CURRENCY_USD","description":"USD currency",` +
 		`"instrumentId":1,"closingPrice":0.0},"amount":-5.0,"cost":0.0}]}`,
+	`{"activityId":73508263005,"time":"2026-10-09T14:00:00+0000","description":"Allowance 765-4321 weekly","accountNumber":"29470135",` +
+		`"type":"JOURNAL","status":"VALID","subAccount":"CASH","tradeDate":"2026-10-09T04:00:00+0000","netAmount":-2.0,` +
+		`"transferItems":[{"instrument":{"assetType":"CURRENCY","status":"ACTIVE","symbol":"CURRENCY_USD","description":"USD currency",` +
+		`"instrumentId":1,"closingPrice":0.0},"amount":-2.0,"cost":0.0}]}`,
 	`{"activityId":73508263004,"time":29470135,"description":"Funds Received","accountNumber":"29470135","type":"CASH_RECEIPT",` +
 		`"status":"VALID","subAccount":"CASH","tradeDate":"2026-10-08T04:00:00+0000","netAmount":7.0,` +
 		`"transferItems":[{"instrument":{"assetType":"CURRENCY","status":"ACTIVE","symbol":"CURRENCY_USD","description":"USD currency",` +
@@ -447,15 +452,16 @@ var leakTransactionsCalls = []string{
 // account number, on the first request for transactions and on those for
 // one transaction; and a History export of ...135 in the world's store
 // whose descriptions hold numbers, which the store masks but for the
-// 7-digit one, which only the known numbers catch. Nothing sent may name
-// the planted user, and no cursor's digest may be one of its arguments
-// with a planted number for the account's hash.
+// 7-digit one, written whole and in two groups, which only the known
+// numbers catch. Nothing sent may name the planted user, and no cursor's
+// digest may be one of its arguments with a planted number for the
+// account's hash.
 func plantTransactions(t *testing.T, w *leakWorld) {
 	w.plant(otherAccount, unknownInt, userID)
 	w.opts = append(w.opts, withFake(func(f *schwabtest.Server) {
 		// The row whose time is a number is served by the time it would have.
-		f.AddRows(schwabtest.HashFor(individual), leakRows[:3]...)
-		f.AddRow(schwabtest.HashFor(individual), schwabtest.Row{JSON: leakRows[3], Time: ny(2026, time.October, 8, 10, 0)})
+		f.AddRows(schwabtest.HashFor(individual), leakRows[:4]...)
+		f.AddRow(schwabtest.HashFor(individual), schwabtest.Row{JSON: leakRows[4], Time: ny(2026, time.October, 8, 10, 0)})
 		f.Queue(schwabtest.TransactionsRoute, schwabtest.Answer(400, `{"message":"Invalid account number 29470135"}`))
 		f.Queue(schwabtest.TransactionRoute, schwabtest.NotAuthorized, schwabtest.Whitelabel, schwabtest.Whitelabel)
 	}))
@@ -465,8 +471,10 @@ func plantTransactions(t *testing.T, w *leakWorld) {
 	txnImport(t, w.store, individual, "Individual_XXX135_Transactions_20250701-120000.csv",
 		`"06/05/2025","Journal","","JOURNAL TO 61803398","","","","-$100.00"`,
 		`"06/12/2025","Journal","","Kids 7654321 transfer","","","","-$50.00"`,
+		`"06/13/2025","Journal","","Tuition 765 – 4321","","","","-$25.00"`,
 		`"06/20/2025","Wire Received","","WIRE FROM `+otherAccount+`","","","","$500.00"`)
 	w.masked = append(w.masked, "JOURNAL TO ...398", "ACCT...398 TRF", "TRF TO ...432", "Kids ...321 gift", "Kids ...321 transfer",
+		"Allowance ...321 weekly", "Tuition ...321",
 		"WIRE FROM ...432", `"accountNumber":"...135"`, `"user":{"firstName":"[withheld]"`, `"newNumber":"...321"`,
 		"Invalid account number ...135", "Client not authorized")
 	w.forbidden = append(w.forbidden, "jdoe", "Jane", "Doe")

@@ -2,6 +2,7 @@ package mask
 
 import (
 	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,16 +14,19 @@ import (
 // (schwabtest.HashFor), which holds the run of 8 digits 41224019.
 const hash = "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691"
 
-// Known masks a known number where it stands whole, a run of digits with no
-// digit beside it, whatever its length, but never within a run of 32 or
-// more hex digits, as an account hash is: so a number inside a longer run
-// of digits, a hash that holds one, and a number that Known does not hold
-// stay as they are. It holds only numbers of 6 digits or more, written
-// with digits alone. What it masks, it masks once, and Contains finds what
-// it masks.
+// Known masks a known number where it stands whole, with no digit beside
+// it, whatever its length: its digits in one run, or in groups joined as
+// Text joins them, by up to three spaces or a dash with at most one space
+// on each side, of any kind; but never within a run of 32 or more hex
+// digits, as an account hash is. So a number inside a longer run of
+// digits, one whose groups are joined otherwise, a hash that holds one,
+// and a number that Known does not hold stay as they are. It holds only
+// numbers of 6 digits or more, written with digits alone. What it masks,
+// it masks once, the three digits a mask shows counting with the groups
+// after it, and Contains finds what it masks.
 func TestKnown(t *testing.T) {
 	var k Known
-	k.Add("29470135", "1234567", "123456789012", "41224019", "654321")
+	k.Add("29470135", "1234567", "123456789012", "41224019", "654321", "567890")
 	k.Add("12345", "...135", "2947 0135", "２９４７０１３５", "", "29470135") // ignored, or held already
 	for _, tc := range []struct{ in, want string }{
 		{"", ""},
@@ -36,13 +40,47 @@ func TestKnown(t *testing.T) {
 		{"1294701350", "1294701350"},
 		{"12947013", "12947013"},
 		{"12345 and 123456", "12345 and 123456"},
-		{"2947 0135", "2947 0135"},
 		{"...135", "...135"},
 		{"２９４７０１３５", "２９４７０１３５"},
 		{"order 1004517688020 of 29470135", "order 1004517688020 of ...135"},
 
+		// In groups that Text joins: spaces or a dash, of any kind.
+		{"2947 0135", "...135"},
+		{"2947-0135", "...135"},
+		{"2947   0135", "...135"},
+		{"2947 – 0135", "...135"},
+		{"2947—0135", "...135"},
+		{"2947 0135", "...135"},
+		{"2947\t0135", "...135"},
+		{"2 9 4 7 0 1 3 5", "...135"},
+		{"Kids 123-4567 gift", "Kids ...567 gift"},
+		{"to 1 234 567.", "to ...567."},
+		{"ACCT123-4567TRF", "ACCT...567TRF"},
+		{"(2947 0135)", "(...135)"},
+		{"29 4701 35 77", "...135 77"},
+		{"77 29 4701 35", "77 ...135"},
+		{"2947 0135 and 123 4567", "...135 and ...567"},
+		// Joined otherwise, or with a digit beside the number, they stay.
+		{"2947.0135", "2947.0135"},
+		{"2947/0135", "2947/0135"},
+		{"2947_0135", "2947_0135"},
+		{"2947    0135", "2947    0135"},
+		{"2947 -  0135", "2947 -  0135"},
+		{"2947  -0135", "2947  -0135"},
+		{"2947--0135", "2947--0135"},
+		{"12947 0135", "12947 0135"},
+		{"2947 01350", "2947 01350"},
+		{"2947a0135", "2947a0135"},
+		{"123 45678", "123 45678"},
+		// The three digits that a mask shows count with the groups after it,
+		// so that masking again changes nothing: 1234567's mask shows 567,
+		// which 890 makes 567890.
+		{"1234567 890", "...890"},
+		{"123 4567 890", "...890"},
+		{"123 4567 89", "...567 89"},
+
 		// Within a hash, or any run of 32 hex digits or more, a known number
-		// stays; in a run of 31, it is masked.
+		// stays; in a run of 31, it is masked. A hash's digits join no group.
 		{hash, hash},
 		{"account " + hash + ".", "account " + hash + "."},
 		{strings.Repeat("A", 24) + "29470135", strings.Repeat("A", 24) + "29470135"},
@@ -52,6 +90,11 @@ func TestKnown(t *testing.T) {
 		{strings.Repeat("A", 12) + "-29470135-" + strings.Repeat("A", 20), strings.Repeat("A", 12) + "-...135-" + strings.Repeat("A", 20)},
 		{"ab29470135c1234567d", "ab...135c...567d"},
 		{strings.Repeat("29470135a", 4), strings.Repeat("29470135a", 4)},
+		{hash + " 123 4567", hash + " ...567"},
+		{strings.Repeat("A", 31) + "1-234567", strings.Repeat("A", 31) + "1-234567"},
+		{strings.Repeat("A", 30) + "1-234567", strings.Repeat("A", 30) + "...567"},
+		{"2947-0135" + strings.Repeat("f", 28), "2947-0135" + strings.Repeat("f", 28)},
+		{"2947-0135" + strings.Repeat("f", 27), "...135" + strings.Repeat("f", 27)},
 	} {
 		got := k.Text(tc.in)
 		if got != tc.want {
@@ -64,7 +107,7 @@ func TestKnown(t *testing.T) {
 			t.Errorf("Contains(%q) = %v, want %v", tc.in, k.Contains(tc.in), tc.want != tc.in)
 		}
 	}
-	for _, n := range []string{"29470135", "1234567", "123456789012", "41224019", "654321"} {
+	for _, n := range []string{"29470135", "1234567", "123456789012", "41224019", "654321", "567890"} {
 		if !k.has(n) {
 			t.Errorf("Known does not hold %s, which it was given", n)
 		}
@@ -114,14 +157,17 @@ func TestKnownConcurrently(t *testing.T) {
 // over a megabyte of them glued together with a hex letter, one run that
 // holds 131,072 numbers, it takes milliseconds, where measuring the whole
 // run again for each number took minutes; and as many numbers each in a
-// run of its own are all masked.
+// group of its own, which dashes join into one run, are all masked, and so
+// are 65,536 numbers each written a digit at a time, a run of a million
+// groups that spaces join.
 func TestKnownTextTakesLinearTime(t *testing.T) {
 	var k Known
 	k.Add("29470135")
 	glued := strings.Repeat("29470135a", 1<<17)
 	apart := strings.Repeat("29470135-", 1<<17)
-	done := make(chan [2]string, 1)
-	go func() { done <- [2]string{k.Text(glued), k.Text(apart)} }()
+	spaced := strings.Repeat("2 9 4 7 0 1 3 5 ", 1<<16)
+	done := make(chan [3]string, 1)
+	go func() { done <- [3]string{k.Text(glued), k.Text(apart), k.Text(spaced)} }()
 	select {
 	case got := <-done:
 		if got[0] != glued {
@@ -129,6 +175,9 @@ func TestKnownTextTakesLinearTime(t *testing.T) {
 		}
 		if got[1] != strings.Repeat("...135-", 1<<17) {
 			t.Errorf("Text of the numbers apart masked some of them only")
+		}
+		if got[2] != strings.Repeat("...135 ", 1<<16) {
+			t.Errorf("Text of the numbers a digit at a time masked some of them only")
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Text took more than 10 seconds over a megabyte")
@@ -172,4 +221,43 @@ func TestKnownHasNumber(t *testing.T) {
 	if none.HasNumber("29470135") {
 		t.Error("a nil Known has 29470135")
 	}
+}
+
+// What Text returns holds no known number, by a pattern that finds each of
+// them as the leak tests do, outside the runs of 32 hex digits or more, with
+// no digit beside it and any of Text's joiners between any two of its
+// digits; masking it again changes nothing; and Contains says whether Text
+// masks anything. The numbers overlap, so that a mask's three digits and
+// the groups after it can spell another.
+func FuzzKnownText(f *testing.F) {
+	numbers := []string{"29470135", "1234567", "654321", "567890", "123456789012"}
+	var k Known
+	k.Add(numbers...)
+	var patterns []*regexp.Regexp
+	for _, n := range numbers {
+		patterns = append(patterns, regexp.MustCompile(`(?:^|[^0-9])`+strings.Join(strings.Split(n, ""), sep+`?`)+`(?:[^0-9]|$)`))
+	}
+	hexRun := regexp.MustCompile(`[0-9A-Fa-f]{32,}`)
+	for _, s := range []string{
+		"", "2947 0135", "2947-0135", "2 9 4 7 0 1 3 5", "29 4701 35 77", "1234567 890", "123 4567 890", "12 3456 7890",
+		"2947\u00a00135", "2947 \u2013 0135", "Kids 123-4567 gift", hash + " 123 4567", strings.Repeat("A", 31) + "1-234567",
+		"2947-0135" + strings.Repeat("f", 27), "6 54321 567890 1234567 890", "1-2-3-4-5-6-7-8-9-0-1-2",
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		got := k.Text(s)
+		outside := hexRun.ReplaceAllString(got, "#")
+		for i, p := range patterns {
+			if p.MatchString(outside) {
+				t.Fatalf("Text(%q) = %q, which holds %s", s, got, numbers[i])
+			}
+		}
+		if again := k.Text(got); again != got {
+			t.Fatalf("Text(%q) = %q, and Text of that = %q", s, got, again)
+		}
+		if k.Contains(s) != (got != s) {
+			t.Fatalf("Contains(%q) = %v, but Text gives %q", s, k.Contains(s), got)
+		}
+	})
 }

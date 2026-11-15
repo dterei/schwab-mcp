@@ -73,13 +73,15 @@ var _ = addToolCases(
 // the store readable by others, so that their warnings, which quote their
 // paths, come before the server has read the accounts; two more accounts,
 // of 9 digits and of 7, which only the known numbers catch in free text;
-// and nicknames that hold numbers. And the worlds beside it (coreSides).
+// and nicknames that hold numbers, the 7-digit one in groups too. And the
+// worlds beside it (coreSides).
 var _ = addLeaks([]func(t *testing.T, w *leakWorld){func(t *testing.T, w *leakWorld) {
 	w.plant(nineDigits, sevenDigits, unknownLong, unknownShort)
 	w.base = leakBase
 	w.store = filepath.Join(w.home, "accounts-"+options, "history.db")
 	w.opts = append(w.opts, leakBase(t, w.home)...)
-	w.masked = append(w.masked, "~/accounts-...398/history.db", "~/.config/schwabtx/token-...135.json", "~/.config-...398/schwabtx/config.json")
+	w.masked = append(w.masked, "~/accounts-...398/history.db", "~/.config/schwabtx/token-...135.json", "~/.config-...398/schwabtx/config.json",
+		`"nickname":"Savings ...321"`)
 	// The store's text is read only from a store that opens: one that does
 	// not would leave the store's side of the test with nothing to find.
 	w.checks = append(w.checks, func(t *testing.T, e *env) {
@@ -94,7 +96,8 @@ var _ = addLeaks([]func(t *testing.T, w *leakWorld){func(t *testing.T, w *leakWo
 // the token file, named for a planted number and readable by others once
 // the login has saved it; the config file in a folder that holds one; a
 // copy of the shared store in a folder that holds one, readable by others;
-// the two extra accounts; and nicknames that hold numbers.
+// the two extra accounts; and nicknames that hold numbers, one of them the
+// 7-digit account's own number in two groups, which mask.Text leaves.
 func leakBase(t *testing.T, home string) []envOption {
 	token := filepath.Join(home, ".config", "schwabtx", "token-"+individual+".json")
 	store := filepath.Join(home, "accounts-"+options, "history.db")
@@ -107,7 +110,8 @@ func leakBase(t *testing.T, home string) []envOption {
 					`","currentBalances":{"liquidationValue":10.0,"cashBalance":10.0}}}`})
 			}
 			f.SetUserPreference(`{"accounts":[{"accountNumber":"29470135","nickName":"Joint 2947-0135","primaryAccount":true},` +
-				`{"accountNumber":"61803398","nickName":"Margin 61803398"},{"accountNumber":"` + nineDigits + `","nickName":"Kids ` + sevenDigits + `"}]}`)
+				`{"accountNumber":"61803398","nickName":"Margin 61803398"},{"accountNumber":"` + nineDigits + `","nickName":"Kids ` + sevenDigits + `"},` +
+				`{"accountNumber":"` + sevenDigits + `","nickName":"Savings 765 4321"}]}`)
 			loosen(t, token) // after the login, which saved it private
 		}),
 		withStore(store),

@@ -28,9 +28,10 @@ func testMasker(home string) *masker {
 }
 
 // free masks text from outside: runs of 8 or more digits by pattern, the
-// known numbers of any length, and the secrets, before the digits, so that
-// a secret holding a run of digits is still found whole. stored masks only
-// the known numbers and the secrets, since the store masked its text.
+// known numbers of any length, written whole or in groups, and the
+// secrets, before the digits, so that a secret holding a run of digits is
+// still found whole. stored masks only the known numbers and the secrets,
+// since the store masked its text.
 func TestMaskerFreeAndStored(t *testing.T) {
 	t.Parallel()
 	m := newMasker("", "key12345678", "made-up-secret")
@@ -38,6 +39,8 @@ func TestMaskerFreeAndStored(t *testing.T) {
 	for _, tc := range []struct{ in, free, stored string }{
 		{"JOURNAL TO 87654321", "JOURNAL TO ...321", "JOURNAL TO 87654321"},
 		{"to 1234567 and back", "to ...567 and back", "to ...567 and back"},
+		{"Kids 123-4567 gift", "Kids ...567 gift", "Kids ...567 gift"},
+		{"to 123 4567, 1 234 567", "to ...567, ...567", "to ...567, ...567"},
 		{"the key key12345678 and made-up-secret", "the key [app key] and [app secret]", "the key [app key] and [app secret]"},
 		{"2026-09-14", "...914", "2026-09-14"},
 		{"AT&T <x>", "AT&T <x>", "AT&T <x>"},
@@ -233,9 +236,9 @@ func TestSchwabDetail(t *testing.T) {
 }
 
 // The backstop rewrites only what holds a known number or a secret, in a
-// string, a key or a number of any form, and leaves every other byte as it
-// was: key order, number literals, escapes, a hash that holds a known
-// number.
+// string, whole or in groups, a key or a number of any form, and leaves
+// every other byte as it was: key order, number literals, escapes, a hash
+// that holds a known number.
 func TestBackstop(t *testing.T) {
 	t.Parallel()
 	m := testMasker("")
@@ -247,6 +250,7 @@ func TestBackstop(t *testing.T) {
 		{`{"hash":"742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691"}`, `{"hash":"742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691"}`, 0},
 		{`{"d":"to 29470135","n":61803398,"f":61803398.0,"e":4.0221783E7,"k":1004517688099}`, `{"d":"to ...135","n":null,"f":null,"e":null,"k":1004517688099}`, 4},
 		{`{"29470135":1}`, `{"...135":1}`, 1},
+		{`{"d":"Joint 2947-0135","e":"to 6180 3398 x"}`, `{"d":"Joint ...135","e":"to ...398 x"}`, 2},
 		{`{"s":"` + schwabtest.AppSecret + `","k":"key ` + schwabtest.AppKey + `"}`, `{"s":"[app secret]","k":"key [app key]"}`, 2},
 		{`["\u2028",  "29470135"  ]`, `["\u2028",  "...135"  ]`, 1},
 	} {
