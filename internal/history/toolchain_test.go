@@ -5512,3 +5512,151 @@ func TestToolStep8SameAfterImport(t *testing.T) {
 		}
 	}
 }
+
+// gfDialogAsset returns the symbol under which Ghostfolio's dialog adds an
+// activity of asset a for the user of g, and whether its search finds the
+// asset at all: Yahoo's symbol, which Yahoo resolves; or a MANUAL profile
+// that the user holds, by the asset's symbol or its name, as one that an
+// import made, or that you made as a Valuable of that name
+// (manual.service.ts:232-272, create-or-update-activity-dialog.component.ts:353-432).
+func gfDialogAsset(g *gfModel, a *chainAsset) (string, bool) {
+	if a.DataSource != "MANUAL" {
+		return a.Symbol, true
+	}
+	if p := g.profile(a.Symbol); p != nil {
+		return p.symbol, true
+	}
+	for _, p := range g.profiles {
+		if p.name == a.Name && gfCustomSymbol(p.symbol) {
+			return p.symbol, true
+		}
+	}
+	return "", false
+}
+
+// TestToolGFNoActivity follows Ghostfolio's step 6 for differences of MANUAL
+// assets that no activity of the chain is of: a short put that an account
+// holds and that no row opened, and a security that Schwab names by its
+// CUSIP alone, held from before the store's rows. Ghostfolio's import makes
+// a MANUAL asset only with an activity of it, and its dialog finds no
+// other: the export marks each such line, and you make the asset as a
+// Valuable named as the line names it, then the activity of the
+// difference, the SELL or the BUY, under it. A call that a row names, and
+// a security for Yahoo, are found as any asset, and not marked; nor is the
+// call's difference that the next export lists anew, whose activity is
+// given. That export writes the rows that opened the put and the security:
+// it lists both differences as gone, which you delete, and its import
+// takes each asset that you made by its name, so that Ghostfolio holds
+// Schwab's shares, each under one asset.
+func TestToolGFNoActivity(t *testing.T) {
+	t.Parallel()
+	const name, cusip = "Schwab A1 ...135", "c:00507V109"
+	secs, names := tcSecurities()
+	secs = append(secs, toolSecurityRow{key: cusip, assetType: "EQUITY", symbol: "00507V109", cusip: "00507V109"})
+	at := tcNY("2026-11-10 18:05:00")
+	names = append(names, toolName{key: cusip, kind: "symbol", value: "00507V109", firstSeen: at, lastSeen: at})
+	short := toolPosition{key: keyPut27, account: 1, marketDate: "2026-11-10", fetchedAt: at, long: centsOf(0), short: centsOf(2_000_000), marketValue: tcPrice(-300)}
+	rows := []toolRow{rcTrade("T7g000001", 1, "2026-06-01 10:00:00", "buy", keyCall, symCall, 1_000_000, 2.5, -25_000, 0)}
+	positions := []toolPosition{
+		short, rcPosition("2026-11-10", cusip, 10_000_000, 500), rcPosition("2026-11-10", keyCall, 2_000_000, 600),
+		rcPosition("2026-11-10", keyEFGH, 5_000_000, 150),
+	}
+	first := tcInput(toolInput{securities: secs, names: names, rows: slices.Clone(rows), positions: positions, snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 100_000)}})
+	// The rows that opened the put and the security; and a third call held,
+	// whose difference the next export lists anew, of an asset that an
+	// activity given before is of.
+	then := first
+	then.rows = append(slices.Clone(rows),
+		rcTrade("T7g000002", 1, "2026-06-02 10:00:00", "sell", keyPut27, symPut27, -2_000_000, 1.5, 30_000, 0),
+		rcFile("C7g00001.1", 1, "2020-01-15", "Buy", "buy", cusip, "00507V109", centsOf(10_000_000), 50, -50_000))
+	then.positions = slices.Clone(positions)
+	then.positions[2] = rcPosition("2026-11-10", keyCall, 3_000_000, 900)
+	then = tcInput(then)
+	e1 := chainStepOf(t, first, toolGF, nil, rcAt1)
+	e2 := chainStepOf(t, then, toolGF, e1, rcAt2)
+	var marked []string
+	for _, d := range e1.e.Differences {
+		if d.NoActivity {
+			marked = append(marked, d.Asset+" "+d.Value)
+		}
+	}
+	if want := []string{"Security (00507V109) 10", "XYZ 2027-01-15 45 put (XYZ270115P00045000) -200"}; !slices.Equal(marked, want) {
+		t.Errorf("the first export marks %q as of an asset that no activity brings in, want %q", marked, want)
+	}
+	g := newGFModel()
+	// book adds by hand, through the dialog, what export s lists, after
+	// importing it: what you added for a difference gone is deleted, and
+	// for each other made equal to it, a BUY of a positive one, a SELL of
+	// a negative one, under its asset; an asset that the dialog cannot
+	// find, which the line marks, you make first as a Valuable of the name
+	// that the line shows.
+	book := func(s *chainStep) {
+		account := g.accounts[slices.IndexFunc(g.accounts, func(a *gfmAccount) bool { return a.name == name })].id
+		added := func(symbol string) int {
+			return slices.IndexFunc(g.activities, func(x gfmActivity) bool { return x.comment == "by hand" && x.account == account && x.symbol == symbol })
+		}
+		for _, d := range s.res.holdingsGone {
+			symbol, _ := gfDialogAsset(g, d.Asset)
+			i := added(symbol)
+			if i < 0 {
+				t.Fatalf("Ghostfolio holds nothing added by hand as %s for %+v", d.Asset.shown(), d)
+			}
+			g.activities = slices.Delete(g.activities, i, i+1)
+		}
+		for _, h := range s.res.holdings {
+			if h.Before || h.Carried {
+				continue
+			}
+			symbol, found := gfDialogAsset(g, h.Asset)
+			switch {
+			case found && h.NoActivity:
+				t.Errorf("%s is marked as of an asset that no activity brings in, which Ghostfolio holds", h.Asset.shown())
+			case !found && !h.NoActivity:
+				t.Fatalf("the dialog finds no asset %s, and the line does not say so", h.Asset.shown())
+			case !found:
+				symbol = g.freshID()
+				g.profiles = append(g.profiles, &gfmProfile{symbol: symbol, name: h.Asset.Name, prices: map[string]*big.Rat{}})
+			}
+			v, _ := new(big.Rat).SetString(string(h.Difference))
+			typ := "BUY"
+			if v.Sign() < 0 {
+				typ = "SELL"
+			}
+			if i := added(symbol); i >= 0 {
+				g.activities[i].typ, g.activities[i].quantity = typ, v.Abs(v)
+				continue
+			}
+			g.activities = append(g.activities, gfmActivity{
+				account: account, comment: "by hand", currency: "USD", source: h.Asset.DataSource, symbol: symbol, typ: typ,
+				date: "2026-01-01T12:00:00.000Z", fee: new(big.Rat), quantity: v.Abs(v), unitPrice: big.NewRat(1, 1),
+			})
+		}
+	}
+	for _, s := range []*chainStep{e1, e2} {
+		if _, err := gfApply(t, g, s); err != nil {
+			t.Fatal(err)
+		}
+		book(s)
+	}
+	// What Ghostfolio holds, by a MANUAL asset's name, else by its symbol,
+	// against what Schwab does.
+	named := map[string]string{}
+	for _, p := range g.profiles {
+		for _, q := range g.profiles {
+			if p != q && p.name == q.name {
+				t.Errorf("Ghostfolio holds two profiles named %s", p.name)
+			}
+		}
+		named[p.symbol] = p.name
+	}
+	got := map[string]string{}
+	for h, q := range g.holdings() {
+		got[cmp.Or(named[h.symbol], h.symbol)] = q.RatString()
+	}
+	want := map[string]string{
+		"XYZ 2027-01-15 45 put (XYZ270115P00045000)": "-200", "Security (00507V109)": "10", "XYZ 2026-09-18 50 call (XYZ260918C00050000)": "300", "EFGH": "5",
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("Ghostfolio holds %v, Schwab %v", got, want)
+	}
+}

@@ -550,7 +550,8 @@
         "snapshot": "2026-11-10",
         "snapshot_shares": 10,
         "written_shares": 0,
-        "difference": 10
+        "difference": 10,
+        "no_activity": true
       },
       {
         "account": "A1 ...135",
@@ -629,7 +630,8 @@
         "snapshot": "2026-11-10",
         "snapshot_shares": -200,
         "written_shares": 0,
-        "difference": -200
+        "difference": -200,
+        "no_activity": true
       },
       {
         "account": "A2 ...398",

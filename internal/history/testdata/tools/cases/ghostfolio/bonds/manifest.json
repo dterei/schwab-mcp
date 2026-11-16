@@ -177,7 +177,8 @@
         "snapshot_shares": 10000,
         "written_shares": 0,
         "difference": 10000,
-        "left_out": true
+        "left_out": true,
+        "no_activity": true
       }
     ],
     "gone": [],

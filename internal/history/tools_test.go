@@ -301,7 +301,7 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 		if !h.Before && !h.Carried {
 			differences = append(differences, ToolDifference{
 				Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Asset: h.Asset.shown(), Finds: f, Value: string(h.Difference), LeftOut: h.LeftOut,
-				Unsure: h.Unsure,
+				Unsure: h.Unsure, NoActivity: h.NoActivity,
 			})
 		}
 	}

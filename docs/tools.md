@@ -455,18 +455,19 @@ what identifies it, with its description in its comment.
    4 deposits, withdrawals and journals are in the accounts' balances
    2 symbols for Yahoo may no longer be the securities written (gf-1/manifest.json lists them under ghostfolio.yahoo_idle): no row since 2025-11-13 and not held, or named by a CUSIP; look each up on Yahoo, and name in one -manual those that it lacks or shows as another company (docs/tools.md step 1)
    11 holdings differ from the latest snapshots (gf-1/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
-     Schwab A1 ...135: Security (00507V109) (MANUAL): 10
+     Schwab A1 ...135: Security (00507V109) (MANUAL): 10, of an asset that no activity brings in: make it first (docs/tools.md step 6)
      Schwab A1 ...135: SWVXX (YAHOO): 1220.89
      Schwab A1 ...135: VTI (YAHOO): 12
      Schwab A1 ...135: AAPL (YAHOO): -0.8212
      Schwab A1 ...135: BND (YAHOO): -0.0378
      Schwab A1 ...135: VBR (YAHOO): -1.5487
-     Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200
+     Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200, of an asset that no activity brings in: make it first (docs/tools.md step 6)
      Schwab A2 ...398: META (YAHOO): 2
      Schwab A2 ...398: Security (i:205187341) (MANUAL): -50
      Schwab A2 ...398: XYZ 2025-02-21 40 put (XYZ250221P00040000) (MANUAL): -200
      Schwab A2 ...398: XYZ 2026-09-18 50 call (XYZ260918C00050000) (MANUAL): 100
    Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
+   1 account has no cash balance in this file (gf-1/manifest.json says why under accounts): Schwab A3 ...783, none of whose snapshots holds a cash figure: set its cash in Ghostfolio by hand to what Schwab shows (docs/tools.md step 2)
    next time: schwabtx export -format ghostfolio -since gf-1 -dir <a new folder>
    ```
 
@@ -498,18 +499,19 @@ what identifies it, with its description in its comment.
    4 deposits, withdrawals and journals are in the accounts' balances
    1 symbol for Yahoo may no longer be the security written (gf-2/manifest.json lists it under ghostfolio.yahoo_idle): no row since 2025-11-13 and not held, or named by a CUSIP; look it up on Yahoo, and if it lacks it or shows it as another company, name it in -manual (docs/tools.md step 1)
    11 holdings differ from the latest snapshots (gf-2/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
-     Schwab A1 ...135: Security (00507V109) (MANUAL): 10
+     Schwab A1 ...135: Security (00507V109) (MANUAL): 10, of an asset that no activity brings in: make it first (docs/tools.md step 6)
      Schwab A1 ...135: SWVXX (YAHOO): 1220.89
      Schwab A1 ...135: VTI (YAHOO): 12
      Schwab A1 ...135: AAPL (YAHOO): -0.8212
      Schwab A1 ...135: Security (BND) (MANUAL): -0.0378
      Schwab A1 ...135: VBR (YAHOO): -1.5487
-     Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200
+     Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200, of an asset that no activity brings in: make it first (docs/tools.md step 6)
      Schwab A2 ...398: META (YAHOO): 2
      Schwab A2 ...398: Security (i:205187341) (MANUAL): -50
      Schwab A2 ...398: XYZ 2025-02-21 40 put (XYZ250221P00040000) (MANUAL): -200
      Schwab A2 ...398: XYZ 2026-09-18 50 call (XYZ260918C00050000) (MANUAL): 100
    Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
+   1 account has no cash balance in this file (gf-2/manifest.json says why under accounts): Schwab A3 ...783, none of whose snapshots holds a cash figure: set its cash in Ghostfolio by hand to what Schwab shows (docs/tools.md step 2)
    next time: schwabtx export -format ghostfolio -since gf-2 -dir <a new folder>
    ```
 
@@ -524,13 +526,17 @@ what identifies it, with its description in its comment.
    Ghostfolio's charts; later exports with `-since` keep the chain's
    `-manual` list.
 2. **Cash.** The import that makes an account sets its balances, one for
-   each market date of your snapshots; later imports leave them as they
-   are, and no import moves cash. So each `-since` export prints every
-   account's latest snapshot cash: set it in Ghostfolio when it shows
-   another. Ghostfolio counts the first balance as money invested on its
-   day, which skews its investment and its percentages until daily balances
-   exist (milestone 4). Schwab can report a margin account's cash balance as
-   0, with its cash in other figures; Ghostfolio's cash is then off.
+   each market date of your snapshots that holds a cash figure; later
+   imports leave them as they are, and no import moves cash. So each
+   `-since` export prints the latest snapshot cash of every account whose
+   snapshots hold one: set it in Ghostfolio when it shows another. An
+   account that the file gives no balance, as none of its snapshots holds a
+   cash figure, or it has none, every export names ("has no cash balance in
+   this file"): set its cash in Ghostfolio by hand to what Schwab shows.
+   Ghostfolio counts the first balance as money invested on its day, which
+   skews its investment and its percentages until daily balances exist
+   (milestone 4). Schwab can report a margin account's cash balance as 0,
+   with its cash in other figures; Ghostfolio's cash is then off.
 3. **A file with nothing new.** The import dialog imports a file only when it
    holds a new activity: an export with none (prices only, or an account
    with snapshots and no rows) cannot be imported there, and stderr says so.
@@ -569,7 +575,18 @@ what identifies it, with its description in its comment.
    negative one, dated as step 4 dates PP's deliveries, of the asset that
    the manifest lists the difference under (`ghostfolio_asset`, which
    Ghostfolio shows by its symbol, or a MANUAL asset by its name); or
-   import the History files back to the purchase and export again. After
+   import the History files back to the purchase and export again.
+   Ghostfolio's dialog finds a MANUAL asset only once Ghostfolio holds it,
+   and its import makes one only with an activity of it: a line that says
+   "of an asset that no activity brings in" (the manifest's `no_activity`)
+   names one that no activity of the export, nor of the earlier ones that
+   Ghostfolio holds, is of, as an option sold before the store's rows.
+   Unless you made it already, make it first: add a Valuable named exactly
+   as the line names the asset (`XYZ 2026-06-19 45 put
+   (XYZ260619P00045000)`), then edit that activity into the BUY, or the
+   SELL, of the difference, dated as above; a later import finds the asset
+   by that name and adds its activities to it. Until you make it, or an
+   import brings a row of it, Ghostfolio holds nothing of it. After
    importing a later export, delete what it lists as gone, then make what
    you added for each other equal to the listed value, less what the rows
    left out that you book by hand move (Ghostfolio takes no activity of an
@@ -617,6 +634,7 @@ what identifies it, with its description in its comment.
    set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
      Schwab A1 ...135: 1532.17 (2026-11-10)
      Schwab A2 ...398: 5210.44 (2026-11-10)
+   1 account has no cash balance in this file (gf-3/manifest.json says why under accounts): Schwab A3 ...783, none of whose snapshots holds a cash figure: set its cash in Ghostfolio by hand to what Schwab shows (docs/tools.md step 2)
    a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -format ghostfolio -manual BND -dir <a new folder>
    next time: schwabtx export -format ghostfolio -since gf-3 -dir <a new folder>
    ```

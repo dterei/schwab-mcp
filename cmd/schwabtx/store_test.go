@@ -1314,26 +1314,33 @@ next time: schwabtx export -format pp -since pp-2026-12-31 -dir <a new folder>
 			name: "ghostfolio in full", dir: "gf-2026-11-13",
 			e: history.ToolExport{
 				Tool: "ghostfolio", To: "2026-11-12", Written: 10,
-				Files:    []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio", Rows: 12}},
-				Accounts: []history.ToolAccount{withCash(newly(a1), 10, "10234.56", "2026-11-10"), withCash(newly(a2), 8, "-12.34", "2026-11-10")},
+				Files: []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio", Rows: 12}},
+				// Two accounts that the file gives no balance: one whose
+				// snapshots hold no cash figure, one with no snapshot.
+				Accounts: []history.ToolAccount{
+					withCash(newly(a1), 10, "10234.56", "2026-11-10"), withCash(newly(a2), 8, "-12.34", "2026-11-10"),
+					newly(history.ToolAccount{Label: "A3 ...783", Account: "...783", Name: "Schwab A3 ...783", Exported: true, NoBalances: "no snapshot holds its cash"}),
+					newly(history.ToolAccount{Label: "A4 ...246", Account: "...246", Name: "Schwab A4 ...246", Exported: true, NoBalances: "no snapshot"}),
+				},
 				Profiles: 5, PricesOnly: 2, Yahoo: 6, InBalances: 6,
 				NotInBalances: []history.ToolCashRows{{Account: "A1 ...135", Rows: 2, Snapshot: "2026-11-10", Taken: evening}},
 				Unused:        []string{"ABCD", "61803398", "XY\u200bZ"},
 				YahooIdle:     3, IdleSince: "2025-11-12",
 				Differences: []history.ToolDifference{
 					{Account: "A1 ...135", Key: "i:4417355", Symbol: "VBR", Asset: "VBR", Finds: "YAHOO", Value: "12.5"},
-					{Account: "A1 ...135", Key: "c:00507V109", Symbol: "00507V109", Asset: "Security (00507V109)", Finds: "MANUAL", Value: "10", LeftOut: true},
+					{Account: "A1 ...135", Key: "c:00507V109", Symbol: "00507V109", Asset: "Security (00507V109)", Finds: "MANUAL", Value: "10", LeftOut: true, NoActivity: true},
 				},
 			},
-			want: `wrote 12 activities for Ghostfolio to gf-2026-11-13, up to 2026-11-12: 2 accounts with 18 balances, 5 manual assets (2 more with prices only), 6 symbols for Yahoo
+			want: `wrote 12 activities for Ghostfolio to gf-2026-11-13, up to 2026-11-12: 4 accounts with 18 balances, 5 manual assets (2 more with prices only), 6 symbols for Yahoo
   this assumes Ghostfolio holds none of these accounts: a first import, or a redo of every account (docs/tools.md)
 6 deposits, withdrawals and journals are in the accounts' balances; 2 are not yet, posted after the latest snapshot was taken (A1 ...135: of 2026-11-10, taken 2026-11-10 18:05 in New York), which a later one will carry
 -manual names ABCD and ...398 and XY?Z, which nothing in this export uses
 3 symbols for Yahoo may no longer be the securities written (gf-2026-11-13/manifest.json lists them under ghostfolio.yahoo_idle): no row since 2025-11-12 and not held, or named by a CUSIP; look each up on Yahoo, and name in one -manual those that it lacks or shows as another company (docs/tools.md step 1)
 2 holdings differ from the latest snapshots (gf-2026-11-13/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
   Schwab A1 ...135: VBR (YAHOO): 12.5
-  Schwab A1 ...135: Security (00507V109) (MANUAL): 10, less the rows left out of it that you book by hand
+  Schwab A1 ...135: Security (00507V109) (MANUAL): 10, less the rows left out of it that you book by hand, of an asset that no activity brings in: make it first (docs/tools.md step 6)
 Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
+2 accounts have no cash balance in this file (gf-2026-11-13/manifest.json says why under accounts): Schwab A3 ...783, none of whose snapshots holds a cash figure, and Schwab A4 ...246, which has no snapshot: set the cash of each in Ghostfolio by hand to what Schwab shows (docs/tools.md step 2)
 next time: schwabtx export -format ghostfolio -since gf-2026-11-13 -dir <a new folder>
 `,
 		},
@@ -1341,15 +1348,19 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-13 -dir <a new f
 			name: "ghostfolio in full, one holding", dir: "gf-2026-11-14",
 			e: history.ToolExport{
 				Tool: "ghostfolio", To: "2026-11-13", Written: 1,
-				Files:       []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio", Rows: 1}},
-				Accounts:    []history.ToolAccount{withCash(newly(a1), 1, "10.00", "2026-11-10")},
+				Files: []history.ToolFile{{Name: "ghostfolio.json", Kind: "ghostfolio", Rows: 1}},
+				Accounts: []history.ToolAccount{
+					withCash(newly(a1), 1, "10.00", "2026-11-10"),
+					newly(history.ToolAccount{Label: "A3 ...783", Account: "...783", Name: "Schwab A3 ...783", Exported: true, NoBalances: "no snapshot holds its cash"}),
+				},
 				Differences: []history.ToolDifference{{Account: "A1 ...135", Key: "i:219771034", Symbol: "XYZ   250221P00040000", Asset: "XYZ 2025-02-21 40 put (XYZ250221P00040000)", Finds: "MANUAL", Value: "200"}},
 			},
-			want: `wrote 1 activity for Ghostfolio to gf-2026-11-14, up to 2026-11-13: 1 account with 1 balance
+			want: `wrote 1 activity for Ghostfolio to gf-2026-11-14, up to 2026-11-13: 2 accounts with 1 balance
   this assumes Ghostfolio holds none of these accounts: a first import, or a redo of every account (docs/tools.md)
 1 holding differs from the latest snapshots (gf-2026-11-14/manifest.json lists it under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
   Schwab A1 ...135: XYZ 2025-02-21 40 put (XYZ250221P00040000) (MANUAL): 200
 Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
+1 account has no cash balance in this file (gf-2026-11-14/manifest.json says why under accounts): Schwab A3 ...783, none of whose snapshots holds a cash figure: set its cash in Ghostfolio by hand to what Schwab shows (docs/tools.md step 2)
 next time: schwabtx export -format ghostfolio -since gf-2026-11-14 -dir <a new folder>
 `,
 		},
@@ -1387,6 +1398,7 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-14 -dir <a new f
 				Differences: []history.ToolDifference{
 					{Account: "A1 ...135", Key: "i:1854092", Symbol: "XYZ", Asset: "XYZ", Finds: "YAHOO", Value: "10", Gone: true},
 					{Account: "A2 ...398", Key: "i:1000877", Symbol: "ZZTA", Asset: "ZZTA", Finds: "YAHOO", Value: "4", Gone: true},
+					{Account: "A2 ...398", Key: "i:219900001", Symbol: "XYZ   270115P00045000", Asset: "XYZ 2027-01-15 45 put (XYZ270115P00045000)", Finds: "MANUAL", Value: "-200", Gone: true, NoActivity: true},
 					{Account: "A1 ...135", Key: "i:1854092", Symbol: "XYZ", Asset: "Security (XYZ)", Finds: "MANUAL", Value: "10"},
 					{Account: "A2 ...398", Key: "i:1000877", Symbol: "ZZTB", Asset: "ZZTB", Finds: "YAHOO", Value: "3"},
 					{Account: "A2 ...398", Key: "c:30303M102", Asset: "Security (30303M102)", Finds: "MANUAL", Value: "1"},
@@ -1407,9 +1419,10 @@ before importing, delete in Ghostfolio what changed or went (gf-2026-12-01/manif
   Schwab A2 ...398: 2025-01-22 SELL 412.50 fee 0.65 (comment schwabtx A2 ...398 T73508261945): gone, left out (gf_cash)
 1 row that gf-2026-11-13 left out is written now (gf-2026-12-01/manifest.json lists it under left_out_written): before importing, delete in Ghostfolio what you added by hand for it, if anything (docs/tools.md step 7):
   Schwab A1 ...135: 2025-12-10 BUY 50.00 (T73508261970; left out signs_disagree, check)
-4 differences from the latest snapshots are new or changed since gf-2026-11-13, and 2 are gone (gf-2026-12-01/manifest.json lists each): after importing, delete what you added by hand in Ghostfolio for each that is gone, under the asset named, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
+4 differences from the latest snapshots are new or changed since gf-2026-11-13, and 3 are gone (gf-2026-12-01/manifest.json lists each): after importing, delete what you added by hand in Ghostfolio for each that is gone, under the asset named, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
   Schwab A1 ...135: XYZ (YAHOO): gone: delete what you added for it, if anything
   Schwab A2 ...398: ZZTA (YAHOO): gone: delete what you added for it, if anything
+  Schwab A2 ...398: XYZ 2027-01-15 45 put (XYZ270115P00045000) (MANUAL): gone: delete what you added for it, if anything
   Schwab A1 ...135: Security (XYZ) (MANUAL): 10
   Schwab A2 ...398: ZZTB (YAHOO): 3
   Schwab A2 ...398: Security (30303M102) (MANUAL): 1

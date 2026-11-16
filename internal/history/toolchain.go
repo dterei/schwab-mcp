@@ -299,7 +299,11 @@ type chainCashHolding struct {
 // on from, for the next export that checks the account (K-6). Unsure says
 // that the security is written on its own, of a key under keys_unsure: a
 // fact, which changes neither what to book for it nor whether it is before
-// or gone (I-11).
+// or gone (I-11). NoActivity says, for Ghostfolio, that its asset is a
+// MANUAL one that no activity of the export, written or given, is of:
+// Ghostfolio's import makes such an asset only with an activity of it that
+// it imports, and its dialog finds no other, so you make the asset first
+// (docs/tools.md step 6); a fact too, which changes nothing else.
 type chainHolding struct {
 	Account        string           `json:"account"`
 	SecurityKey    string           `json:"security_key"`
@@ -313,6 +317,7 @@ type chainHolding struct {
 	Difference     json.Number      `json:"difference"`
 	LeftOut        bool             `json:"left_out,omitempty"`
 	Unsure         bool             `json:"unsure,omitempty"`
+	NoActivity     bool             `json:"no_activity,omitempty"`
 	Before         bool             `json:"before,omitempty"`
 	Carried        bool             `json:"carried,omitempty"`
 }
@@ -1229,6 +1234,18 @@ func (c *chainResult) compareHoldings(events []toolEvent, moves map[string]bool)
 	unchecked = append(unchecked, c.notHeld...)
 	slices.SortFunc(unchecked, func(a, b toolAccount) int { return cmp.Compare(a.id, b.id) })
 	c.unchecked = unchecked
+	// The assets that an activity of the export, written or given, is of,
+	// by data source and symbol: Ghostfolio's import makes a MANUAL asset
+	// only for an activity of it that it imports, and its dialog finds no
+	// MANUAL asset that the user does not hold (import.service.ts:838-855
+	// and manual.service.ts:232-272 of 3.99.0).
+	made := map[string]bool{}
+	for i := range events {
+		if e := &events[i]; c.in.tool == toolGF && e.security != nil && e.profile == "" {
+			a := gfAssetOf(e.security)
+			made[a.DataSource+" "+a.Symbol] = true
+		}
+	}
 	var now, then []chainEntry
 	for _, d := range diffs {
 		h := chainHolding{
@@ -1238,6 +1255,7 @@ func (c *chainResult) compareHoldings(events []toolEvent, moves map[string]bool)
 			Difference: json.Number(formatMicros(d.snapshotShares - d.writtenShares)),
 		}
 		h.LeftOut, h.Unsure = moves[h.key()], d.security.unsure
+		h.NoActivity = h.Asset != nil && h.Asset.DataSource == "MANUAL" && !made[h.Asset.DataSource+" "+h.Asset.Symbol]
 		c.holdings = append(c.holdings, h)
 		now = append(now, chainEntry{h.Account, h.key(), chainRat(h.Difference), false})
 	}

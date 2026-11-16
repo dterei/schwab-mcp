@@ -544,6 +544,7 @@
         "snapshot_shares": 10,
         "written_shares": 0,
         "difference": 10,
+        "no_activity": true,
         "carried": true
       },
       {
@@ -629,6 +630,7 @@
         "snapshot_shares": -200,
         "written_shares": 0,
         "difference": -200,
+        "no_activity": true,
         "carried": true
       },
       {

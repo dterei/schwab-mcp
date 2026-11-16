@@ -266,14 +266,16 @@ type ToolCashRows struct {
 // the records leave, as the manifest writes it, signed: shares, or dollars
 // with two places; for one gone, the one that the export it goes on from
 // listed. LeftOut says that a row that the export leaves out moves it
-// (left_out), and Unsure that the security is written on its own, of a key
-// under keys_unsure (unsure).
+// (left_out); Unsure that the security is written on its own, of a key
+// under keys_unsure (unsure); and NoActivity, for Ghostfolio, that its asset
+// is a MANUAL one that no activity of the export, written or given, is of,
+// which you make first (no_activity).
 type ToolDifference struct {
-	Account, Key, Symbol  string
-	Cash                  bool
-	Asset, Finds          string
-	Value                 string
-	Gone, LeftOut, Unsure bool
+	Account, Key, Symbol              string
+	Cash                              bool
+	Asset, Finds                      string
+	Value                             string
+	Gone, LeftOut, Unsure, NoActivity bool
 }
 
 // A ToolCashUnchecked is, for PP, an account whose cash the cash check does
@@ -653,7 +655,7 @@ func (e *ToolExport) count() {
 		if !h.Before && !h.Carried {
 			e.Differences = append(e.Differences, ToolDifference{
 				Account: h.Account, Key: h.SecurityKey, Symbol: h.Symbol, Asset: h.Asset.shown(), Finds: toolFinds(h.PP, h.Asset),
-				Value: string(h.Difference), LeftOut: h.LeftOut, Unsure: h.Unsure,
+				Value: string(h.Difference), LeftOut: h.LeftOut, Unsure: h.Unsure, NoActivity: h.NoActivity,
 			})
 		}
 	}

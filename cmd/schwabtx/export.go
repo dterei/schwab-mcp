@@ -483,7 +483,8 @@ func sinceManifest(dir, format string) ([]byte, error) {
 // new, changed or gone (differenceLines), and the accounts that the checks
 // do not check (notCheckedLines); for PP, the accounts to make, the order of
 // the files and the rows to tick; for Ghostfolio, the cash that its imports
-// leave as it is; going on, when the chain selects an account or, for
+// leave as it is, and the accounts that its file gives no balance
+// (noBalanceLine); going on, when the chain selects an account or, for
 // Ghostfolio, names -manual symbols, the full export that a redo imports;
 // and the command that goes on from it.
 func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since string) {
@@ -528,6 +529,7 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 				fmt.Fprintf(w, "set each account's cash in %s to its latest snapshot, which imports do not change:\n%s", tool, strings.Join(cash, ""))
 			}
 		}
+		noBalanceLine(w, e, manifest)
 		if toolActivities(e) == 0 {
 			fmt.Fprintf(w, "this file holds no activity: %s's import dialog cannot import it; its accounts and balances come with the next export that has one, or by POST /api/v1/import; the next export lists its differences again, and those gone\n", tool)
 		}
@@ -576,6 +578,28 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 		fmt.Fprintf(w, "a redo (docs/tools.md) imports a full export of this chain's selection: %s\n", copyCommand(path, args...))
 	}
 	fmt.Fprintf(w, "next time: %s\n", copyCommand(path, "export", "-format", e.Tool, "-since", quoteArg(dir), "-dir", "<a new folder>"))
+}
+
+// noBalanceLine says on w which accounts of the export e for Ghostfolio,
+// whose manifest is manifest, its file gives no balance, as none of their
+// snapshots holds a cash figure, or they have none: Ghostfolio's cash of
+// such an account is what you set by hand, which no export sets until a
+// snapshot holds its cash.
+func noBalanceLine(w io.Writer, e *history.ToolExport, manifest string) {
+	var none []string
+	for _, a := range e.Accounts {
+		switch {
+		case !a.Exported || a.Balances > 0 || a.NoBalances == "":
+		case a.NoBalances == "no snapshot":
+			none = append(none, a.Name+", which has no snapshot")
+		default:
+			none = append(none, a.Name+", none of whose snapshots holds a cash figure")
+		}
+	}
+	if n := len(none); n > 0 {
+		fmt.Fprintf(w, "%s no cash balance in this file (%s says why under accounts): %s: set %s in %s by hand to what Schwab shows (docs/tools.md step 2)\n",
+			pluralWord(n, "1 account has", fmt.Sprintf("%d accounts have", n)), manifest, strings.Join(none, ", and "), pluralWord(n, "its cash", "the cash of each"), toolFormats[e.Tool].name)
+	}
 }
 
 // toolWrote returns the first line that an export for a tool says, which
@@ -970,6 +994,8 @@ func toolDeletions(w io.Writer, e *history.ToolExport, manifest string) {
 // arriving as it was booked, would stay out; in Ghostfolio after, since the
 // import makes a new MANUAL asset to add under, and an activity that an
 // export writes, its comment its own, is never equal to one added by hand.
+// A line marks a MANUAL asset of Ghostfolio that no activity of the export
+// brings in, which you make first (NoActivity).
 func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string) {
 	gone := 0
 	for _, d := range e.Differences {
@@ -1038,6 +1064,9 @@ func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string)
 		}
 		if d.Unsure && !d.Gone {
 			value += ", of a key under keys_unsure"
+		}
+		if d.NoActivity && !d.Gone {
+			value += ", of an asset that no activity brings in: make it first (docs/tools.md step 6)"
 		}
 		fmt.Fprintf(w, "  %s: %s: %s\n", toolAccountName(e, d.Account), what, value)
 	}
