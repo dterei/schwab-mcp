@@ -57,15 +57,18 @@ made up.
   `schwabtx export` once you have moved away the folder that you did not
   import (the export refuses to go on twice from one folder). If it is
   another security, run nothing, and book its differences as any other's
-  (step 4); later `-since` exports do not count it again, a full export
-  lists it again. Many keys at once, as when your History file was
-  exported long before your first snapshot: export the History again from
-  Schwab within a week of a snapshot, and import it
+  (step 4). Later `-since` exports do not count it again while the
+  securities that it may be stay the same. One that lists it again as they
+  change, as once you have settled one of them, asks you to judge it only
+  against a security that it names and did not name before: if none, run
+  nothing again. A full export lists it again. Many keys at once, as when
+  your History file was exported long before your first snapshot: export the
+  History again from Schwab within a week of a snapshot, and import it
   ([docs/store.md](store.md#history-exports)), so that the store joins the
   keys of each security that you hold itself; then export again. Once
   imported, a `-same` still works: the next `-since` export lists the rows
-  written on their own to delete, writes them under the joined security,
-  and lists the differences again (step 4). Then delete the empty security
+  written on their own to delete, writes them under the joined security, and
+  lists the differences again (step 4). Then delete the empty security
   `Security (<key>)` in PP, or the empty asset of that name in Ghostfolio.
 - **A full export** assumes that the tool holds none of its accounts' rows,
   as the line after its first says: a first import into new, empty
@@ -102,6 +105,9 @@ and the types' names, whatever PP's language and locale.
      A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
      A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
      A3 ...783: snapshot 2026-11-02 to 2026-11-10
+   in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
+     A1 ...135: Schwab A1 ...135
+     A2 ...398: Schwab A2 ...398
    13 differences from the latest snapshots (pp-1/manifest.json lists each under holdings, with the snapshot's figure and the records'): after importing, make what you add by hand in Portfolio Performance for each equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 4 says what to book for each):
      Schwab A1 ...135: 00507V109 (WKN 00507V109): 10
      Schwab A1 ...135: SWVXX (WKN 808515779): 1220.89
@@ -117,9 +123,6 @@ and the types' names, whatever PP's language and locale.
      Schwab A1 ...135: cash: -10776.43
      Schwab A2 ...398: cash: 5724.26
    1 account has snapshots and nothing in Portfolio Performance (pp-1/manifest.json lists it under holdings.not_checked): A3 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
-   in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
-     A1 ...135: Schwab A1 ...135
-     A2 ...398: Schwab A2 ...398
    import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv, account-transactions-A2-398.csv, portfolio-transactions-A2-398.csv
    next time: schwabtx export -format pp -since pp-1 -dir <a new folder>
    ```
@@ -190,6 +193,13 @@ and the types' names, whatever PP's language and locale.
      store does not hold yet, or a short opened before its rows. Book a
      Delivery (Outbound) on the day it happened (at 0 for an option that
      expired), or the day before the first row for an opening short.
+   - **A security that PP does not hold**, as one that no row names: make
+     it first, with the ticker, WKN and name of the difference's
+     `pp_security` in the manifest (the line shows how PP finds it), then
+     book the delivery into it; PP finds it again by them when an export
+     writes its rows. On a `-since` export, book what you add for a
+     security that PP does not hold yet after importing: the import brings
+     the securities that its rows name.
    - Better, either way: import the History file or the `transactions
      -json` that holds the row; the next export writes it, and lists the
      difference as gone, or with what is left of it.
@@ -233,9 +243,11 @@ and the types' names, whatever PP's language and locale.
    gone, then make what you added for each other equal to its value, less
    what the rows left out that you book by hand move. PP marks a new row
    equal to one that it holds as existing (step 3), so an entry left as it
-   was would have PP mark the rows that it stood for. An account that one
-   export could not check, the next that checks it lists in full again: the
-   export between carries its differences on, marked `carried`.
+   was would have PP mark the rows that it stood for; what you add for a
+   security that PP does not hold yet, you add after the import, which
+   brings it. An account that one export could not check, the next that
+   checks it lists in full again: the export between carries its differences
+   on, marked `carried`.
 5. **What the manifest asks of you**: the rows left out, each with its
    reason and what to do, and the rows written with a caveat
    ([below](#what-the-manifest-asks-of-you)). A row that PP refuses for its
@@ -265,7 +277,8 @@ and the types' names, whatever PP's language and locale.
       PP keeps.
    5. Your hand entries, to the differences listed, gone ones first:
       delete what you booked for each that is gone, then make what you
-      booked for each other equal to it (step 4).
+      booked for each other equal to it (step 4); those of a security that
+      PP does not hold yet, after the import (item 6), which brings it.
    6. Import the files in the order printed, and tick exactly the rows it
       lists to tick (step 3).
 

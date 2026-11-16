@@ -477,16 +477,19 @@ func sinceManifest(dir, format string) ([]byte, error) {
 // design): what it wrote (toolWrote) and what it assumes that the tool
 // holds: for a full export, none of its accounts, as on a first import or a
 // redo of every account, and going on, the exports of the chain; each
-// account's coverage; what it counted that needs you (toolCountLines); what
-// to delete in the tool before importing (toolDeletions); the differences
-// from the snapshots, which what you add by hand is to equal, going on those
-// new, changed or gone (differenceLines), and the accounts that the checks
-// do not check (notCheckedLines); for PP, the accounts to make, the order of
-// the files and the rows to tick; for Ghostfolio, the cash that its imports
-// leave as it is, and the accounts that its file gives no balance
-// (noBalanceLine); going on, when the chain selects an account or, for
-// Ghostfolio, names -manual symbols, the full export that a redo imports;
-// and the command that goes on from it.
+// account's coverage; what it counted that needs you (toolCountLines); for
+// PP, the accounts to make (ppAccountsToMake); what to delete in the tool
+// before importing (toolDeletions), going on with what you booked for a row
+// that the export before it left out and that this one writes
+// (leftOutWrittenLines); the differences from the snapshots, which what you
+// add by hand is to equal, going on those new, changed or gone
+// (differenceLines), and the accounts that the checks do not check
+// (notCheckedLines); for PP, the order of the files and the rows to tick;
+// for Ghostfolio, the cash that its imports leave as it is, and the
+// accounts that its file gives no balance (noBalanceLine); going on, when
+// the chain selects an account or, for Ghostfolio, names -manual symbols,
+// the full export that a redo imports; and the command that goes on from
+// it.
 func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since string) {
 	tool, gf := toolFormats[e.Tool].name, e.Tool == "ghostfolio"
 	manifest := filepath.Join(dir, "manifest.json")
@@ -512,6 +515,9 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 	}
 	coverageLines(w, e.Coverage)
 	toolCountLines(w, path, e, manifest)
+	if !gf {
+		ppAccountsToMake(w, e)
+	}
 	toolDeletions(w, e, manifest)
 	leftOutWrittenLines(w, e, manifest, since)
 	differenceLines(w, e, manifest, since)
@@ -534,22 +540,6 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 			fmt.Fprintf(w, "this file holds no activity: %s's import dialog cannot import it; its accounts and balances come with the next export that has one, or by POST /api/v1/import; the next export lists its differences again, and those gone\n", tool)
 		}
 	} else {
-		var accounts []history.ToolAccount
-		for _, a := range e.Accounts {
-			if a.New {
-				accounts = append(accounts, a)
-			}
-		}
-		if len(accounts) > 0 {
-			fmt.Fprintf(w, "in %s, make a USD deposit account and a securities account for each account, named:\n", tool)
-			for _, a := range accounts {
-				label := a.Label
-				if a.Nickname != "" {
-					label += " (" + plainCell(a.Nickname) + ")"
-				}
-				fmt.Fprintf(w, "  %s: %s\n", label, a.Name)
-			}
-		}
 		var files []string
 		for _, f := range e.Files {
 			files = append(files, f.Name)
@@ -599,6 +589,32 @@ func noBalanceLine(w io.Writer, e *history.ToolExport, manifest string) {
 	if n := len(none); n > 0 {
 		fmt.Fprintf(w, "%s no cash balance in this file (%s says why under accounts): %s: set %s in %s by hand to what Schwab shows (docs/tools.md step 2)\n",
 			pluralWord(n, "1 account has", fmt.Sprintf("%d accounts have", n)), manifest, strings.Join(none, ", and "), pluralWord(n, "its cash", "the cash of each"), toolFormats[e.Tool].name)
+	}
+}
+
+// ppAccountsToMake says on w which accounts to make in PP for the export e
+// for PP, by the names that its files give them: those that no export of
+// its chain before it wrote or named (ToolAccount.New). It comes before
+// what to delete and what to book by hand, as docs/tools.md's steps 2 and 6
+// have you make them first: an empty account touches nothing that PP
+// holds, and what you book for a difference of a new account goes into it.
+func ppAccountsToMake(w io.Writer, e *history.ToolExport) {
+	var accounts []history.ToolAccount
+	for _, a := range e.Accounts {
+		if a.New {
+			accounts = append(accounts, a)
+		}
+	}
+	if len(accounts) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "in %s, make a USD deposit account and a securities account for each account, named:\n", toolFormats[e.Tool].name)
+	for _, a := range accounts {
+		label := a.Label
+		if a.Nickname != "" {
+			label += " (" + plainCell(a.Nickname) + ")"
+		}
+		fmt.Fprintf(w, "  %s: %s\n", label, a.Name)
 	}
 }
 
@@ -991,11 +1007,12 @@ func toolDeletions(w io.Writer, e *history.ToolExport, manifest string) {
 // it after importing, into accounts that held none of its rows. Going on,
 // in PP that comes before importing, since PP marks a new row equal to one
 // that it holds as existing, and the rows that a hand entry stood for,
-// arriving as it was booked, would stay out; in Ghostfolio after, since the
-// import makes a new MANUAL asset to add under, and an activity that an
-// export writes, its comment its own, is never equal to one added by hand.
-// A line marks a MANUAL asset of Ghostfolio that no activity of the export
-// brings in, which you make first (NoActivity).
+// arriving as it was booked, would stay out, but for a security that PP
+// does not hold yet, which the import brings, after; in Ghostfolio after,
+// since the import makes a new MANUAL asset to add under, and an activity
+// that an export writes, its comment its own, is never equal to one added
+// by hand. A line marks a MANUAL asset of Ghostfolio that no activity of the
+// export brings in, which you make first (NoActivity).
 func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string) {
 	gone := 0
 	for _, d := range e.Differences {
@@ -1042,7 +1059,11 @@ func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string)
 		default:
 			do = fmt.Sprintf("delete what you added by hand in %s for each%s", tool, under)
 		}
-		when, why := "before", "; "+tool+" marks a new row equal to one that it holds as existing (docs/tools.md step 4)"
+		when, why := "before", "; "+tool+" marks a new row equal to one that it holds as existing"
+		if n > 0 {
+			why += "; book one of a security that it does not hold yet after importing"
+		}
+		why += " (docs/tools.md step 4)"
 		if gf {
 			when, why = "after", signs+" (docs/tools.md step 6)"
 		}

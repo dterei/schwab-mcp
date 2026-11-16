@@ -688,18 +688,21 @@ func TestStoreCommandsMaskNumbers(t *testing.T) {
 	// TestToolSummary says what an export for Ghostfolio says.)
 	pp, next := filepath.Join(dir, "pp"), filepath.Join(dir, "pp-next")
 	for _, c := range []struct {
-		folder      string
-		args        []string
-		head, names string
-		files       []string
+		folder string
+		args   []string
+		head   string
+		says   []string
+		files  []string
 	}{
 		{
 			pp,
 			[]string{"export", "-format", "pp", "-account", number, "-dir", pp},
 			"wrote 2 rows for Portfolio Performance to " + pp + ", up to 2026-10-07: 1 account file\n" +
 				"  this assumes Portfolio Performance holds none of these accounts' rows: a first import into new, empty accounts, or a redo of every account (docs/tools.md)\n",
-			"\nin Portfolio Performance, make a USD deposit account and a securities account for each account, named:\n  A1 ...398: Schwab A1 ...398\n" +
-				"import in this order: securities.csv, account-transactions-A1-398.csv\n",
+			[]string{
+				"\nin Portfolio Performance, make a USD deposit account and a securities account for each account, named:\n  A1 ...398: Schwab A1 ...398\n",
+				"\nimport in this order: securities.csv, account-transactions-A1-398.csv\n",
+			},
 			[]string{"account-transactions-A1-398.csv", "manifest.json", "pp-account-transactions.json", "pp-portfolio-transactions.json", "pp-securities.json", "securities.csv"},
 		},
 		{
@@ -707,14 +710,16 @@ func TestStoreCommandsMaskNumbers(t *testing.T) {
 			[]string{"export", "-format", "pp", "-since", pp, "-dir", next},
 			"wrote 0 rows for Portfolio Performance to " + next + ", since " + pp + ", up to 2026-10-07\n" +
 				"  this assumes Portfolio Performance holds " + pp + " and every export before it, each imported once, with what it listed deleted and ticked\n",
-			"\nimport in this order: securities.csv\n" +
-				"a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -format pp -account A1 -dir <a new folder>\n" +
-				"next time: schwabtx export -format pp -since " + quoteArg(next) + " -dir <a new folder>\n",
+			[]string{
+				"\nimport in this order: securities.csv\n" +
+					"a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -format pp -account A1 -dir <a new folder>\n" +
+					"next time: schwabtx export -format pp -since " + quoteArg(next) + " -dir <a new folder>\n",
+			},
 			[]string{"manifest.json", "pp-account-transactions.json", "pp-portfolio-transactions.json", "pp-securities.json", "securities.csv"},
 		},
 	} {
 		stdout, stderr := run(c.args...)
-		if stdout != "" || !strings.HasPrefix(stderr, c.head) || !strings.Contains(stderr, c.names) {
+		if stdout != "" || !strings.HasPrefix(stderr, c.head) || slices.ContainsFunc(c.says, func(s string) bool { return !strings.Contains(stderr, s) }) {
 			t.Errorf("%q printed %q and said:\n%s", c.args, stdout, stderr)
 		}
 		entries, err := os.ReadDir(c.folder)
@@ -1070,6 +1075,9 @@ wrote 1 row with a caveat (pp-2026-11-13/manifest.json): assumed_multiplier 1
 2 securities may be held by Portfolio Performance otherwise than written, or may no longer trade (pp-2026-11-13/manifest.json lists each under symbols_changed, with why): on a first import into empty accounts only those named_by_cusip ask anything, after importing; on a redo, Portfolio Performance holds them from before: set each as docs/tools.md step 8 says before you import
 1 row of this export carries a flag that needs you (schwabtx status -review); if you uncount it, the next -since export lists what to delete
 1 file transaction waits for you to resolve it (schwabtx status -review) and is not in this export
+in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
+  A1 ...135 (Individual): Schwab A1 ...135
+  A2 ...398 (Options & Margin): Schwab A2 ...398
 7 differences from the latest snapshots (pp-2026-11-13/manifest.json lists each under holdings, with the snapshot's figure and the records'): after importing, make what you add by hand in Portfolio Performance for each equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 4 says what to book for each):
   Schwab A1 ...135: VBR (ticker VBR): 12.5
   Schwab A1 ...135: VTI (WKN 922908769): 12
@@ -1079,9 +1087,6 @@ wrote 1 row with a caveat (pp-2026-11-13/manifest.json): assumed_multiplier 1
   Schwab A1 ...135: cash: 1532.17
   Schwab A2 ...398: cash: -12.34, less the rows left out of it that you book by hand
 1 account has snapshots and nothing in Portfolio Performance (pp-2026-11-13/manifest.json lists it under holdings.not_checked): A3 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
-in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
-  A1 ...135 (Individual): Schwab A1 ...135
-  A2 ...398 (Options & Margin): Schwab A2 ...398
 import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv, account-transactions-A2-398.csv, portfolio-transactions-A2-398.csv
 tick these rows, which Portfolio Performance will show as existing although they are new (it marks no other row of this export but one equal to an entry that you booked by hand for a difference, which you tick too, docs/tools.md step 3):
   account-transactions-A2-398.csv: Schwab A2 ...398: 2026-03-02 Withdrawal 1000.00 (T73508261958)
@@ -1102,10 +1107,10 @@ next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 			want: `wrote 1 row for Portfolio Performance to pp-2026-11-14, up to 2026-11-13: 1 portfolio file, 1 security
   this assumes Portfolio Performance holds none of these accounts' rows: a first import into new, empty accounts, or a redo of every account (docs/tools.md)
 1 security may be held by Portfolio Performance otherwise than written, or may no longer trade (pp-2026-11-14/manifest.json lists it under symbols_changed, with why): on a first import into empty accounts it asks something only if named_by_cusip, after importing; on a redo, Portfolio Performance holds it from before: set it as docs/tools.md step 8 says before you import
-1 difference from the latest snapshots (pp-2026-11-14/manifest.json lists it under holdings, with the snapshot's figure and the records'): after importing, make what you add by hand in Portfolio Performance for each equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 4 says what to book for each):
-  Schwab A1 ...135: c:30303M102 (WKN 30303M102): -1
 in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
   A1 ...135 (Individual): Schwab A1 ...135
+1 difference from the latest snapshots (pp-2026-11-14/manifest.json lists it under holdings, with the snapshot's figure and the records'): after importing, make what you add by hand in Portfolio Performance for each equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 4 says what to book for each):
+  Schwab A1 ...135: c:30303M102 (WKN 30303M102): -1
 import in this order: securities.csv, portfolio-transactions-A1-135.csv
 next time: schwabtx export -format pp -since pp-2026-11-14 -dir <a new folder>
 `,
@@ -1159,7 +1164,7 @@ before importing, delete in Portfolio Performance what changed or went (pp-2026-
   Schwab A2 ...398: 2025-02-03 Deposit 25.00 (note schwabtx A2 ...398 Ca3b4c5d6.4): gone, linked to T73508261949
   Schwab A2 ...398: 2025-02-10 Transfer (Outbound) 500.00 (note schwabtx A2 ...398 T73508261952 to A1 ...135 T73508261953): gone, uncounted (user)
   A3 ...777: 2025-03-04 Sell 10.00; 2025-03-04 Fees 15.00 (note schwabtx A3 ...777 C9e8d7c6b.2): gone, not in this export (no longer in the store, or dated after -to)
-2 differences from the latest snapshots are new or changed since pp-2026-11-13, and 2 are gone (pp-2026-12-01/manifest.json lists each): before importing, delete what you added by hand in Portfolio Performance for each that is gone, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); Portfolio Performance marks a new row equal to one that it holds as existing (docs/tools.md step 4):
+2 differences from the latest snapshots are new or changed since pp-2026-11-13, and 2 are gone (pp-2026-12-01/manifest.json lists each): before importing, delete what you added by hand in Portfolio Performance for each that is gone, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); Portfolio Performance marks a new row equal to one that it holds as existing; book one of a security that it does not hold yet after importing (docs/tools.md step 4):
   Schwab A2 ...398: ABCD (ticker ABCD): gone: delete what you added for it, if anything
   Schwab A2 ...398: cash: gone: delete the opening deposit or withdrawal that you booked for it, if any
   Schwab A1 ...135: XYZ (WKN 98389B100): 7
@@ -1229,6 +1234,9 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 					},
 				},
 				Accounts: []history.ToolAccount{newly(history.ToolAccount{Label: "A3 ...777", Account: "...777", Nickname: "Joint\u202eTrust", Name: "Schwab A3 ...777", Exported: true}), a1},
+				// A row to delete, after the account to make (docs/tools.md
+				// step 6).
+				Gone: []history.ToolChange{{Ref: "T73508261963", Account: "A1 ...135", Was: "account 2026-12-02 Fees 2.00", Why: "uncounted: user"}},
 			},
 			want: `wrote 1 row for Portfolio Performance to pp-2026-12-15, since pp-2026-12-01, up to 2026-12-14: 1 portfolio file, 1 security, 1 price
   this assumes Portfolio Performance holds pp-2026-12-01 and every export before it, each imported once, with what it listed deleted and ticked
@@ -1242,15 +1250,17 @@ wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_n
   VBR, 2 rows without a key (T73508261948, T73508261952): schwabtx edit REF -security K:i:4417355 (VANGUARD SMALL-CAP VALUE ETF, VBR from Schwab's API, rows 2024-01-02 to 2026-11-02, held) or -security K:x:66000002 (VBR in History files) for each; settling the keys of VBR first may let the store place them
 2 rows of this export carry a flag that needs you (schwabtx status -review); if you uncount one, the next -since export lists what to delete
 2 file transactions wait for you to resolve them (schwabtx status -review) and are not in this export
-2 differences from the latest snapshots are new or changed since pp-2026-12-01, and 1 is gone (pp-2026-12-15/manifest.json lists each): before importing, delete what you added by hand in Portfolio Performance for each that is gone, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); Portfolio Performance marks a new row equal to one that it holds as existing (docs/tools.md step 4):
+in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
+  A3 ...777 (Joint?Trust): Schwab A3 ...777
+before importing, delete in Portfolio Performance what changed or went (pp-2026-12-15/manifest.json lists each):
+  Schwab A1 ...135: 2026-12-02 Fees 2.00 (note schwabtx A1 ...135 T73508261963): gone, uncounted (user)
+2 differences from the latest snapshots are new or changed since pp-2026-12-01, and 1 is gone (pp-2026-12-15/manifest.json lists each): before importing, delete what you added by hand in Portfolio Performance for each that is gone, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); Portfolio Performance marks a new row equal to one that it holds as existing; book one of a security that it does not hold yet after importing (docs/tools.md step 4):
   Schwab A1 ...135: XYZ (WKN 98389B100): gone: delete what you added for it, if anything
   Schwab A1 ...135: cash: 997.04, less the rows left out of it that you book by hand
   Schwab A1 ...135: JKLM (name Security (x:66000009)): -10, less the rows left out of it that you book by hand, of a key under keys_unsure
 1 account's cash in Portfolio Performance is not checked (pp-2026-12-15/manifest.json lists it under holdings.cash_not_checked): A2 ...398, a margin account with a margin or short balance at its latest snapshot: compare the cash that Schwab shows for it with the balance of its deposit account in Portfolio Performance, and book the difference as step 4 says; the next export that checks it lists its difference again, or as gone when it finds none (docs/tools.md step 4)
 1 account has rows and no snapshot to check against (pp-2026-12-15/manifest.json lists it under holdings.not_checked): Schwab A3 ...777: take one with schwabtx snapshot (an account that Schwab has closed has none); the next export that checks it lists its differences
 1 account has snapshots and nothing in Portfolio Performance (pp-2026-12-15/manifest.json lists it under holdings.not_checked): A4 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
-in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
-  A3 ...777 (Joint?Trust): Schwab A3 ...777
 import in this order: securities.csv, portfolio-transactions-A3-777.csv
 next time: schwabtx export -format pp -since pp-2026-12-15 -dir <a new folder>
 `,

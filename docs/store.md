@@ -546,6 +546,9 @@ wrote 17 rows for Portfolio Performance to pp, up to 2026-11-13: 2 account files
   A1 ...135: api_file 2023-06-13 to 2025-06-01; file 2023-02-01 to 2024-05-31; realized 2024-01-01 to 2024-05-31; snapshot 2026-11-02 to 2026-11-10
   A2 ...398: api_file 2025-01-15 to 2026-08-03; snapshot 2026-11-02 to 2026-11-10
   A3 ...783: snapshot 2026-11-02 to 2026-11-10
+in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
+  A1 ...135: Schwab A1 ...135
+  A2 ...398: Schwab A2 ...398
 13 differences from the latest snapshots (pp/manifest.json lists each under holdings, with the snapshot's figure and the records'): after importing, make what you add by hand in Portfolio Performance for each equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 4 says what to book for each):
   Schwab A1 ...135: 00507V109 (WKN 00507V109): 10
   Schwab A1 ...135: SWVXX (WKN 808515779): 1220.89
@@ -561,9 +564,6 @@ wrote 17 rows for Portfolio Performance to pp, up to 2026-11-13: 2 account files
   Schwab A1 ...135: cash: -10776.43
   Schwab A2 ...398: cash: 5724.26
 1 account has snapshots and nothing in Portfolio Performance (pp/manifest.json lists it under holdings.not_checked): A3 ...783 has no row that this export or its chain writes or names; import its History files (docs/store.md) to have it there
-in Portfolio Performance, make a USD deposit account and a securities account for each account, named:
-  A1 ...135: Schwab A1 ...135
-  A2 ...398: Schwab A2 ...398
 import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv, account-transactions-A2-398.csv, portfolio-transactions-A2-398.csv
 next time: schwabtx export -format pp -since pp -dir <a new folder>
 $ schwabtx export -format ghostfolio -dir gf
@@ -1819,13 +1819,14 @@ whatever its day:
   other difference with its value, which what you add by hand for it is to
   equal, less what the rows left out that you book by hand move: in PP
   before importing, since PP marks a new row equal to one that it holds as
-  existing (in [the how-to](tools.md#the-first-import), step 4), and in
-  Ghostfolio after ([step 6](tools.md#ghostfolio)). Ghostfolio ties what
-  you added to its asset: a security that another asset holds now, after
-  a rename, a delisting or `-manual`, has its difference gone under the
-  old asset and new under the new one. An account that this export cannot
-  check carries DIR's differences of it on (`carried`), uncounted, so that
-  the next export that checks it lists each again or as gone; so does an
+  existing, but for a security that PP does not hold yet, which the import
+  brings, after it (in [the how-to](tools.md#the-first-import), step 4), and
+  in Ghostfolio after ([step 6](tools.md#ghostfolio)). Ghostfolio ties what
+  you added to its asset: a security that another asset holds now, after a
+  rename, a delisting or `-manual`, has its difference gone under the old
+  asset and new under the new one. An account that this export cannot check
+  carries DIR's differences of it on (`carried`), uncounted, so that the
+  next export that checks it lists each again or as gone; so does an
   account whose cash it cannot check, for its cash.
 
 The chain keeps its account and its `-manual` list: a `-since` export takes
