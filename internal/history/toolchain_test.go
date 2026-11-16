@@ -5177,8 +5177,12 @@ func notCheckedThenNone(t *testing.T, why string) {
 }
 
 // rcStep8PP sets in m each security that s lists under symbols_changed as
-// changed, as step 8 says: the PP security found by the identifiers that
-// the export before, prev, wrote it with is given those written now.
+// changed, as step 8 says: the PP security that holds its rows, found by
+// the identifiers that the export before, prev, wrote it with, or, when
+// prev never wrote its key, wrote a key that -same merged into it since
+// (its names' key), is given those written now; unless PP holds another
+// that those find already, as one made by hand for a difference, on which
+// the rows land, and which it leaves as it is.
 func rcStep8PP(t *testing.T, m *ppModel, prev, s *chainStep) {
 	t.Helper()
 	before, err := parseChain(prev.manifest)
@@ -5191,12 +5195,23 @@ func rcStep8PP(t *testing.T, m *ppModel, prev, s *chainStep) {
 		}
 		for _, sec := range ch.members {
 			i := slices.IndexFunc(before.Securities, func(c chainSecurity) bool { return c.ref() == sec.ref() })
+			for _, n := range s.in.names {
+				if i < 0 && n.key == sec.key && n.from != "" {
+					i = slices.IndexFunc(before.Securities, func(c chainSecurity) bool { return c.SecurityKey == n.from && !c.Unsure })
+				}
+			}
 			if i < 0 {
 				continue
 			}
+			b := before.Securities[i]
+			ticker, wkn, name := ppIdentifiers(sec)
+			if found, made, err := newPPCache(m.securities).lookup(ticker, wkn, name); err == nil && !made &&
+				ppFinds(found.ticker, found.wkn, found.name) != ppFinds(b.Ticker, b.WKN, b.Name) {
+				continue
+			}
 			for _, x := range m.securities {
-				if b := before.Securities[i]; ppFinds(x.ticker, x.wkn, x.name) == ppFinds(b.Ticker, b.WKN, b.Name) {
-					x.ticker, x.wkn, x.name = ppIdentifiers(sec)
+				if ppFinds(x.ticker, x.wkn, x.name) == ppFinds(b.Ticker, b.WKN, b.Name) {
+					x.ticker, x.wkn, x.name = ticker, wkn, name
 				}
 			}
 		}
@@ -5318,6 +5333,113 @@ func TestToolStep8Joined(t *testing.T) {
 		}
 		if !maps.Equal(got, want) {
 			t.Errorf("%s: PP holds %v (in 10^-8), Schwab %v", c.name, got, want)
+		}
+	}
+}
+
+// TestToolStep8SameAfterImport follows docs/tools.md across a -same run
+// once the first export is imported, its keys written apart: as step 4 has
+// you for two opposite differences of one company under two names that no
+// CUSIP joins (L14), which you see after a first import, and as In both
+// tools allows for a key written on its own. The next export writes the
+// joined security under the canonical key, which no export of the chain
+// wrote before.
+//
+// A History file's key of a ticker, bought in 2020, and the CUSIP that the
+// snapshot holds it under, which Schwab's API names it by alone, as a
+// security delisted since: the joined security is written delisted, with
+// its CUSIP as WKN and no ticker. PP holds it already, under the History
+// key's ticker and that ticker's feed, which may be another company's now:
+// symbols_changed lists it changed, not new, and the PP security, set as
+// step 8 says, holds Schwab's shares without that ticker.
+//
+// A key written on its own, as it shares its ticker with a CUSIP that an
+// account holds and no row names, delisted since: PP's security of the key,
+// named after it, is not the joined one's, which symbols_changed lists as
+// new, with nothing to set (R-10).
+//
+// A user who booked the two differences instead, and made the CUSIP's
+// security by hand to book one of them, leaves both PP securities as they
+// are, as step 8 says when PP holds one that the identifiers written find
+// already: the rows land on that one.
+func TestToolStep8SameAfterImport(t *testing.T) {
+	t.Parallel()
+	const name = "Schwab A1 ...135"
+	exported, held := tcNY("2023-01-10 09:00:00"), time.Date(2026, time.November, 10, 21, 5, 0, 0, time.UTC)
+	for _, c := range []struct {
+		name, file, cusip, ticker string
+		// api are the API's names of the CUSIP's key, the latest last.
+		api  []string
+		pair []string
+		// listed is what symbols_changed lists of the joined security.
+		listed symbolsChange
+	}{
+		{
+			name: "delisted", file: "x:66000006", cusip: "c:00507V109", ticker: "ZZDLX", api: []string{"00507V109"},
+			pair:   []string{"WKN 00507V109 10", "ticker ZZDLX -10"},
+			listed: symbolsChange{why: []string{whyNoTicker, whyChanged}, because: "delisted"},
+		},
+		{
+			name: "on its own", file: "x:66000007", cusip: "c:ZZJ12K106", ticker: "JKLM", api: []string{"JKLM", "ZZJ12K106"},
+			pair:   []string{"WKN ZZJ12K106 10", "name Security (x:66000007) -10"},
+			listed: symbolsChange{why: []string{whyNoTicker}, because: "delisted", new: true},
+		},
+	} {
+		secs, names := tcSecurities()
+		cusip := strings.TrimPrefix(c.cusip, "c:")
+		secs = append(secs, toolSecurityRow{key: c.file, symbol: c.ticker, description: c.ticker + " CORP"},
+			toolSecurityRow{key: c.cusip, assetType: "EQUITY", symbol: c.api[len(c.api)-1], cusip: cusip})
+		names = append(names,
+			toolName{key: c.file, kind: "symbol", value: c.ticker, firstSeen: exported, lastSeen: exported},
+			toolName{key: c.file, kind: "description", value: c.ticker + " CORP", firstSeen: exported, lastSeen: exported})
+		for i, n := range c.api {
+			at := held.AddDate(0, 0, i-len(c.api)+1)
+			names = append(names, toolName{key: c.cusip, kind: "symbol", value: n, firstSeen: at, lastSeen: at})
+		}
+		first := tcInput(toolInput{securities: secs, names: names, rows: []toolRow{
+			rcFile("C7z00006.1", 1, "2019-01-02", "MoneyLink Transfer", "deposit", "", "", sql.NullInt64{}, 0, 500_000),
+			rcFile("C7z00006.2", 1, "2020-01-15", "Buy", "buy", c.file, c.ticker, centsOf(10_000_000), 50, -50_000),
+		}, positions: []toolPosition{rcPosition("2026-11-10", c.cusip, 10_000_000, 0)}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 450_000)}})
+		then := sameKey(first, c.file, c.cusip)
+		e1 := chainStepOf(t, first, toolPP, nil, rcAt1)
+		e2 := chainStepOf(t, then, toolPP, e1, rcAt2)
+		var pair []string
+		for _, d := range e1.e.Differences {
+			pair = append(pair, d.Finds+" "+d.Value)
+		}
+		if !slices.Equal(pair, c.pair) {
+			t.Fatalf("%s: the first export lists %q, want %q", c.name, pair, c.pair)
+		}
+		if got := e2.res.symbolsChanged; len(got) != 1 || got[0].members[0].key != c.cusip || got[0].new != c.listed.new ||
+			!slices.Equal(got[0].why, c.listed.why) || got[0].because != c.listed.because {
+			t.Errorf("%s: the -since export lists %+v under symbols_changed, want %s %v (%s), new %v",
+				c.name, got, c.cusip, c.listed.why, c.listed.because, c.listed.new)
+		}
+		s := newToolIndex(e2.in).security(c.cusip, "")
+		ticker, wkn, _ := ppIdentifiers(s)
+		want := fmt.Sprintf("%d of ticker %q, WKN %q", 1_000_000_000, ticker, wkn)
+		for _, booked := range []bool{false, true} {
+			m := newPPModel(name)
+			ppApply(t, m, e1)
+			if booked {
+				rcBookPP(t, m, e1, name)
+			}
+			// The -same, then the -since export: step 8, the hand entries,
+			// then the import.
+			rcStep8PP(t, m, e1, e2)
+			if booked {
+				rcBookPP(t, m, e2, name)
+			}
+			ppApply(t, m, e2)
+			var holds []string
+			for sec, q := range m.shares(name) {
+				if q != 0 {
+					holds = append(holds, fmt.Sprintf("%d of ticker %q, WKN %q", q, sec.ticker, sec.wkn))
+				}
+			}
+			if !slices.Equal(holds, []string{want}) {
+				t.Errorf("%s, booked by hand %v: PP holds %q (in 10^-8), want Schwab's 10 shares, %s", c.name, booked, holds, want)
+			}
 		}
 	}
 }

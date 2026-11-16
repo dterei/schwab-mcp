@@ -197,6 +197,10 @@ and the types' names, whatever PP's language and locale.
      ticker of one company that no CUSIP joins: one security under two
      keys. Take their `security_key`s from the manifest, run `schwabtx edit
      K:<one> -same K:<other>`, export again, and book nothing for them.
+     Once you have imported the export that listed them, as on a first
+     import, the next `-since` export lists the security joined under
+     `symbols_changed`, as PP holds it under the old ticker: set it as step
+     8 says before you import that one.
    - A difference marked `unsure` (on stderr, "of a key under
      keys_unsure") is of a key written on its own: settle the key first
      ([above](#in-both-tools)); if you join it, export again before you
@@ -350,7 +354,8 @@ and the types' names, whatever PP's language and locale.
    written, and only `named_by_cusip` asks anything, after importing. With
    `-since`, and on a redo (PP keeps its securities when you delete their
    transactions), set each that PP holds before you import; PP does not
-   hold one marked `new`, which no export of the chain wrote:
+   hold one marked `new`, which no export of the chain wrote, under its key
+   or under one that the store has joined to it since:
 
    - `renamed`: it has had two tickers; the ticker written is the last
      that Schwab's API gave it (the newest History file's when the API
@@ -390,9 +395,14 @@ and the types' names, whatever PP's language and locale.
    - `changed` (with `-since`): what PP finds it by changed, its ticker and
      WKN, or its name when it has neither, as when an older History file
      brings an earlier description of a security that PP finds by its name
-     alone: give the PP security the identifiers written in
-     `securities.csv`. Beside a ticker or a WKN, a name changes nothing that
-     PP finds a security by, and nothing is listed for it.
+     alone, or when a key that the chain wrote, as a History file's, is
+     joined to it since (`-same`, step 4): give the PP security that holds
+     its rows the identifiers written in `securities.csv`. When PP holds
+     another security that those find already, as one that you made for a
+     difference (step 4), leave both as they are: its rows, listed as
+     changed, land on that one, and the other, once empty, is to delete.
+     Beside a ticker or a WKN, a name changes nothing that PP finds a
+     security by, and nothing is listed for it.
 
    A security written on its own that you have since joined with `-same` is
    never listed, nor one whose PP security is not its alone across the two

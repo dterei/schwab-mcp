@@ -1374,8 +1374,9 @@ func (c *chainResult) ppHolds() map[string]bool {
 // (delisted, reused or undecided, for no_ticker); for reused, reusedBy, the
 // key of the security that keeps the ticker (toolSecurity.reusedBy); new,
 // with -since, when no export of the chain wrote any of the store's
-// securities of it, so that PP does not hold it; and every symbol that the
-// named ones have had, as each source named it (namesOf).
+// securities of it, nor a key that the store has merged into one of them
+// since, so that PP does not hold it; and every symbol that the named ones
+// have had, as each source named it (namesOf).
 type symbolsChange struct {
 	members  []*toolSecurity
 	why      []string
@@ -1398,10 +1399,14 @@ type symbolsChange struct {
 // renamed, and keeps its old ticker, and that ticker's feed, until you give
 // it the new one (4.14 of the design); and those with a why that the
 // chain's entry lacks, which is every why of one that the chain never wrote
-// (new). A PP Security Name that changes beside a ticker or a WKN changes
-// nothing that PP finds the security by, and the chain's entry takes it all
-// the same. One that the chain wrote on its own (unsure) and that is no
-// longer unsure is never named: you delete PP's security of it once empty.
+// (new). A security whose key the chain never wrote is compared with the
+// chain's entry of a key that the store has merged into it since (prevOf),
+// whose rows PP holds under the identifiers written then, as after a -same
+// run once the two keys were imported apart. A PP Security Name that
+// changes beside a ticker or a WKN changes nothing that PP finds the
+// security by, and the chain's entry takes it all the same. One that the
+// chain wrote on its own (unsure) and that is no longer unsure is never
+// named: you delete PP's security of it once empty.
 // The store's securities that PP takes for one (mergeListed) are one
 // security, as PP holds them. Ghostfolio's chain securities are kept for
 // the record and compared with nothing: it holds a security that is written
@@ -1438,6 +1443,38 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 	}
 	// then are the securities as the chain wrote them before this export.
 	then := maps.Clone(byRef)
+	// merged are the keys that the store holds under s's now and that were
+	// keys of their own, which -same, or the store's own join of a History
+	// file's key with the API's, made one with it: its names record the key
+	// that had each (toolName.from), a fact of the store. prevOf returns the
+	// chain's entry that s is compared with, and whether there is one: its
+	// own, else, when the chain never wrote s's key, the first by key of a
+	// key merged into it that the chain wrote, but on its own (unsure). PP
+	// holds that key's rows under the identifiers that the chain wrote it
+	// with, and s's rows now: s is not new to PP, and what PP finds it by
+	// may have changed. A key that the chain wrote on its own is passed
+	// over, as R-10 passes over a security joined since: PP's security of
+	// it, named after its key, ends empty.
+	merged := func(s *toolSecurity) map[secRef]bool {
+		out := map[secRef]bool{}
+		for _, n := range c.ix.names[s.key] {
+			if s.key != "" && n.from != "" {
+				out[secRef{key: n.from}] = true
+			}
+		}
+		return out
+	}
+	prevOf := func(s *toolSecurity, ref secRef) (chainSecurity, bool) {
+		if p, ok := then[ref]; ok {
+			return p, true
+		}
+		for _, r := range slices.SortedFunc(maps.Keys(merged(s)), func(a, b secRef) int { return cmp.Compare(a.key, b.key) }) {
+			if p, ok := then[r]; ok && !p.Unsure {
+				return p, true
+			}
+		}
+		return chainSecurity{}, false
+	}
 	type written struct {
 		s *toolSecurity
 		w chainSecurity
@@ -1457,23 +1494,26 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 		}
 		w.Ticker, w.WKN, w.Name = ppIdentifiers(s)
 		w.Why, _ = s.symbolWhys()
-		_, had[s.ref()] = then[w.ref()]
+		_, had[s.ref()] = prevOf(s, w.ref())
 		byRef[w.ref()] = w
 		ws = append(ws, written{s, w})
 	}
 	// joined reports whether the chain wrote a security but the one of ref
 	// with the identifiers f, by which PP finds it (finds): PP holds them;
-	// left, whether one but it had them and has them still.
+	// left, whether one but it, and but the keys merged into it, which are
+	// it now, had them and has them still.
 	joined := func(ref secRef, f string) bool {
 		return slices.ContainsFunc(slices.Collect(maps.Keys(then)), func(r secRef) bool { return r != ref && then[r].finds() == f })
 	}
-	left := func(ref secRef, f string) bool {
-		return slices.ContainsFunc(slices.Collect(maps.Keys(then)), func(r secRef) bool { return r != ref && then[r].finds() == f && byRef[r].finds() == f })
+	left := func(ref secRef, into map[secRef]bool, f string) bool {
+		return slices.ContainsFunc(slices.Collect(maps.Keys(then)), func(r secRef) bool {
+			return r != ref && !into[r] && then[r].finds() == f && byRef[r].finds() == f
+		})
 	}
 	for _, x := range ws {
 		s, w := x.s, x.w
 		why, because := s.symbolWhys()
-		prev, ok := then[w.ref()]
+		prev, ok := prevOf(s, w.ref())
 		if ok && prev.Unsure && !s.unsure {
 			// Written on its own before, and joined since (R-10): PP's
 			// security of it ends empty, its rows listed as changed and
@@ -1491,7 +1531,7 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 		// and its old one, if it ends empty, is to delete: giving that one
 		// the identifiers written would split a PP security in two, or
 		// make PP hold two of one.
-		if ok && prev.finds() != w.finds() && !joined(w.ref(), w.finds()) && !left(w.ref(), prev.finds()) {
+		if ok && prev.finds() != w.finds() && !joined(w.ref(), w.finds()) && !left(w.ref(), merged(s), prev.finds()) {
 			why, named = append(slices.Clone(why), whyChanged), true
 		}
 		if named {
