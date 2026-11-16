@@ -395,9 +395,13 @@ and the types' names, whatever PP's language and locale.
      PP finds a security by, and nothing is listed for it.
 
    A security written on its own that you have since joined with `-same` is
-   never listed: the next `-since` export lists its rows to delete and
-   writes them under the joined security, so its PP security ends empty:
-   delete it. A security that you no longer hold, whose ticker Yahoo now
+   never listed, nor one whose PP security is not its alone across the two
+   exports: one written now with the identifiers of another security of
+   the chain, which PP holds already, as after a link that the store made
+   since, or one that left a PP security that another keeps, as after a
+   link gone. The `-since` export lists its rows to delete and writes them
+   under the security that `securities.csv` names; delete what it lists,
+   and then its old PP security once it holds nothing. A security that you no longer hold, whose ticker Yahoo now
    shows as another company's: clear its feed, as PP would value its past
    holding at that company's prices; the export names such a one only when
    a name of it is its CUSIP (`named_by_cusip`).

@@ -1436,6 +1436,13 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 			return cmp.Or(cmp.Compare(a.security.key, b.security.key), cmp.Compare(a.security.symbol, b.security.symbol))
 		})
 	}
+	// then are the securities as the chain wrote them before this export.
+	then := maps.Clone(byRef)
+	type written struct {
+		s *toolSecurity
+		w chainSecurity
+	}
+	var ws []written
 	changes, had := map[secRef]symbolsChange{}, map[secRef]bool{}
 	for _, l := range listed {
 		s := l.security
@@ -1449,11 +1456,24 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 			continue
 		}
 		w.Ticker, w.WKN, w.Name = ppIdentifiers(s)
-		why, because := s.symbolWhys()
-		w.Why = why
-		prev, ok := byRef[w.ref()]
-		had[s.ref()] = ok
+		w.Why, _ = s.symbolWhys()
+		_, had[s.ref()] = then[w.ref()]
 		byRef[w.ref()] = w
+		ws = append(ws, written{s, w})
+	}
+	// joined reports whether the chain wrote a security but the one of ref
+	// with the identifiers f, by which PP finds it (finds): PP holds them;
+	// left, whether one but it had them and has them still.
+	joined := func(ref secRef, f string) bool {
+		return slices.ContainsFunc(slices.Collect(maps.Keys(then)), func(r secRef) bool { return r != ref && then[r].finds() == f })
+	}
+	left := func(ref secRef, f string) bool {
+		return slices.ContainsFunc(slices.Collect(maps.Keys(then)), func(r secRef) bool { return r != ref && then[r].finds() == f && byRef[r].finds() == f })
+	}
+	for _, x := range ws {
+		s, w := x.s, x.w
+		why, because := s.symbolWhys()
+		prev, ok := then[w.ref()]
 		if ok && prev.Unsure && !s.unsure {
 			// Written on its own before, and joined since (R-10): PP's
 			// security of it ends empty, its rows listed as changed and
@@ -1462,7 +1482,16 @@ func (c *chainResult) compareSecurities(events []toolEvent) {
 			continue
 		}
 		named := slices.ContainsFunc(why, func(y string) bool { return !slices.Contains(prev.Why, y) })
-		if ok && prev.finds() != w.finds() {
+		// What PP finds it by changed: changed, but when its PP security
+		// is not its alone across the two exports (R-10): it joined one
+		// that the chain wrote with the identifiers written now, which PP
+		// holds already, or it left one that the chain writes with its old
+		// identifiers still, another's now. Its rows are listed as changed
+		// and land, imported, on the PP security that securities.csv names,
+		// and its old one, if it ends empty, is to delete: giving that one
+		// the identifiers written would split a PP security in two, or
+		// make PP hold two of one.
+		if ok && prev.finds() != w.finds() && !joined(w.ref(), w.finds()) && !left(w.ref(), prev.finds()) {
 			why, named = append(slices.Clone(why), whyChanged), true
 		}
 		if named {

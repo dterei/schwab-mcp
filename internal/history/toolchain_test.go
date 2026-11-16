@@ -5175,3 +5175,149 @@ func notCheckedThenNone(t *testing.T, why string) {
 		t.Errorf("PP holds %s of A2's cash, its snapshot %s", formatCents(got), formatCents(snap.cash.Int64))
 	}
 }
+
+// rcStep8PP sets in m each security that s lists under symbols_changed as
+// changed, as step 8 says: the PP security found by the identifiers that
+// the export before, prev, wrote it with is given those written now.
+func rcStep8PP(t *testing.T, m *ppModel, prev, s *chainStep) {
+	t.Helper()
+	before, err := parseChain(prev.manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range s.res.symbolsChanged {
+		if !slices.Contains(ch.why, whyChanged) {
+			continue
+		}
+		for _, sec := range ch.members {
+			i := slices.IndexFunc(before.Securities, func(c chainSecurity) bool { return c.ref() == sec.ref() })
+			if i < 0 {
+				continue
+			}
+			for _, x := range m.securities {
+				if b := before.Securities[i]; ppFinds(x.ticker, x.wkn, x.name) == ppFinds(b.Ticker, b.WKN, b.Name) {
+					x.ticker, x.wkn, x.name = ppIdentifiers(sec)
+				}
+			}
+		}
+	}
+}
+
+// TestToolStep8Joined follows step 8 across exports in which a key's PP
+// security joins another's or leaves one that another keeps (R-10): the
+// first export writes a History file's key and an API key apart, or one
+// security of the two by a link; the next, after the link is made or
+// gone, writes them otherwise. Booking what each export lists and setting
+// what symbols_changed lists as step 8 says, PP ends with Schwab's shares,
+// each in one PP security, refusing nothing.
+func TestToolStep8Joined(t *testing.T) {
+	t.Parallel()
+	const name = "Schwab A1 ...135"
+	name1 := func(key, kind, value, at string) toolName {
+		return toolName{key: key, kind: kind, value: value, firstSeen: tcNY(at), lastSeen: tcNY(at)}
+	}
+	type sequence struct {
+		name        string
+		first, then toolInput
+	}
+	var cases []sequence
+	{
+		// Two keys written on their own, each sharing a ticker with
+		// another security, which a link the next export reads makes one,
+		// still written on its own under the least key.
+		const file, api, newj, oldq = "x:66000981", "i:1000981", "c:ZZW82B106", "x:66000990"
+		secs, names := tcSecurities()
+		secs = append(secs, toolSecurityRow{key: file, symbol: "JKLM"}, toolSecurityRow{key: api, assetType: "EQUITY", symbol: "QNEW"},
+			toolSecurityRow{key: newj, assetType: "EQUITY", symbol: "JKLM", cusip: "ZZW82B106"}, toolSecurityRow{key: oldq, symbol: "QNEW"})
+		names = append(names,
+			name1(file, "symbol", "JKLM", "2023-01-10 09:00:00"), name1(file, "description", "Q CORP", "2023-01-10 09:00:00"),
+			name1(api, "symbol", "QNEW", "2026-11-02 18:30:00"), name1(api, "description", "QNEW CORP", "2026-11-02 18:30:00"),
+			toolName{key: newj, kind: "symbol", value: "JKLM", firstSeen: tcNY("2026-06-01 18:05:00"), lastSeen: tcNY("2026-11-10 18:05:00")},
+			name1(newj, "description", "NEWJ INC", "2026-06-01 18:05:00"),
+			name1(oldq, "symbol", "QNEW", "2023-01-10 09:00:00"), name1(oldq, "description", "QNEW OLD HOLDINGS", "2023-01-10 09:00:00"))
+		first := tcInput(toolInput{securities: secs, names: names, rows: []toolRow{
+			rcFile("C7e5a0001.1", 1, "2015-03-02", "Buy", "buy", oldq, "QNEW", centsOf(5_000_000), 10, -5_000),
+			rcFile("C7e5a0001.2", 1, "2017-03-01", "Sell", "sell", oldq, "QNEW", centsOf(-5_000_000), 12, 6_000),
+			rcFile("C7e5a0001.3", 1, "2021-03-01", "Buy", "buy", file, "JKLM", centsOf(10_000_000), 20, -20_000),
+			rcTrade("T7e5a000001", 1, "2025-06-02 10:00:00", "sell", api, "QNEW", -10_000_000, 30, 30_000, 0),
+			rcTrade("T7e5a000002", 1, "2026-06-01 10:00:00", "buy", newj, "JKLM", 2_000_000, 40, -8_000, 0),
+		}, positions: []toolPosition{rcPosition("2026-11-10", newj, 2_000_000, 82)}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 100_000)}})
+		then := first
+		then.links = []toolLink{{file: file, api: api}}
+		cases = append(cases, sequence{"two keys on their own, joined by a link", first, then})
+	}
+	{
+		// A company renamed from JKLM to QNEW between a History file and
+		// Schwab's API, its two keys first written apart, then joined by a
+		// link and named QNEW by a fresh History export.
+		const file, api = "x:66000985", "i:1000985"
+		secs, names := tcSecurities()
+		secs = append(secs, toolSecurityRow{key: file, symbol: "JKLM"}, toolSecurityRow{key: api, assetType: "EQUITY", symbol: "QNEW"})
+		names = append(names,
+			name1(file, "symbol", "JKLM", "2023-01-10 09:00:00"), name1(file, "description", "Q CORP", "2023-01-10 09:00:00"),
+			name1(api, "symbol", "QNEW", "2026-11-02 18:30:00"), name1(api, "description", "QNEW CORP", "2026-11-02 18:30:00"))
+		first := tcInput(toolInput{securities: secs, names: names, rows: []toolRow{
+			rcFile("C7e8a0001.1", 1, "2021-03-01", "Buy", "buy", file, "JKLM", centsOf(10_000_000), 20, -20_000),
+			rcTrade("T7e8a000001", 1, "2025-06-02 10:00:00", "sell", api, "QNEW", -10_000_000, 30, 30_000, 0),
+		}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 100_000)}})
+		then := first
+		then.names = append(slices.Clone(names), name1(file, "symbol", "QNEW", "2026-11-20 09:00:00"))
+		then.links = []toolLink{{file: file, api: api}}
+		cases = append(cases, sequence{"a rename, its keys joined by a link later", first, then})
+	}
+	{
+		// A held security under a CUSIP and a History file's key, one by a
+		// link that the next export no longer reads: the file's key is
+		// written on its own, and the CUSIP's keeps the PP security.
+		const file, api = "x:66000995", "i:1000995"
+		secs, names := tcSecurities()
+		secs = append(secs, toolSecurityRow{key: file, symbol: "JKLM"}, toolSecurityRow{key: api, assetType: "EQUITY", symbol: "JKLM", cusip: "ZZW91A107"})
+		names = append(names,
+			name1(file, "symbol", "JKLM", "2023-01-10 09:00:00"), name1(file, "description", "JKLM CORP", "2023-01-10 09:00:00"),
+			toolName{key: api, kind: "symbol", value: "JKLM", firstSeen: tcNY("2025-01-06 18:30:00"), lastSeen: tcNY("2026-11-10 18:05:00")},
+			name1(api, "description", "JKLM CORP", "2025-01-06 18:30:00"))
+		first := tcInput(toolInput{
+			securities: secs, names: names, rows: []toolRow{
+				rcFile("C7e6a0001.1", 1, "2021-03-01", "Buy", "buy", file, "JKLM", centsOf(10_000_000), 20, -20_000),
+				rcTrade("T7e6a000001", 1, "2025-06-02 10:00:00", "buy", api, "JKLM", 5_000_000, 30, -15_000, 0),
+			}, links: []toolLink{{file: file, api: api}}, positions: []toolPosition{rcPosition("2026-11-10", api, 15_000_000, 600)},
+			snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 100_000)},
+		})
+		then := first
+		then.links = nil
+		cases = append(cases, sequence{"a held security split by a link gone", first, then})
+	}
+	for _, c := range cases {
+		e1 := chainStepOf(t, c.first, toolPP, nil, rcAt1)
+		e2 := chainStepOf(t, c.then, toolPP, e1, rcAt2)
+		m := newPPModel(name)
+		ppApply(t, m, e1)
+		rcBookPP(t, m, e1, e1.e.Accounts[0].Name)
+		// The -since export: step 8, the hand entries, then the import.
+		rcStep8PP(t, m, e1, e2)
+		rcBookPP(t, m, e2, e2.e.Accounts[0].Name)
+		ppApply(t, m, e2)
+		want := map[string]int64{}
+		for _, p := range c.then.positions {
+			s := newToolIndex(e2.in).security(p.key, "")
+			want[ppFinds(ppIdentifiers(s))] += p.long.Int64 * 100
+		}
+		got, seen := map[string]int64{}, map[string]int{}
+		for _, x := range m.securities {
+			seen[ppFinds(x.ticker, x.wkn, x.name)]++
+		}
+		for sec, q := range m.shares(name) {
+			if q != 0 {
+				got[ppFinds(sec.ticker, sec.wkn, sec.name)] += q
+			}
+		}
+		for f, n := range seen {
+			if n > 1 {
+				t.Errorf("%s: PP holds %d securities found as %q", c.name, n, f)
+			}
+		}
+		if !maps.Equal(got, want) {
+			t.Errorf("%s: PP holds %v (in 10^-8), Schwab %v", c.name, got, want)
+		}
+	}
+}

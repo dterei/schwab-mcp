@@ -1521,6 +1521,12 @@ and the export after you decide one writes it.
   named: its rows are listed as changed and written under the security
   that it joined, and its own PP security ends empty, to delete; giving it
   the joined one's identifiers would make PP hold two securities of one.
+  Nor is one whose PP security is not its alone across the two exports:
+  written now with the identifiers that the chain wrote for another of the
+  store's securities, which PP holds already (a link made since), or
+  leaving a PP security whose old identifiers another keeps (a link gone):
+  its rows, listed as changed, land on the PP security that
+  `securities.csv` names, and its old one, once empty, is to delete.
   Ghostfolio, which ties activities to their asset, holds a security
   written under another symbol, data source or name as another asset: the
   export lists its rows given as changed, by their `fp`, and its
