@@ -400,6 +400,17 @@ func tcInput(in toolInput) toolInput {
 			}
 		}
 	}
+	// QS, which reads every account's snapshots, whatever the export
+	// selects, onlyAccount keeps: those of the snapshots and, as in the
+	// store, of the positions, each of a snapshot.
+	if in.instants == nil {
+		for _, s := range in.snapshots {
+			in.instants = append(in.instants, toolSnapshotAt{account: s.account, marketDate: s.marketDate, fetchedAt: s.fetchedAt})
+		}
+		for _, p := range in.positions {
+			in.instants = append(in.instants, toolSnapshotAt{account: p.account, marketDate: p.marketDate, fetchedAt: p.fetchedAt})
+		}
+	}
 	return in
 }
 

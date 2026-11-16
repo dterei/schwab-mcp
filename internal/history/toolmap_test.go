@@ -2668,6 +2668,7 @@ func TestToolMapping(t *testing.T) {
 		held := in([]toolName{name("x:66000098", "69389B101", "2026-11-11 09:00:00"), name("c:69389B101", "SPNC", "2026-11-10 18:05:00")},
 			rcFile("C7f2a2b3c.1", 1, "2026-01-05", "Journaled Shares", "transfer_in", "x:66000098", "69389B101", centsOf(10_000_000), 12, 0))
 		held.positions, held.snapshots = []toolPosition{rcPosition("2026-11-10", "c:69389B101", 10_000_000, 195)}, []toolSnapshot{rcSnapshot(1, "2026-11-10", 100_000)}
+		held.instants = []toolSnapshotAt{{account: 1, marketDate: "2026-11-10", fetchedAt: tcNY("2026-11-10 18:05:00")}}
 		for _, c := range []struct {
 			name, key string
 			in        toolInput
@@ -3347,6 +3348,36 @@ func TestToolCaseInstants(t *testing.T) {
 			if r.source == "api" && !r.time.IsZero() && r.day != nytime.DateOf(r.time) && r.ref != "T61002504" {
 				t.Errorf("%s %s: day %s, time %s", c.name, r.ref, r.day, r.time)
 			}
+		}
+	}
+}
+
+// TestHeldByAnEmptiedAccount checks what an account holds at its latest
+// snapshot (heldKeys) when its latest snapshot holds nothing: A2 held a
+// security at an older snapshot and none at its latest. An export of every
+// account and one of A1 alone take it for held by no account: the facts
+// of keys_unsure and I-12 read held alike in both.
+func TestHeldByAnEmptiedAccount(t *testing.T) {
+	t.Parallel()
+	held := rcPosition("2025-11-28", "c:69389C109", 5_000_000, 250)
+	held.account = 2
+	secs, names := tcSecurities()
+	secs = append(secs, toolSecurityRow{key: "c:69389C109", assetType: "EQUITY", symbol: "MRGQ", cusip: "69389C109"})
+	full := tcInput(toolInput{
+		securities: secs, names: names, positions: []toolPosition{held},
+		snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 100_000), rcSnapshot(2, "2025-11-28", 0), rcSnapshot(2, "2026-11-10", 0)},
+	})
+	for _, in := range []toolInput{full, onlyAccount(full, 1)} {
+		if got := heldKeys(&in); len(got) > 0 {
+			t.Errorf("an export of account %d takes %v for held", in.account, got)
+		}
+	}
+	// Its older snapshot, as its latest, holds it.
+	older := full
+	older.to = "2026-01-31"
+	for _, in := range []toolInput{older, onlyAccount(older, 1)} {
+		if got := heldKeys(&in); !got["c:69389C109"] {
+			t.Errorf("an export of account %d up to %s takes %v for held", in.account, in.to, got)
 		}
 	}
 }

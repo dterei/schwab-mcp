@@ -10,10 +10,10 @@ import (
 )
 
 // This file reads what a tool export maps (2 of the design): its queries,
-// Q0 to Q10 and QL, run in one read transaction into a toolInput.
+// Q0 to Q10, QS and QL, run in one read transaction into a toolInput.
 
 // A toolQuery is one of the reads of a tool export (2 of the design): its
-// name there, Q0 to Q10 or QL; its SQL and its arguments; and scan,
+// name there, Q0 to Q10, QS or QL; its SQL and its arguments; and scan,
 // which reads the current row of rows, a row of the query, into in.
 type toolQuery struct {
 	name  string
@@ -24,7 +24,7 @@ type toolQuery struct {
 
 // toolQueries returns the reads of a tool export that selects the account
 // of id account, 0 for every account, and the rows up to the day to, ""
-// for no bound (2 of the design): Q0 to Q10 and QL, in that order. The
+// for no bound (2 of the design): Q0 to Q10, QS and QL, in that order. The
 // account bounds the ledger rows, their legs, the snapshots, the rows that
 // wait for you, the coverage and the uncounted entries (Q2, Q3 and Q7 to
 // Q10); to bounds the ledger rows, their legs, the positions and the rows
@@ -66,6 +66,7 @@ func toolQueries(account int64, to nytime.Date) []toolQuery {
 	positions, positionsArgs := bounds("", "market_date <= ?",
 		"in_session_date IS NULL", "market_date IS NOT NULL", "security_key IS NOT NULL")
 	snapshots, snapshotsArgs := bounds("account_id", "", "in_session_date IS NULL", "market_date IS NOT NULL")
+	instants, instantsArgs := bounds("", "market_date <= ?", "in_session_date IS NULL", "market_date IS NOT NULL")
 	waiting, waitingArgs := bounds("account_id", "day <= ?", "source = 'file'", "counted_why IN ('held_out', 'uncertain')")
 	uncounted, uncountedArgs := bounds("account_id", "", "counted = 0")
 	coverage := sql.NullInt64{Int64: account, Valid: account != 0}
@@ -132,6 +133,14 @@ func toolQueries(account int64, to nytime.Date) []toolQuery {
 			args: waitingArgs, scan: scanToolWaiting,
 		},
 		{name: "Q9", query: coverageQuery, args: []any{coverage}, scan: scanToolCoverage},
+		{
+			name: "QS",
+			// Every account's, whatever the export selects, as the positions
+			// are: an account holds at its latest snapshot what its positions
+			// of that snapshot hold, and nothing when they are none.
+			query: `SELECT account_id, market_date, fetched_at FROM snapshots` + instants + ` ORDER BY account_id, market_date, fetched_at`,
+			args:  instantsArgs, scan: scanToolSnapshotAt,
+		},
 		{
 			name: "Q10",
 			query: `SELECT ref, account_id, counted_why, matched_with FROM entries` + uncounted +
@@ -310,6 +319,24 @@ func scanToolPosition(rows *sql.Rows, in *toolInput) error {
 	}
 	p.marketDate = nytime.Date(date)
 	in.positions = append(in.positions, p)
+	return nil
+}
+
+// scanToolSnapshotAt reads a row of QS: when a closed-phase snapshot of an
+// account was taken.
+func scanToolSnapshotAt(rows *sql.Rows, in *toolInput) error {
+	var s toolSnapshotAt
+	var date string
+	var fetched sql.NullString
+	if err := rows.Scan(&s.account, &date, &fetched); err != nil {
+		return err
+	}
+	var err error
+	if s.fetchedAt, err = toolInstant(fetched, "when a snapshot of "+date+" was taken"); err != nil {
+		return err
+	}
+	s.marketDate = nytime.Date(date)
+	in.instants = append(in.instants, s)
 	return nil
 }
 

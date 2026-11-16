@@ -266,7 +266,7 @@ func (k eventKind) gfType() string { return eventKinds[k].gfType }
 func (k eventKind) shareSign() int64 { return eventKinds[k].shares }
 
 // A toolInput is what a tool export reads of the store (2 of the design),
-// Q0 to Q10 and QL, as plain values, with the export's options:
+// Q0 to Q10, QS and QL, as plain values, with the export's options:
 // everything that toolEvents and the functions beside it read. Days are
 // New York dates as the store writes them, "" for none; instants are the
 // zero time for none; money is in whole cents and quantities in whole
@@ -306,6 +306,10 @@ type toolInput struct {
 	// day (Q7), whatever to says: Ghostfolio takes balances only in the
 	// import that makes an account.
 	snapshots []toolSnapshot
+	// instants are when every account's closed-phase snapshots up to to
+	// were taken (QS), whatever the export selects: what an account holds
+	// at its latest snapshot (heldKeys).
+	instants []toolSnapshotAt
 	// waiting are the file rows that wait for you to resolve them (Q8).
 	waiting []toolWaiting
 	// coverage is the days each source covers of the selected accounts
@@ -1986,33 +1990,31 @@ func (ix *toolIndex) descriptionsOf(ss []*toolSecurity) []string {
 	})
 }
 
+// A toolSnapshotAt is when a closed-phase snapshot of an account was taken
+// (QS): its market date and its instant.
+type toolSnapshotAt struct {
+	account    int64
+	marketDate nytime.Date
+	fetchedAt  time.Time
+}
+
 // heldKeys returns the keys of the store's securities that an account holds
-// at its latest snapshot by the export's last day (Q6), long or short: a
-// selected account's latest by its snapshots, any other's by its positions.
+// at its latest snapshot by the export's last day, long or short: every
+// account's, whatever the export selects, its latest by when its snapshots
+// were taken (QS), and what it holds by its positions of that snapshot
+// (Q6), so that an account whose latest snapshot holds nothing holds
+// nothing.
 func heldKeys(in *toolInput) map[string]bool {
-	type snap struct {
-		date nytime.Date
-		at   time.Time
-	}
-	latest := map[int64]snap{}
-	later := func(id int64, d nytime.Date, at time.Time) {
-		if l, ok := latest[id]; d != "" && (in.to == "" || d <= in.to) && (!ok || d > l.date || d == l.date && at.After(l.at)) {
-			latest[id] = snap{d, at}
-		}
-	}
-	snapshotted := map[int64]bool{}
-	for _, s := range in.snapshots {
-		snapshotted[s.account] = true
-		later(s.account, s.marketDate, s.fetchedAt)
-	}
-	for _, p := range in.positions {
-		if !snapshotted[p.account] {
-			later(p.account, p.marketDate, p.fetchedAt)
+	latest := map[int64]toolSnapshotAt{}
+	for _, s := range in.instants {
+		if l, ok := latest[s.account]; s.marketDate != "" && (in.to == "" || s.marketDate <= in.to) &&
+			(!ok || s.marketDate > l.marketDate || s.marketDate == l.marketDate && s.fetchedAt.After(l.fetchedAt)) {
+			latest[s.account] = s
 		}
 	}
 	held := map[string]bool{}
 	for _, p := range in.positions {
-		if l, ok := latest[p.account]; ok && p.marketDate == l.date && p.fetchedAt.Equal(l.at) &&
+		if l, ok := latest[p.account]; ok && p.marketDate == l.marketDate && p.fetchedAt.Equal(l.fetchedAt) &&
 			(p.long.Valid && p.long.Int64 > 0 || p.short.Valid && p.short.Int64 > 0) {
 			held[p.key] = true
 		}
