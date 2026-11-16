@@ -528,7 +528,7 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 			}
 		}
 		if toolActivities(e) == 0 {
-			fmt.Fprintf(w, "this file holds no activity: %s's import dialog cannot import it; its accounts and balances come with the next export that has one, or by POST /api/v1/import\n", tool)
+			fmt.Fprintf(w, "this file holds no activity: %s's import dialog cannot import it; its accounts and balances come with the next export that has one, or by POST /api/v1/import; the next export lists its differences again, and those gone\n", tool)
 		}
 	} else {
 		var accounts []history.ToolAccount

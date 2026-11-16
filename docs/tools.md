@@ -513,7 +513,9 @@ what identifies it, with its description in its comment.
    holds a new activity: an export with none (prices only, or an account
    with snapshots and no rows) cannot be imported there, and stderr says so.
    Its accounts come, with every balance, with the next export that has an
-   activity, or by a direct `POST /api/v1/import` of the file. The prices of
+   activity, or by a direct `POST /api/v1/import` of the file. The next
+   export lists its differences from the snapshots again, and those that
+   it found gone, whether or not you imported it. The prices of
    an asset that Ghostfolio does not hold yet reach it only with an activity
    of the asset.
 4. **Names.** On a shared instance such as ghostfol.io, where the export's

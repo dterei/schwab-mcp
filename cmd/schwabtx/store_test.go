@@ -1421,7 +1421,7 @@ next time: schwabtx export -store STORE -format ghostfolio -since gf-2026-12-01 
 Ghostfolio takes an account's balances only in the import that makes the account; later imports leave its cash as it is
 set each account's cash in Ghostfolio to its latest snapshot, which imports do not change:
   Schwab A3 ...777: 40.00 (2026-12-30)
-this file holds no activity: Ghostfolio's import dialog cannot import it; its accounts and balances come with the next export that has one, or by POST /api/v1/import
+this file holds no activity: Ghostfolio's import dialog cannot import it; its accounts and balances come with the next export that has one, or by POST /api/v1/import; the next export lists its differences again, and those gone
 next time: schwabtx export -format ghostfolio -since gf-2026-12-31 -dir <a new folder>
 `,
 		},

@@ -760,6 +760,14 @@ type chainResult struct {
 	cash          []chainCashHolding
 	cashGone      []chainCashGone
 	cashUnchecked []chainCashUnchecked
+	// unimported says, for Ghostfolio, that this export writes no
+	// activity, so that the import dialog cannot import it (K-6 of the
+	// consolidation); goneCarried are then the differences that the
+	// earlier export listed and that this one finds gone, as listed. Its
+	// manifest carries both, and its own differences, for the next export
+	// to list again, never as before, or as gone.
+	unimported  bool
+	goneCarried []chainHolding
 	// securities are every security that the chain has written, with its
 	// identifiers as written last; symbolsChanged, for PP, those of this
 	// export that PP may hold otherwise than written or that may no longer
@@ -1138,7 +1146,9 @@ func compareEntries(now, then []chainEntry, checked map[string]bool) (before []b
 // for it by hand. The earlier export's differences of an account that this
 // one does not check, as one whose snapshot a store restored from an older
 // backup lacks, are carried on as they were, for the next export that
-// checks it.
+// checks it. A Ghostfolio export that writes no activity, which the import
+// dialog cannot import, carries its own differences and those that it finds
+// gone (unimported).
 func (c *chainResult) compareHoldings(events []toolEvent, moves map[string]bool) {
 	diffs, unchecked := holdingsCheck(c.in, events)
 	holds := map[string]bool{}
@@ -1196,6 +1206,19 @@ func (c *chainResult) compareHoldings(events []toolEvent, moves map[string]bool)
 		c.holdingsGone = append(c.holdingsGone, chainHoldingGone{
 			Account: l.Account, SecurityKey: l.SecurityKey, SecurityKeys: l.SecurityKeys, Symbol: l.Symbol, PP: l.PP, Asset: l.Asset, Was: l.Difference,
 		})
+	}
+	// A Ghostfolio export that writes no activity is one that the import
+	// dialog cannot import: stderr lists its differences all the same, for
+	// a POST of the file, and its manifest carries them, with those that it
+	// finds gone, as the next export goes on from an import of the one
+	// before it (chainJSON).
+	if c.in.tool == toolGF && len(c.written) == 0 {
+		c.unimported = true
+		for _, i := range gone {
+			l := listed[i]
+			l.Before, l.Carried = false, true
+			c.goneCarried = append(c.goneCarried, l)
+		}
 	}
 }
 
@@ -1509,6 +1532,16 @@ func chainJSON(c *chainResult, exportedAt string, unused []string) chainManifest
 	}
 	if m.LeftOut == nil {
 		m.LeftOut = []chainLeftOut{}
+	}
+	if c.unimported {
+		// An export that the import dialog cannot import carries every
+		// difference that it lists or finds gone: the next export lists
+		// each again, never as before, or as gone.
+		for i := range m.Holdings.Differences {
+			m.Holdings.Differences[i].Before, m.Holdings.Differences[i].Carried = false, true
+		}
+		m.Holdings.Differences = append(m.Holdings.Differences, c.goneCarried...)
+		slices.SortStableFunc(m.Holdings.Differences, func(a, b chainHolding) int { return cmp.Compare(c.labelOrder(a.Account), c.labelOrder(b.Account)) })
 	}
 	if m.Holdings.Differences == nil {
 		m.Holdings.Differences = []chainHolding{}

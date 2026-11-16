@@ -3022,6 +3022,13 @@ func TestToolReimport(t *testing.T) {
 				}
 				for i, s := range steps {
 					lines := slices.Clone(c.lines[i])
+					if tool == toolGF && i == 1 {
+						// Ghostfolio's first export holds no activity, the
+						// cash rows in the balances: the dialog cannot
+						// import it, so the next lists its difference
+						// again, never as before (K-6).
+						lines = append([]ToolDifference{held}, lines...)
+					}
 					for j := range lines {
 						if tool == toolGF {
 							asset, finds := "GRPQ", "YAHOO"
@@ -4463,6 +4470,143 @@ func TestToolReimport(t *testing.T) {
 		gfReconcile(t, e2.in, e2.events, e2.outcomes, g)
 	})
 
+	t.Run("9b the differences of a Ghostfolio export with no activity", func(t *testing.T) {
+		t.Parallel()
+		// An export with no activity is one that the import dialog cannot
+		// import (docs/tools.md step 3): its accounts come with the next
+		// export that has one, or by a direct import. Its manifest carries
+		// the differences that it lists, so that the next export lists them
+		// again, never as before: whether you imported it directly and added
+		// what it listed, or waited for the next export, Ghostfolio ends
+		// with Schwab's shares. In the first sequence, A3 holds 10 EFGH bought
+		// before the store's rows and has no row until a dividend, the
+		// second its twin of one account; in the third, A1's only row of a
+		// week is a 2:1 split, left out, before a dividend.
+		efgh := func(account int64, day string, long int64) toolPosition {
+			p := rcPosition(day, keyEFGH, long, float64(long)/1e6*30)
+			p.account = account
+			return p
+		}
+		dividend := func(ref string, account int64, clock string) toolRow {
+			r := rcCash(ref, account, clock, "DIVIDEND_OR_INTEREST", "Ordinary Dividend~EFGH", "dividend", 1_000)
+			r.securityKey, r.symbol = keyEFGH, "EFGH"
+			return r
+		}
+		held := []toolInput{
+			tcInput(toolInput{to: "2026-06-05", snapshots: []toolSnapshot{rcSnapshot(3, "2026-06-01", 50_000)}, positions: []toolPosition{efgh(3, "2026-06-01", 10_000_000)}}),
+			tcInput(toolInput{
+				to: "2026-06-12", rows: []toolRow{dividend("T79b00301", 3, "2026-06-10 10:00:00")},
+				snapshots: []toolSnapshot{rcSnapshot(3, "2026-06-01", 50_000), rcSnapshot(3, "2026-06-11", 51_000)},
+				positions: []toolPosition{efgh(3, "2026-06-01", 10_000_000), efgh(3, "2026-06-11", 10_000_000)},
+			}),
+		}
+		var one []toolInput
+		for _, in := range held {
+			one = append(one, onlyAccount(in, 3))
+		}
+		buy := rcTrade("T79b00101", 1, "2026-06-01 10:00:00", "buy", keyEFGH, "EFGH", 10_000_000, 30, -30_000, 0)
+		split := rcFile("C79b0001.1", 1, "2026-06-09", "Stock Split", "other", keyEFGH, "EFGH", centsOf(10_000_000), 0, 0)
+		snapshots := []toolSnapshot{rcSnapshot(1, "2026-06-04", 0), rcSnapshot(1, "2026-06-11", 0), rcSnapshot(1, "2026-06-18", 1_000)}
+		positions := []toolPosition{efgh(1, "2026-06-04", 10_000_000), efgh(1, "2026-06-11", 20_000_000), efgh(1, "2026-06-18", 20_000_000)}
+		split3 := []toolInput{
+			tcInput(toolInput{to: "2026-06-05", rows: []toolRow{buy}, snapshots: snapshots[:1], positions: positions[:1]}),
+			tcInput(toolInput{to: "2026-06-12", rows: []toolRow{buy, split}, snapshots: snapshots[:2], positions: positions[:2]}),
+			tcInput(toolInput{to: "2026-06-19", rows: []toolRow{buy, split, dividend("T79b00102", 1, "2026-06-16 10:00:00")}, snapshots: snapshots, positions: positions}),
+		}
+		ats := []string{rcAt1, rcAt2, rcAt3}
+		for _, c := range []struct {
+			name, account string
+			steps         []toolInput
+			want          *big.Rat
+		}{
+			{"a snapshot-only account", "Schwab A3 ...783", held, big.NewRat(10, 1)},
+			{"a snapshot-only account, of -account", "Schwab A3 ...783", one, big.NewRat(10, 1)},
+			{"a week of a split left out", "Schwab A1 ...135", split3, big.NewRat(20, 1)},
+		} {
+			for _, direct := range []bool{false, true} {
+				g := newGFModel()
+				var prev *chainStep
+				for i, in := range c.steps {
+					s := chainStepOf(t, in, toolGF, prev, ats[i])
+					switch {
+					case len(s.gf.file.Activities) == 0 && direct:
+						if _, err := gfImportDirect(g, s.file); err != nil {
+							t.Fatal(err)
+						}
+						rcBookGF(t, g, s, c.account)
+					case len(s.gf.file.Activities) == 0:
+						// You wait for the next export, as its line says.
+						if _, err := gfApply(t, g, s); err == nil {
+							t.Fatalf("%s: the dialog imports export %d, of no activity", c.name, i+1)
+						}
+					default:
+						if _, err := gfApply(t, g, s); err != nil {
+							t.Fatal(err)
+						}
+						rcBookGF(t, g, s, c.account)
+					}
+					prev = s
+				}
+				var got *big.Rat
+				for h, q := range g.holdings() {
+					if h.source == "YAHOO" && h.symbol == "EFGH" {
+						got = q
+					}
+				}
+				if got == nil || got.Cmp(c.want) != 0 {
+					t.Errorf("%s, imported directly %v: Ghostfolio holds %v EFGH, Schwab %v", c.name, direct, got, c.want)
+				}
+			}
+		}
+
+		// A difference that an export of no activity finds gone is listed
+		// as gone by the next: A3's 10 EFGH, added by hand after the first
+		// export, are sold at Schwab, which the store does not hold; the
+		// second export, of no row, finds the difference gone, and you wait
+		// for the third, which buys XYZ.
+		xyz := rcPosition("2026-06-18", keyXYZ, 1_000_000, 50)
+		xyz.account = 3
+		sold := []toolInput{
+			tcInput(toolInput{
+				to: "2026-06-05", rows: []toolRow{dividend("T79b00302", 3, "2026-06-03 10:00:00")},
+				snapshots: []toolSnapshot{rcSnapshot(3, "2026-06-04", 50_000)}, positions: []toolPosition{efgh(3, "2026-06-04", 10_000_000)},
+			}),
+			tcInput(toolInput{
+				to: "2026-06-12", rows: []toolRow{dividend("T79b00302", 3, "2026-06-03 10:00:00")},
+				snapshots: []toolSnapshot{rcSnapshot(3, "2026-06-04", 50_000), rcSnapshot(3, "2026-06-11", 80_000)}, positions: []toolPosition{efgh(3, "2026-06-04", 10_000_000)},
+			}),
+			tcInput(toolInput{
+				to: "2026-06-19", rows: []toolRow{dividend("T79b00302", 3, "2026-06-03 10:00:00"), rcTrade("T79b00303", 3, "2026-06-15 10:00:00", "buy", keyXYZ, "XYZ", 1_000_000, 50, -5_000, 0)},
+				snapshots: []toolSnapshot{rcSnapshot(3, "2026-06-04", 50_000), rcSnapshot(3, "2026-06-11", 80_000), rcSnapshot(3, "2026-06-18", 75_000)},
+				positions: []toolPosition{efgh(3, "2026-06-04", 10_000_000), xyz},
+			}),
+		}
+		g := newGFModel()
+		var prev *chainStep
+		for i, in := range sold {
+			s := chainStepOf(t, in, toolGF, prev, ats[i])
+			if i == 1 {
+				if _, err := gfApply(t, g, s); err == nil {
+					t.Fatal("the dialog imports the second export, of no activity")
+				}
+			} else {
+				if _, err := gfApply(t, g, s); err != nil {
+					t.Fatal(err)
+				}
+				rcBookGF(t, g, s, "Schwab A3 ...783")
+			}
+			if want := []bool{false, true, true}[i]; (len(s.res.holdingsGone) == 1) != want {
+				t.Errorf("export %d lists %+v as gone", i+1, s.res.holdingsGone)
+			}
+			prev = s
+		}
+		for h, q := range g.holdings() {
+			if h.symbol == "EFGH" && q.Sign() != 0 {
+				t.Errorf("Ghostfolio holds %v EFGH, which Schwab sold", q)
+			}
+		}
+	})
+
 	t.Run("10 the chain's account", func(t *testing.T) {
 		t.Parallel()
 		rows := []toolRow{
@@ -4537,11 +4681,15 @@ func TestToolReimport(t *testing.T) {
 			// out: what you added by hand is to equal it less what the split
 			// moves once you book it by hand, as its left_out entry says, so
 			// the opening position stays 15.
+			// Ghostfolio's export of the split holds no activity, which the
+			// dialog cannot import: the next lists its difference again,
+			// never as before (K-6).
+			again := tool == toolGF
 			for i, want := range [][]string{
 				{"A1 ...135 XYZ 5 -10 15 false false"},
 				{"A1 ...135 XYZ 8 -7 15 false true"},
 				{"A1 ...135 XYZ 16 -7 23 true false", "C7b00000.1 other false"},
-				{"A1 ...135 XYZ 16 -7 23 true true", "C7b00000.1 other true"},
+				{fmt.Sprintf("A1 ...135 XYZ 16 -7 23 true %v", !again), "C7b00000.1 other true"},
 			} {
 				if got := describe(steps[i]); !slices.Equal(got, want) {
 					t.Errorf("%s, export %d: %q, want %q", tool, i+1, got, want)
@@ -4551,7 +4699,11 @@ func TestToolReimport(t *testing.T) {
 			if tool == toolGF {
 				split.Asset, split.Finds = "XYZ", "YAHOO"
 			}
-			if d := steps[2].e.Differences; !reflect.DeepEqual(d, []ToolDifference{split}) || len(steps[3].e.Differences) > 0 {
+			var next []ToolDifference
+			if again {
+				next = []ToolDifference{split}
+			}
+			if d := steps[2].e.Differences; !reflect.DeepEqual(d, []ToolDifference{split}) || !reflect.DeepEqual(steps[3].e.Differences, next) {
 				t.Errorf("%s: the split's export lists %+v, the next %+v", tool, d, steps[3].e.Differences)
 			}
 

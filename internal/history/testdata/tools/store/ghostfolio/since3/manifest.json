@@ -543,7 +543,7 @@
         "snapshot_shares": 10,
         "written_shares": 0,
         "difference": 10,
-        "before": true
+        "carried": true
       },
       {
         "account": "A1 ...135",
@@ -557,7 +557,7 @@
         "snapshot_shares": 1220.89,
         "written_shares": 0,
         "difference": 1220.89,
-        "before": true
+        "carried": true
       },
       {
         "account": "A1 ...135",
@@ -571,7 +571,7 @@
         "snapshot_shares": 12,
         "written_shares": 0,
         "difference": 12,
-        "before": true
+        "carried": true
       },
       {
         "account": "A1 ...135",
@@ -585,7 +585,7 @@
         "snapshot_shares": 2.1788,
         "written_shares": 1,
         "difference": 1.1788,
-        "before": true
+        "carried": true
       },
       {
         "account": "A1 ...135",
@@ -599,7 +599,7 @@
         "snapshot_shares": 0,
         "written_shares": 0.0378,
         "difference": -0.0378,
-        "before": true
+        "carried": true
       },
       {
         "account": "A1 ...135",
@@ -613,7 +613,7 @@
         "snapshot_shares": 0,
         "written_shares": -0.4513,
         "difference": 0.4513,
-        "before": true
+        "carried": true
       },
       {
         "account": "A2 ...398",
@@ -628,7 +628,7 @@
         "snapshot_shares": -200,
         "written_shares": 0,
         "difference": -200,
-        "before": true
+        "carried": true
       },
       {
         "account": "A2 ...398",
@@ -642,7 +642,7 @@
         "snapshot_shares": 1,
         "written_shares": 0,
         "difference": 1,
-        "before": true
+        "carried": true
       },
       {
         "account": "A2 ...398",
@@ -658,7 +658,7 @@
         "written_shares": -1,
         "difference": 1,
         "unsure": true,
-        "before": true
+        "carried": true
       },
       {
         "account": "A2 ...398",
@@ -672,7 +672,7 @@
         "snapshot_shares": 0,
         "written_shares": 2,
         "difference": -2,
-        "before": true
+        "carried": true
       },
       {
         "account": "A2 ...398",
@@ -687,7 +687,7 @@
         "snapshot_shares": 0,
         "written_shares": 50,
         "difference": -50,
-        "before": true
+        "carried": true
       },
       {
         "account": "A2 ...398",
@@ -702,7 +702,7 @@
         "snapshot_shares": 0,
         "written_shares": 200,
         "difference": -200,
-        "before": true
+        "carried": true
       },
       {
         "account": "A2 ...398",
@@ -717,7 +717,7 @@
         "snapshot_shares": 0,
         "written_shares": -100,
         "difference": 100,
-        "before": true
+        "carried": true
       },
       {
         "account": "A2 ...398",
@@ -732,7 +732,7 @@
         "snapshot_shares": 0,
         "written_shares": 100,
         "difference": -100,
-        "before": true
+        "carried": true
       },
       {
         "account": "A2 ...398",
@@ -747,7 +747,7 @@
         "snapshot_shares": 0,
         "written_shares": -100,
         "difference": 100,
-        "before": true
+        "carried": true
       }
     ],
     "gone": [],

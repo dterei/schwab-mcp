@@ -282,8 +282,21 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 	for _, g := range deref(m.Holdings.CashGone) {
 		differences = append(differences, ToolDifference{Account: g.Account, Cash: true, Value: string(g.Was), Gone: true})
 	}
+	// A Ghostfolio export that writes no activity, which the import dialog
+	// cannot import, carries every difference in its manifest, and stderr
+	// lists its own all the same.
+	unimported := e.Tool == toolGF && len(e.res.written) == 0
+	listed := m.Holdings.Differences
+	if unimported {
+		listed = e.res.holdings
+	}
 	for _, h := range m.Holdings.Differences {
 		same(h.Account+" "+h.SecurityKey, h.SnapshotShares, h.WrittenShares, h.Difference, h.Before, h.Carried)
+		if unimported && !h.Carried {
+			t.Errorf("the manifest of an export with no activity lists %s %s as not carried", h.Account, h.SecurityKey)
+		}
+	}
+	for _, h := range listed {
 		f := finds(h.SecurityKey, h.PP, h.Asset)
 		if !h.Before && !h.Carried {
 			differences = append(differences, ToolDifference{
@@ -869,9 +882,17 @@ func TestToolExport(t *testing.T) {
 			}
 			differences = append(differences, line)
 		}
+		// Ghostfolio's two exports before held no activity, which its
+		// import dialog cannot import: this one lists every difference
+		// again, never as before (K-6).
 		meta := map[string][]string{
 			toolPP: {"name Security (i:1940083512) 1 gone", "WKN 30303M102 2"},
-			toolGF: {"Security (i:1940083512) 1 gone", "META 2"},
+			toolGF: {
+				"Security (i:1940083512) 1 gone", "Security (00507V109) 10", "SWVXX 1220.89", "VTI 12", "AAPL 1.1788", "BND -0.0378", "VBR 0.4513",
+				"XYZ 2026-06-19 45 put (XYZ260619P00045000) -200", "META 2", "AAPL -2", "Security (i:205187341) -50",
+				"XYZ 2025-02-21 40 put (XYZ250221P00040000) -200", "XYZ 2026-09-18 50 call (XYZ260918C00050000) 100",
+				"XYZ 2026-10-16 45 put (XYZ261016P00045000) -100", "XYZ 2026-10-16 40 put (XYZ261016P00040000) 100",
+			},
 		}[tool]
 		if c, g := rcChanged(s); !slices.Equal(c, []string{"T73508261942: " + was + " -> " + was}) || len(g) > 0 || !slices.Equal(s.refs(outcomeWritten), []string{"T73508261942"}) ||
 			len(s.e.Unsure) > 0 || s.e.SymbolsChanged > 0 || !slices.Equal(differences, meta) {
