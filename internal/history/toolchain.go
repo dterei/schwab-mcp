@@ -210,18 +210,28 @@ type chainLeftOut struct {
 }
 
 // A chainLeftOutWritten is a row that the export it goes on from left out,
-// advising you to book it by hand or to check it, and that this export
-// writes (R-9 of the consolidation): its records now come with this export,
-// so what you booked by hand for it is to delete before importing. Reason
-// and Advice are that export's, Day the row's, and Now what this export
-// writes of it (chainAs).
+// advising you to book it by hand or to check it, and that this export does
+// not leave out (R-9 of the consolidation): it writes the row, whose records
+// now come with it, or the row is gone, as the store counts its transaction
+// in another row or no longer counts it. Either way what you booked by hand
+// for it is to delete before importing: the tool is to hold the transaction
+// once, by the rows that the store counts. Reason and Advice are that
+// export's, and Day the row's ("" for one that it left out for want of a
+// day). Now is what the tool holds of it once this export is imported
+// (chainAs); of a row gone, of the rows that the store links to it or that
+// carry it, "" for none. Why is, of a row gone, what became of it, as a gone
+// row's why says it (R-3): linked to the rows that the store counts in its
+// place, uncounted with the store's counted_why, combined with the row that
+// carries it, for Ghostfolio now cash in the balances, or not in this
+// export.
 type chainLeftOutWritten struct {
 	Ref     string      `json:"ref"`
 	Account string      `json:"account"`
-	Day     nytime.Date `json:"day"`
+	Day     nytime.Date `json:"day,omitempty"`
 	Reason  string      `json:"reason"`
 	Advice  string      `json:"advice"`
-	Now     string      `json:"now"`
+	Now     string      `json:"now,omitempty"`
+	Why     string      `json:"why,omitempty"`
 }
 
 // leftOutBooked are the advice codes of a row left out that you may book in
@@ -778,7 +788,8 @@ type chainResult struct {
 	notHeld   []toolAccount
 	// leftOutWritten are the rows that the earlier export left out, advising
 	// you to book them by hand or to check them, and that this export
-	// writes, in the order of their accounts, days and refs.
+	// writes or that are gone, in the order of their accounts, days and
+	// refs.
 	leftOutWritten []chainLeftOutWritten
 	// holdingsGone are the differences that the earlier export listed, of
 	// the accounts that the holdings check checks, and that it no longer
@@ -891,20 +902,13 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 			}
 		case had:
 			gone = append(gone, prev)
-			w := "left out: " + o.reason
-			switch o.outcome {
-			case outcomeInBalances:
-				w = "now cash, in the balances"
-			case outcomeCombined:
-				w = "combined with " + o.withLabel() + " " + o.with
-			}
-			why[[2]string{prev.label, prev.ref}] = w
+			why[[2]string{prev.label, prev.ref}] = wentWhy(o)
 		}
 	}
 	for k, o := range old {
 		if !seen[k] {
 			gone = append(gone, o)
-			why[[2]string{o.label, o.ref}] = c.whyGone(k)
+			why[[2]string{o.label, o.ref}], _ = c.whyGone(k)
 		}
 	}
 	for _, o := range unknown {
@@ -989,21 +993,36 @@ func (c *chainResult) labelOrder(label string) int64 {
 // either way.
 const notInExport = "not in this export: no longer in the store, or dated after -to"
 
-// whyGone returns why the row k, which the earlier export gave and which
-// this export does not select, went: uncounted, with the store's
+// whyGone returns why the row k, which the earlier export gave or left out
+// and which this export does not select, went: uncounted, with the store's
 // counted_why, or linked to the rows that the store counts in its place
-// (Q10); else notInExport.
-func (c *chainResult) whyGone(k rowKey) string {
+// (Q10); else notInExport. linked are the refs of those rows, nil for none.
+func (c *chainResult) whyGone(k rowKey) (why string, linked []string) {
 	for _, u := range c.in.uncounted {
 		if u.account != k.account || u.ref != k.ref {
 			continue
 		}
 		if u.why == "linked" && u.matchedWith != "" {
-			return "linked to " + strings.ReplaceAll(u.matchedWith, ",", ", ")
+			linked = strings.Split(u.matchedWith, ",")
+			return "linked to " + strings.Join(linked, ", "), linked
 		}
-		return "uncounted: " + u.why
+		return "uncounted: " + u.why, nil
 	}
-	return notInExport
+	return notInExport, nil
+}
+
+// wentWhy returns why a row went that this export selects and neither
+// writes nor gives, by its outcome o (R-3 of the consolidation): left out,
+// with its reason; for Ghostfolio, now cash, in the balances; or combined
+// with the row whose records carry it.
+func wentWhy(o toolOutcome) string {
+	switch o.outcome {
+	case outcomeInBalances:
+		return "now cash, in the balances"
+	case outcomeCombined:
+		return "combined with " + o.withLabel() + " " + o.with
+	}
+	return "left out: " + o.reason
 }
 
 // nextGiven makes the next given (R-7 of the consolidation): the entry of
@@ -1071,11 +1090,18 @@ func (c *chainResult) compareLeftOut() {
 
 // compareLeftOutWritten lists the rows that the earlier export left out,
 // with advice to book them by hand or to check them (leftOutBooked), and
-// that this export writes, as your edit, a revision or a later import has
-// settled them (R-9 of the consolidation): what you booked by hand for one
-// is to delete before importing, since its records come with this export,
-// and the tool would hold them twice. The earlier export's left_out is
-// read for nothing else.
+// that this export does not leave out (R-9 of the consolidation). It writes
+// one, as your edit, a revision or a later import has settled it, and its
+// records come with this export (or, for PP, the tool holds them already,
+// of a row gone under another ref that it is the same as); or one is gone,
+// as the store counts its transaction in another row, as the API's row once
+// a transactions -json covers its day (linked), or no longer counts it, or
+// this export carries it in another row, with what became of it, as a gone
+// row's why says it. Either way what you booked by hand for it is to delete
+// before importing: the tool would hold the transaction twice, or hold one
+// that the store does not count. Only the export right after the one that
+// left the row out lists it: the next goes on from one that did not. The
+// earlier export's left_out is read for nothing else.
 func (c *chainResult) compareLeftOutWritten(records map[int][]*toolEvent) {
 	if c.since == nil {
 		return
@@ -1086,15 +1112,69 @@ func (c *chainResult) compareLeftOutWritten(records map[int][]*toolEvent) {
 			booked[[2]string{l.Account, l.Ref}] = l
 		}
 	}
+	if len(booked) == 0 {
+		return
+	}
+	// held is what the tool holds, once this export is imported, of each
+	// row that it writes or gives, by label and ref; as says it of refs of
+	// the account labelled label, "" for none.
+	held := map[[2]string]string{}
+	for i, o := range c.outcomes {
+		if o.outcome == outcomeWritten || o.outcome == outcomeGiven {
+			held[[2]string{o.account.label(), c.in.rows[i].ref}] = chainAs(c.in.tool, records[i])
+		}
+	}
+	as := func(label string, refs ...string) string {
+		var out []string
+		for _, ref := range refs {
+			if a, ok := held[[2]string{label, ref}]; ok {
+				out = append(out, a)
+			}
+		}
+		return strings.Join(out, "; ")
+	}
+	selected := map[[2]string]bool{}
 	for i, o := range c.outcomes {
 		r := &c.in.rows[i]
-		l, ok := booked[[2]string{o.account.label(), r.ref}]
-		if o.outcome != outcomeWritten || !ok {
+		k := [2]string{o.account.label(), r.ref}
+		l, ok := booked[k]
+		if !ok {
 			continue
 		}
-		c.leftOutWritten = append(c.leftOutWritten, chainLeftOutWritten{
-			Ref: r.ref, Account: l.Account, Day: r.day, Reason: l.Reason, Advice: l.Advice, Now: chainAs(c.in.tool, records[i]),
-		})
+		selected[k] = true
+		w := chainLeftOutWritten{Ref: r.ref, Account: l.Account, Day: r.day, Reason: l.Reason, Advice: l.Advice}
+		switch o.outcome {
+		case outcomeLeftOut:
+			// Left out again: compareLeftOut lists it, before when for the
+			// same reason, and what you booked for it stands.
+			continue
+		case outcomeWritten, outcomeGiven:
+			w.Now = held[k]
+		default:
+			w.Why, w.Now = wentWhy(o), as(o.withLabel(), o.with)
+		}
+		c.leftOutWritten = append(c.leftOutWritten, w)
+	}
+	// The rows that this export does not select: uncounted (Q10), or not in
+	// this export.
+	for _, l := range c.since.LeftOut {
+		k := [2]string{l.Account, l.Ref}
+		if _, ok := booked[k]; !ok || selected[k] {
+			continue
+		}
+		selected[k] = true
+		w := chainLeftOutWritten{Ref: l.Ref, Account: l.Account, Reason: l.Reason, Advice: l.Advice, Why: notInExport}
+		if l.Day != nil {
+			w.Day = *l.Day
+		}
+		for _, a := range c.in.accounts {
+			if a.label() == l.Account {
+				var linked []string
+				w.Why, linked = c.whyGone(rowKey{a.id, l.Ref})
+				w.Now = as(l.Account, linked...)
+			}
+		}
+		c.leftOutWritten = append(c.leftOutWritten, w)
 	}
 	slices.SortStableFunc(c.leftOutWritten, func(a, b chainLeftOutWritten) int {
 		return cmp.Or(cmp.Compare(c.labelOrder(a.Account), c.labelOrder(b.Account)), cmp.Compare(a.Day, b.Day), cmp.Compare(a.Ref, b.Ref))

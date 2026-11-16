@@ -1321,6 +1321,39 @@ next time: schwabtx export -format pp -since pp-2026-12-31 -dir <a new folder>
 `,
 		},
 		{
+			// Two Cash In Lieu left out for want of a quantity, which you
+			// booked by hand, and that a -json covering their days has
+			// stopped counting: one linked to the API's row of it, written
+			// now, the other held out beside such a row.
+			name: "pp going on, rows left out and gone", dir: "pp-2027-01-08", since: "pp-2026-12-31",
+			e: history.ToolExport{
+				Tool: "pp", To: "2027-01-07", Since: "2026-12-31T12:00:00Z", SinceTo: "2026-12-30", Written: 2, Late: 2, Securities: 1,
+				Files: []history.ToolFile{
+					{Name: "securities.csv", Kind: "securities", Rows: 1},
+					{Name: "account-transactions-A1-135.csv", Kind: "account", Account: "A1 ...135", Rows: 2},
+				},
+				Accounts: []history.ToolAccount{a1},
+				LeftOutWritten: []history.ToolLeftOutWritten{
+					{
+						Ref: "C9e8d7c6b.8", Account: "A1 ...135", Day: "2025-12-04", Reason: "no_quantity", Advice: "by_hand",
+						Now: "account 2025-12-04 Dividend 12.34", Why: "linked to T73508261971",
+					},
+					{Ref: "C9e8d7c6b.9", Account: "A1 ...135", Day: "2026-03-05", Reason: "no_quantity", Advice: "by_hand", Why: "uncounted: held_out"},
+				},
+				Waiting: 1,
+			},
+			want: `wrote 2 rows for Portfolio Performance to pp-2027-01-08, since pp-2026-12-31, up to 2027-01-07: 1 account file, 1 security
+  this assumes Portfolio Performance holds pp-2026-12-31 and every export before it, each imported once, with what it listed deleted and ticked
+  2 of them are dated on or before 2026-12-30, the end of pp-2026-12-31: they came late, were decided or took a new ref since
+1 file transaction waits for you to resolve it (schwabtx status -review) and is not in this export
+2 rows that pp-2026-12-31 left out are gone (pp-2027-01-08/manifest.json lists each under left_out_written, with what became of each): before importing, delete in Portfolio Performance what you booked by hand for each, if anything (docs/tools.md step 6):
+  Schwab A1 ...135: 2025-12-04 (C9e8d7c6b.8; left out no_quantity, by_hand): gone, linked to T73508261971: 2025-12-04 Dividend 12.34
+  Schwab A1 ...135: 2026-03-05 (C9e8d7c6b.9; left out no_quantity, by_hand): gone, uncounted (held_out)
+import in this order: securities.csv, account-transactions-A1-135.csv
+next time: schwabtx export -format pp -since pp-2027-01-08 -dir <a new folder>
+`,
+		},
+		{
 			name: "ghostfolio in full", dir: "gf-2026-11-13",
 			e: history.ToolExport{
 				Tool: "ghostfolio", To: "2026-11-12", Written: 10,
@@ -1392,6 +1425,9 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-14 -dir <a new f
 				// hand, and that Schwab has since revised.
 				LeftOutWritten: []history.ToolLeftOutWritten{
 					{Ref: "T73508261970", Account: "A1 ...135", Day: "2025-12-10", Reason: "signs_disagree", Advice: "check", Now: "2025-12-10 BUY 50.00"},
+					// A trade without a day, which you added by hand, and
+					// which the store no longer holds.
+					{Ref: "C9e8d7c6b.10", Account: "A2 ...398", Reason: "no_day", Advice: "check", Why: "not in this export: no longer in the store, or dated after -to"},
 				},
 				Unsure: []history.ToolUnsure{{
 					Key: "x:66000017", Facts: history.ToolFacts{Tickers: []history.ToolTicker{{Ticker: "JKLM", Source: "history"}}, First: "2024-03-11", Last: "2024-03-11"},
@@ -1427,8 +1463,9 @@ left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_ca
 before importing, delete in Ghostfolio what changed or went (gf-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 DIVIDEND 3.86 (comment schwabtx A1 ...135 T73508261950): changed; the new form is in this export
   Schwab A2 ...398: 2025-01-22 SELL 412.50 fee 0.65 (comment schwabtx A2 ...398 T73508261945): gone, left out (gf_cash)
-1 row that gf-2026-11-13 left out is written now (gf-2026-12-01/manifest.json lists it under left_out_written): before importing, delete in Ghostfolio what you added by hand for it, if anything (docs/tools.md step 7):
+2 rows that gf-2026-11-13 left out are written now or gone (gf-2026-12-01/manifest.json lists each under left_out_written, with what became of each): before importing, delete in Ghostfolio what you added by hand for each, if anything (docs/tools.md step 7):
   Schwab A1 ...135: 2025-12-10 BUY 50.00 (T73508261970; left out signs_disagree, check)
+  Schwab A2 ...398: no day (C9e8d7c6b.10; left out no_day, check): gone, not in this export (no longer in the store, or dated after -to)
 4 differences from the latest snapshots are new or changed since gf-2026-11-13, and 3 are gone (gf-2026-12-01/manifest.json lists each): after importing, delete what you added by hand in Ghostfolio for each that is gone, under the asset named, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
   Schwab A1 ...135: XYZ (YAHOO): gone: delete what you added for it, if anything
   Schwab A2 ...398: ZZTA (YAHOO): gone: delete what you added for it, if anything

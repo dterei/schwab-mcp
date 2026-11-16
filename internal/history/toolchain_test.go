@@ -4810,6 +4810,240 @@ func TestToolReimport(t *testing.T) {
 		}
 	})
 
+	t.Run("9d a row left out, booked by hand, then gone", func(t *testing.T) {
+		t.Parallel()
+		// A row left out with advice to book it by hand, which you book as
+		// the advice says, and that the next export no longer writes or
+		// leaves out under its ref: a -json that covers its day has the
+		// store count its transaction from the API's row, under that row's
+		// ref, the History row linked to it, or held out beside it when the
+		// matcher pairs none; a row that comes later carries it (the cash
+		// row of a cash merger carries its shares row); or, for PP, a row
+		// gone under another ref stands for it (same_as). The next export
+		// lists it under left_out_written, gone, with what became of it, or
+		// written; you delete the booking before importing as the line
+		// says, and the tool ends with the snapshot's cash and shares, the
+		// transaction once.
+		const name, label = "Schwab A1 ...135", "A1 ...135"
+		deposit := rcCash("T79d00101", 1, "2025-11-03 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 100_000)
+		inLieu := rcFile("C79d0001.1", 1, "2025-12-04", "Cash In Lieu", "sell", keyXYZ, "XYZ", sql.NullInt64{}, 0, 1234)
+		api := rcCash("T79d00102", 1, "2025-12-04 10:00:00", "DIVIDEND_OR_INTEREST", "CASH IN LIEU OF FRACTIONAL SHARES", "dividend", 1234)
+		api.securityKey, api.symbol = keyXYZ, "XYZ"
+		first := tcInput(toolInput{to: "2026-01-31", rows: []toolRow{deposit, inLieu}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-01-30", 101_234)}})
+		then := func(u toolUncounted) toolInput {
+			return tcInput(toolInput{
+				to: "2026-02-27", rows: []toolRow{deposit, api},
+				snapshots: []toolSnapshot{rcSnapshot(1, "2026-01-30", 101_234), rcSnapshot(1, "2026-02-26", 101_234)},
+				uncounted: []toolUncounted{u},
+			})
+		}
+		// lists requires s to list the row of ref under left_out_written,
+		// gone with why and now when why is not "", else written, as now.
+		lists := func(t *testing.T, s *chainStep, ref string, day nytime.Date, reason, advice, why, now string) {
+			t.Helper()
+			want := []ToolLeftOutWritten{{Ref: ref, Account: label, Day: day, Reason: reason, Advice: advice, Now: now, Why: why}}
+			if !reflect.DeepEqual(s.e.LeftOutWritten, want) {
+				t.Errorf("the next export lists %+v under left_out_written, want %+v", s.e.LeftOutWritten, want)
+			}
+		}
+		// deleteBooked deletes, before importing s, what you booked by hand
+		// in m for each row that s lists under left_out_written: of
+		// the account named name, by its note.
+		deleteBooked := func(m *ppModel, s *chainStep) {
+			for range s.e.LeftOutWritten {
+				for _, o := range []*ppOwner{ppOwnerNamed(m.accounts, name), ppOwnerNamed(m.portfolios, name)} {
+					o.txs = slices.DeleteFunc(o.txs, func(x *ppTx) bool { return x.note == "by hand" })
+				}
+			}
+		}
+		for _, form := range []struct {
+			name string
+			u    toolUncounted
+			why  string
+		}{
+			{"linked", toolUncounted{ref: inLieu.ref, account: 1, why: "linked", matchedWith: api.ref}, "linked to " + api.ref},
+			{"held out", toolUncounted{ref: inLieu.ref, account: 1, why: "held_out"}, "uncounted: held_out"},
+		} {
+			for _, tool := range []string{toolPP, toolGF} {
+				e1 := chainStepOf(t, first, tool, nil, rcAt1)
+				if len(e1.res.leftOut) != 1 || e1.res.leftOut[0].Advice != "by_hand" {
+					t.Fatalf("%s, %s: the first export leaves out %+v", form.name, tool, e1.res.leftOut)
+				}
+				e2 := chainStepOf(t, then(form.u), tool, e1, rcAt2)
+				now := ""
+				if form.u.why == "linked" {
+					now = e2.res.given[label][api.ref].As
+				}
+				lists(t, e2, inLieu.ref, "2025-12-04", "no_quantity", "by_hand", form.why, now)
+				if tool == toolGF {
+					g := newGFModel()
+					if _, err := gfImportDirect(g, e1.file); err != nil {
+						t.Fatal(err)
+					}
+					g.activities = append(g.activities, gfmActivity{
+						account: g.accounts[0].id, comment: "by hand", currency: "USD", source: "YAHOO", symbol: "XYZ", typ: "DIVIDEND",
+						date: "2025-12-04T12:00:00.000Z", fee: new(big.Rat), quantity: big.NewRat(1, 1), unitPrice: big.NewRat(1234, 100),
+					})
+					for range e2.e.LeftOutWritten {
+						g.activities = slices.DeleteFunc(g.activities, func(a gfmActivity) bool { return a.comment == "by hand" })
+					}
+					if _, err := gfApply(t, g, e2); err != nil {
+						t.Fatal(err)
+					}
+					n := 0
+					for _, a := range g.activities {
+						if a.typ == "DIVIDEND" && a.symbol == "XYZ" {
+							n++
+						}
+					}
+					if n != 1 {
+						t.Errorf("%s: Ghostfolio holds %d DIVIDEND activities of XYZ for one Cash In Lieu", form.name, n)
+					}
+					continue
+				}
+				// Booked as a dividend, as its kind says, or as a deposit.
+				for _, hand := range []map[string]string{
+					{
+						"Date": "2025-12-04", "Type": "Dividend", "Value": "12.34", "Ticker Symbol": "XYZ", "WKN": "98389B100",
+						"Security Name": "XYZ CORP COMMON STOCK", "Cash Account": name, "Note": "by hand",
+					},
+					{"Date": "2025-12-04", "Type": "Deposit", "Value": "12.34", "Cash Account": name, "Note": "by hand"},
+				} {
+					m := newPPModel()
+					ppApply(t, m, e1)
+					f := ppFolderOf(toolInput{tool: toolPP})
+					f["account-transactions-A1-135.csv"] = ppMade(ppAccount, hand)
+					if _, refused := m.importFile(f.write(t), "account-transactions-A1-135.csv", name, nil); len(refused) > 0 {
+						t.Fatal(refused)
+					}
+					deleteBooked(m, e2)
+					if byHand := ppApply(t, m, e2); len(byHand) > 0 || m.cash(name) != 101_234 {
+						t.Errorf("%s, booked as a %s: PP holds %s, its snapshot 1012.34, and marks %q for an entry booked by hand",
+							form.name, hand["Type"], formatCents(m.cash(name)), byHand)
+					}
+				}
+			}
+		}
+
+		// A split and a cash merger, each left out of the History file for
+		// you to book: the split's History row linked to the API's row of
+		// it, which is left out under its own ref; the merger's shares row
+		// carried by its cash row, come later, which sells the shares.
+		wire := rcCash("T79d00200", 1, "2025-06-02 09:00:00", "WIRE_IN", "Wire Incoming", "deposit", 100_000)
+		buy := rcTrade("T79d00201", 1, "2025-06-02 10:00:00", "buy", keyXYZ, "XYZ", 10_000_000, 50, -50_000, 0)
+		split := rcFile("C79d0002.1", 1, "2025-06-03", "Stock Split", "other", keyXYZ, "XYZ", centsOf(10_000_000), 0, 0)
+		apiSplit := toolRow{
+			ref: "T79d00202", account: 1, source: "api", time: tcNY("2025-06-03 10:00:00"), kind: "RECEIVE_AND_DELIVER", description: "STOCK SPLIT",
+			category: "other", securityKey: keyXYZ, symbol: "XYZ", quantity: centsOf(10_000_000), amount: centsOf(0),
+		}
+		e1 := chainStepOf(t, tcInput(toolInput{to: "2025-06-30", rows: []toolRow{wire, buy, split}}), toolPP, nil, rcAt1)
+		if len(e1.res.leftOut) != 1 || e1.res.leftOut[0].Advice != "split" {
+			t.Fatalf("a split: the first export leaves out %+v", e1.res.leftOut)
+		}
+		e2 := chainStepOf(t, tcInput(toolInput{
+			to: "2025-07-31", rows: []toolRow{wire, buy, apiSplit},
+			uncounted: []toolUncounted{{ref: split.ref, account: 1, why: "linked", matchedWith: apiSplit.ref}},
+		}), toolPP, e1, rcAt2)
+		lists(t, e2, split.ref, "2025-06-03", "other", "split", "linked to "+apiSplit.ref, "")
+
+		shares := rcFile("C79d0003.1", 1, "2025-06-04", "Cash Merger Adj", "other", keyXYZ, "XYZ", centsOf(-10_000_000), 0, 0)
+		shares.flags = []string{"two_row_event"}
+		cash := rcFile("C79d0003.2", 1, "2025-06-04", "Cash Merger", "sell", keyXYZ, "XYZ", sql.NullInt64{}, 0, 50_000)
+		cash.flags = []string{"two_row_event"}
+		position := func(day string) toolPosition { return rcPosition(day, keyXYZ, 10_000_000, 500) }
+		before := tcInput(toolInput{
+			to: "2025-06-30", rows: []toolRow{wire, buy, shares},
+			snapshots: []toolSnapshot{rcSnapshot(1, "2025-06-03", 50_000)}, positions: []toolPosition{position("2025-06-03")},
+		})
+		after := tcInput(toolInput{
+			to: "2025-07-31", rows: []toolRow{wire, buy, shares, cash},
+			snapshots: []toolSnapshot{rcSnapshot(1, "2025-06-03", 50_000), rcSnapshot(1, "2025-06-06", 100_000)}, positions: []toolPosition{position("2025-06-03")},
+		})
+		for _, tool := range []string{toolPP, toolGF} {
+			e1 := chainStepOf(t, before, tool, nil, rcAt1)
+			if len(e1.res.leftOut) != 1 || e1.res.leftOut[0].Advice != "corporate_action" {
+				t.Fatalf("a cash merger, %s: the first export leaves out %+v", tool, e1.res.leftOut)
+			}
+			e2 := chainStepOf(t, after, tool, e1, rcAt2)
+			lists(t, e2, shares.ref, "2025-06-04", "other", "corporate_action", "combined with "+label+" "+cash.ref, e2.res.given[label][cash.ref].As)
+			if tool == toolGF {
+				// The merger booked as a SELL of the shares, as its advice
+				// says.
+				g := newGFModel()
+				if _, err := gfImportDirect(g, e1.file); err != nil {
+					t.Fatal(err)
+				}
+				g.activities = append(g.activities, gfmActivity{
+					account: g.accounts[0].id, comment: "by hand", currency: "USD", source: "YAHOO", symbol: "XYZ", typ: "SELL",
+					date: "2025-06-04T12:00:00.000Z", fee: new(big.Rat), quantity: big.NewRat(10, 1), unitPrice: big.NewRat(50, 1),
+				})
+				for range e2.e.LeftOutWritten {
+					g.activities = slices.DeleteFunc(g.activities, func(a gfmActivity) bool { return a.comment == "by hand" })
+				}
+				if _, err := gfApply(t, g, e2); err != nil {
+					t.Fatal(err)
+				}
+				for h, q := range g.holdings() {
+					if h.symbol == "XYZ" && q.Sign() != 0 {
+						t.Errorf("a cash merger: Ghostfolio holds %v XYZ, which the merger took", q)
+					}
+				}
+				continue
+			}
+			// The merger booked as a Delivery (Outbound) of the shares, as
+			// its advice says.
+			m := newPPModel()
+			ppApply(t, m, e1)
+			o := ppOwnerNamed(m.portfolios, name)
+			sec := m.securities[slices.IndexFunc(m.securities, func(x *ppSecurity) bool { return x.ticker == "XYZ" })]
+			o.txs = append(o.txs, &ppTx{typ: "DELIVERY_OUTBOUND", day: "2025-06-04", currency: "USD", shares: 1_000_000_000, security: sec, note: "by hand", owner: o})
+			deleteBooked(m, e2)
+			ppApply(t, m, e2)
+			for s, q := range m.shares(name) {
+				if s.ticker == "XYZ" && q != 0 {
+					t.Errorf("a cash merger: PP holds %d XYZ (in 10^-8), which the merger took", q)
+				}
+			}
+			if m.cash(name) != 100_000 {
+				t.Errorf("a cash merger: PP holds %s, its snapshot 1000.00", formatCents(m.cash(name)))
+			}
+		}
+
+		// Two cash in lieu of one value on one day, the API's given by the
+		// first export and the History row left out, which you book; then
+		// Schwab's API leaves its row out and the History row, settled, is
+		// written alike: PP holds the gone row's records for it (same_as),
+		// so it is given, and the booking is to go.
+		settled := inLieu
+		settled.category = "dividend"
+		g1 := chainStepOf(t, tcInput(toolInput{
+			to: "2026-01-31", rows: []toolRow{deposit, api, inLieu}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-01-30", 102_468)},
+		}), toolPP, nil, rcAt1)
+		g2 := chainStepOf(t, tcInput(toolInput{
+			to: "2026-02-27", rows: []toolRow{deposit, settled},
+			snapshots: []toolSnapshot{rcSnapshot(1, "2026-01-30", 102_468), rcSnapshot(1, "2026-02-26", 101_234)},
+			uncounted: []toolUncounted{{ref: api.ref, account: 1, why: "gone"}},
+		}), toolPP, g1, rcAt2)
+		if g2.e.Given != 2 || len(g2.res.sameAs) != 1 {
+			t.Fatalf("the History row settled: %d rows given, same_as %+v", g2.e.Given, g2.res.sameAs)
+		}
+		lists(t, g2, inLieu.ref, "2025-12-04", "no_quantity", "by_hand", "", g2.res.given[label][inLieu.ref].As)
+		m := newPPModel()
+		ppApply(t, m, g1)
+		f := ppFolderOf(toolInput{tool: toolPP})
+		f["account-transactions-A1-135.csv"] = ppMade(ppAccount, map[string]string{
+			"Date": "2025-12-04", "Type": "Dividend", "Value": "12.34", "Ticker Symbol": "XYZ", "WKN": "98389B100",
+			"Security Name": "XYZ CORP COMMON STOCK", "Cash Account": name, "Note": "by hand",
+		})
+		if _, refused := m.importFile(f.write(t), "account-transactions-A1-135.csv", name, nil); len(refused) > 0 {
+			t.Fatal(refused)
+		}
+		deleteBooked(m, g2)
+		if ppApply(t, m, g2); m.cash(name) != 101_234 {
+			t.Errorf("same_as: PP holds %s, its snapshot 1012.34", formatCents(m.cash(name)))
+		}
+	})
+
 	t.Run("10 the chain's account", func(t *testing.T) {
 		t.Parallel()
 		rows := []toolRow{

@@ -98,8 +98,9 @@ type ToolExport struct {
 	Changed, Gone []ToolChange
 	// LeftOutWritten are, going on from another export, the rows that it
 	// left out, advising you to book them by hand or to check them, and
-	// that this export writes: delete in the tool what you booked by hand
-	// for each, if anything, before importing.
+	// that this export writes, or that are gone, as the store counts their
+	// transactions in other rows or no longer counts them: delete in the
+	// tool what you booked by hand for each, if anything, before importing.
 	LeftOutWritten []ToolLeftOutWritten
 	// Tick are, for PP, the rows that PP will mark as existing although
 	// they are new, which you tick on its review page: every row of the
@@ -289,14 +290,17 @@ type ToolCashUnchecked struct {
 
 // A ToolLeftOutWritten is a row that the export that a tool export goes on
 // from left out, advising you to book it by hand or to check it, and that
-// this export writes: its ref, its account's label and its day; the reason
-// and the advice that it was left out with; and Now, what the export writes
-// of it, as ToolChange.Was says it.
+// this export writes, or that is gone: its ref, its account's label and its
+// day ("" for none); the reason and the advice that it was left out with;
+// Now, what the tool holds of it once the export is imported, or, of a row
+// gone, of the rows that the store links to it or that carry it ("" for
+// none), as ToolChange.Was says it; and Why, of a row gone, what became of
+// it, as ToolChange.Why says it of a row gone.
 type ToolLeftOutWritten struct {
 	Ref, Account   string
 	Day            nytime.Date
 	Reason, Advice string
-	Now            string
+	Now, Why       string
 }
 
 // A ToolChange is a row that the tool holds and that a tool export changes

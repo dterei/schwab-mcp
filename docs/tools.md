@@ -167,8 +167,9 @@ and the types' names, whatever PP's language and locale.
      account's first row in the store keeps them apart from the rows. A
      row that an earlier export left out and that you booked by hand comes
      back on stderr's `left_out_written` line once a later export writes
-     it: delete its booking before importing (step 6), so that PP marks
-     nothing for it.
+     it, or once it is gone, as when the store counts its transaction from
+     the API's row: delete its booking before importing (step 6), so that
+     PP marks nothing for it.
 4. **What the records lack.** The holdings check compares, for each
    account and security, the shares that Schwab's latest snapshot holds
    with those that the records leave; PP's cash check does the same for
@@ -267,7 +268,7 @@ and the types' names, whatever PP's language and locale.
       account goes into it.
    4. Delete in PP what stderr lists as changed or gone, by how its note
       begins, and what you booked by hand for each row that it lists as
-      left out before and written now (`left_out_written`). A transfer is
+      left out before and written now or gone (`left_out_written`). A transfer is
       one row of its paying account's file, its note naming its paying
       side and then its receiving side (`schwabtx A2 ...398 T73600000101
       to A1 ...135 T73600000102`): delete it once, by the note quoted, and
@@ -620,7 +621,8 @@ what identifies it, with its description in its comment.
    2. Delete in Ghostfolio what stderr lists as changed or gone (the
       activities page filters by account and date, and each activity's
       comment names its row), and what you added by hand for each row that
-      it lists as left out before and written now (`left_out_written`).
+      it lists as left out before and written now or gone
+      (`left_out_written`).
    3. Import the file.
    4. Your hand entries, to the differences listed, gone ones first:
       delete what you added for each that is gone, then make what you
@@ -730,7 +732,16 @@ Once the store settles a row that you booked by hand for `check`,
 import), the next `-since` export writes it, and stderr and the manifest's
 `left_out_written` name it, with what it writes: delete what you booked
 for it before importing (PP step 6, Ghostfolio step 7), or the tool holds
-it twice. A row with no advice (`sweep_pair`, `zero_amount`) needs nothing. Of the
+it twice. The same line names such a row once it is gone, with what
+became of it (the manifest's `why`): the store counts its transaction from
+another row, as the API's once a `transactions -json` covers its day
+(`linked to` that row's ref, with what the tool holds of it), or a row
+written now carries it (`combined with`), or the store no longer counts it
+(`uncounted`, with why: `held_out` or `uncertain` until you resolve it
+with `schwabtx status -review`), or it is no longer in the export. Delete
+its booking all the same: the tool is to hold a transaction once, by the
+rows that the store counts. If you count the row again, a later export
+lists it as left out again, to book then. A row with no advice (`sweep_pair`, `zero_amount`) needs nothing. Of the
 rows written with a caveat, under `caveats`: set the value of a delivery
 written at 0 (`value_unknown`) in the tool; check one valued from a snapshot
 (`value_from_snapshot`); lower the cost basis of a `return_of_capital` by

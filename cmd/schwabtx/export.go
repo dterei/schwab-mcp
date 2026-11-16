@@ -934,28 +934,62 @@ func unsureFacts(f history.ToolFacts, cusip string) string {
 // leftOutWrittenLines says on w, of the export e for a tool, going on from
 // the export in the folder since, whose manifest is manifest, each row that
 // the export before it left out, advising you to book it by hand or to
-// check it, and that e writes (e.LeftOutWritten): what you booked by hand
-// for it is to delete before importing, as its records come with e, and
-// the tool would hold them twice; for PP, whose review page marks a new row
+// check it, and that e writes or that is gone (e.LeftOutWritten): what you
+// booked by hand for it is to delete before importing, as its records come
+// with e, or the store counts its transaction in another row, which a line
+// names, or no longer counts it, and the tool would hold it twice, or hold
+// what the store does not count; for PP, whose review page marks a new row
 // equal to one that it holds as existing, a booking equal to it would also
-// keep the row out.
+// keep the row out. A line of a row gone says what became of it, as a gone
+// row's line does, and what the tool holds of the rows that the store
+// links to it or that carry it.
 func leftOutWrittenLines(w io.Writer, e *history.ToolExport, manifest, since string) {
 	n := len(e.LeftOutWritten)
 	if n == 0 {
 		return
 	}
+	gone := 0
+	for _, l := range e.LeftOutWritten {
+		if l.Why != "" {
+			gone++
+		}
+	}
 	tool, booked, step := toolFormats[e.Tool].name, "booked", "6"
 	if e.Tool == "ghostfolio" {
 		booked, step = "added", "7"
 	}
-	fmt.Fprintf(w, "%s that %s left out %s written now (%s lists %s under left_out_written): before importing, delete in %s what you %s by hand for %s, if anything (docs/tools.md step %s):\n",
-		plural(n, "row"), since, pluralWord(n, "is", "are"), manifest, pluralWord(n, "it", "each"), tool, booked, pluralWord(n, "it", "each"), step)
+	state, became := pluralWord(n, "is", "are")+" written now", ""
+	switch {
+	case gone == n:
+		state = pluralWord(n, "is", "are") + " gone"
+	case gone > 0:
+		state = "are written now or gone"
+	}
+	if gone > 0 {
+		became = ", with what became of " + pluralWord(n, "it", "each")
+	}
+	fmt.Fprintf(w, "%s that %s left out %s (%s lists %s under left_out_written%s): before importing, delete in %s what you %s by hand for %s, if anything (docs/tools.md step %s):\n",
+		plural(n, "row"), since, state, manifest, pluralWord(n, "it", "each"), became, tool, booked, pluralWord(n, "it", "each"), step)
 	for _, l := range e.LeftOutWritten {
 		now := l.Now
 		if e.Tool != "ghostfolio" {
 			now = ppShown(now)
 		}
-		fmt.Fprintf(w, "  %s: %s (%s; left out %s, %s)\n", toolAccountName(e, l.Account), now, l.Ref, l.Reason, l.Advice)
+		name := toolAccountName(e, l.Account)
+		if l.Why == "" {
+			fmt.Fprintf(w, "  %s: %s (%s; left out %s, %s)\n", name, now, l.Ref, l.Reason, l.Advice)
+			continue
+		}
+		// "uncounted: held_out" reads "uncounted (held_out)", as a gone
+		// row's line has it.
+		why := l.Why
+		if what, detail, ok := strings.Cut(why, ": "); ok {
+			why = what + " (" + detail + ")"
+		}
+		if now != "" {
+			why += ": " + now
+		}
+		fmt.Fprintf(w, "  %s: %s (%s; left out %s, %s): gone, %s\n", name, cmp.Or(string(l.Day), "no day"), l.Ref, l.Reason, l.Advice, why)
 	}
 }
 
