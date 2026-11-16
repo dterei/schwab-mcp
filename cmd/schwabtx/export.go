@@ -756,8 +756,10 @@ func toolCountLines(w io.Writer, path string, e *history.ToolExport, manifest st
 // accounts whose cash is not checked, each with why; the accounts with rows
 // and no snapshot to check against; and, for PP, those with snapshots that
 // PP holds nothing of. The manifest carries on what the export before it
-// listed of the first two kinds, so the next export that checks one lists
-// its differences again, never as before, or as gone.
+// listed of the first two kinds, and an account whose cash it does not
+// check with no figures when nothing of its cash is listed, so the next
+// export that checks one lists its differences again, never as before, or
+// as gone.
 func notCheckedLines(w io.Writer, e *history.ToolExport, manifest string) {
 	tool := toolFormats[e.Tool].name
 	names := func(labels []string) string {
@@ -777,7 +779,7 @@ func notCheckedLines(w io.Writer, e *history.ToolExport, manifest string) {
 			}
 		}
 		it := pluralWord(n, "it", "each")
-		fmt.Fprintf(w, "%s cash in %s is not checked (%s lists %s under holdings.cash_not_checked): %s: compare the cash that Schwab shows for %s with the balance of its deposit account in %s, and book the difference as step 4 says; the next export that checks %s lists its difference again (docs/tools.md step 4)\n",
+		fmt.Fprintf(w, "%s cash in %s is not checked (%s lists %s under holdings.cash_not_checked): %s: compare the cash that Schwab shows for %s with the balance of its deposit account in %s, and book the difference as step 4 says; the next export that checks %s lists its difference again, or as gone when it finds none (docs/tools.md step 4)\n",
 			pluralWord(n, "1 account's", fmt.Sprintf("%d accounts'", n)), tool, manifest, pluralWord(n, "it", "them"), strings.Join(why, ", and "), it, tool, it)
 	}
 	if n := len(e.NoSnapshot); n > 0 {

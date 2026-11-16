@@ -248,13 +248,15 @@ type chainCashUnchecked struct {
 // leave of it in PP, and the difference, the first less the second, which
 // what you book by hand for the account's opening cash is to equal.
 // LeftOut, Before and Carried are as a chainHolding's, of a row left out
-// that moves cash.
+// that moves cash. An account whose cash an export does not check and of
+// which no difference is listed or carried has a carried entry with no
+// figures, of the snapshot that it could not check (compareCash).
 type chainCashHolding struct {
 	Account      string      `json:"account"`
 	Snapshot     nytime.Date `json:"snapshot"`
-	SnapshotCash json.Number `json:"snapshot_cash"`
-	WrittenCash  json.Number `json:"written_cash"`
-	Difference   json.Number `json:"difference"`
+	SnapshotCash json.Number `json:"snapshot_cash,omitempty"`
+	WrittenCash  json.Number `json:"written_cash,omitempty"`
+	Difference   json.Number `json:"difference,omitempty"`
 	LeftOut      bool        `json:"left_out,omitempty"`
 	Before       bool        `json:"before,omitempty"`
 	Carried      bool        `json:"carried,omitempty"`
@@ -394,12 +396,13 @@ type chainHoldingGone struct {
 
 // A chainCashGone is, for PP, an account whose cash the export it goes on
 // from listed as differing from its latest snapshot's, by Was, the
-// snapshot's cash less the records', and which this one checks and finds
+// snapshot's cash less the records', or carried with no figures, as one
+// that it could not check (Was ""), and which this one checks and finds
 // alike: an opening deposit or withdrawal booked by hand for it is to
 // delete.
 type chainCashGone struct {
 	Account string      `json:"account"`
-	Was     json.Number `json:"was"`
+	Was     json.Number `json:"was,omitempty"`
 }
 
 // A chainChanged is a row that the tool holds in another form than this
@@ -1252,6 +1255,16 @@ func (c *chainResult) compareCash(events []toolEvent, moves map[string]bool) {
 		l := listed[i]
 		l.Before, l.Carried = false, true
 		c.cash = append(c.cash, l)
+	}
+	// An account whose cash this export does not check, and of which no
+	// difference is listed or carried, is carried with no figures (1b): what
+	// you booked after comparing Schwab's cash with PP's by hand, as its
+	// line says, meets the next export that checks the account, which lists
+	// its difference whatever it is, and as gone at none.
+	for _, u := range c.cashUnchecked {
+		if !slices.ContainsFunc(c.cash, func(h chainCashHolding) bool { return h.Account == u.Account }) {
+			c.cash = append(c.cash, chainCashHolding{Account: u.Account, Snapshot: u.Snapshot, Carried: true})
+		}
 	}
 	slices.SortStableFunc(c.cash, func(a, b chainCashHolding) int { return cmp.Compare(c.labelOrder(a.Account), c.labelOrder(b.Account)) })
 	for _, i := range gone {

@@ -124,6 +124,11 @@
         "snapshot_cash": 1000.00,
         "written_cash": -40.00,
         "difference": 1040.00
+      },
+      {
+        "account": "A2 ...398",
+        "snapshot": "2026-01-08",
+        "carried": true
       }
     ],
     "cash_gone": [],

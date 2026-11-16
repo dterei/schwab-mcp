@@ -209,8 +209,9 @@ and the types' names, whatever PP's language and locale.
      balance at its latest snapshot (`margin`), as Schwab can report its
      cash as 0 with a debit or short positions, or a snapshot with no cash
      figure (`no_cash`: take another). Compare the cash that Schwab shows
-     for it with the balance of its PP deposit account by hand; the next
-     export that checks it lists its difference again. An account with
+     for it with the balance of its PP deposit account by hand, and book the
+     difference; the next export that checks it lists its difference
+     again, or as gone when it finds none. An account with
      rows and no snapshot is checked by neither check: stderr names it, and
      the manifest lists it under `holdings.not_checked`; take one with
      `schwabtx snapshot`.

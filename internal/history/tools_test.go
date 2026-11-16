@@ -293,6 +293,11 @@ func checkToolSummary(t *testing.T, e *ToolExport) {
 		}
 	}
 	for _, c := range deref(m.Holdings.Cash) {
+		if c.SnapshotCash == "" && c.WrittenCash == "" && c.Difference == "" && c.Carried && !c.Before {
+			// An account whose cash an export could not check, carried with
+			// no figures.
+			continue
+		}
 		same(c.Account+"'s cash", c.SnapshotCash, c.WrittenCash, c.Difference, c.Before, c.Carried)
 		if !c.Before && !c.Carried {
 			differences = append(differences, ToolDifference{Account: c.Account, Cash: true, Value: string(c.Difference), LeftOut: c.LeftOut})

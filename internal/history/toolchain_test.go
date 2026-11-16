@@ -3817,6 +3817,20 @@ func TestToolReimport(t *testing.T) {
 		}
 	})
 
+	t.Run("5k a cash difference booked while an account's cash is not checked, then none", func(t *testing.T) {
+		t.Parallel()
+		// No export listed a cash difference of A2 when its cash could not
+		// be checked: what you booked by hand meanwhile, comparing Schwab's
+		// cash with PP's, is listed as gone by the export that next checks
+		// the account and finds none (notCheckedThenNone).
+		for _, why := range []string{"margin", "no_cash", "checked"} {
+			t.Run(why, func(t *testing.T) {
+				t.Parallel()
+				notCheckedThenNone(t, why)
+			})
+		}
+	})
+
 	t.Run("5h differences of an account that this export cannot check", func(t *testing.T) {
 		t.Parallel()
 		// The first export lists A1's shares and cash as differing from its
@@ -4722,5 +4736,156 @@ func fiveG(t *testing.T, why string) {
 	}
 	if m := chain(e2, gone); m.cash(name) != 50_000 || slices.ContainsFunc(ppOwnerNamed(m.accounts, name).txs, func(x *ppTx) bool { return x.note == "by hand" }) {
 		t.Errorf("PP holds %s after the twin's third export, its snapshot 500.00", formatCents(m.cash(name)))
+	}
+}
+
+// rcBookCashPP books by hand in m, as stderr has you before importing s,
+// each cash difference that s lists of the deposit account named name: a
+// Deposit of one above none, a Withdrawal of one below, dated before the
+// account's first row; what you booked before is made equal to the line
+// instead, and deleted when the line is gone.
+func rcBookCashPP(t *testing.T, m *ppModel, s *chainStep, name string) {
+	t.Helper()
+	o := ppOwnerNamed(m.accounts, name)
+	for _, d := range s.e.Differences {
+		if !d.Cash || "Schwab "+d.Account != name {
+			continue
+		}
+		i := slices.IndexFunc(o.txs, func(x *ppTx) bool { return x.note == "by hand" })
+		if d.Gone {
+			if i >= 0 {
+				o.txs = slices.Delete(o.txs, i, i+1)
+			}
+			continue
+		}
+		v, _ := new(big.Rat).SetString(d.Value)
+		cents, typ := v.Mul(v, big.NewRat(100, 1)).Num().Int64(), "DEPOSIT"
+		if cents < 0 {
+			cents, typ = -cents, "REMOVAL"
+		}
+		if i < 0 {
+			o.txs = append(o.txs, &ppTx{day: "2025-11-30", currency: "USD", note: "by hand", owner: o})
+			i = len(o.txs) - 1
+		}
+		o.txs[i].typ, o.txs[i].amount = typ, cents
+	}
+}
+
+// notCheckedThenNone runs TestToolReimport's 5k for why: "margin", A2's
+// snapshot of a margin account reads cash of 0 beside a debit, or
+// "no_cash", it holds no cash figure, so that the first export does not
+// check A2's cash and lists no difference of it; or "checked", the first
+// export checks A2's cash and finds none, and the second does not check it,
+// its margin in use. Either way, as the not-checked line says, you compare
+// Schwab's cash with PP's and book the difference by hand. The rows that it
+// stood for arrive, and the export that next checks the account finds no
+// difference: it lists the cash as gone, and PP, following stderr, ends
+// with the snapshot's cash.
+func notCheckedThenNone(t *testing.T, why string) {
+	margin := func(day string, cash int64, debit float64) toolSnapshot {
+		s := rcSnapshot(2, day, cash)
+		s.accountType = "MARGIN"
+		s.margin, s.short = sql.NullFloat64{Float64: debit, Valid: true}, sql.NullFloat64{Valid: true}
+		return s
+	}
+	position := func(day string, long int64) toolPosition {
+		p := rcPosition(day, keyEFGH, long, float64(long)/1e6*30)
+		p.account = 2
+		return p
+	}
+	const name = "Schwab A2 ...398"
+	var steps []toolInput
+	// booked is what you book by hand after the export of that index, as
+	// its not-checked line has you: the difference of Schwab's cash and PP's.
+	var booked int
+	var hand int64
+	if why == "checked" {
+		rows := []toolRow{rcCash("T7c810001", 2, "2026-01-02 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 100_000)}
+		snapshots := []toolSnapshot{margin("2026-01-30", 100_000, 0)}
+		steps = append(steps, tcInput(toolInput{to: "2026-01-30", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots)}))
+		// A buy on margin; Schwab's debit holds a margin interest charge
+		// that the store lacks.
+		rows = append(rows, rcTrade("T7c810002", 2, "2026-02-02 10:00:00", "buy", keyEFGH, "EFGH", 50_000_000, 30, -150_000, 0))
+		snapshots = append(snapshots, margin("2026-02-27", 0, -510))
+		positions := []toolPosition{position("2026-02-27", 50_000_000)}
+		steps = append(steps, tcInput(toolInput{to: "2026-02-27", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots), positions: slices.Clone(positions)}))
+		booked, hand = 1, -1_000
+		rows = append(rows,
+			rcCash("T7c810003", 2, "2026-02-15 10:00:00", "JOURNAL", "MARGIN INTEREST", "fee", -1_000),
+			rcCash("T7c810004", 2, "2026-03-02 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 100_000))
+		snapshots = append(snapshots, margin("2026-03-30", 49_000, 0))
+		positions = append(positions, position("2026-03-30", 50_000_000))
+		steps = append(steps, tcInput(toolInput{to: "2026-03-31", rows: rows, snapshots: snapshots, positions: positions}))
+	} else {
+		rows := []toolRow{
+			rcCash("T7c810101", 2, "2026-01-02 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 100_000),
+			rcTrade("T7c810102", 2, "2026-01-05 10:00:00", "buy", keyEFGH, "EFGH", 100_000_000, 30, -300_000, 0),
+		}
+		first := margin("2026-01-30", 0, -1500)
+		if why == "no_cash" {
+			first = margin("2026-01-30", 0, 0)
+			first.cash = sql.NullInt64{}
+		}
+		positions := []toolPosition{position("2026-01-30", 100_000_000)}
+		steps = append(steps, tcInput(toolInput{to: "2026-01-30", rows: slices.Clone(rows), snapshots: []toolSnapshot{first}, positions: slices.Clone(positions)}))
+		// Schwab's cash is -1500.00: 500.00 held before the store's rows.
+		booked, hand = 0, 50_000
+		// The History file that holds the opening deposit, and a deposit
+		// that repays the debit.
+		rows = append([]toolRow{rcFile("C7c81001.1", 2, "2025-12-01", "MoneyLink Deposit", "deposit", "", "", sql.NullInt64{}, 0, 50_000)}, rows...)
+		rows = append(rows, rcCash("T7c810103", 2, "2026-02-02 10:00:00", "ACH_RECEIPT", "ACH Credit", "deposit", 200_000))
+		positions = append(positions, position("2026-02-27", 100_000_000))
+		steps = append(steps, tcInput(toolInput{to: "2026-02-27", rows: rows, snapshots: []toolSnapshot{first, margin("2026-02-27", 50_000, 0)}, positions: positions}))
+	}
+	m := newPPModel()
+	ats := []string{rcAt1, rcAt2, rcAt3}
+	var prev *chainStep
+	for i, in := range steps {
+		s := chainStepOf(t, in, toolPP, prev, ats[i])
+		if i > 0 {
+			rcBookCashPP(t, m, s, name)
+		}
+		ppApply(t, m, s)
+		if i == 0 {
+			rcBookCashPP(t, m, s, name)
+		}
+		last := i == len(steps)-1
+		var want []ToolDifference
+		if last {
+			want = []ToolDifference{{Account: "A2 ...398", Cash: true, Gone: true}}
+		}
+		if !reflect.DeepEqual(s.e.Differences, want) {
+			t.Errorf("export %d lists %+v, want %+v", i+1, s.e.Differences, want)
+		}
+		if i == booked {
+			// As the not-checked line says: compare Schwab's cash with PP's,
+			// and book the difference.
+			if len(s.e.CashNotChecked) != 1 {
+				t.Fatalf("export %d names %q as not checked", i+1, s.e.CashNotChecked)
+			}
+			o := ppOwnerNamed(m.accounts, name)
+			typ, amount := "DEPOSIT", hand
+			if hand < 0 {
+				typ, amount = "REMOVAL", -hand
+			}
+			o.txs = append(o.txs, &ppTx{typ: typ, day: "2025-11-30", currency: "USD", amount: amount, note: "by hand", owner: o})
+		}
+		prev = s
+	}
+	// The manifest lists it as gone with no was: no export listed a value.
+	var manifest struct {
+		Holdings struct {
+			CashGone []map[string]any `json:"cash_gone"`
+		} `json:"holdings"`
+	}
+	if err := json.Unmarshal(prev.manifest, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if want := []map[string]any{{"account": "A2 ...398"}}; !reflect.DeepEqual(manifest.Holdings.CashGone, want) {
+		t.Errorf("the last manifest lists %v as cash gone, want %v", manifest.Holdings.CashGone, want)
+	}
+	snap := steps[len(steps)-1].snapshots[len(steps[len(steps)-1].snapshots)-1]
+	if got := m.cash(name); got != snap.cash.Int64 {
+		t.Errorf("PP holds %s of A2's cash, its snapshot %s", formatCents(got), formatCents(snap.cash.Int64))
 	}
 }

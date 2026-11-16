@@ -168,6 +168,11 @@
     "gone": [],
     "cash": [
       {
+        "account": "A1 ...135",
+        "snapshot": "2026-11-11",
+        "carried": true
+      },
+      {
         "account": "A2 ...398",
         "snapshot": "2026-11-10",
         "snapshot_cash": -12.34,
