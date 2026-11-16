@@ -209,6 +209,26 @@ type chainLeftOut struct {
 	Before      bool         `json:"before,omitempty"`
 }
 
+// A chainLeftOutWritten is a row that the export it goes on from left out,
+// advising you to book it by hand or to check it, and that this export
+// writes (R-9 of the consolidation): its records now come with this export,
+// so what you booked by hand for it is to delete before importing. Reason
+// and Advice are that export's, Day the row's, and Now what this export
+// writes of it (chainAs).
+type chainLeftOutWritten struct {
+	Ref     string      `json:"ref"`
+	Account string      `json:"account"`
+	Day     nytime.Date `json:"day"`
+	Reason  string      `json:"reason"`
+	Advice  string      `json:"advice"`
+	Now     string      `json:"now"`
+}
+
+// leftOutBooked are the advice codes of a row left out that you may book in
+// the tool by hand: by_hand, and check, which you settle with schwabtx edit
+// or book by hand, and a split or another corporate action.
+var leftOutBooked = []string{"by_hand", "check", "split", "corporate_action"}
+
 // A chainHoldings is the holdings check of the manifest (4.15 of the
 // design, K-3 to K-6 of the consolidation): each difference, and, with
 // -since, each that the export it goes on from listed of an account that
@@ -751,6 +771,10 @@ type chainResult struct {
 	holdings  []chainHolding
 	unchecked []toolAccount
 	notHeld   []toolAccount
+	// leftOutWritten are the rows that the earlier export left out, advising
+	// you to book them by hand or to check them, and that this export
+	// writes, in the order of their accounts, days and refs.
+	leftOutWritten []chainLeftOutWritten
 	// holdingsGone are the differences that the earlier export listed, of
 	// the accounts that the holdings check checks, and that it no longer
 	// finds; cash, cashGone and cashUnchecked are, for PP, the cash check's
@@ -933,6 +957,7 @@ func compareChain(in *toolInput, events []toolEvent, outcomes []toolOutcome, sin
 	}
 	c.nextGiven(records)
 	c.compareLeftOut()
+	c.compareLeftOutWritten(records)
 	shares, cash := c.leftOutMoves()
 	c.compareHoldings(events, shares)
 	c.compareCash(events, cash)
@@ -1037,6 +1062,38 @@ func (c *chainResult) compareLeftOut() {
 		l.Before = before[[3]string{l.Account, l.Ref, l.Reason}]
 		c.leftOut = append(c.leftOut, l)
 	}
+}
+
+// compareLeftOutWritten lists the rows that the earlier export left out,
+// with advice to book them by hand or to check them (leftOutBooked), and
+// that this export writes, as your edit, a revision or a later import has
+// settled them (R-9 of the consolidation): what you booked by hand for one
+// is to delete before importing, since its records come with this export,
+// and the tool would hold them twice. The earlier export's left_out is
+// read for nothing else.
+func (c *chainResult) compareLeftOutWritten(records map[int][]*toolEvent) {
+	if c.since == nil {
+		return
+	}
+	booked := map[[2]string]chainLeftOut{}
+	for _, l := range c.since.LeftOut {
+		if slices.Contains(leftOutBooked, l.Advice) {
+			booked[[2]string{l.Account, l.Ref}] = l
+		}
+	}
+	for i, o := range c.outcomes {
+		r := &c.in.rows[i]
+		l, ok := booked[[2]string{o.account.label(), r.ref}]
+		if o.outcome != outcomeWritten || !ok {
+			continue
+		}
+		c.leftOutWritten = append(c.leftOutWritten, chainLeftOutWritten{
+			Ref: r.ref, Account: l.Account, Day: r.day, Reason: l.Reason, Advice: l.Advice, Now: chainAs(c.in.tool, records[i]),
+		})
+	}
+	slices.SortStableFunc(c.leftOutWritten, func(a, b chainLeftOutWritten) int {
+		return cmp.Or(cmp.Compare(c.labelOrder(a.Account), c.labelOrder(b.Account)), cmp.Compare(a.Day, b.Day), cmp.Compare(a.Ref, b.Ref))
+	})
 }
 
 // leftOutMoves returns what the rows that this export leaves out move of

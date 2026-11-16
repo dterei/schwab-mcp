@@ -1083,7 +1083,7 @@ in Portfolio Performance, make a USD deposit account and a securities account fo
   A1 ...135 (Individual): Schwab A1 ...135
   A2 ...398 (Options & Margin): Schwab A2 ...398
 import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv, account-transactions-A2-398.csv, portfolio-transactions-A2-398.csv
-tick these rows, which Portfolio Performance will show as existing although they are new (it marks no other row of this export but one equal to an entry you booked by hand, which you tick too: what you booked is to equal the differences listed, docs/tools.md step 4):
+tick these rows, which Portfolio Performance will show as existing although they are new (it marks no other row of this export but one equal to an entry that you booked by hand for a difference, which you tick too, docs/tools.md step 3):
   account-transactions-A2-398.csv: Schwab A2 ...398: 2026-03-02 Withdrawal 1000.00 (T73508261958)
 next time: schwabtx export -format pp -since pp-2026-11-13 -dir <a new folder>
 `,
@@ -1168,7 +1168,7 @@ before importing, delete in Portfolio Performance what changed or went (pp-2026-
 2 accounts have rows and no snapshot to check against (pp-2026-12-01/manifest.json lists them under holdings.not_checked): A4 ...783 and A5 ...678: take one of each with schwabtx snapshot (an account that Schwab has closed has none); the next export that checks each lists its differences
 2 accounts have snapshots and nothing in Portfolio Performance (pp-2026-12-01/manifest.json lists them under holdings.not_checked): A6 ...246 and A7 ...579 have no row that this export or its chain writes or names; import their History files (docs/store.md) to have them there
 import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv
-tick these rows, which Portfolio Performance will show as existing although they are new (it marks no other row of this export but one equal to an entry you booked by hand, which you tick too: what you booked is to equal the differences listed, docs/tools.md step 4):
+tick these rows, which Portfolio Performance will show as existing although they are new (it marks no other row of this export but one equal to an entry that you booked by hand for a difference, which you tick too, docs/tools.md step 3):
   portfolio-transactions-A1-135.csv: Schwab A1 ...135: 2026-11-20 Buy 1001.25 (T73508261960)
 a redo (docs/tools.md) imports a full export of this chain's selection: schwabtx export -format pp -account A1 -dir <a new folder>
 next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
@@ -1260,18 +1260,30 @@ next time: schwabtx export -format pp -since pp-2026-12-15 -dir <a new folder>
 			// line quotes the Note that PP holds it under, its old ref's.
 			name: "pp going on, a row under a new ref changed", dir: "pp-2026-12-20", since: "pp-2026-12-15",
 			e: history.ToolExport{
-				Tool: "pp", To: "2026-12-19", Since: "2026-12-15T12:00:00Z", SinceTo: "2026-12-14", Written: 1, Given: 2,
-				Files:    []history.ToolFile{{Name: "securities.csv", Kind: "securities", Rows: 1}, {Name: "portfolio-transactions-A1-135.csv", Kind: "portfolio", Account: "A1 ...135", Rows: 1}},
+				Tool: "pp", To: "2026-12-19", Since: "2026-12-15T12:00:00Z", SinceTo: "2026-12-14", Written: 2, Given: 2, Late: 1,
+				Files: []history.ToolFile{
+					{Name: "securities.csv", Kind: "securities", Rows: 1},
+					{Name: "account-transactions-A1-135.csv", Kind: "account", Account: "A1 ...135", Rows: 1},
+					{Name: "portfolio-transactions-A1-135.csv", Kind: "portfolio", Account: "A1 ...135", Rows: 1},
+				},
 				Accounts: []history.ToolAccount{a1},
 				Changed: []history.ToolChange{
 					{Ref: "T73508261962", Account: "A1 ...135", Was: "portfolio 2026-01-07 Buy 60.00", Note: "A1 ...135 C9e8d7c6b.5", Now: "portfolio 2026-01-07 Buy 60.10"},
 				},
+				// A Cash In Lieu left out for want of a quantity, which you
+				// booked by hand, and since edited into a dividend.
+				LeftOutWritten: []history.ToolLeftOutWritten{
+					{Ref: "C9e8d7c6b.7", Account: "A1 ...135", Day: "2025-12-04", Reason: "no_quantity", Advice: "by_hand", Now: "account 2025-12-04 Dividend 12.34"},
+				},
 			},
-			want: `wrote 1 row for Portfolio Performance to pp-2026-12-20, since pp-2026-12-15, up to 2026-12-19: 1 portfolio file
+			want: `wrote 2 rows for Portfolio Performance to pp-2026-12-20, since pp-2026-12-15, up to 2026-12-19: 1 account file, 1 portfolio file
   this assumes Portfolio Performance holds pp-2026-12-15 and every export before it, each imported once, with what it listed deleted and ticked
+  1 of them is dated on or before 2026-12-14, the end of pp-2026-12-15: it came late, was decided or took a new ref since
 before importing, delete in Portfolio Performance what changed or went (pp-2026-12-20/manifest.json lists each):
   Schwab A1 ...135: 2026-01-07 Buy 60.00 (note schwabtx A1 ...135 C9e8d7c6b.5): changed; the new form is in this export
-import in this order: securities.csv, portfolio-transactions-A1-135.csv
+1 row that pp-2026-12-15 left out is written now (pp-2026-12-20/manifest.json lists it under left_out_written): before importing, delete in Portfolio Performance what you booked by hand for it, if anything (docs/tools.md step 6):
+  Schwab A1 ...135: 2025-12-04 Dividend 12.34 (C9e8d7c6b.7; left out no_quantity, by_hand)
+import in this order: securities.csv, account-transactions-A1-135.csv, portfolio-transactions-A1-135.csv
 next time: schwabtx export -format pp -since pp-2026-12-20 -dir <a new folder>
 `,
 		},
@@ -1355,6 +1367,11 @@ next time: schwabtx export -format ghostfolio -since gf-2026-11-14 -dir <a new f
 				// A3's cash row has no snapshot to be carried by, nor its
 				// holdings to be checked against.
 				NoSnapshot: []string{"A3 ...777"},
+				// A buy left out for its cash's sign, which you added by
+				// hand, and that Schwab has since revised.
+				LeftOutWritten: []history.ToolLeftOutWritten{
+					{Ref: "T73508261970", Account: "A1 ...135", Day: "2025-12-10", Reason: "signs_disagree", Advice: "check", Now: "2025-12-10 BUY 50.00"},
+				},
 				Unsure: []history.ToolUnsure{{
 					Key: "x:66000017", Facts: history.ToolFacts{Tickers: []history.ToolTicker{{Ticker: "JKLM", Source: "history"}}, First: "2024-03-11", Last: "2024-03-11"},
 					Securities: []history.ToolUnsureSecurity{{Key: "i:1000013", CUSIP: "ZZJ12K106", Facts: history.ToolFacts{
@@ -1388,6 +1405,8 @@ left out 2 rows (gf-2026-12-01/manifest.json lists each, with what to do): gf_ca
 before importing, delete in Ghostfolio what changed or went (gf-2026-12-01/manifest.json lists each):
   Schwab A1 ...135: 2024-04-04 DIVIDEND 3.86 (comment schwabtx A1 ...135 T73508261950): changed; the new form is in this export
   Schwab A2 ...398: 2025-01-22 SELL 412.50 fee 0.65 (comment schwabtx A2 ...398 T73508261945): gone, left out (gf_cash)
+1 row that gf-2026-11-13 left out is written now (gf-2026-12-01/manifest.json lists it under left_out_written): before importing, delete in Ghostfolio what you added by hand for it, if anything (docs/tools.md step 7):
+  Schwab A1 ...135: 2025-12-10 BUY 50.00 (T73508261970; left out signs_disagree, check)
 4 differences from the latest snapshots are new or changed since gf-2026-11-13, and 2 are gone (gf-2026-12-01/manifest.json lists each): after importing, delete what you added by hand in Ghostfolio for each that is gone, under the asset named, then make what you added for each other equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
   Schwab A1 ...135: XYZ (YAHOO): gone: delete what you added for it, if anything
   Schwab A2 ...398: ZZTA (YAHOO): gone: delete what you added for it, if anything

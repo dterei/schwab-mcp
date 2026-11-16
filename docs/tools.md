@@ -158,10 +158,14 @@ and the types' names, whatever PP's language and locale.
      same type, day, amount, shares and security, and leaves it unticked.
      **Tick exactly the rows that stderr and the manifest's `tick` list for
      that file.** PP marks no other row of an export but one equal to an
-     entry that you booked by hand: tick it too, as it is new. What you
-     booked by hand is to equal the differences that the export lists
-     (step 4); dating such entries the day before the account's first row
-     in the store keeps them apart from the rows.
+     entry that you booked by hand for a difference: tick it too, as it is
+     new. What you booked by hand is to equal the differences that the
+     export lists (step 4); dating such entries the day before the
+     account's first row in the store keeps them apart from the rows. A
+     row that an earlier export left out and that you booked by hand comes
+     back on stderr's `left_out_written` line once a later export writes
+     it: delete its booking before importing (step 6), so that PP marks
+     nothing for it.
 4. **What the records lack.** The holdings check compares, for each
    account and security, the shares that Schwab's latest snapshot holds
    with those that the records leave; PP's cash check does the same for
@@ -242,18 +246,22 @@ and the types' names, whatever PP's language and locale.
       ([above](#in-both-tools)). If you run a `-same`, move this folder
       away and export again with the same `-since`.
    2. `symbols_changed`: set each that PP holds as step 8 says.
-   3. Delete in PP what stderr lists as changed or gone, by how its note
-      begins. A transfer is one row of its paying account's file, its note
-      naming its paying side and then its receiving side (`schwabtx A2
-      ...398 T73600000101 to A1 ...135 T73600000102`): delete it once, by
-      the note quoted, and PP deletes both of its legs. When two equal
+   3. Make the accounts that it names to make (step 2): an empty account
+      touches nothing that PP holds, and a difference listed for a new
+      account goes into it.
+   4. Delete in PP what stderr lists as changed or gone, by how its note
+      begins, and what you booked by hand for each row that it lists as
+      left out before and written now (`left_out_written`). A transfer is
+      one row of its paying account's file, its note naming its paying
+      side and then its receiving side (`schwabtx A2 ...398 T73600000101
+      to A1 ...135 T73600000102`): delete it once, by the note quoted, and
+      PP deletes both of its legs. When two equal
       records share the note quoted, as after a row came back beside the
       one that took its place, delete either: they are alike in all that
       PP keeps.
-   4. Your hand entries, to the differences listed, gone ones first:
+   5. Your hand entries, to the differences listed, gone ones first:
       delete what you booked for each that is gone, then make what you
       booked for each other equal to it (step 4).
-   5. Make the accounts that it names to make (step 2).
    6. Import the files in the order printed, and tick exactly the rows it
       lists to tick (step 3).
 
@@ -567,7 +575,8 @@ what identifies it, with its description in its comment.
    1. New keys under `keys_unsure`, as in PP (step 6).
    2. Delete in Ghostfolio what stderr lists as changed or gone (the
       activities page filters by account and date, and each activity's
-      comment names its row).
+      comment names its row), and what you added by hand for each row that
+      it lists as left out before and written now (`left_out_written`).
    3. Import the file.
    4. Your hand entries, to the differences listed, gone ones first:
       delete what you added for each that is gone, then make what you
@@ -671,7 +680,12 @@ Each left-out row of the manifest's `left_out` has an `advice`, and a
 | `set_security` | give the row its security with `schwabtx edit REF -security K:…`; the next export writes it | the same |
 | `set_cash` | | no balance carries the row yet: a later snapshot will; set the account's cash in Ghostfolio to that snapshot's, or take snapshots (`schwabtx snapshot`) of an account that has none |
 
-A row with no advice (`sweep_pair`, `zero_amount`) needs nothing. Of the
+Once the store settles a row that you booked by hand for `check`,
+`by_hand`, `split` or `corporate_action` (your edit, a revision or a later
+import), the next `-since` export writes it, and stderr and the manifest's
+`left_out_written` name it, with what it writes: delete what you booked
+for it before importing (PP step 6, Ghostfolio step 7), or the tool holds
+it twice. A row with no advice (`sweep_pair`, `zero_amount`) needs nothing. Of the
 rows written with a caveat, under `caveats`: set the value of a delivery
 written at 0 (`value_unknown`) in the tool; check one valued from a snapshot
 (`value_from_snapshot`); lower the cost basis of a `return_of_capital` by

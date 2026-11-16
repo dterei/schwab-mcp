@@ -96,6 +96,11 @@ type ToolExport struct {
 	// export writes, and Gone those that it holds and that the export
 	// neither writes nor gives: delete each in the tool before importing.
 	Changed, Gone []ToolChange
+	// LeftOutWritten are, going on from another export, the rows that it
+	// left out, advising you to book them by hand or to check them, and
+	// that this export writes: delete in the tool what you booked by hand
+	// for each, if anything, before importing.
+	LeftOutWritten []ToolLeftOutWritten
 	// Tick are, for PP, the rows that PP will mark as existing although
 	// they are new, which you tick on its review page: every row of the
 	// export that PP marks, but one equal to an entry that you booked by
@@ -278,6 +283,18 @@ type ToolDifference struct {
 // figure.
 type ToolCashUnchecked struct {
 	Account, Why string
+}
+
+// A ToolLeftOutWritten is a row that the export that a tool export goes on
+// from left out, advising you to book it by hand or to check it, and that
+// this export writes: its ref, its account's label and its day; the reason
+// and the advice that it was left out with; and Now, what the export writes
+// of it, as ToolChange.Was says it.
+type ToolLeftOutWritten struct {
+	Ref, Account   string
+	Day            nytime.Date
+	Reason, Advice string
+	Now            string
 }
 
 // A ToolChange is a row that the tool holds and that a tool export changes
@@ -661,6 +678,9 @@ func (e *ToolExport) count() {
 	for _, g := range e.res.gone {
 		e.Gone = append(e.Gone, ToolChange{Ref: g.Ref, Account: g.Account, Was: g.Was, Note: g.Note, Why: g.Why})
 	}
+	for _, l := range e.res.leftOutWritten {
+		e.LeftOutWritten = append(e.LeftOutWritten, ToolLeftOutWritten(l))
+	}
 	for _, t := range ppTickList(e.marks) {
 		e.Tick = append(e.Tick, ToolTick(t))
 	}
@@ -993,6 +1013,7 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 		Securities     []chainSecurity                  `json:"securities"`
 		Changed        []chainChanged                   `json:"changed"`
 		Gone           []chainGone                      `json:"gone"`
+		LeftOutWritten *[]chainLeftOutWritten           `json:"left_out_written,omitempty"`
 		SameAs         *[]chainSameAs                   `json:"same_as,omitempty"`
 		Tick           *[]chainTick                     `json:"tick,omitempty"`
 		LeftOut        []chainLeftOut                   `json:"left_out"`
@@ -1045,6 +1066,10 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 	if in.tool == toolPP {
 		sameAs, tick := orEmpty(res.sameAs), ppTickList(e.marks)
 		m.SameAs, m.Tick = &sameAs, &tick
+	}
+	if e.Since != "" {
+		written := orEmpty(res.leftOutWritten)
+		m.LeftOutWritten = &written
 	}
 	inBalances := map[int64]int{}
 	for i, o := range res.outcomes {

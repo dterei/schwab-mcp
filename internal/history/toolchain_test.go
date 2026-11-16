@@ -4607,6 +4607,140 @@ func TestToolReimport(t *testing.T) {
 		}
 	})
 
+	t.Run("9c a row left out, booked by hand, then written", func(t *testing.T) {
+		t.Parallel()
+		// A row left out with advice to book it by hand or to check it, which
+		// you book by hand as the advice says; the store then settles it (a
+		// Cash In Lieu that you edit into a dividend; a buy whose cash has its
+		// quantity's sign, which Schwab revises), and the next export writes
+		// it: it lists the row under left_out_written and on stderr, you
+		// delete the booking before importing, and the tool ends with the
+		// snapshot's cash and shares, the row once. In a twin you booked
+		// nothing, which the line allows ("if anything").
+		const name = "Schwab A1 ...135"
+		deposit := rcCash("T79c00101", 1, "2025-11-03 10:00:00", "WIRE_IN", "Wire Incoming", "deposit", 100_000)
+		inLieu := rcFile("C79c0001.1", 1, "2025-12-04", "Cash In Lieu", "sell", keyXYZ, "XYZ", sql.NullInt64{}, 0, 1234)
+		settled := inLieu
+		settled.category = "dividend"
+		buy := rcTrade("T79c00102", 1, "2025-12-10 10:00:00", "buy", keyXYZ, "XYZ", 1_000_000, 50, 5000, 0)
+		revised := buy
+		revised.amount, revised.gross = centsOf(-5000), centsOf(-5000)
+		position := func(day string) toolPosition { return rcPosition(day, keyXYZ, 1_000_000, 50) }
+		for _, c := range []struct {
+			name            string
+			first, then     toolInput
+			reason, advice  string
+			pp              map[string]map[string]string
+			gfType          string
+			cash, shares    int64
+			quantity, price *big.Rat
+		}{
+			{
+				"a Cash In Lieu edited into a dividend",
+				tcInput(toolInput{to: "2026-01-31", rows: []toolRow{deposit, inLieu}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-01-30", 101_234)}}),
+				tcInput(toolInput{to: "2026-02-27", rows: []toolRow{deposit, settled}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-01-30", 101_234), rcSnapshot(1, "2026-02-26", 101_234)}}),
+				"no_quantity", "by_hand",
+				map[string]map[string]string{"account-transactions-A1-135.csv": {
+					"Date": "2025-12-04", "Type": "Dividend", "Value": "12.34", "Ticker Symbol": "XYZ", "WKN": "98389B100",
+					"Security Name": "XYZ CORP COMMON STOCK", "Cash Account": name, "Note": "by hand",
+				}},
+				"DIVIDEND", 101_234, 0, big.NewRat(1, 1), big.NewRat(1234, 100),
+			},
+			{
+				"a buy that Schwab revises",
+				tcInput(toolInput{to: "2026-01-31", rows: []toolRow{deposit, buy}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-01-30", 95_000)}, positions: []toolPosition{position("2026-01-30")}}),
+				tcInput(toolInput{
+					to: "2026-02-27", rows: []toolRow{deposit, revised},
+					snapshots: []toolSnapshot{rcSnapshot(1, "2026-01-30", 95_000), rcSnapshot(1, "2026-02-26", 95_000)}, positions: []toolPosition{position("2026-01-30"), position("2026-02-26")},
+				}),
+				"signs_disagree", "check",
+				map[string]map[string]string{"portfolio-transactions-A1-135.csv": {
+					"Date": "2025-12-10", "Type": "Buy", "Value": "50.00", "Shares": "1", "Ticker Symbol": "XYZ", "WKN": "98389B100",
+					"Security Name": "XYZ CORP COMMON STOCK", "Cash Account": name, "Securities Account": name, "Note": "by hand",
+				}},
+				"BUY", 95_000, 100_000_000, big.NewRat(1, 1), big.NewRat(50, 1),
+			},
+		} {
+			for _, tool := range []string{toolPP, toolGF} {
+				e1 := chainStepOf(t, c.first, tool, nil, rcAt1)
+				if len(e1.res.leftOut) != 1 || e1.res.leftOut[0].Reason != c.reason || e1.res.leftOut[0].Advice != c.advice {
+					t.Fatalf("%s, %s: the first export leaves out %+v", c.name, tool, e1.res.leftOut)
+				}
+				e2 := chainStepOf(t, c.then, tool, e1, rcAt2)
+				ref := e1.res.leftOut[0].Ref
+				if w := e2.e.LeftOutWritten; len(w) != 1 || w[0].Ref != ref || w[0].Account != "A1 ...135" || w[0].Reason != c.reason || w[0].Advice != c.advice ||
+					w[0].Now != e2.res.given["A1 ...135"][ref].As {
+					t.Errorf("%s, %s: the next export lists %+v as left out before and written now", c.name, tool, w)
+				}
+				for _, booked := range []bool{true, false} {
+					if tool == toolPP {
+						m := newPPModel()
+						ppApply(t, m, e1)
+						if booked {
+							f := ppFolderOf(toolInput{tool: toolPP})
+							for file, record := range c.pp {
+								kind := ppAccount
+								if strings.HasPrefix(file, "portfolio") {
+									kind = ppPortfolio
+								}
+								f[file] = ppMade(kind, record)
+							}
+							dir := f.write(t)
+							for file := range c.pp {
+								if _, refused := m.importFile(dir, file, name, nil); len(refused) > 0 {
+									t.Fatal(refused)
+								}
+							}
+						}
+						// As the line says: delete, before importing, what
+						// you booked by hand for each row, if anything.
+						for range e2.e.LeftOutWritten {
+							for _, o := range []*ppOwner{ppOwnerNamed(m.accounts, name), ppOwnerNamed(m.portfolios, name)} {
+								o.txs = slices.DeleteFunc(o.txs, func(x *ppTx) bool { return x.note == "by hand" })
+							}
+						}
+						if byHand := ppApply(t, m, e2); len(byHand) > 0 {
+							t.Errorf("%s, booked %v: PP marks %q for an entry booked by hand", c.name, booked, byHand)
+						}
+						var shares int64
+						for _, q := range m.shares(name) {
+							shares += q
+						}
+						if m.cash(name) != c.cash || shares != c.shares {
+							t.Errorf("%s, booked %v: PP holds %s and %d shares (in 10^-8)", c.name, booked, formatCents(m.cash(name)), shares)
+						}
+						continue
+					}
+					g := newGFModel()
+					if _, err := gfImportDirect(g, e1.file); err != nil {
+						t.Fatal(err)
+					}
+					if booked {
+						g.activities = append(g.activities, gfmActivity{
+							account: g.accounts[0].id, comment: "by hand", currency: "USD", source: "YAHOO", symbol: "XYZ", typ: c.gfType,
+							date: "2025-12-04T12:00:00.000Z", fee: new(big.Rat), quantity: c.quantity, unitPrice: c.price,
+						})
+					}
+					for range e2.e.LeftOutWritten {
+						g.activities = slices.DeleteFunc(g.activities, func(a gfmActivity) bool { return a.comment == "by hand" })
+					}
+					if _, err := gfApply(t, g, e2); err != nil {
+						t.Fatal(err)
+					}
+					n := 0
+					for _, a := range g.activities {
+						if a.typ == c.gfType && a.symbol == "XYZ" {
+							n++
+						}
+					}
+					if n != 1 {
+						t.Errorf("%s, booked %v: Ghostfolio holds %d %s activities of XYZ", c.name, booked, n, c.gfType)
+					}
+				}
+			}
+		}
+	})
+
 	t.Run("10 the chain's account", func(t *testing.T) {
 		t.Parallel()
 		rows := []toolRow{

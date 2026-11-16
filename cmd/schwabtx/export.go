@@ -512,6 +512,7 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 	coverageLines(w, e.Coverage)
 	toolCountLines(w, path, e, manifest)
 	toolDeletions(w, e, manifest)
+	leftOutWrittenLines(w, e, manifest, since)
 	differenceLines(w, e, manifest, since)
 	notCheckedLines(w, e, manifest)
 	if gf {
@@ -553,7 +554,7 @@ func toolSummary(w io.Writer, path string, e *history.ToolExport, dir, since str
 		}
 		fmt.Fprintf(w, "import in this order: %s\n", strings.Join(files, ", "))
 		if len(e.Tick) > 0 {
-			fmt.Fprintf(w, "tick these rows, which %s will show as existing although they are new (it marks no other row of this export but one equal to an entry you booked by hand, which you tick too: what you booked is to equal the differences listed, docs/tools.md step 4):\n", tool)
+			fmt.Fprintf(w, "tick these rows, which %s will show as existing although they are new (it marks no other row of this export but one equal to an entry that you booked by hand for a difference, which you tick too, docs/tools.md step 3):\n", tool)
 			for _, t := range e.Tick {
 				fmt.Fprintf(w, "  %s: %s: %s (%s)\n", t.File, toolAccountName(e, t.Account), ppShown(t.As), t.Ref)
 			}
@@ -888,6 +889,34 @@ func unsureFacts(f history.ToolFacts, cusip string) string {
 		parts = append(parts, "held")
 	}
 	return strings.Join(parts, ", ")
+}
+
+// leftOutWrittenLines says on w, of the export e for a tool, going on from
+// the export in the folder since, whose manifest is manifest, each row that
+// the export before it left out, advising you to book it by hand or to
+// check it, and that e writes (e.LeftOutWritten): what you booked by hand
+// for it is to delete before importing, as its records come with e, and
+// the tool would hold them twice; for PP, whose review page marks a new row
+// equal to one that it holds as existing, a booking equal to it would also
+// keep the row out.
+func leftOutWrittenLines(w io.Writer, e *history.ToolExport, manifest, since string) {
+	n := len(e.LeftOutWritten)
+	if n == 0 {
+		return
+	}
+	tool, booked, step := toolFormats[e.Tool].name, "booked", "6"
+	if e.Tool == "ghostfolio" {
+		booked, step = "added", "7"
+	}
+	fmt.Fprintf(w, "%s that %s left out %s written now (%s lists %s under left_out_written): before importing, delete in %s what you %s by hand for %s, if anything (docs/tools.md step %s):\n",
+		plural(n, "row"), since, pluralWord(n, "is", "are"), manifest, pluralWord(n, "it", "each"), tool, booked, pluralWord(n, "it", "each"), step)
+	for _, l := range e.LeftOutWritten {
+		now := l.Now
+		if e.Tool != "ghostfolio" {
+			now = ppShown(now)
+		}
+		fmt.Fprintf(w, "  %s: %s (%s; left out %s, %s)\n", toolAccountName(e, l.Account), now, l.Ref, l.Reason, l.Advice)
+	}
 }
 
 // toolDeletions says on w what of the export e for a tool changed or went,

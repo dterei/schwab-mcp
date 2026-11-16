@@ -1732,6 +1732,7 @@ ledger, and its commands name no `-store`. Its keys, in order:
 | `given` | per account and ref, what the tool holds of each row once this export is imported: `day`, `as` (what the tool shows), `fp` (a hash of what it keeps), `with` (the shares row that it carries), and for PP `note`, how the Note that PP holds of it begins when not with its own label and ref: of a row that took a new ref since (`same_as`), the old one's (`A1 ...135 C7a0b1c2d.1`), and of a transfer, whose one entry is its paying side's, the head that it was written with (`A2 ...398 T61001201 to A1 ...135 T61001202`) |
 | `securities` | each security that the chain wrote, with its identity and the identifiers written for it; for PP, `why`: the whys of `symbols_changed` that it has of itself (`renamed`, `no_ticker`, `named_by_cusip`), for which a later export names it again only when the entry lacks one; and `unsure` when it was written on its own, of a key under `keys_unsure` |
 | `changed`, `gone` | the rows that the tool holds and that this export writes otherwise, or neither writes nor gives: `ref`, `account`, `was`, for PP `note` as in `given`, and `now` or `why` |
+| `left_out_written` | with `-since`: the rows that DIR left out with advice `check`, `by_hand`, `split` or `corporate_action` and that this export writes: `ref`, `account`, `day`, DIR's `reason` and `advice`, and `now`, what this export writes of it; delete in the tool what you booked by hand for each before importing |
 | `same_as` | PP: rows gone under one ref and given under another, alike in all that PP keeps, whose records PP holds under the gone row's Note: nothing to do |
 | `tick` | PP: every row that PP will mark as existing although it is new, each to tick: `file`, `ref`, `account`, `as` |
 | `left_out`, `caveats`, `combined` | the rows left out, written with a caveat, and carried by a record that this export writes: a shares row by its cash row's sale (`with`), and in PP a transfer's receiving side by its paying side's Transfer (Outbound) (`with` and `with_account`) |
@@ -1782,6 +1783,12 @@ whatever its day:
   that it names may pair with another since). Two equal records share a
   Note when a row comes back beside the one that took its place: the
   line's day, type and value fit either, and you delete either;
+- a row that DIR left out with advice to book it by hand or to check it
+  (`check`, `by_hand`, `split`, `corporate_action`) and that this export
+  writes, as your edit, a revision or a later import settled it, is listed
+  under `left_out_written`, with DIR's `reason` and `advice` and what this
+  export writes of it (`now`), and named on stderr: what you booked by hand
+  for it is to delete before importing;
 - for PP, `tick` replays PP's duplicate check over the files in their
   import order, from the records of the rows given, and lists every row
   that PP will mark as existing, each new, to tick; a full export makes the
