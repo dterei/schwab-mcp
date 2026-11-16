@@ -946,8 +946,9 @@ func TestToolChain(t *testing.T) {
 		// one that this export does not list, of an account that it checks,
 		// is gone, marked or carried; one of an account that it does not
 		// check, as one with no snapshot or one taken after -to alone, is
-		// carried on as it was, never gone, its before cleared, among the
-		// others in the order of the accounts. Cash goes alike, by account.
+		// carried on as it was, its marks (unsure, left_out) and all, never
+		// gone, its before cleared, among the others in the order of the
+		// accounts. Cash goes alike, by account.
 		rows := []toolRow{
 			rcTrade("T74900101", 1, "2026-01-05 10:00:00", "sell", keyXYZ, "XYZ", -10_000_000, 50, 50_000, 0),
 			rcTrade("T74900102", 1, "2026-01-05 11:00:00", "buy", keyEFGH, "EFGH", 1_000_000, 30, -3000, 0),
@@ -957,20 +958,29 @@ func TestToolChain(t *testing.T) {
 		snapshots := []toolSnapshot{rcSnapshot(1, "2026-01-08", 47_000), rcSnapshot(2, "2026-01-08", -1000)}
 		in := tcInput(toolInput{to: "2026-01-31", rows: slices.Clone(rows), snapshots: slices.Clone(snapshots)})
 		e1 := chainStepOf(t, in, toolPP, nil, rcAt1)
-		// The export before as one that marked XYZ's difference left_out and
-		// carried EFGH's, its numbers as written.
+		// The export before as one that marked XYZ's difference left_out,
+		// carried EFGH's and marked ABCD's unsure and left_out, and A2's cash
+		// left_out, its numbers as written.
 		var m map[string]any
 		dec := json.NewDecoder(strings.NewReader(string(e1.manifest)))
 		dec.UseNumber()
 		if err := dec.Decode(&m); err != nil {
 			t.Fatal(err)
 		}
-		for _, d := range m["holdings"].(map[string]any)["differences"].([]any) {
+		holdings := m["holdings"].(map[string]any)
+		for _, d := range holdings["differences"].([]any) {
 			switch d := d.(map[string]any); d["security_key"] {
 			case keyXYZ:
 				d["left_out"] = true
 			case keyEFGH:
 				d["carried"] = true
+			case keyABCD:
+				d["unsure"], d["left_out"] = true, true
+			}
+		}
+		for _, c := range holdings["cash"].([]any) {
+			if c := c.(map[string]any); c["account"] == "A2 ...398" {
+				c["left_out"] = true
 			}
 		}
 		edited := *e1
@@ -994,6 +1004,50 @@ func TestToolChain(t *testing.T) {
 			}
 			return out
 		}
+		// carriedAsListed requires each entry that s carries to be the one
+		// that the export before, dir, listed, whole: its marks and all, but
+		// before, and carried, which it says (K-6). It returns how many
+		// entries of shares and of cash s carries.
+		carriedAsListed := func(s, dir *chainStep) (shares, cash int) {
+			t.Helper()
+			then, err := parseChain(dir.manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, h := range s.res.holdings {
+				if !h.Carried {
+					continue
+				}
+				shares++
+				i := slices.IndexFunc(then.Holdings.Differences, func(l chainHolding) bool { return l.key() == h.key() })
+				if i < 0 {
+					t.Errorf("carries %+v, which the export before lists not", h)
+					continue
+				}
+				want := then.Holdings.Differences[i]
+				want.Before, want.Carried = false, true
+				if !reflect.DeepEqual(h, want) {
+					t.Errorf("carries %+v, of %+v listed before", h, want)
+				}
+			}
+			for _, c := range s.res.cash {
+				if !c.Carried {
+					continue
+				}
+				cash++
+				i := slices.IndexFunc(*then.Holdings.Cash, func(l chainCashHolding) bool { return l.Account == c.Account })
+				if i < 0 {
+					t.Errorf("carries %+v, which the export before lists not", c)
+					continue
+				}
+				want := (*then.Holdings.Cash)[i]
+				want.Before, want.Carried = false, true
+				if !reflect.DeepEqual(c, want) {
+					t.Errorf("carries %+v, of %+v listed before", c, want)
+				}
+			}
+			return shares, cash
+		}
 		e2 := chainStepOf(t, in, toolPP, &edited, rcAt2)
 		if got, want := describe(e2), []string{
 			"A1 ...135 EFGH -1 before=false carried=false", "A1 ...135 XYZ 10 before=true carried=false", "A2 ...398 ABCD -1 before=true carried=false",
@@ -1014,25 +1068,40 @@ func TestToolChain(t *testing.T) {
 		}; !slices.Equal(got, want) {
 			t.Errorf("once the rows came: %q, want %q", got, want)
 		}
+		// A2's entries, carried with their marks: ABCD's unsure and
+		// left_out, the cash's left_out.
+		if shares, cash := carriedAsListed(e3, &edited); shares != 1 || cash != 1 {
+			t.Errorf("once the rows came, %d entries of shares and %d of cash carried, want 1 and 1", shares, cash)
+		}
 		// Going on from e2, which listed A2's before, with A2's one snapshot
 		// taken after -to, which the export does not check against.
 		after := tcInput(toolInput{
 			to: "2026-01-31", snapshots: []toolSnapshot{snapshots[0], rcSnapshot(2, "2026-02-03", -1000)}, rows: slices.Clone(laterRows),
 		})
-		if got, want := describe(chainStepOf(t, after, toolPP, e2, rcAt3)), []string{
+		afterTo := chainStepOf(t, after, toolPP, e2, rcAt3)
+		if got, want := describe(afterTo), []string{
 			"A2 ...398 ABCD -1 before=false carried=true", "A1 ...135 cash 270.00 before=false carried=false", "A2 ...398 cash 10.00 before=false carried=true",
 			"A1 ...135 EFGH gone was=-1", "A1 ...135 XYZ gone was=10",
 		}; !slices.Equal(got, want) {
 			t.Errorf("A2's snapshot after -to: %q, want %q", got, want)
 		}
+		// A2's entries, which e2 listed with no mark, carried with none.
+		if shares, cash := carriedAsListed(afterTo, e2); shares != 1 || cash != 1 {
+			t.Errorf("A2's snapshot after -to: %d entries of shares and %d of cash carried, want 1 and 1", shares, cash)
+		}
 		// Going on from e2 with no snapshot of A1: A1's carried, before
 		// cleared, ahead of A2's, listed alike.
 		noA1 := tcInput(toolInput{to: "2026-01-31", snapshots: snapshots[1:], rows: slices.Clone(rows)})
-		if got, want := describe(chainStepOf(t, noA1, toolPP, e2, rcAt3)), []string{
+		e4 := chainStepOf(t, noA1, toolPP, e2, rcAt3)
+		if got, want := describe(e4), []string{
 			"A1 ...135 EFGH -1 before=false carried=true", "A1 ...135 XYZ 10 before=false carried=true", "A2 ...398 ABCD -1 before=true carried=false",
 			"A2 ...398 cash 10.00 before=true carried=false",
 		}; !slices.Equal(got, want) {
 			t.Errorf("no snapshot of A1: %q, want %q", got, want)
+		}
+		// A1's entries, which e2 listed with no mark, carried with none.
+		if shares, cash := carriedAsListed(e4, e2); shares != 2 || cash != 0 {
+			t.Errorf("no snapshot of A1: %d entries of shares and %d of cash carried, want 2 and 0", shares, cash)
 		}
 	})
 
