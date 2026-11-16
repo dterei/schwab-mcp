@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2888,6 +2889,100 @@ func TestToolReimport(t *testing.T) {
 				if got := unsureText(s.e.Unsure); !slices.Equal(got, want[i]) {
 					t.Errorf("%s, export %d: unsure %q, want %q", tool, i+1, got, want[i])
 				}
+			}
+		}
+	})
+
+	t.Run("rows without a key, a new ref", func(t *testing.T) {
+		t.Parallel()
+		// XYZ's rows without a key, of a ticker that the store's XYZ and an
+		// older History key of no CUSIP have had: each export lists them,
+		// with a command per security that they may be, to run for each of
+		// their refs. The next export, the first row given its key since
+		// and a second come, lists the second, which needs the commands
+		// too: not before, though the securities are the same. The one
+		// after, of the same rows, lists it before; so does one whose rows
+		// are fewer, as when the store has placed one, since each is a row
+		// that an export listed with its commands.
+		secs, names := tcSecurities()
+		secs = append(secs, toolSecurityRow{key: "x:66000011", symbol: "XYZ"})
+		at := tcNY("2023-01-10 09:00:00")
+		names = append(names, toolName{key: "x:66000011", kind: "symbol", value: "XYZ", firstSeen: at, lastSeen: at},
+			toolName{key: "x:66000011", kind: "description", value: "XYZ HOLDINGS OLD", firstSeen: at, lastSeen: at})
+		old := []toolRow{
+			rcFile("C7e2a0001.1", 1, "2019-09-03", "Buy", "buy", "x:66000011", "XYZ", centsOf(5_000_000), 20, -10_000),
+			rcFile("C7e2a0001.2", 1, "2021-03-01", "Sell", "sell", "x:66000011", "XYZ", centsOf(-5_000_000), 22, 11_000),
+		}
+		div := func(ref, clock, key string, cents int64) toolRow {
+			r := rcCash(ref, 2, clock, "DIVIDEND_OR_INTEREST", "Ordinary Dividend~XYZ", "dividend", cents)
+			r.symbol, r.securityKey = "XYZ", key
+			return r
+		}
+		in := func(rows ...toolRow) toolInput {
+			return tcInput(toolInput{securities: secs, names: names, rows: append(slices.Clone(old), rows...)})
+		}
+		first := in(div("T7e2a000101", "2025-07-15 10:00:00", "", 300))
+		then := in(div("T7e2a000101", "2025-07-15 10:00:00", keyXYZ, 300), div("T7e2a000102", "2025-10-15 10:00:00", "", 310))
+		two := in(div("T7e2a000101", "2025-07-15 10:00:00", "", 300), div("T7e2a000102", "2025-10-15 10:00:00", "", 310))
+		// keyless returns the entry of XYZ's rows without a key that s lists:
+		// its refs, whether it is before, and its commands.
+		keyless := func(s *chainStep) string {
+			for _, u := range s.e.Unsure {
+				if u.Key == "" && u.Symbol == "XYZ" {
+					var commands []string
+					for _, o := range u.Securities {
+						commands = append(commands, o.Command)
+					}
+					return fmt.Sprintf("%q before %v: %q", u.Refs, u.Before, commands)
+				}
+			}
+			return "none"
+		}
+		commands := `["schwabtx edit REF -security K:i:1854092" "schwabtx edit REF -security K:x:66000011"]`
+		// leftOut returns whether the older key's entry that s lists marks
+		// XYZ's rows without a key, a security that it may be, left out.
+		leftOut := func(s *chainStep) string {
+			for _, u := range s.e.Unsure {
+				for _, o := range u.Securities {
+					if u.Key == "x:66000011" && o.Key == "" && o.Symbol == "XYZ" {
+						return strconv.FormatBool(o.LeftOut)
+					}
+				}
+			}
+			return "none"
+		}
+		for _, tool := range []string{toolPP, toolGF} {
+			for _, c := range []struct {
+				name  string
+				steps []toolInput
+				want  []string
+			}{
+				{"a new ref", []toolInput{first, then, then}, []string{
+					`["T7e2a000101"] before false: ` + commands, `["T7e2a000102"] before false: ` + commands, `["T7e2a000102"] before true: ` + commands,
+				}},
+				{"fewer refs", []toolInput{two, then}, []string{
+					`["T7e2a000101" "T7e2a000102"] before false: ` + commands, `["T7e2a000102"] before true: ` + commands,
+				}},
+			} {
+				var prev *chainStep
+				for i, step := range c.steps {
+					s := chainStepOf(t, step, tool, prev, []string{rcAt1, rcAt2, rcAt3}[i])
+					if got := keyless(s); got != c.want[i] {
+						t.Errorf("%s, %s, export %d: XYZ's rows without a key %s, want %s", tool, c.name, i+1, got, c.want[i])
+					}
+					if got := leftOut(s); got != "false" {
+						t.Errorf("%s, %s, export %d: the older key's line marks XYZ's rows without a key, written, left out: %s", tool, c.name, i+1, got)
+					}
+					prev = s
+				}
+			}
+			// Its rows without a key all left out, for want of a day, the
+			// older key's line says so, beside them, which no command names.
+			noDay := div("T7e2a000103", "2025-07-15 10:00:00", "", 300)
+			noDay.time = time.Time{}
+			s := chainStepOf(t, in(noDay), tool, nil, rcAt1)
+			if got := keyless(s) + ", " + leftOut(s); got != "none, true" {
+				t.Errorf("%s, rows without a key left out: %s", tool, got)
 			}
 		}
 	})

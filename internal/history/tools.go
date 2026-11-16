@@ -375,10 +375,14 @@ type ToolUnsure struct {
 // naming no -store, that tells the store that the ToolUnsure is it: edit
 // K:<key> -same K:<its key>, or, for rows without a key, edit REF -security
 // K:<its key>, for each of the ToolUnsure's Refs; "" for one under no key.
+// LeftOut says, of one under no key, that the export writes and gives no
+// record of its rows, as when it leaves each out (the manifest's
+// left_out says what to do with each).
 type ToolUnsureSecurity struct {
 	Key, Symbol, CUSIP string
 	Facts              ToolFacts
 	Command            string
+	LeftOut            bool
 }
 
 // A ToolFacts is what the store knows of a security that keys_unsure names
@@ -953,6 +957,7 @@ type (
 		CUSIP       string `json:"cusip"`
 		toolFactsEntry
 		Command string `json:"command"`
+		LeftOut bool   `json:"left_out,omitempty"`
 	}
 	// A toolFactsEntry is what the store knows of a security (ToolFacts):
 	// rows, the first and the last day of the export's rows and legs of
@@ -1149,7 +1154,7 @@ func (e *ToolExport) manifestOf(o ToolOptions, part chainManifest, v versions) (
 		}
 		for _, s := range u.Securities {
 			entry.Securities = append(entry.Securities, toolUnsureSecurity{
-				SecurityKey: s.Key, Symbol: s.Symbol, CUSIP: s.CUSIP, toolFactsEntry: factsEntry(s.Facts), Command: s.Command,
+				SecurityKey: s.Key, Symbol: s.Symbol, CUSIP: s.CUSIP, toolFactsEntry: factsEntry(s.Facts), Command: s.Command, LeftOut: s.LeftOut,
 			})
 		}
 		m.KeysUnsure = append(m.KeysUnsure, entry)

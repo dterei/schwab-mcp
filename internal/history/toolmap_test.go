@@ -1780,6 +1780,12 @@ func TestToolMapping(t *testing.T) {
 		add("i:1000541", "EQUITY", "ZZJ54A107", "JNT")
 		add("i:1000542", "EQUITY", "ZZJ54B105", "JNU")
 		add("x:66000541", "", "", "JNV")
+		// Two files' keys of no CUSIP, whose links reach securities of two
+		// CUSIPs between them.
+		add("i:1000551", "EQUITY", "ZZJ55A106", "JNW")
+		add("i:1000552", "EQUITY", "ZZJ55B104", "JNX")
+		add("x:66000551", "", "", "JNW")
+		add("x:66000552", "", "", "JNY")
 		tickers := in
 		grouped := func(links ...toolLink) *toolIndex {
 			c := tickers
@@ -1826,6 +1832,35 @@ func TestToolMapping(t *testing.T) {
 		if !slices.Equal(unsure(ix, "x:66000521"), []string{"i:1000521", "i:1000522"}) || !slices.Equal(unsure(ix, "x:66000531"), []string{"i:1000531", "i:1000532"}) ||
 			unsure(ix, "x:66000541") != nil || unsure(ix, "i:1000521") != nil {
 			t.Errorf("no link: unsure %q, %q, %q", unsure(ix, "x:66000521"), unsure(ix, "x:66000531"), unsure(ix, "x:66000541"))
+		}
+		// Each of two keys of no CUSIP in one component of links that
+		// reaches two CUSIPs may be either CUSIP's security, and is joined
+		// to neither; the other key of no CUSIP is none that it may be, as
+		// it knows no CUSIP either (I-1, I-4).
+		ix = grouped(link("x:66000551", "i:1000551"), link("x:66000551", "i:1000552"), link("x:66000552", "i:1000552"))
+		for _, key := range []string{"x:66000551", "x:66000552"} {
+			if got := unsure(ix, key); !slices.Equal(got, []string{"i:1000551", "i:1000552"}) || one(ix, key, "i:1000551") || one(ix, key, "i:1000552") {
+				t.Errorf("a key of a component of two CUSIPs, %s: unsure %q", key, got)
+			}
+		}
+
+		// A group of two keys of no CUSIP, a History file's and the API's,
+		// which a link joins, of a ticker that a security of a CUSIP has
+		// had: keys_unsure lists it under the first of its keys, with every
+		// key of it (security_keys).
+		in = toolInput{}
+		add("x:66000561", "", "", "JNZ")
+		add("i:1000561", "COLLECTIVE_INVESTMENT", "", "JNZ")
+		add("i:1000562", "EQUITY", "ZZJ56B102", "JNZ")
+		in.links = []toolLink{link("x:66000561", "i:1000561")}
+		in.rows = []toolRow{rcTrade("T7f0nn561", 1, "2026-03-02 10:00:00", "buy", "i:1000561", "JNZ", 1_000_000, 10, -1000, 0)}
+		in = tcInput(in)
+		in.tool = toolPP
+		events, _ := toolEvents(&in)
+		got := keysUnsure(&in, events)
+		if len(got) != 1 || got[0].Key != "i:1000561" || !slices.Equal(got[0].Keys, []string{"i:1000561", "x:66000561"}) ||
+			!slices.Equal(unsureText(got), []string{"i:1000561: i:1000562 schwabtx edit K:i:1000561 -same K:i:1000562"}) {
+			t.Errorf("a group of two keys: keys_unsure %+v", got)
 		}
 	})
 

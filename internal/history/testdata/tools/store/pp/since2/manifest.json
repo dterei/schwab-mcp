@@ -784,7 +784,8 @@
           "descriptions": [],
           "tickers": [],
           "held": false,
-          "command": ""
+          "command": "",
+          "left_out": true
         }
       ]
     }

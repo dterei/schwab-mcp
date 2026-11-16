@@ -550,9 +550,11 @@ func (c *toolChain) refuse(in *toolInput, dir string) error {
 
 // listed reports whether the export whose manifest is c listed u under
 // keys_unsure alike: the same key, or the same symbol of rows without one,
-// with the same securities that it may be, in their order; false for no
-// export. What the store knows of each changes nothing: what you judge them
-// by is listed again only when their securities change.
+// with the same securities that it may be, in their order, and, for rows
+// without a key, each of u's rows among those that it listed, as a row new
+// since needs a command of its own; false for no export. What the store
+// knows of each changes nothing: what you judge them by is listed again
+// only when their securities change, or rows without a key come.
 func (c *toolChain) listed(u ToolUnsure) bool {
 	if c == nil {
 		return false
@@ -560,7 +562,7 @@ func (c *toolChain) listed(u ToolUnsure) bool {
 	return slices.ContainsFunc(c.KeysUnsure, func(e toolUnsureEntry) bool {
 		return e.SecurityKey == u.Key && e.Symbol == u.Symbol && slices.EqualFunc(e.Securities, u.Securities, func(a toolUnsureSecurity, b ToolUnsureSecurity) bool {
 			return a.SecurityKey == b.Key && a.Symbol == b.Symbol
-		})
+		}) && !slices.ContainsFunc(u.Refs, func(ref string) bool { return !slices.Contains(e.Refs, ref) })
 	})
 }
 

@@ -1211,6 +1211,8 @@ next time: schwabtx export -format pp -since pp-2026-12-01 -dir <a new folder>
 								Descriptions: []string{"JKLM HOLDINGS INC"}, Tickers: []history.ToolTicker{{Ticker: "JKLM", Source: "api"}}, First: "2026-01-05", Last: "2026-10-30", Held: true,
 							}},
 							{Key: "i:1000214", CUSIP: "ZZJ12K205", Facts: history.ToolFacts{Tickers: []history.ToolTicker{{Ticker: "JKLM", Source: "api"}, {Ticker: "JKLM", Source: "history"}}}},
+							// Rows of a symbol without a key, each left out.
+							{Symbol: "JKLM", LeftOut: true},
 						},
 					},
 					{
@@ -1245,7 +1247,7 @@ left out 3 rows (pp-2026-12-15/manifest.json lists each, with what to do): split
 wrote 2 rows with caveats (pp-2026-12-15/manifest.json): value_unknown 2, cash_not_written 1
 2 securities have changed symbol or may no longer trade (pp-2026-12-15/manifest.json lists each under symbols_changed, with why): before you import, set each that Portfolio Performance holds as docs/tools.md step 8 says; one that is new to it asks only, if named_by_cusip, after importing
 3 keys of the store with no CUSIP share a ticker with another security that the export cannot join them to (pp-2026-12-15/manifest.json lists them under keys_unsure, with what the store knows of each): each is written on its own, which neither tool merges with another. Before you import, judge each by its names and the days of its rows (schwabtx status K:… shows its names over time): if it is the security named after it, run that command and export again; if it is not, run nothing and book its differences as any other's (docs/tools.md):
-  x:66000009, JKLM HOLDINGS, JKLM in History files, rows 2019-03-04 to 2020-11-30: schwabtx edit K:x:66000009 -same K:i:1000213 (JKLM HOLDINGS INC, JKLM from Schwab's API, rows 2026-01-05 to 2026-10-30, held) or -same K:i:1000214 (CUSIP ZZJ12K205, JKLM from Schwab's API and in History files)
+  x:66000009, JKLM HOLDINGS, JKLM in History files, rows 2019-03-04 to 2020-11-30: schwabtx edit K:x:66000009 -same K:i:1000213 (JKLM HOLDINGS INC, JKLM from Schwab's API, rows 2026-01-05 to 2026-10-30, held) or -same K:i:1000214 (CUSIP ZZJ12K205, JKLM from Schwab's API and in History files) or the rows of JKLM without a key, which this export leaves out (pp-2026-12-15/manifest.json lists each under left_out, with what to do)
   s:FILE:GRPC FD@2025-01-02, GRPC FUND; GRPC FD, GRPC-FD in History files, rows 2024-05-01: schwabtx edit QUOTED -same K:i:1000103 (CUSIP ZZG10C109, GRPC-FD from Schwab's API) or the rows of GRPC-FD without a key
   VBR, 2 rows without a key (T73508261948, T73508261952): schwabtx edit REF -security K:i:4417355 (VANGUARD SMALL-CAP VALUE ETF, VBR from Schwab's API, rows 2024-01-02 to 2026-11-02, held) or -security K:x:66000002 (VBR in History files) for each; settling the keys of VBR first may let the store place them
 2 rows of this export carry a flag that needs you (schwabtx status -review); if you uncount one, the next -since export lists what to delete

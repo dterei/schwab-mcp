@@ -862,6 +862,8 @@ func unsureLines(w io.Writer, path string, unsure []history.ToolUnsure, manifest
 			facts := unsureFacts(s.Facts, s.CUSIP)
 			var c string
 			switch {
+			case s.Key == "" && s.LeftOut:
+				c = "the rows of " + plainCell(s.Symbol) + " without a key, which this export leaves out (" + manifest + " lists each under left_out, with what to do)"
 			case s.Key == "":
 				c = "the rows of " + plainCell(s.Symbol) + " without a key"
 			case u.Key == "" && len(commands) == 0:

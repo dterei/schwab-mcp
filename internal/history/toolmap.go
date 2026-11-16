@@ -1875,7 +1875,10 @@ type toolUnsure struct {
 // (facts), and of each security that it may be, with the command that says
 // in the store that it is that one, naming no -store: for a key, edit
 // K:<key> -same K:<theirs>; for the symbol of rows without a key, edit REF
-// -security K:<theirs>, of each of those rows (Refs). Each fact is the
+// -security K:<theirs>, of each of those rows (Refs). The rows of a symbol
+// without a key, which no command names, are marked LeftOut when the
+// export writes and gives no record of them, as when it leaves each out:
+// their left-out entries say what to do with them. Each fact is the
 // store's; none decides anything.
 func keysUnsure(in *toolInput, events []toolEvent) []ToolUnsure {
 	ix := newToolIndex(in)
@@ -1916,6 +1919,9 @@ func keysUnsure(in *toolInput, events []toolEvent) []ToolUnsure {
 			case s.Key == "":
 				// The store holds it under no key, which no command names.
 				s.Symbol = o[0].symbol
+				s.LeftOut = !slices.ContainsFunc(events, func(e toolEvent) bool {
+					return e.security != nil && slices.ContainsFunc(o, func(m *toolSecurity) bool { return m.ref() == e.security.ref() })
+				})
 			case t.Key == "":
 				s.Command = "schwabtx edit REF -security " + shellQuote("K:"+s.Key)
 			default:

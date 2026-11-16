@@ -58,7 +58,9 @@ made up.
   import (the export refuses to go on twice from one folder). If it is
   another security, run nothing, and book its differences as any other's
   (step 4). Later `-since` exports do not count it again while the
-  securities that it may be stay the same. One that lists it again as they
+  securities that it may be stay the same, and, for rows of a symbol
+  without a key, no row of it comes that the export before did not list,
+  as a new row needs its own command. One that lists it again as they
   change, as once you have settled one of them, asks you to judge it only
   against a security that it names and did not name before: if none, run
   nothing again. A full export lists it again. Many keys at once, as when
