@@ -575,13 +575,13 @@ wrote 13 activities for Ghostfolio to gf, up to 2026-11-13: 3 accounts with 12 b
 4 deposits, withdrawals and journals are in the accounts' balances
 2 symbols for Yahoo may no longer be the securities written (gf/manifest.json lists them under ghostfolio.yahoo_idle): no row since 2025-11-13 and not held, or named by a CUSIP; look each up on Yahoo, and name in one -manual those that it lacks or shows as another company (docs/tools.md step 1)
 11 holdings differ from the latest snapshots (gf/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
-  Schwab A1 ...135: Security (00507V109) (MANUAL): 10, of an asset that no activity brings in: make it first (docs/tools.md step 6)
+  Schwab A1 ...135: Security (00507V109) (MANUAL): 10, of an asset that no activity brings in: make it first, as a Valuable (docs/tools.md step 6)
   Schwab A1 ...135: SWVXX (YAHOO): 1220.89
   Schwab A1 ...135: VTI (YAHOO): 12
   Schwab A1 ...135: AAPL (YAHOO): -0.8212
   Schwab A1 ...135: BND (YAHOO): -0.0378
   Schwab A1 ...135: VBR (YAHOO): -1.5487
-  Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200, of an asset that no activity brings in: make it first (docs/tools.md step 6)
+  Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200, of an asset that no activity brings in: make it first, as a Valuable (docs/tools.md step 6)
   Schwab A2 ...398: META (YAHOO): 2
   Schwab A2 ...398: Security (i:205187341) (MANUAL): -50
   Schwab A2 ...398: XYZ 2025-02-21 40 put (XYZ250221P00040000) (MANUAL): -200
@@ -1825,15 +1825,21 @@ whatever its day:
   other difference with its value, which what you add by hand for it is to
   equal, less what the rows left out that you book by hand move: in PP
   before importing, since PP marks a new row equal to one that it holds as
-  existing, but for a security that PP does not hold yet, which the import
-  brings, after it (in [the how-to](tools.md#the-first-import), step 4), and
+  existing, but for a security that PP does not hold yet after it, as the
+  import brings the securities that its rows name, and one that no row
+  names you make (in [the how-to](tools.md#the-first-import), step 4), and
   in Ghostfolio after ([step 6](tools.md#ghostfolio)). Ghostfolio ties what
   you added to its asset: a security that another asset holds now, after a
   rename, a delisting or `-manual`, has its difference gone under the old
   asset and new under the new one. An account that this export cannot check
   carries DIR's differences of it on (`carried`), uncounted, so that the
   next export that checks it lists each again or as gone; so does an
-  account whose cash it cannot check, for its cash.
+  account whose cash it cannot check, for its cash; and a Ghostfolio export
+  whose file holds no activity, which the import dialog cannot import,
+  carries all of its differences, and those that it finds gone, so that the
+  next export lists each again or as gone. stderr's header says of the
+  differences listed again that they are new or changed since DIR, or
+  carried by it.
 
 The chain keeps its account and its `-manual` list: a `-since` export takes
 no `-account`, and adds what `-manual` names to the chain's. It refuses a

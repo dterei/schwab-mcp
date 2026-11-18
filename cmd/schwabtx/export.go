@@ -1044,11 +1044,16 @@ func toolDeletions(w io.Writer, e *history.ToolExport, manifest string) {
 // in PP that comes before importing, since PP marks a new row equal to one
 // that it holds as existing, and the rows that a hand entry stood for,
 // arriving as it was booked, would stay out, but for a security that PP
-// does not hold yet, which the import brings, after; in Ghostfolio after,
-// since the import makes a new MANUAL asset to add under, and an activity
-// that an export writes, its comment its own, is never equal to one added
-// by hand. A line marks a MANUAL asset of Ghostfolio that no activity of the
-// export brings in, which you make first (NoActivity).
+// does not hold yet, after: the import brings the securities that its rows
+// name, and one that no row names you make as docs/tools.md step 4 says;
+// in Ghostfolio after, since the import makes a new MANUAL asset to add
+// under, and an activity that an export writes, its comment its own, is
+// never equal to one added by hand. Each difference listed going on is new
+// or changed since the export before, or one that it carried (an account
+// that it could not check, or for Ghostfolio a file of no activity), which
+// the header says alike. A line marks a MANUAL asset of Ghostfolio that no
+// activity of the export brings in, which you make first, as a Valuable
+// (NoActivity).
 func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string) {
 	gone := 0
 	for _, d := range e.Differences {
@@ -1080,9 +1085,9 @@ func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string)
 		var head string
 		switch {
 		case n > 0 && gone > 0:
-			head = fmt.Sprintf("%s from the latest snapshots %s new or changed since %s, and %d %s gone", plural(n, "difference"), pluralWord(n, "is", "are"), since, gone, pluralWord(gone, "is", "are"))
+			head = fmt.Sprintf("%s from the latest snapshots %s new or changed since %s, or carried by it, and %d %s gone", plural(n, "difference"), pluralWord(n, "is", "are"), since, gone, pluralWord(gone, "is", "are"))
 		case n > 0:
-			head = fmt.Sprintf("%s from the latest snapshots %s new or changed since %s", plural(n, "difference"), pluralWord(n, "is", "are"), since)
+			head = fmt.Sprintf("%s from the latest snapshots %s new or changed since %s, or carried by it", plural(n, "difference"), pluralWord(n, "is", "are"), since)
 		default:
 			head = fmt.Sprintf("%s from the latest snapshots that %s listed %s gone", plural(gone, "difference"), since, pluralWord(gone, "is", "are"))
 		}
@@ -1123,7 +1128,7 @@ func differenceLines(w io.Writer, e *history.ToolExport, manifest, since string)
 			value += ", of a key under keys_unsure"
 		}
 		if d.NoActivity && !d.Gone {
-			value += ", of an asset that no activity brings in: make it first (docs/tools.md step 6)"
+			value += ", of an asset that no activity brings in: make it first, as a Valuable (docs/tools.md step 6)"
 		}
 		fmt.Fprintf(w, "  %s: %s: %s\n", toolAccountName(e, d.Account), what, value)
 	}

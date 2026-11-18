@@ -248,9 +248,10 @@ and the types' names, whatever PP's language and locale.
    equal to one that it holds as existing (step 3), so an entry left as it
    was would have PP mark the rows that it stood for; what you add for a
    security that PP does not hold yet, you add after the import, which
-   brings it. An account that one export could not check, the next that
-   checks it lists in full again: the export between carries its differences
-   on, marked `carried`.
+   brings the securities that its rows name; one that no row names you
+   make as above, with the difference's `pp_security`. An account that one
+   export could not check, the next that checks it lists in full again:
+   the export between carries its differences on, marked `carried`.
 5. **What the manifest asks of you**: the rows left out, each with its
    reason and what to do, and the rows written with a caveat
    ([below](#what-the-manifest-asks-of-you)). A row that PP refuses for its
@@ -281,7 +282,9 @@ and the types' names, whatever PP's language and locale.
    5. Your hand entries, to the differences listed, gone ones first:
       delete what you booked for each that is gone, then make what you
       booked for each other equal to it (step 4); those of a security that
-      PP does not hold yet, after the import (item 6), which brings it.
+      PP does not hold yet, after the import (item 6), which brings the
+      securities that its rows name; make one that no row names as step 4
+      says, with the difference's `pp_security`.
    6. Import the files in the order printed, and tick exactly the rows it
       lists to tick (step 3).
 
@@ -471,13 +474,13 @@ what identifies it, with its description in its comment.
    4 deposits, withdrawals and journals are in the accounts' balances
    2 symbols for Yahoo may no longer be the securities written (gf-1/manifest.json lists them under ghostfolio.yahoo_idle): no row since 2025-11-13 and not held, or named by a CUSIP; look each up on Yahoo, and name in one -manual those that it lacks or shows as another company (docs/tools.md step 1)
    11 holdings differ from the latest snapshots (gf-1/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
-     Schwab A1 ...135: Security (00507V109) (MANUAL): 10, of an asset that no activity brings in: make it first (docs/tools.md step 6)
+     Schwab A1 ...135: Security (00507V109) (MANUAL): 10, of an asset that no activity brings in: make it first, as a Valuable (docs/tools.md step 6)
      Schwab A1 ...135: SWVXX (YAHOO): 1220.89
      Schwab A1 ...135: VTI (YAHOO): 12
      Schwab A1 ...135: AAPL (YAHOO): -0.8212
      Schwab A1 ...135: BND (YAHOO): -0.0378
      Schwab A1 ...135: VBR (YAHOO): -1.5487
-     Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200, of an asset that no activity brings in: make it first (docs/tools.md step 6)
+     Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200, of an asset that no activity brings in: make it first, as a Valuable (docs/tools.md step 6)
      Schwab A2 ...398: META (YAHOO): 2
      Schwab A2 ...398: Security (i:205187341) (MANUAL): -50
      Schwab A2 ...398: XYZ 2025-02-21 40 put (XYZ250221P00040000) (MANUAL): -200
@@ -515,13 +518,13 @@ what identifies it, with its description in its comment.
    4 deposits, withdrawals and journals are in the accounts' balances
    1 symbol for Yahoo may no longer be the security written (gf-2/manifest.json lists it under ghostfolio.yahoo_idle): no row since 2025-11-13 and not held, or named by a CUSIP; look it up on Yahoo, and if it lacks it or shows it as another company, name it in -manual (docs/tools.md step 1)
    11 holdings differ from the latest snapshots (gf-2/manifest.json lists each under holdings, with the asset that holds it): after importing, make what you add by hand in Ghostfolio for each, under the asset named, equal to it, less what the rows left out that you book by hand move (a line says so where they move it); a positive one is what Schwab holds and the records lack, a negative one what the records hold and Schwab does not (docs/tools.md step 6):
-     Schwab A1 ...135: Security (00507V109) (MANUAL): 10, of an asset that no activity brings in: make it first (docs/tools.md step 6)
+     Schwab A1 ...135: Security (00507V109) (MANUAL): 10, of an asset that no activity brings in: make it first, as a Valuable (docs/tools.md step 6)
      Schwab A1 ...135: SWVXX (YAHOO): 1220.89
      Schwab A1 ...135: VTI (YAHOO): 12
      Schwab A1 ...135: AAPL (YAHOO): -0.8212
      Schwab A1 ...135: Security (BND) (MANUAL): -0.0378
      Schwab A1 ...135: VBR (YAHOO): -1.5487
-     Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200, of an asset that no activity brings in: make it first (docs/tools.md step 6)
+     Schwab A2 ...398: XYZ 2026-06-19 45 put (XYZ260619P00045000) (MANUAL): -200, of an asset that no activity brings in: make it first, as a Valuable (docs/tools.md step 6)
      Schwab A2 ...398: META (YAHOO): 2
      Schwab A2 ...398: Security (i:205187341) (MANUAL): -50
      Schwab A2 ...398: XYZ 2025-02-21 40 put (XYZ250221P00040000) (MANUAL): -200
@@ -597,16 +600,21 @@ what identifies it, with its description in its comment.
    "of an asset that no activity brings in" (the manifest's `no_activity`)
    names one that no activity of the export, nor of the earlier ones that
    Ghostfolio holds, is of, as an option sold before the store's rows.
-   Unless you made it already, make it first: add a Valuable named exactly
-   as the line names the asset (`XYZ 2026-06-19 45 put
-   (XYZ260619P00045000)`), then edit that activity into the BUY, or the
-   SELL, of the difference, dated as above; a later import finds the asset
+   Unless you made it already, make it first, as a Valuable: add a Valuable
+   named exactly as the line names the asset (`XYZ 2026-06-19 45 put
+   (XYZ260619P00045000)`), which Ghostfolio saves as a BUY of 1 of a new
+   asset of that name; then add the BUY, or the SELL, of the difference,
+   dated as above, whose search now finds that asset by its name; then
+   delete the Valuable. Delete it after the new activity: Ghostfolio
+   deletes an asset with its last activity. A later import finds the asset
    by that name and adds its activities to it. Until you make it, or an
    import brings a row of it, Ghostfolio holds nothing of it. After
    importing a later export, delete what it lists as gone, then make what
    you added for each other equal to the listed value, less what the rows
    left out that you book by hand move (Ghostfolio takes no activity of an
-   export for one added by hand, whose comment is not the export's).
+   export for one added by hand, whose comment is not the export's). An
+   edit keeps an activity's type: to turn a BUY into a SELL, add the SELL,
+   then delete the BUY.
    Ghostfolio ties an activity to its asset, and does not follow a change
    of symbol: after a rename, a delisting or `-manual`, the export lists
    the old asset's difference as gone and the new asset's as new; the

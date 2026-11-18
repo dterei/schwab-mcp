@@ -5885,14 +5885,17 @@ func gfDialogAsset(g *gfModel, a *chainAsset) (string, bool) {
 // CUSIP alone, held from before the store's rows. Ghostfolio's import makes
 // a MANUAL asset only with an activity of it, and its dialog finds no
 // other: the export marks each such line, and you make the asset as a
-// Valuable named as the line names it, then the activity of the
-// difference, the SELL or the BUY, under it. A call that a row names, and
-// a security for Yahoo, are found as any asset, and not marked; nor is the
-// call's difference that the next export lists anew, whose activity is
-// given. That export writes the rows that opened the put and the security:
-// it lists both differences as gone, which you delete, and its import
-// takes each asset that you made by its name, so that Ghostfolio holds
-// Schwab's shares, each under one asset.
+// Valuable named as the line names it, which the dialog saves as a BUY of 1
+// of a new asset of that name, then add the activity of the difference,
+// the SELL or the BUY, under it, and then delete the Valuable, as step 6
+// says; the dialog cannot edit the Valuable into the SELL, as an edit keeps
+// an activity's type. Ghostfolio then holds Schwab's shares. A call that a
+// row names, and a security for Yahoo, are found as any asset, and not
+// marked; nor is the call's difference that the next export lists anew,
+// whose activity is given. That export writes the rows that opened the put
+// and the security: it lists both differences as gone, which you delete,
+// and its import takes each asset that you made by its name, so that
+// Ghostfolio holds Schwab's shares, each under one asset.
 func TestToolGFNoActivity(t *testing.T) {
 	t.Parallel()
 	const name, cusip = "Schwab A1 ...135", "c:00507V109"
@@ -5929,24 +5932,43 @@ func TestToolGFNoActivity(t *testing.T) {
 		t.Errorf("the first export marks %q as of an asset that no activity brings in, want %q", marked, want)
 	}
 	g := newGFModel()
+	// Ghostfolio's dialog: add makes an activity of an asset that it finds
+	// (gfDialogAsset); a Valuable is a BUY of 1 of a new MANUAL asset of the
+	// name typed; an edit keeps an activity's type and asset; and a delete
+	// drops a MANUAL asset with its last activity.
+	add := func(account, source, symbol, typ string, q *big.Rat, comment string) {
+		g.activities = append(g.activities, gfmActivity{
+			account: account, comment: comment, currency: "USD", source: source, symbol: symbol, typ: typ,
+			date: "2026-01-01T12:00:00.000Z", fee: new(big.Rat), quantity: q, unitPrice: big.NewRat(1, 1),
+		})
+	}
+	remove := func(i int) {
+		a := g.activities[i]
+		g.activities = slices.Delete(g.activities, i, i+1)
+		if a.source == "MANUAL" && !slices.ContainsFunc(g.activities, func(x gfmActivity) bool { return x.source == "MANUAL" && x.symbol == a.symbol }) {
+			g.profiles = slices.DeleteFunc(g.profiles, func(p *gfmProfile) bool { return p.symbol == a.symbol })
+		}
+	}
 	// book adds by hand, through the dialog, what export s lists, after
-	// importing it: what you added for a difference gone is deleted, and
-	// for each other made equal to it, a BUY of a positive one, a SELL of
-	// a negative one, under its asset; an asset that the dialog cannot
-	// find, which the line marks, you make first as a Valuable of the name
-	// that the line shows.
+	// importing it, as step 6 says: what you added for a difference gone is
+	// deleted, and for each other made equal to it, a BUY of a positive
+	// one, a SELL of a negative one, under its asset, as an edit of its
+	// quantity, or, of another type, a new activity and then a delete of
+	// the old; an asset that the dialog cannot find, which the line marks,
+	// you make first, as a Valuable named as the line shows, then add the
+	// activity of the difference, then delete the Valuable.
 	book := func(s *chainStep) {
 		account := g.accounts[slices.IndexFunc(g.accounts, func(a *gfmAccount) bool { return a.name == name })].id
-		added := func(symbol string) int {
-			return slices.IndexFunc(g.activities, func(x gfmActivity) bool { return x.comment == "by hand" && x.account == account && x.symbol == symbol })
+		added := func(symbol, comment string) int {
+			return slices.IndexFunc(g.activities, func(x gfmActivity) bool { return x.comment == comment && x.account == account && x.symbol == symbol })
 		}
 		for _, d := range s.res.holdingsGone {
 			symbol, _ := gfDialogAsset(g, d.Asset)
-			i := added(symbol)
+			i := added(symbol, "by hand")
 			if i < 0 {
 				t.Fatalf("Ghostfolio holds nothing added by hand as %s for %+v", d.Asset.shown(), d)
 			}
-			g.activities = slices.Delete(g.activities, i, i+1)
+			remove(i)
 		}
 		for _, h := range s.res.holdings {
 			if h.Before || h.Carried {
@@ -5959,49 +5981,61 @@ func TestToolGFNoActivity(t *testing.T) {
 			case !found && !h.NoActivity:
 				t.Fatalf("the dialog finds no asset %s, and the line does not say so", h.Asset.shown())
 			case !found:
-				symbol = g.freshID()
-				g.profiles = append(g.profiles, &gfmProfile{symbol: symbol, name: h.Asset.Name, prices: map[string]*big.Rat{}})
+				add(account, "MANUAL", g.freshID(), "BUY", big.NewRat(1, 1), "a Valuable")
+				g.profiles = append(g.profiles, &gfmProfile{symbol: g.activities[len(g.activities)-1].symbol, name: h.Asset.Name, prices: map[string]*big.Rat{}})
+				if symbol, found = gfDialogAsset(g, h.Asset); !found {
+					t.Fatalf("the dialog finds no asset %s after its Valuable", h.Asset.shown())
+				}
 			}
 			v, _ := new(big.Rat).SetString(string(h.Difference))
 			typ := "BUY"
 			if v.Sign() < 0 {
 				typ = "SELL"
 			}
-			if i := added(symbol); i >= 0 {
-				g.activities[i].typ, g.activities[i].quantity = typ, v.Abs(v)
-				continue
+			switch i := added(symbol, "by hand"); {
+			case i >= 0 && g.activities[i].typ == typ:
+				g.activities[i].quantity = v.Abs(v)
+			case i >= 0:
+				add(account, h.Asset.DataSource, symbol, typ, v.Abs(v), "by hand")
+				remove(i)
+			default:
+				add(account, h.Asset.DataSource, symbol, typ, v.Abs(v), "by hand")
 			}
-			g.activities = append(g.activities, gfmActivity{
-				account: account, comment: "by hand", currency: "USD", source: h.Asset.DataSource, symbol: symbol, typ: typ,
-				date: "2026-01-01T12:00:00.000Z", fee: new(big.Rat), quantity: v.Abs(v), unitPrice: big.NewRat(1, 1),
-			})
+			if i := added(symbol, "a Valuable"); i >= 0 {
+				remove(i)
+			}
 		}
 	}
-	for _, s := range []*chainStep{e1, e2} {
+	// held returns what Ghostfolio holds, by a MANUAL asset's name, else by
+	// its symbol; it requires no two profiles of one name.
+	held := func() map[string]string {
+		named := map[string]string{}
+		for _, p := range g.profiles {
+			for _, q := range g.profiles {
+				if p != q && p.name == q.name {
+					t.Errorf("Ghostfolio holds two profiles named %s", p.name)
+				}
+			}
+			named[p.symbol] = p.name
+		}
+		got := map[string]string{}
+		for h, q := range g.holdings() {
+			got[cmp.Or(named[h.symbol], h.symbol)] = q.RatString()
+		}
+		return got
+	}
+	// What Schwab holds at each export's snapshot.
+	for i, want := range []map[string]string{
+		{"XYZ 2027-01-15 45 put (XYZ270115P00045000)": "-200", "Security (00507V109)": "10", "XYZ 2026-09-18 50 call (XYZ260918C00050000)": "200", "EFGH": "5"},
+		{"XYZ 2027-01-15 45 put (XYZ270115P00045000)": "-200", "Security (00507V109)": "10", "XYZ 2026-09-18 50 call (XYZ260918C00050000)": "300", "EFGH": "5"},
+	} {
+		s := []*chainStep{e1, e2}[i]
 		if _, err := gfApply(t, g, s); err != nil {
 			t.Fatal(err)
 		}
 		book(s)
-	}
-	// What Ghostfolio holds, by a MANUAL asset's name, else by its symbol,
-	// against what Schwab does.
-	named := map[string]string{}
-	for _, p := range g.profiles {
-		for _, q := range g.profiles {
-			if p != q && p.name == q.name {
-				t.Errorf("Ghostfolio holds two profiles named %s", p.name)
-			}
+		if got := held(); !maps.Equal(got, want) {
+			t.Errorf("after export %d, Ghostfolio holds %v, Schwab %v", i+1, got, want)
 		}
-		named[p.symbol] = p.name
-	}
-	got := map[string]string{}
-	for h, q := range g.holdings() {
-		got[cmp.Or(named[h.symbol], h.symbol)] = q.RatString()
-	}
-	want := map[string]string{
-		"XYZ 2027-01-15 45 put (XYZ270115P00045000)": "-200", "Security (00507V109)": "10", "XYZ 2026-09-18 50 call (XYZ260918C00050000)": "300", "EFGH": "5",
-	}
-	if !maps.Equal(got, want) {
-		t.Errorf("Ghostfolio holds %v, Schwab %v", got, want)
 	}
 }
