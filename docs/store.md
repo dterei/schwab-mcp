@@ -195,11 +195,15 @@ and a Realized Gain/Loss export of the account ending in 135. Every account
 number, amount and file in it is made up. The store is in its default place
 for a user whose home is `/home/you`, on Linux.
 
-The outputs shown are those of a store built within a week of the
-fixtures' last snapshot, taken on the evening of 2026-11-10. Built more
-than a week after it, the store holds the API's keys of META and AAPL apart
-from the snapshots' CUSIP keys, as it joins two keys only when they had one
-symbol at times within a week of each other and dates the names of a
+The outputs shown were printed in the days after the fixtures' last
+snapshot, taken on the evening of 2026-11-10, New York time, on a store
+built within a week of it. What depends on when you run a command differs
+in yours: the sessions closed since that snapshot, which `status` and
+`status -review` count, the instants of an import or a backup, and the day
+that an export ends on, with the day a year before it. Built more than a
+week after that snapshot, the store also holds the API's keys of META and
+AAPL apart from the snapshots' CUSIP keys, as it joins them only when they
+had one symbol at times within a week of each other and dates the names of a
 `transactions -json` file by its import ([Securities](#securities)):
 `export -what all` then writes 16 securities, not 14, and each full export
 for Portfolio Performance or Ghostfolio lists the two keys under
@@ -207,11 +211,10 @@ for Portfolio Performance or Ghostfolio lists the two keys under
 first, `export -format pp -dir pp` below, lists them, run the two commands
 that it prints, `schwabtx edit K:i:1940083512 -same K:c:30303M102` and
 `schwabtx edit K:i:1973757747 -same K:c:037833100`, then move the folder
-`pp` away and run that export again. From then on every command prints what
-this page and [docs/tools.md](tools.md) show, but for what depends on the
-day you run it, as the sessions closed since the last snapshot and the day
-that an export ends on, and for `store restore`, which counts these two
-decisions too.
+`pp` away and run that export again. From then on each command of this page
+and of [docs/tools.md](tools.md) prints what it would on a store built
+within the week, but for `store restore`, which counts these two decisions
+too.
 
 ### Snapshots
 
