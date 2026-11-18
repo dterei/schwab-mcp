@@ -2491,12 +2491,12 @@ and is tested without SQLite. SQLite is about 20 to 40 times slower under
 the race detector, so the tests are held to a budget on CI's 4-CPU runners,
 under `-race`:
 
-| Package | Budget | Measured (4 vCPU, `-race`, go1.26.0 and go1.27.3) |
+| Package | Budget | Measured (4 vCPU, `-race`, go1.26 and go1.27) |
 | --- | --- | --- |
-| `internal/history` | 45 s of wall time | 35 to 43 s |
-| `cmd/schwabtx`, the store's commands' tests | 15 s, run one after another | about 15 s, of the package's 43 to 49 s |
+| `internal/history` | 100 s of wall time | 55 to 100 s; 29 to 45 s without the exports for Portfolio Performance and Ghostfolio |
+| `cmd/schwabtx`, the store's commands' tests | 15 s, run one after another | about 15 s, of the package's 57 to 83 s |
 | `internal/nytime`, `internal/nyse`, `internal/mask`, `internal/history/schwabfile` | 5 s together | 1.0 to 2.8 s each, 6.7 to 7.0 s together, run side by side |
-| the whole `go test -race ./...` | no more than 20 s longer than before | (`internal/schwab`, the longest, takes 93 to 113 s) |
+| the whole `go test -race ./...` | no more than 20 s longer than before the store, and 60 s more for the exports | (`internal/schwab`, the longest, takes 92 to 116 s, and 109 to 157 s beside the exports' tests) |
 
 A test that grows past 3 s under `-race` is cut down, but for two.
 `TestIncrementalEqualsRebuild` is the only check that each write derives
@@ -2515,4 +2515,8 @@ export of both tools, in full, of one account, refused, and in a chain of
 account number gets out and what the command writes.) It takes 4.2 to
 4.7 s under `-race`, alone on 4 CPUs, and runs beside the package's other
 tests; a store for each part would take more of the package's time than
-the one test does.
+the one test does. The exports' tests add about 30 s of CPU time under
+`-race` to the package's 50 s: about 6 s each for `TestToolExport` and for
+`TestToolMapping` and `TestToolReimport`, which are pure and spread it over
+their parallel subtests. As CI's packages share its 4 CPUs, that makes the
+whole run about a minute longer.
