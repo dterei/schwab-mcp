@@ -195,6 +195,24 @@ and a Realized Gain/Loss export of the account ending in 135. Every account
 number, amount and file in it is made up. The store is in its default place
 for a user whose home is `/home/you`, on Linux.
 
+The outputs shown are those of a store built within a week of the
+fixtures' last snapshot, taken on the evening of 2026-11-10. Built more
+than a week after it, the store holds the API's keys of META and AAPL apart
+from the snapshots' CUSIP keys, as it joins two keys only when they had one
+symbol at times within a week of each other and dates the names of a
+`transactions -json` file by its import ([Securities](#securities)):
+`export -what all` then writes 16 securities, not 14, and each full export
+for Portfolio Performance or Ghostfolio lists the two keys under
+`keys_unsure`, written on their own with differences of their own. When the
+first, `export -format pp -dir pp` below, lists them, run the two commands
+that it prints, `schwabtx edit K:i:1940083512 -same K:c:30303M102` and
+`schwabtx edit K:i:1973757747 -same K:c:037833100`, then move the folder
+`pp` away and run that export again. From then on every command prints what
+this page and [docs/tools.md](tools.md) show, but for what depends on the
+day you run it, as the sessions closed since the last snapshot and the day
+that an export ends on, and for `store restore`, which counts these two
+decisions too.
+
 ### Snapshots
 
 `schwabtx import` with no file imports the snapshot file that `schwabtx
