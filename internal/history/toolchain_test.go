@@ -5629,9 +5629,14 @@ func TestToolStep8Joined(t *testing.T) {
 	name1 := func(key, kind, value, at string) toolName {
 		return toolName{key: key, kind: kind, value: value, firstSeen: tcNY(at), lastSeen: tcNY(at)}
 	}
+	// A sequence's changed is what the -since export lists under
+	// symbols_changed, each entry's keys and whys: never changed for a
+	// security whose PP security another's identifiers find already, which
+	// step 8 would leave both of.
 	type sequence struct {
 		name        string
 		first, then toolInput
+		changed     []string
 	}
 	var cases []sequence
 	{
@@ -5657,7 +5662,7 @@ func TestToolStep8Joined(t *testing.T) {
 		}, positions: []toolPosition{rcPosition("2026-11-10", newj, 2_000_000, 82)}, snapshots: []toolSnapshot{rcSnapshot(1, "2026-11-10", 100_000)}})
 		then := first
 		then.links = []toolLink{{file: file, api: api}}
-		cases = append(cases, sequence{"two keys on their own, joined by a link", first, then})
+		cases = append(cases, sequence{"two keys on their own, joined by a link", first, then, nil})
 	}
 	{
 		// A company renamed from JKLM to QNEW between a History file and
@@ -5676,7 +5681,7 @@ func TestToolStep8Joined(t *testing.T) {
 		then := first
 		then.names = append(slices.Clone(names), name1(file, "symbol", "QNEW", "2026-11-20 09:00:00"))
 		then.links = []toolLink{{file: file, api: api}}
-		cases = append(cases, sequence{"a rename, its keys joined by a link later", first, then})
+		cases = append(cases, sequence{"a rename, its keys joined by a link later", first, then, []string{`["i:1000985" "x:66000985"] ["renamed"]`}})
 	}
 	{
 		// A held security under a CUSIP and a History file's key, one by a
@@ -5698,11 +5703,22 @@ func TestToolStep8Joined(t *testing.T) {
 		})
 		then := first
 		then.links = nil
-		cases = append(cases, sequence{"a held security split by a link gone", first, then})
+		cases = append(cases, sequence{"a held security split by a link gone", first, then, nil})
 	}
 	for _, c := range cases {
 		e1 := chainStepOf(t, c.first, toolPP, nil, rcAt1)
 		e2 := chainStepOf(t, c.then, toolPP, e1, rcAt2)
+		var changed []string
+		for _, ch := range e2.res.symbolsChanged {
+			var keys []string
+			for _, m := range ch.members {
+				keys = append(keys, m.key)
+			}
+			changed = append(changed, fmt.Sprintf("%q %q", keys, ch.why))
+		}
+		if !slices.Equal(changed, c.changed) {
+			t.Errorf("%s: symbols_changed %q, want %q", c.name, changed, c.changed)
+		}
 		m := newPPModel(name)
 		ppApply(t, m, e1)
 		rcBookPP(t, m, e1, e1.e.Accounts[0].Name)

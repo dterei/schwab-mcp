@@ -355,6 +355,9 @@ func toolLines(in *toolInput) map[string][]string {
 		add("snapshots", new(toolLine).word(account(s.account)).word(string(s.marketDate)).time("fetched", s.fetchedAt).int("cash", s.cash).
 			text("type", s.accountType).float("margin", s.margin).float("short", s.short))
 	}
+	for _, s := range in.instants {
+		add("instants", new(toolLine).word(account(s.account)).word(string(s.marketDate)).time("fetched", s.fetchedAt))
+	}
 	for _, w := range in.waiting {
 		add("waiting", new(toolLine).word(w.ref).word(account(w.account)).word(string(w.day)).word(w.kind).int("amount", w.amount).word(w.why))
 	}
@@ -391,10 +394,12 @@ func (ts *toolStore) lines(in *toolInput) map[string][]string {
 // every account with no bound (2 of the design): the ledger rows of the
 // account up to to and those without a day; the legs of those of its rows
 // that have a day up to to; the positions of every account up to to; the
-// account's snapshots of every day; the rows of the account up to to that
-// wait for you; the coverage and the uncounted entries of the account; and
-// all the accounts, securities, names, days of the rows under each symbol
-// and links of rows of two securities.
+// account's snapshots of every day; when every account's snapshots were
+// taken up to to (QS), by which an account holds what it holds at its
+// latest; the rows of the account up to to that wait for you; the coverage
+// and the uncounted entries of the account; and all the accounts,
+// securities, names, days of the rows under each symbol and links of rows
+// of two securities.
 func toolSelected(in *toolInput, account int64, to nytime.Date) *toolInput {
 	out := *in
 	out.account, out.to = account, to
@@ -411,6 +416,7 @@ func toolSelected(in *toolInput, account int64, to nytime.Date) *toolInput {
 	})
 	out.positions = slices.DeleteFunc(slices.Clone(in.positions), func(p toolPosition) bool { return !upTo(p.marketDate) })
 	out.snapshots = slices.DeleteFunc(slices.Clone(in.snapshots), func(s toolSnapshot) bool { return !of(s.account) })
+	out.instants = slices.DeleteFunc(slices.Clone(in.instants), func(s toolSnapshotAt) bool { return !upTo(s.marketDate) })
 	out.waiting = slices.DeleteFunc(slices.Clone(in.waiting), func(w toolWaiting) bool { return !of(w.account) || !upTo(w.day) })
 	out.coverage = slices.DeleteFunc(slices.Clone(in.coverage), func(c ExportCoverage) bool { return !of(c.AccountID) })
 	out.uncounted = slices.DeleteFunc(slices.Clone(in.uncounted), func(u toolUncounted) bool { return !of(u.account) })
@@ -451,8 +457,9 @@ func toolInsert(t *testing.T, lines []string, before string, added ...string) []
 // day (a row with none first), time, account and ref, with its partner's
 // columns; the legs of the spread; the securities and their symbols and
 // descriptions; the positions of both evenings; the snapshots, one of them
-// with a negative cash balance and two with none; the rows that wait for
-// you, held out and uncertain; the coverage; the entries that do not
+// with a negative cash balance and two with none, and when each was taken
+// (QS), whatever the read selects; the rows that wait for you, held out
+// and uncertain; the coverage; the entries that do not
 // count, the linked one with the API row it is; and the days of the rows
 // and legs under each symbol of each security, counted or not (the
 // uncertain AAPL dividend of 09-22 among them), of every account and day,
@@ -592,6 +599,14 @@ var toolStoreLines = map[string][]string{
 		`A2 2026-11-10 fetched=2026-11-10T23:05:00Z cash=-1234 type=MARGIN margin=0 short=0`,
 		`A4 2026-11-09 fetched=2026-11-09T23:05:00Z type=MARGIN margin=0 short=0`,
 		`A4 2026-11-10 fetched=2026-11-10T23:05:00Z type=MARGIN margin=0 short=0`,
+	},
+	"instants": {
+		`A1 2026-11-09 fetched=2026-11-09T23:05:00Z`,
+		`A1 2026-11-10 fetched=2026-11-10T23:05:00Z`,
+		`A2 2026-11-09 fetched=2026-11-09T23:05:00Z`,
+		`A2 2026-11-10 fetched=2026-11-10T23:05:00Z`,
+		`A4 2026-11-09 fetched=2026-11-09T23:05:00Z`,
+		`A4 2026-11-10 fetched=2026-11-10T23:05:00Z`,
 	},
 	"waiting": {
 		`M.2 A1 2024-05-31 "Bank Interest" amount=37 held_out`,
