@@ -353,12 +353,21 @@ func runToolExport(ctx context.Context, f toolFlags, stderr io.Writer) (err erro
 // format writes (9 of the tool exports' design). Written there, the export
 // would replace the files of one that may not be imported yet, or leave its
 // own beside another's, and the manifest of the export that the next one
-// goes on from. A missing folder is new: WriteDir makes it.
+// goes on from. A missing folder is new: WriteDir makes it. A file is
+// refused by name: reading one as a folder fails on Windows as a missing
+// path does, so the read's error cannot tell the two apart.
 func toolDirIsNew(dir, format string) error {
-	entries, err := os.ReadDir(dir)
+	info, err := os.Stat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
+	if err != nil {
+		return fmt.Errorf("-dir %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("-dir %s: not a folder", dir)
+	}
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("-dir %s: %w", dir, err)
 	}

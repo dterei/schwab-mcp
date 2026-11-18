@@ -896,7 +896,9 @@ func TestExportToolRefusals(t *testing.T) {
 		{[]string{"-format", "jsonl", "-since", third, "-o", "x"}, "-since is for -format pp and ghostfolio"},
 		{[]string{"-format", "pp", "-dir", out, "-since", ""}, "-since needs a folder: the one of the export that you imported last"},
 		{[]string{"-format", "ghostfolio", "-dir", out, "-to", "2026-02-30"}, `-to "...230" is not a date: give YYYY-MM-DD or MM/DD/YYYY`},
-		{[]string{"-format", "pp", "-dir", filepath.Join(dir, "notes.txt")}, "-dir " + filepath.Join(dir, "notes.txt") + ": "},
+		// A file, refused by name on every system: on Windows, reading
+		// it as a folder fails as a missing path does.
+		{[]string{"-format", "pp", "-dir", filepath.Join(dir, "notes.txt")}, "-dir " + filepath.Join(dir, "notes.txt") + ": not a folder"},
 		{[]string{"-format", "pp", "-dir", out, "-since", third, "-account", "A1"}, "-since " + third + " goes on from the export in " + third + ", with its account: drop -account"},
 		// A folder that holds an export, by its manifest or a file of the
 		// format's names in any case; -since naming -dir is one.
