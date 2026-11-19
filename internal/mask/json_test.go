@@ -609,3 +609,24 @@ func FuzzMaskJSON(f *testing.F) {
 		}
 	})
 }
+
+// An order's tag shows only where the order came from: Schwab's own
+// platform's tag as it is, an app's TA_ tag cut to TA_..., anything else
+// withheld, and no tag as none.
+func TestTagOrigin(t *testing.T) {
+	for tag, want := range map[string]string{
+		"API_TOS:TRADE_ALL":   "API_TOS:TRADE_ALL",
+		"API_TOS:POS_STMT":    "API_TOS:POS_STMT",
+		"TA_gmailcom12345678": "TA_...",
+		"TA_":                 "TA_...",
+		"API_TOS:trade":       "[withheld]",
+		"MyApp 61803398":      "[withheld]",
+		"api_tos:TRADE_ALL":   "[withheld]",
+		" API_TOS:TRADE_ALL":  "[withheld]",
+		"":                    "",
+	} {
+		if got := TagOrigin(tag); got != want {
+			t.Errorf("TagOrigin(%q) = %q, want %q", tag, got, want)
+		}
+	}
+}

@@ -16,8 +16,8 @@ positions and balances, and keeps your history in a local store, from those
 snapshots, Schwab's own transactions and the files you export from
 schwab.com, each transaction counted once, which it exports for your
 calculators; and a read-only MCP server that answers an AI assistant about
-your accounts, balances, positions and transactions, from Schwab and from
-that store.
+your accounts, balances, positions, transactions and orders, from Schwab
+and from that store.
 
 This project is not affiliated with, endorsed by or supported by Charles
 Schwab & Co.
@@ -33,8 +33,8 @@ Schwab & Co.
 | `schwabtx sync`: your whole history from Schwab's API into the store, kept current (milestone 2) | Waits for the live probes |
 | Export formats for Portfolio Performance and Ghostfolio (milestone 2) | Planned |
 | Go client for Schwab's API (milestone 1): the login, retries under a shared rate limit, and the account records | In progress, internal for now |
-| [`schwab-mcp`](docs/mcp.md) (milestone 3): a read-only MCP server over stdio for your accounts, balances, positions and transactions, from Schwab and the store, account numbers masked; `schwabtx setup` saves its config | Works, not yet tried against a real account |
-| Orders and market data in the MCP server (milestone 3) | Planned |
+| [`schwab-mcp`](docs/mcp.md) (milestone 3): a read-only MCP server over stdio for your accounts, balances, positions, transactions and orders, from Schwab and the store, account numbers masked; `schwabtx setup` saves its config | Works, not yet tried against a real account |
+| Market data in the MCP server (milestone 3) | Planned |
 
 The [roadmap](docs/ROADMAP.md) has the plan and the full feature list,
 [docs/store.md](docs/store.md) describes the store and its commands,
@@ -197,13 +197,13 @@ internal/schwab/
                 that every process using the login shares, reads that are
                 tried again after a failure, under a rate limit that every
                 process using the app key shares, and the accounts,
-                positions, transactions and preferences they return, with
-                Schwab's JSON kept
+                positions, transactions, orders and preferences they return,
+                with Schwab's JSON kept
 internal/schwab/schwabtest/
                 a fake Schwab for the tests, kept out of the programs: its
-                token endpoint, authorize page and account endpoints, with
-                Schwab's rules for tokens and its error answers, and fixtures
-                in the shape Schwab sends them
+                token endpoint, authorize page, and account and order
+                endpoints, with Schwab's rules for tokens and its error
+                answers, and fixtures in the shape Schwab sends them
 internal/filelock/
                 file locks across processes, which keep two processes from
                 refreshing the login at once, or from going over the rate

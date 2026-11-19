@@ -1,0 +1,81 @@
+{
+  "source": "schwab",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [],
+  "next_cursor": null,
+  "complete": true,
+  "cut": [],
+  "orders": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "order_id": "1004517639411",
+      "status": "FILLED",
+      "open": false,
+      "status_description": null,
+      "entered": "2025-06-02T10:30:21-04:00",
+      "closed": "2025-06-02T10:30:27-04:00",
+      "strategy": "SINGLE",
+      "order_type": "LIMIT",
+      "complex_strategy": null,
+      "session": "NORMAL",
+      "duration": "DAY",
+      "price": 202.00,
+      "stop_price": null,
+      "quantity": 3,
+      "filled": 3,
+      "remaining": 0,
+      "legs": [
+        {
+          "instruction": "BUY",
+          "symbol": "AAPL",
+          "asset_type": "EQUITY",
+          "quantity": 3,
+          "position_effect": "OPENING",
+          "fill_price": 201.82
+        }
+      ],
+      "held": []
+    },
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "order_id": "1004517650222",
+      "status": "REJECTED",
+      "open": false,
+      "status_description": "Your limit price is significantly away from the current market price. Please adjust your order.",
+      "entered": "2025-06-02T10:28:56-04:00",
+      "closed": "2025-06-02T10:28:56-04:00",
+      "strategy": "SINGLE",
+      "order_type": "LIMIT",
+      "complex_strategy": null,
+      "session": "NORMAL",
+      "duration": "DAY",
+      "price": 1.00,
+      "stop_price": null,
+      "quantity": 5,
+      "filled": 0,
+      "remaining": 5,
+      "legs": [
+        {
+          "instruction": "BUY",
+          "symbol": "SPY",
+          "asset_type": "COLLECTIVE_INVESTMENT",
+          "quantity": 5,
+          "position_effect": "OPENING",
+          "fill_price": null
+        }
+      ],
+      "held": []
+    }
+  ],
+  "accounts": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "nickname": "Individual",
+      "orders": 2,
+      "error": null
+    }
+  ]
+}

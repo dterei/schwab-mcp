@@ -1,0 +1,32 @@
+{
+  "source": "schwab",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [],
+  "next_cursor": null,
+  "complete": true,
+  "cut": [],
+  "orders": [],
+  "accounts": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "nickname": "Individual",
+      "orders": 0,
+      "error": null
+    },
+    {
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "nickname": "Options & Margin",
+      "orders": 0,
+      "error": null
+    },
+    {
+      "account": "...783",
+      "account_hash": "8C2F1DD750834DC72D2B65A2497B6A003E30CF6559B79586433150D303FDC9DA",
+      "nickname": "Contributory",
+      "orders": 0,
+      "error": null
+    }
+  ]
+}

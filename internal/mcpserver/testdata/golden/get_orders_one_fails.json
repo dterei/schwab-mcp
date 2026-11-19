@@ -1,0 +1,60 @@
+{
+  "source": "schwab",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [
+    {
+      "code": "account_failed",
+      "message": "...398 (Options & Margin) could not be read: [schwab_unavailable] Schwab could not be reached or did not answer properly. Try again later. Detail: HTTP 503 from Schwab after 2 tries: down"
+    }
+  ],
+  "next_cursor": null,
+  "complete": true,
+  "cut": [],
+  "orders": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "order_id": "1004519000001",
+      "status": "WORKING",
+      "open": true,
+      "status_description": null,
+      "entered": "2026-11-02T10:00:00-05:00",
+      "closed": null,
+      "strategy": "SINGLE",
+      "order_type": null,
+      "complex_strategy": null,
+      "session": null,
+      "duration": null,
+      "price": null,
+      "stop_price": null,
+      "quantity": null,
+      "filled": null,
+      "remaining": null,
+      "legs": [],
+      "held": []
+    }
+  ],
+  "accounts": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "nickname": "Individual",
+      "orders": 1,
+      "error": null
+    },
+    {
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "nickname": "Options & Margin",
+      "orders": null,
+      "error": "schwab_unavailable"
+    },
+    {
+      "account": "...783",
+      "account_hash": "8C2F1DD750834DC72D2B65A2497B6A003E30CF6559B79586433150D303FDC9DA",
+      "nickname": "Contributory",
+      "orders": 0,
+      "error": null
+    }
+  ]
+}

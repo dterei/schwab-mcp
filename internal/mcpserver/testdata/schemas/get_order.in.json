@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Schwab's order ID, such as 1004517688020.",
+      "pattern": "^[0-9]{1,19}$"
+    },
+    "account": {
+      "type": "string",
+      "description": "The account, as get_orders takes it, such as an order's account_hash; needed only when the login shares several accounts.",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "include_raw": {
+      "type": "boolean",
+      "description": "Also return Schwab's JSON of the order, with account numbers masked, the tag shown only as its origin, and a value of a key the server does not know withheld unless it is a time, a code, a number that cannot be an account number, or a number already masked."
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}

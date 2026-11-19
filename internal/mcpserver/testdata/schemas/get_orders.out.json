@@ -1,0 +1,714 @@
+{
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "warnings": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "next_cursor": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "cut": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "shown": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "shown",
+          "total"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "orders": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "account_hash": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "order_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "open": {
+            "type": "boolean"
+          },
+          "status_description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "entered": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "closed": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "strategy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "order_type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "complex_strategy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "session": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "duration": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "price": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "stop_price": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "quantity": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "filled": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "remaining": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "legs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "instruction": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "symbol": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "asset_type": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "quantity": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                },
+                "position_effect": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "fill_price": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                },
+                "detail": {
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "properties": {
+                    "description": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "cusip": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "underlying": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "put_call": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "strike": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "expiration": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "description",
+                    "cusip",
+                    "underlying",
+                    "put_call",
+                    "strike",
+                    "expiration"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "instruction",
+                "symbol",
+                "asset_type",
+                "quantity",
+                "position_effect",
+                "fill_price"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "held": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "parent_id": {
+                  "type": "string"
+                },
+                "relation": {
+                  "type": "string"
+                },
+                "order_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "open": {
+                  "type": "boolean"
+                },
+                "status_description": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "entered": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "closed": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "strategy": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "order_type": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "complex_strategy": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "session": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "duration": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "price": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                },
+                "stop_price": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                },
+                "quantity": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                },
+                "filled": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                },
+                "remaining": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                },
+                "legs": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "instruction": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "symbol": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "asset_type": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "quantity": {
+                        "type": [
+                          "null",
+                          "number"
+                        ]
+                      },
+                      "position_effect": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "fill_price": {
+                        "type": [
+                          "null",
+                          "number"
+                        ]
+                      },
+                      "detail": {
+                        "type": [
+                          "null",
+                          "object"
+                        ],
+                        "properties": {
+                          "description": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "cusip": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "underlying": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "put_call": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "strike": {
+                            "type": [
+                              "null",
+                              "number"
+                            ]
+                          },
+                          "expiration": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "description",
+                          "cusip",
+                          "underlying",
+                          "put_call",
+                          "strike",
+                          "expiration"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "instruction",
+                      "symbol",
+                      "asset_type",
+                      "quantity",
+                      "position_effect",
+                      "fill_price"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "parent_id",
+                "relation",
+                "order_id",
+                "status",
+                "open",
+                "status_description",
+                "entered",
+                "closed",
+                "strategy",
+                "order_type",
+                "complex_strategy",
+                "session",
+                "duration",
+                "price",
+                "stop_price",
+                "quantity",
+                "filled",
+                "remaining",
+                "legs"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "detail": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "origin": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "venue": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "cancelable": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "editable": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "fills": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "leg_id": {
+                      "type": "integer"
+                    },
+                    "symbol": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "time": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "quantity": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "price": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "leg_id",
+                    "symbol",
+                    "time",
+                    "quantity",
+                    "price"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "problems": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "what": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "what"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "origin",
+              "venue",
+              "cancelable",
+              "editable",
+              "fills",
+              "problems"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "account",
+          "account_hash",
+          "order_id",
+          "status",
+          "open",
+          "status_description",
+          "entered",
+          "closed",
+          "strategy",
+          "order_type",
+          "complex_strategy",
+          "session",
+          "duration",
+          "price",
+          "stop_price",
+          "quantity",
+          "filled",
+          "remaining",
+          "legs",
+          "held"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "accounts": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "account_hash": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nickname": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "orders": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "account",
+          "account_hash",
+          "nickname",
+          "orders",
+          "error"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "source",
+    "as_of",
+    "warnings",
+    "next_cursor",
+    "complete",
+    "cut",
+    "orders",
+    "accounts"
+  ],
+  "additionalProperties": false
+}

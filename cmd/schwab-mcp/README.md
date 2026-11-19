@@ -3,8 +3,8 @@
 An MCP server that reads your Charles Schwab accounts for an MCP client:
 a desktop client, a command-line agent or an editor extension starts it
 and speaks the protocol on its stdin and stdout. It reads balances,
-positions and transactions from the Schwab Trader API, and the local
-history that `schwabtx` keeps. It only reads: it never places, changes or
+positions, transactions and orders from the Schwab Trader API, and the
+local history that `schwabtx` keeps. It only reads: it never places, changes or
 cancels an order, never writes the history, and never logs in.
 
 [docs/mcp.md](../../docs/mcp.md) describes the tools, how to add the
