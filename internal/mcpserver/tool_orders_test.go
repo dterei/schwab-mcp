@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -118,7 +119,7 @@ var orderCases = []toolCase{
 			t.Errorf("the accounts: %v, warnings %v", as, r.warnings())
 		}
 	}},
-	{tool: "get_orders", name: "open", args: `{"open":true,"from":"2025-01-01","to":"2025-12-31"}`, check: func(t *testing.T, _ *env, r result) {
+	{tool: "get_orders", name: "open", args: `{"open":true,"from":"2025-01-01","to":"2025-12-30"}`, check: func(t *testing.T, _ *env, r result) {
 		if len(ordersOf(r)) != 0 {
 			t.Errorf("open orders of 2025: %s", r.text)
 		}
@@ -129,7 +130,7 @@ var orderCases = []toolCase{
 		}
 	}},
 	{
-		tool: "get_orders", name: "filtered", args: `{"from":"2025-01-01","to":"2025-12-31","statuses":["filled","Canceled"],"symbol":"xyz"}`,
+		tool: "get_orders", name: "filtered", args: `{"from":"2025-01-01","to":"2025-12-30","statuses":["filled","Canceled"],"symbol":"xyz"}`,
 		check: func(t *testing.T, _ *env, r result) {
 			if got := orderIDs(ordersOf(r)); !slices.Equal(got, []string{verticalGone, xyzPutBought}) {
 				t.Errorf("XYZ's filled and canceled orders of 2025: %v", got)
@@ -149,9 +150,37 @@ var orderCases = []toolCase{
 			t.Errorf("a rejection and a fill: %s", r.text)
 		}
 	}},
-	{tool: "get_orders", name: "too_long", args: `{"from":"2025-01-01"}`, check: func(t *testing.T, e *env, r result) {
-		if r.code() != "bad_argument" || !strings.Contains(r.text, "at most 365 days") || e.fake.APICalls() != 0 {
-			t.Errorf("a range over 365 days: %s, %d requests", r.text, e.fake.APICalls())
+	// 365 New York days from 2025-11-02 hold two changes of the clocks back
+	// and one forward, an hour more than the year that one request may
+	// span; 364 days, 52 weeks, never pass it.
+	{tool: "get_orders", name: "too_long", args: `{"from":"2025-11-02","to":"2026-11-01"}`, check: func(t *testing.T, e *env, r result) {
+		if r.code() != "bad_argument" || !strings.Contains(r.text, "at most 364 days") || e.fake.APICalls() != 0 {
+			t.Errorf("a range of 365 days: %s, %d requests", r.text, e.fake.APICalls())
+		}
+	}},
+	{tool: "get_orders", name: "weeks", args: `{"from":"2025-11-03","to":"2026-11-01","account":"398"}`, check: func(t *testing.T, e *env, r result) {
+		if got := orderIDs(ordersOf(r)); !slices.Equal(got, []string{bracket, xyzCallSold, metaSold}) {
+			t.Errorf("...398's orders of 52 weeks: %v", got)
+		}
+		rs := e.fake.Requests()
+		if q := rs[len(rs)-1].Query; !strings.Contains(q, "fromEnteredTime=2025-11-03T05%3A00%3A00.000Z") ||
+			!strings.Contains(q, "toEnteredTime=2026-11-02T05%3A00%3A00.000Z") {
+			t.Errorf("52 weeks across a change of the clocks asked as %s", q)
+		}
+	}},
+	// A problem of an order that the filters leave out is not the answer's.
+	{tool: "get_orders", name: "problems", opts: []envOption{withFake(func(f *schwabtest.Server) {
+		f.AddOrders(schwabtest.HashFor(empty),
+			`{"orderStrategyType":"SINGLE","orderId":1004519000005,"status":"CANCELED","enteredTime":"2026-11-02T15:00:00+0000",`+
+				`"accountNumber":`+empty+`,"price":"x"}`,
+			bareOrder("1004519000006", empty, "2026-11-03T15:00:00+0000"))
+	})}, args: `{"account":"783","statuses":["WORKING"]}`, check: func(t *testing.T, e *env, r result) {
+		if got := orderIDs(ordersOf(r)); !slices.Equal(got, []string{"1004519000006"}) || len(r.warnings()) != 0 {
+			t.Errorf("a working order beside a canceled one with a problem: %v, %s", got, r.text)
+		}
+		all := e.call("get_orders", `{"account":"783"}`)
+		if !slices.Contains(all.warnings(), "problems") || !strings.Contains(all.text, "1 order differed") {
+			t.Errorf("both orders: %s", all.text)
 		}
 	}},
 	{tool: "get_orders", name: "one_fails", opts: []envOption{withFake(func(f *schwabtest.Server) {
@@ -217,6 +246,30 @@ var orderCases = []toolCase{
 			t.Errorf("an order Schwab does not have: %s", r.text)
 		}
 	}},
+	// An id of eight digits may be an account's number, which the error
+	// shows as an account selector's digits are shown.
+	{tool: "get_order", name: "not_found_short", args: `{"id":"61803398","account":"135"}`, check: func(t *testing.T, _ *env, r result) {
+		if r.code() != "not_found" || !strings.Contains(r.text, "Schwab has no order ...398 in account ...135.") {
+			t.Errorf("an id that is an account's number: %s", r.text)
+		}
+	}},
+	// A figure of a leg or a fill that could not be read is null, never 0.
+	{tool: "get_order", name: "unreadable", opts: []envOption{withFake(func(f *schwabtest.Server) {
+		f.AddOrders(schwabtest.HashFor(empty), `{"orderStrategyType":"SINGLE","orderId":1004519000007,"status":"FILLED",`+
+			`"enteredTime":"2026-11-02T15:00:00+0000","accountNumber":`+empty+`,"orderType":"LIMIT","price":10.0,"quantity":2.0,`+
+			`"orderLegCollection":[{"orderLegType":"EQUITY","legId":1,"instrument":{"assetType":"EQUITY","symbol":"XYZ"},`+
+			`"instruction":"BUY","quantity":"2"}],"orderActivityCollection":[{"activityType":"EXECUTION","executionType":"FILL",`+
+			`"executionLegs":[{"legId":1,"price":"9.99","quantity":2.0,"mismarkedQuantity":0.0,"instrumentId":1,`+
+			`"time":"2026-11-02T15:00:01+0000"}]}]}`)
+	})}, args: `{"id":"1004519000007","account":"783"}`, check: func(t *testing.T, _ *env, r result) {
+		o := r.value["order"].(map[string]any)
+		leg := o["legs"].([]any)[0].(map[string]any)
+		fill := o["detail"].(map[string]any)["fills"].([]any)[0].(map[string]any)
+		if leg["quantity"] != nil || leg["fill_price"] != nil || fill["price"] != nil || fill["quantity"] != 2.0 ||
+			o["quantity"] != 2.0 || !slices.Contains(r.warnings(), "problems") {
+			t.Errorf("figures that could not be read: leg %v, fill %v, %v", leg, fill, r.warnings())
+		}
+	}},
 	{tool: "get_order", name: "bad_id", args: `{"id":"99999999999999999999","account":"398"}`, check: func(t *testing.T, e *env, r result) {
 		if r.code() != "bad_argument" || e.fake.APICalls() != 0 {
 			t.Errorf("an id past int64: %s", r.text)
@@ -230,7 +283,7 @@ func TestOrdersPages(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	var ids []string
-	args := map[string]any{"from": "2025-11-14", "limit": 1}
+	args := map[string]any{"from": "2025-11-15", "limit": 1}
 	for page := 0; ; page++ {
 		r := e.call("get_orders", args)
 		if r.isError {
@@ -249,9 +302,9 @@ func TestOrdersPages(t *testing.T) {
 	if want := []string{bracket, vtiWorking, xyzCallSold, metaSold}; !slices.Equal(ids, want) {
 		t.Errorf("pages hold %v, want %v", ids, want)
 	}
-	r := e.call("get_orders", map[string]any{"from": "2025-11-14", "limit": 1})
+	r := e.call("get_orders", map[string]any{"from": "2025-11-15", "limit": 1})
 	cursor := r.value["next_cursor"]
-	if r := e.call("get_orders", map[string]any{"from": "2025-11-15", "cursor": cursor}); r.code() != "bad_cursor" {
+	if r := e.call("get_orders", map[string]any{"from": "2025-11-16", "cursor": cursor}); r.code() != "bad_cursor" {
 		t.Errorf("a cursor of other arguments: %s", r.text)
 	}
 	if r := e.call("get_transactions", map[string]any{"cursor": cursor}); r.code() != "bad_cursor" {
@@ -259,8 +312,8 @@ func TestOrdersPages(t *testing.T) {
 	}
 }
 
-// Every account's orders read one request each; Schwab's most orders, sent
-// for one account, says that older ones may be missing.
+// Each account's orders are one request; Schwab's most orders, sent for an
+// account, say that older ones may be missing.
 func TestOrdersCapped(t *testing.T) {
 	t.Parallel()
 	var orders []string
@@ -271,10 +324,36 @@ func TestOrdersCapped(t *testing.T) {
 	e := newEnv(t, withFake(func(f *schwabtest.Server) {
 		f.Override(schwabtest.OrdersRoute, schwabtest.Answer(http.StatusOK, body))
 	}))
+	before := len(e.fake.Requests())
 	r := e.call("get_orders", `{"account":"135","limit":3}`)
 	if r.isError || r.value["complete"] != false || !slices.Contains(r.warnings(), "partial") || len(ordersOf(r)) != 3 ||
 		accountsOf(t, r)["...135"]["orders"] != float64(schwab.MaxOrders) {
 		t.Errorf("Schwab's most orders: %.600s", r.text)
+	}
+	if routes := apiRoutes(e.fake, before); slices.Index(routes, string(schwabtest.OrdersRoute)) != len(routes)-1 ||
+		slices.Contains(routes[:len(routes)-1], string(schwabtest.OrdersRoute)) {
+		t.Errorf("sent %v, want the account's orders once", routes)
+	}
+}
+
+// An account that the call has no time left to read fails the call with
+// timed_out, rather than an answer that a later page could not complete.
+func TestOrdersTimeOut(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, withOptions(func(o *Options) { o.CallTimeout = 2 * time.Second }), withFake(func(f *schwabtest.Server) {
+		f.Override(schwabtest.OrdersRoute, func(w http.ResponseWriter, r *http.Request) {
+			if r.PathValue("hash") == schwabtest.HashFor(individual) {
+				time.Sleep(1600 * time.Millisecond)
+			}
+			schwabtest.Answer(http.StatusOK, `[]`)(w, r)
+		})
+	}))
+	r := e.call("get_orders", `{}`)
+	if r.code() != "timed_out" {
+		t.Errorf("an account left without time: %s", r.text)
+	}
+	if routes := apiRoutes(e.fake, 0); slices.Contains(routes[slices.Index(routes, string(schwabtest.OrdersRoute))+1:], string(schwabtest.OrdersRoute)) {
+		t.Errorf("sent %v: a request begun without time for it", routes)
 	}
 }
 
@@ -352,6 +431,7 @@ var orderLeakCalls = []leakCall{
 	{tool: "get_orders", args: `{"detail":"full"}`},
 	{tool: "get_orders", args: `{"account":"61803398","statuses":["REJECTED"]}`},
 	{tool: "get_order", args: `{"id":"1004519000003","account":"398","include_raw":true}`},
+	{tool: "get_order", args: `{"id":"29470135","account":"398"}`},
 }
 
 // orderSizeCases are the order tools' cases of TestSizeCap: an order filled

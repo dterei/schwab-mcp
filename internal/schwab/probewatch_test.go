@@ -401,7 +401,7 @@ func probeFills(ctx context.Context, r *liveRun) verdict {
 			if a.hash == "" {
 				continue
 			}
-			rep, err := r.read(ctx, a.endpoint("/orders"), a.path()+"/orders", ordersValues(window{at.Add(-fillsOrdersBack), at}), "")
+			rep, err := r.read(ctx, a.endpoint("/orders"), a.path()+"/orders", ordersValues(window{at.Add(-fillsOrdersBack), at}), "orders")
 			var orders []orderSeen
 			if err == nil {
 				orders, err = readOrders(rep.body)

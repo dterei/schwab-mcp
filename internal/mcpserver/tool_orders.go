@@ -40,9 +40,11 @@ const (
 	// from is left out: 60 days in all, the span that Schwab is reported to
 	// serve at least.
 	orderDefaultDays = 59
-	// orderMaxDays is the most days that one call asks for, the year that
-	// Schwab's spec gives one request.
-	orderMaxDays = 365
+	// orderMaxDays is the most days that one call asks for, 52 weeks: as
+	// New York days, they span at most an hour more, past a change of the
+	// clocks, which stays within the year that Schwab's spec gives one
+	// request (schwab.MaxOrderWindow), as 365 days would not.
+	orderMaxDays = 364
 )
 
 // getOrdersDef is get_orders' definition.
@@ -56,8 +58,8 @@ var getOrdersDef = toolDef{
 		"fills, venue and origin. Paged: pass next_cursor back as cursor.",
 	slot: true,
 	args: map[string]argRule{
-		"from": {desc: "The first New York date of entry, YYYY-MM-DD; 59 days before to when left out. At most 365 days " +
-			"from to; Schwab may serve fewer."},
+		"from": {desc: "The first New York date of entry, YYYY-MM-DD; 59 days before to when left out. At most 364 days " +
+			"(52 weeks) from to; Schwab may serve fewer."},
 		"to": {desc: "The last New York date of entry, YYYY-MM-DD, included; today when left out, or when later than today."},
 		"statuses": {
 			desc: "Only orders in these of Schwab's statuses, such as WORKING or FILLED (schwab://reference/order-statuses " +
@@ -383,14 +385,16 @@ func getOrders(ctx context.Context, c *call, in getOrdersIn) (getOrdersOut, erro
 			if ctx.Err() != nil {
 				return getOrdersOut{}, rerr
 			}
-			e := c.s.toolError(c.tool, rerr)
+			// An account left unread for want of time fails the call: a
+			// cursor goes on past where the account's newer orders would
+			// lie, so a later page could not show them.
 			if errors.Is(rerr, errNoTime) {
-				e = c.s.errorFor(codeTimedOut)
+				return getOrdersOut{}, c.s.errorFor(codeTimedOut)
 			}
+			e := c.s.toolError(c.tool, rerr)
 			if one {
 				return getOrdersOut{}, e
 			}
-			out.Complete = out.Complete && !errors.Is(rerr, errNoTime)
 			row.Error = new(Ident(e.code))
 			c.warn("account_failed", "%s could not be read: %s", c.accountLabel(row.accountRef), c.errText(e))
 			failed = append(failed, e)
@@ -404,11 +408,11 @@ func getOrders(ctx context.Context, c *call, in getOrdersIn) (getOrdersOut, erro
 		}
 		n := 0
 		for _, o := range orders {
-			if len(o.Problems) > 0 {
-				problems = append(problems, o.Problems)
-			}
 			if !q.matches(o) {
 				continue
+			}
+			if len(o.Problems) > 0 {
+				problems = append(problems, o.Problems)
 			}
 			n++
 			items = append(items, orderItem{key: orderKey{Entered: o.EnteredTime.UnixMilli(), ID: o.OrderID, Account: a.key()}, a: *a, order: o})
@@ -525,11 +529,17 @@ func (c *call) orderRowOf(a dirAccount, o schwab.Order, full bool) orderRow {
 	for _, l := range o.OrderLegCollection {
 		symbols[l.LegID] = l.Instrument.Symbol
 	}
+	priceBad := lookup.Unreadable(o.Problems, "orderActivityCollection.executionLegs.price")
+	qtyBad := lookup.Unreadable(o.Problems, "orderActivityCollection.executionLegs.quantity")
 	for _, f := range o.Fills() {
-		d.Fills = append(d.Fills, orderFill{
-			LegID: f.LegID, Symbol: identPtr(symbols[f.LegID]), Time: instantPtr(f.Time),
-			Quantity: lookup.QtyOf(f.Quantity), Price: lookup.PriceOf(f.Price),
-		})
+		fill := orderFill{LegID: f.LegID, Symbol: identPtr(symbols[f.LegID]), Time: instantPtr(f.Time)}
+		if !priceBad {
+			fill.Price = lookup.PriceOf(f.Price)
+		}
+		if !qtyBad {
+			fill.Quantity = lookup.QtyOf(f.Quantity)
+		}
+		d.Fills = append(d.Fills, fill)
 	}
 	for _, p := range o.Problems {
 		d.Problems = append(d.Problems, problem{Path: Ident(p.Path), What: c.mask.free(p.What)})
@@ -552,12 +562,31 @@ func (c *call) orderFieldsOf(o schwab.Order, full bool) orderFields {
 	if o.ComplexOrderStrategyType != "NONE" {
 		f.ComplexStrategy = identPtr(o.ComplexOrderStrategyType)
 	}
+	// A figure that could not be read, in any leg or any fill, is null in
+	// every one, since a problem's path names no element of a list; so is
+	// every average fill price when a fill's leg, price or quantity could
+	// not be read.
 	fills := o.Fills()
+	qtyBad := lookup.Unreadable(o.Problems, "orderLegCollection.quantity")
+	fillsBad := false
+	for _, path := range []string{
+		"orderLegCollection.legId", "orderActivityCollection.executionType",
+		"orderActivityCollection.executionLegs.legId", "orderActivityCollection.executionLegs.price",
+		"orderActivityCollection.executionLegs.quantity",
+	} {
+		fillsBad = fillsBad || lookup.Unreadable(o.Problems, path)
+	}
 	for _, l := range o.OrderLegCollection {
 		in := l.Instrument
 		leg := orderLeg{
 			Instruction: identPtr(l.Instruction), Symbol: identPtr(in.Symbol), AssetType: identPtr(string(in.AssetType)),
-			Quantity: lookup.QtyOf(l.Quantity), PositionEffect: identPtr(l.PositionEffect), FillPrice: averagePrice(fills, l.LegID),
+			PositionEffect: identPtr(l.PositionEffect),
+		}
+		if !qtyBad {
+			leg.Quantity = lookup.QtyOf(l.Quantity)
+		}
+		if !fillsBad {
+			leg.FillPrice = averagePrice(fills, l.LegID)
 		}
 		if full {
 			ld := &orderLegDetail{
@@ -596,6 +625,19 @@ func averagePrice(fills []schwab.ExecutionLeg, legID int64) lookup.Price {
 		return lookup.Price{}
 	}
 	return lookup.PriceOf(cost / qty)
+}
+
+// orderIDShown returns given, an order ID as the model gave it, of the
+// value id, as an answer may echo it, as txnID.shown echoes an activity
+// ID: whole when it is written plainly, with 10 digits or more, as
+// Schwab's order IDs are, and holds no account number the server knows;
+// else only its last digits, as an account selector's, since a number of
+// 8 or 9 digits may be an account's.
+func (c *call) orderIDShown(given string, id int64) FreeText {
+	if id >= 1_000_000_000 && given == strconv.FormatInt(id, 10) && !c.mask.known.Contains(given) {
+		return c.mask.compose("%s", Ident(given))
+	}
+	return c.mask.free(lookup.Selector{Given: given}.Shown())
 }
 
 // getOrderIn is get_order's arguments.
@@ -662,7 +704,7 @@ func getOrder(ctx context.Context, c *call, in getOrderIn) (getOrderOut, error) 
 	}
 	if err != nil {
 		if se, ok := errors.AsType[*schwab.Error](err); ok && se.Status == http.StatusNotFound {
-			return out, c.failf(codeNotFound, "Schwab has no order %s in account %s.", Ident(in.ID), c.mask.masked(a.number))
+			return out, c.failf(codeNotFound, "Schwab has no order %s in account %s.", c.orderIDShown(in.ID, id), c.mask.masked(a.number))
 		}
 		return out, err
 	}

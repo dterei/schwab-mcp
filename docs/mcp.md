@@ -187,8 +187,8 @@ as a bracket, holds the orders it places once it fills, and an OCO holds
 two orders, one of which cancels the other; `held` lists them flat, each
 with `parent_id`, the order that holds it, and so the orders that
 replaced an order. Schwab's spec serves an account's orders for a year,
-but it is reported to serve 60 days only; one call asks for at most 365
-days. `open` is true for an order that may still fill or change, in any
+but it is reported to serve 60 days only; one call asks for at most 364
+days, 52 weeks, which stay within the year past a change of the clocks. `open` is true for an order that may still fill or change, in any
 status but FILLED, CANCELED, REJECTED, EXPIRED and REPLACED. `get_order`
 needs `account` when the login shares several accounts: each order of
 `get_orders` names its `account_hash`. The reference pages say what each
@@ -205,12 +205,16 @@ order type and status means.
   `account_ambiguous`.
 - **Detail.** Answers are compact; `detail: "full"` adds fields.
 - **Pages.** `get_positions`, `get_transactions` and `get_orders` answer a
-  page at a time: pass `next_cursor` back as `cursor`, with the same other arguments,
-  until it is null. `limit` caps a page's rows. A page also stops at about
-  20,000 bytes. When the call's time runs out before Schwab answered for
-  every asked day, the page holds what came, `complete` is false, the
-  totals are null, the warning `partial` says so, and `next_cursor` goes
-  on from there.
+  page at a time: pass `next_cursor` back as `cursor`, with the same other
+  arguments, until it is null. `limit` caps a page's rows. A page also
+  stops at about 20,000 bytes. When the time of a call of
+  `get_transactions` runs out before Schwab answered for every asked day,
+  the page holds what came, `complete` is false, the totals are null, the
+  warning `partial` says so, and `next_cursor` goes on from there. When
+  the time of a call of `get_orders` runs out before every account was
+  read, the call answers `timed_out`, since a later page could not show
+  the orders of an account left unread; `complete` is false only when
+  Schwab sent its most orders for an account.
 
   A cursor names the account it reads, or, of `get_transactions` over
   every account, the account of the last row sent, as the server named it
@@ -402,7 +406,7 @@ bug report.
   seconds for its turn, then answers `busy`. `auth_status` never waits.
 - Schwab ends a login after 7 days.
 - One call reads at most 724 days of an account's transactions from
-  Schwab, and asks for at most 365 days of orders.
+  Schwab, and asks for at most 364 days of orders.
 
 ## Troubleshooting
 

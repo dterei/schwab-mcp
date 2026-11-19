@@ -114,8 +114,11 @@ type scrubAnswer struct {
 	entry schwabtest.Entry // the request and the status, as an index entry gives them
 	kind  string           // the kind of answer it is, of policyTables, or "" for none
 	table *table           // the kind's table, for JSON
-	ext   string           // the extension that ExtensionFor gives its body
-	route string           // its request, as review.txt names it, with no value in it
+	// unscrubbed is the kind of answer it is when the scrubber does not
+	// scrub that kind yet (unscrubbedKinds), which leaves kind "".
+	unscrubbed string
+	ext        string // the extension that ExtensionFor gives its body
+	route      string // its request, as review.txt names it, with no value in it
 
 	// What pass two makes of it.
 	body    []byte           // the scrubbed body
@@ -272,6 +275,8 @@ func (s *scrubber) newAnswer(a recordedAnswer) *scrubAnswer {
 		if sa.ext == ".json" {
 			sa.table = policyTables[kind]
 		}
+	} else if kind, ok := policyKindOf(s.pages, sa.entry, a.body); ok {
+		sa.unscrubbed = kind
 	}
 	sa.route = routeName(sa.entry)
 	return sa
@@ -619,6 +624,8 @@ func (s *scrubber) scrubAnswer(a *scrubAnswer) {
 	switch {
 	case a.raw.meta.Response.CutShort:
 		a.refuse("its body was cut short")
+	case a.unscrubbed != "":
+		a.refuse("an answer of " + a.unscrubbed + ", which the scrubber does not scrub until a recording of it has been read")
 	case a.kind == "":
 		a.refuse("an answer of no kind that the scrub policy covers")
 	case a.kind != errorsKind && a.ext != ".json":

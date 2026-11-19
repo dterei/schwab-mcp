@@ -478,7 +478,8 @@ func (s *Server) SetRowByID(hash string, id int64, body string) {
 // LoadFixtures fills the world with the hand-made fixtures: the accounts of
 // account_numbers.json with their elements of accounts.json, the rows of
 // transactions.json under the account each names, transaction.json as what
-// its row sends by id, and user_preference.json.
+// its row sends by id, the orders of orders.json under the account each
+// names, order.json as what its order sends by id, and user_preference.json.
 func (s *Server) LoadFixtures() {
 	s.t.Helper()
 	s.mu.Lock()

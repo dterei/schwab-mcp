@@ -1041,7 +1041,7 @@ func TestScrubPolicyFitsTheRecords(t *testing.T) {
 	}
 	for name, tab := range map[string]*table{
 		"accountNumbers": accountNumbersTable, "accounts": accountTable, "transactions": transactionTable,
-		"instruments": instrumentTable, "userPreference": userPreferenceTable, "errors": errorsTable,
+		"instruments": instrumentTable, "userPreference": userPreferenceTable, "errors": errorsTable, "orders": orderTable,
 	} {
 		for i, r := range tab.rules {
 			for _, other := range tab.rules[i+1:] {

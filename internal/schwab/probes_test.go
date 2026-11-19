@@ -1072,11 +1072,11 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 	path := acct.path() + "/orders"
 	// Each read asks what Schwab serves of old orders, which it may refuse
 	// for their age, so none counts against the login, as ask's do not;
-	// each is reported, as get's are.
-	get := func(endpoint, path string, query url.Values) (*reply, error) {
-		return r.fetch(ctx, r.client, endpoint, path, query, "", false, true)
+	// each is reported, as get's are, with its records, of kind.
+	get := func(endpoint, path string, query url.Values, kind string) (*reply, error) {
+		return r.fetch(ctx, r.client, endpoint, path, query, kind, false, true)
 	}
-	rep, err := get(acct.endpoint("/orders/"+idLabel), path+"/"+id, nil)
+	rep, err := get(acct.endpoint("/orders/"+idLabel), path+"/"+id, nil, "order")
 	if err != nil {
 		return inconclusive("the order of an execution " + days(now.Sub(pick.Time)) + " old could not be got by its id: " + schwabSays(err))
 	}
@@ -1094,7 +1094,11 @@ func probeOrdersDepth(ctx context.Context, r *liveRun) verdict {
 	ev := lines(fmt.Sprintf("the order of an execution %s old, got by its id, was entered %s ago", days(now.Sub(pick.Time)), days(now.Sub(order.entered))))
 	// list asks for the orders entered in w, and says what came back.
 	list := func(endpoint, path string, w window) (orders []orderSeen, read bool, said string) {
-		rep, err := get(endpoint, path, ordersValues(w))
+		kind := "orders"
+		if path == "/trader/v1/orders" {
+			kind = "allOrders"
+		}
+		rep, err := get(endpoint, path, ordersValues(w), kind)
 		if err != nil {
 			return nil, false, "refused, " + schwabSays(err)
 		}

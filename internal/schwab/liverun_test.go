@@ -527,8 +527,8 @@ func firstActivityID(rep *reply) string {
 // fails fails the run. A read that fails is reported by Schwab's status
 // and words, or by what else failed, without the addresses that a failure
 // of the network names. A kind of "" is an endpoint whose answers hold no
-// records of this package's, such as the orders' or Market Data's, which
-// is reported without records or findings. Once the run has stopped, or
+// records of this package's, such as Market Data's, which is reported
+// without records or findings. Once the run has stopped, or
 // past its deadline, it sends nothing and returns ctx's error.
 func (r *liveRun) get(ctx context.Context, endpoint, path string, query url.Values, kind string) (*reply, error) {
 	return r.fetch(ctx, r.client, endpoint, path, query, kind, false, false)

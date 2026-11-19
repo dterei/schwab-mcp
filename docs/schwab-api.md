@@ -504,14 +504,14 @@ them, with sources.
   - `accountNumber` is a JSON number, though a string everywhere else.
   - Every order has `orderId`, `status`, `enteredTime`, `orderStrategyType`,
     the quantities (`quantity`, `filledQuantity`, `remainingQuantity`),
-    `cancelable` and `editable`; `closeTime` once it is done; `price` but on
-    a market order; `tag` on most, `API_TOS:TRADE_ALL` or
+    `cancelable` and `editable`; `closeTime` once it is done; `price`, on
+    every order captured, none of which is a market order; `tag` on most, `API_TOS:TRADE_ALL` or
     `API_TOS:POS_STMT` from thinkorswim, or `TA_` and an app's own text,
     which may hold its developer's email address.
   - `orderActivityCollection` holds each execution: `executionType` FILL,
     with each leg's price, quantity and time, or CANCELED for a cancel,
-    whose leg has a time and a price of 0, and for a spread names only its
-    first leg. Most activities carry an `activityId`, which the spec lacks.
+    which lists every leg, each with a time and a price of 0. Most
+    activities carry an `activityId`, which the spec lacks.
   - A rejected order says why in `statusDescription`, such as "You do not
     have enough available cash/buying power for this order.", sometimes
     the same sentence twice joined by `|`.

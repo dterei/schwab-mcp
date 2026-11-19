@@ -1,0 +1,76 @@
+{
+  "source": "schwab",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [
+    {
+      "code": "problems",
+      "message": "The order differed from what Schwab has sent before (orderLegCollection.quantity: Schwab sent a string where a number was expected; orderActivityCollection.executionLegs.price: Schwab sent a string where a number was expected); a figure that could not be read is null."
+    }
+  ],
+  "cut": [],
+  "order": {
+    "account": "...783",
+    "account_hash": "8C2F1DD750834DC72D2B65A2497B6A003E30CF6559B79586433150D303FDC9DA",
+    "order_id": "1004519000007",
+    "status": "FILLED",
+    "open": false,
+    "status_description": null,
+    "entered": "2026-11-02T10:00:00-05:00",
+    "closed": null,
+    "strategy": "SINGLE",
+    "order_type": "LIMIT",
+    "complex_strategy": null,
+    "session": null,
+    "duration": null,
+    "price": 10.00,
+    "stop_price": null,
+    "quantity": 2,
+    "filled": null,
+    "remaining": null,
+    "legs": [
+      {
+        "instruction": "BUY",
+        "symbol": "XYZ",
+        "asset_type": "EQUITY",
+        "quantity": null,
+        "position_effect": null,
+        "fill_price": null,
+        "detail": {
+          "description": null,
+          "cusip": null,
+          "underlying": null,
+          "put_call": null,
+          "strike": null,
+          "expiration": null
+        }
+      }
+    ],
+    "held": [],
+    "detail": {
+      "origin": null,
+      "venue": null,
+      "cancelable": null,
+      "editable": null,
+      "fills": [
+        {
+          "leg_id": 1,
+          "symbol": "XYZ",
+          "time": "2026-11-02T10:00:01-05:00",
+          "quantity": 2,
+          "price": null
+        }
+      ],
+      "problems": [
+        {
+          "path": "orderLegCollection.quantity",
+          "what": "Schwab sent a string where a number was expected"
+        },
+        {
+          "path": "orderActivityCollection.executionLegs.price",
+          "what": "Schwab sent a string where a number was expected"
+        }
+      ]
+    }
+  },
+  "raw": null
+}

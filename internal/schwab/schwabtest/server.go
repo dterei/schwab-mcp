@@ -345,8 +345,9 @@ func (s *Server) own(route Route, r *http.Request) answer {
 }
 
 // notAllowed returns the answer to an API request of a method other than
-// GET or HEAD, which every endpoint the fake knows takes alone: a 405, a
-// guess that says so. It needs the lock.
+// GET or HEAD, the only methods the fake serves, though Schwab takes POST,
+// PUT and DELETE on the paths of orders to place, replace and cancel one:
+// a 405, a guess that says so. It needs the lock.
 func (s *Server) notAllowed() answer {
 	a := s.built(http.StatusMethodNotAllowed, []byte(`{"message":"a guess: Schwab's answer to this method is not recorded"}`))
 	a.header["Allow"] = []string{"GET, HEAD"}
@@ -434,7 +435,7 @@ func (s *Server) Override(route Route, h http.HandlerFunc) {
 
 // OverridePath answers the API requests that pattern, a ServeMux pattern,
 // matches, after the Script, until it is set to nil: for paths that no
-// Route serves, such as "GET /trader/v1/accounts/{hash}/orders". The
+// Route serves, such as "GET /marketdata/v1/quotes". The
 // handler sees the request's Pattern and PathValue as pattern gives them.
 // Setting a pattern again replaces its handler. A pattern outside the API,
 // one for a method that the fake answers with 405 before any handler, one

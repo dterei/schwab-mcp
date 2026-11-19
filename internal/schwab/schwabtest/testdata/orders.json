@@ -338,7 +338,8 @@
         "quantity": 1.0,
         "orderRemainingQuantity": 0.0,
         "executionLegs": [
-          {"legId": 1, "quantity": 1.0, "mismarkedQuantity": 0.0, "price": 0.0, "time": "2025-09-30T14:40:00+0000", "instrumentId": 221372233}
+          {"legId": 1, "quantity": 1.0, "mismarkedQuantity": 0.0, "price": 0.0, "time": "2025-09-30T14:40:00+0000", "instrumentId": 221372233},
+          {"legId": 2, "quantity": 1.0, "mismarkedQuantity": 0.0, "price": 0.0, "time": "2025-09-30T14:40:00+0000", "instrumentId": 221175400}
         ]
       }
     ]

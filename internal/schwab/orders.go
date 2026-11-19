@@ -67,7 +67,9 @@ func (s OrderStatus) Final() bool {
 // orders/{id} or /orders, or one of the orders that another holds.
 //
 // Every order seen, read back from thinkorswim or from the API, has been a
-// SINGLE order with every key of the first block below; the keys that
+// SINGLE order whose keys are those of the first block below, each present
+// as its comment says: CloseTime once the order is done, StatusDescription
+// on a rejected order, Price on a limit order, Tag on most; the keys that
 // Schwab's spec adds are kept, though none has been seen. An order that
 // holds others, such as a TRIGGER whose child is an OCO of two orders (a
 // bracket), has not been seen either, so the orders it holds are taken to

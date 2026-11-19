@@ -466,8 +466,9 @@ func testDefaultRun(t *testing.T) {
 		"an unknown activityId: refused, HTTP 404, Not Found (a guess: Schwab's answer is not recorded)",
 		"a garbage token: 401, application/json, Client not authorized; correlation headers: Schwab-Client-Correlid, X-Request-Id",
 		"no token: 401, application/json, Client not authorized; correlation headers: Schwab-Client-Correlid, X-Request-Id")
-	wantLines(t, report, "## accounts/{account 2}/orders/{id}", "200, application/json; no correlation header",
-		"## accounts/{account 2}/orders", "200, application/json; no correlation header", "## orders")
+	wantLines(t, report, "## accounts/{account 2}/orders/{id}", "200, application/json, 1 record; no correlation header",
+		"## accounts/{account 2}/orders", "200, application/json, 1 record; no correlation header",
+		"## orders", "200, application/json, 0 records; no correlation header")
 	wantLines(t, report, "## the guard", "budget: 180 requests, token requests included; 97 sent",
 		"answers by status: 200: 90, 400: 4, 401: 2, 404: 1", "token requests: 1", "refusals: none", "stopped: no", "did not run: none",
 		"## before sharing",

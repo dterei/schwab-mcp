@@ -624,10 +624,17 @@ func TestScrubberPlantedCorpus(t *testing.T) {
 			leftOut: map[string]string{"002": "the request's path holds " + string(idPathAccount)},
 		},
 		{
-			name: "an answer of orders, of no kind the policy covers", amounts: keep, accounts: 3,
+			name: "an answer of orders, which the scrubber does not scrub yet", amounts: keep, accounts: 3,
 			answers: func(b corpusBase) ([]testAnswer, []string) {
 				id := b.id()
 				return []testAnswer{jsonAnswer("/trader/v1/accounts/"+b.hashes[0]+"/orders", "", 200, `[{"orderId":`+id+`,"accountNumber":`+b.numbers[0]+`}]`)}, []string{id}
+			},
+			leftOut: map[string]string{"002": "an answer of orders, which the scrubber does not scrub until a recording of it has been read"},
+		},
+		{
+			name: "an answer of market data, of no kind the policy covers", amounts: keep, accounts: 3,
+			answers: func(corpusBase) ([]testAnswer, []string) {
+				return []testAnswer{jsonAnswer("/marketdata/v1/quotes", "symbols=XYZ", 200, `{"XYZ":{"assetMainType":"EQUITY"}}`)}, nil
 			},
 			leftOut: map[string]string{"002": "an answer of no kind"},
 		},

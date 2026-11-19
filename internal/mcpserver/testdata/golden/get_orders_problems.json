@@ -1,0 +1,41 @@
+{
+  "source": "schwab",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [],
+  "next_cursor": null,
+  "complete": true,
+  "cut": [],
+  "orders": [
+    {
+      "account": "...783",
+      "account_hash": "8C2F1DD750834DC72D2B65A2497B6A003E30CF6559B79586433150D303FDC9DA",
+      "order_id": "1004519000006",
+      "status": "WORKING",
+      "open": true,
+      "status_description": null,
+      "entered": "2026-11-03T10:00:00-05:00",
+      "closed": null,
+      "strategy": "SINGLE",
+      "order_type": null,
+      "complex_strategy": null,
+      "session": null,
+      "duration": null,
+      "price": null,
+      "stop_price": null,
+      "quantity": null,
+      "filled": null,
+      "remaining": null,
+      "legs": [],
+      "held": []
+    }
+  ],
+  "accounts": [
+    {
+      "account": "...783",
+      "account_hash": "8C2F1DD750834DC72D2B65A2497B6A003E30CF6559B79586433150D303FDC9DA",
+      "nickname": "Contributory",
+      "orders": 1,
+      "error": null
+    }
+  ]
+}

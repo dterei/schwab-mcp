@@ -133,7 +133,7 @@ func orderTypesPage() referencePage {
 const orderTypesText = "# Schwab's order types\n" + `
 The values as Schwab's spec lists them; Schwab may send others. Every
 order read back so far, from thinkorswim or an app, has been a SINGLE
-order of type MARKET, LIMIT, NET_DEBIT or NET_CREDIT.
+order of type LIMIT, NET_DEBIT or NET_CREDIT.
 
 ## order_type
 
@@ -147,9 +147,9 @@ order of type MARKET, LIMIT, NET_DEBIT or NET_CREDIT.
 | TRAILING_STOP_LIMIT | A trailing stop that becomes a limit order. |
 | MARKET_ON_CLOSE | A market order at the close. |
 | LIMIT_ON_CLOSE | A limit order at the close. |
-| NET_DEBIT | A spread of option legs bought for at most price, net, per spread. |
-| NET_CREDIT | A spread of option legs sold for at least price, net, per spread. |
-| NET_ZERO | A spread of option legs at no net price. |
+| NET_DEBIT | An order of several legs, an option spread or stock with options (COVERED), bought for at most price, net, per spread. |
+| NET_CREDIT | An order of several legs, an option spread or stock with options, sold for at least price, net, per spread. |
+| NET_ZERO | An order of several legs at no net price. |
 | EXERCISE | An option's exercise. |
 | CABINET, NON_MARKETABLE, UNKNOWN | Rare kinds the spec lists. |
 

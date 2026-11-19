@@ -408,10 +408,12 @@ today (see [the MCP server](mcp.md)); market data comes next.
 - [x] Account numbers masked everywhere a tool or resource returns data,
       Schwab's JSON included: inside each handler, before the result is
       returned, since the SDK checks results and quotes a failing value in
-      its error. Mask deep copies of the records, and Schwab's JSON decoded
-      as `any`; replace only string values, whole or in part, and never
-      change a value's type or delete a key, which would break the listed
-      schema. Masked numbers take Schwab's own form, `...` and the last
+      its error. Mask deep copies of the records, and Schwab's JSON token
+      by token; in the records, replace only string values, whole or in
+      part, and never change a value's type or delete a key, which would
+      break the listed schema. In Schwab's JSON, which the schema lists only
+      as an object, an account number that Schwab sends as a number, as in
+      orders, becomes its masked string. Masked numbers take Schwab's own form, `...` and the last
       three digits. `StreamerInfo` is never returned. Encode Schwab's JSON
       with HTML escaping off, since `json.Marshal` escapes `&`. Every string
       the server sends or logs also passes a last check that replaces any
