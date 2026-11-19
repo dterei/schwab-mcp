@@ -210,11 +210,14 @@ order type and status means.
   stops at about 20,000 bytes. When the time of a call of
   `get_transactions` runs out before Schwab answered for every asked day,
   the page holds what came, `complete` is false, the totals are null, the
-  warning `partial` says so, and `next_cursor` goes on from there. When
-  the time of a call of `get_orders` runs out before every account was
-  read, the call answers `timed_out`, since a later page could not show
-  the orders of an account left unread; `complete` is false only when
-  Schwab sent its most orders for an account.
+  warning `partial` says so, and `next_cursor` goes on from there.
+  `get_orders` reads each account in one request: an account it had no
+  time left for, or that failed, has the error's code in its row, and
+  `complete` is false when time ran out. A page of `get_orders` on which
+  an account could not be read ends the answer, with `next_cursor` null
+  and the warning `partial`, since a later page that could read the
+  account would miss its orders newer than the cursor's: call again for
+  the rest.
 
   A cursor names the account it reads, or, of `get_transactions` over
   every account, the account of the last row sent, as the server named it
@@ -316,7 +319,9 @@ codes are fixed; their sentences may change.
 When `get_transactions` or `get_orders` reads several accounts and some of
 them fail, it answers with the others: each that failed has the error's
 code in its coverage or account row, and the warning `account_failed`
-says why.
+says why. A page of `get_orders` with such an account is its last (see
+[Pages](#arguments-and-answers)). When every account fails, the call
+answers the first one's error.
 
 ## Warnings
 
@@ -336,7 +341,7 @@ says why.
 | `store_covers_some` | An account was read from Schwab: the local history holds some of the asked days, but not every one whole. |
 | `before_decisions` | Rows read from Schwab carry the rules' category, before your decisions and the local history's pairing. |
 | `empty_not_proof` | Schwab refused an older window as too old, or sent nothing for it, which does not show that there is nothing older. |
-| `partial` | The call's time ran out before every asked day was read, and `next_cursor` goes on from there; or Schwab sent its most rows, or its most orders, 3000, for part of a window, so some may be missing. Totals are null. |
+| `partial` | The call's time ran out before every asked day was read, and `next_cursor` goes on from there; or Schwab sent its most rows, or its most orders, 3000, for part of a window, so some may be missing; or a page of `get_orders` on which an account could not be read ends the answer. Totals are null. |
 | `account_failed` | One account could not be read; its row has the error's code. |
 | `types_filter` | `types` leaves out the local history's rows of History exports, which have no Schwab type. |
 | `raw_omitted` | Schwab's JSON was left out to stay under the size cap. |

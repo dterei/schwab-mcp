@@ -74,7 +74,7 @@ var orderCases = []toolCase{
 			t.Errorf("the last 60 days, to now, asked as %s", q)
 		}
 	}},
-	{tool: "get_orders", name: "full", args: `{"from":"2026-01-01","detail":"full"}`, check: func(t *testing.T, _ *env, r result) {
+	{tool: "get_orders", name: "full", args: `{"from":"2026-01-01","detail":"full"}`, check: func(t *testing.T, e *env, r result) {
 		os := ordersOf(r)
 		if got, want := orderIDs(os), []string{bracket, vtiWorking, xyzCallSold, metaSold}; !slices.Equal(got, want) {
 			t.Fatalf("orders %v, want %v, newest first", got, want)
@@ -117,6 +117,16 @@ var orderCases = []toolCase{
 		as := accountsOf(t, r)
 		if as["...135"]["orders"] != 1.0 || as["...398"]["orders"] != 3.0 || as["...783"]["orders"] != 0.0 || len(r.warnings()) != 0 {
 			t.Errorf("the accounts: %v, warnings %v", as, r.warnings())
+		}
+		var paths []string
+		for _, req := range e.fake.Requests() {
+			if req.Route == schwabtest.OrdersRoute {
+				paths = append(paths, req.Path)
+			}
+		}
+		slices.Sort(paths)
+		if len(paths) != 3 || len(slices.Compact(slices.Clone(paths))) != 3 {
+			t.Errorf("asked for the orders of %v, want each account once", paths)
 		}
 	}},
 	{tool: "get_orders", name: "open", args: `{"open":true,"from":"2025-01-01","to":"2025-12-30"}`, check: func(t *testing.T, _ *env, r result) {
@@ -253,21 +263,35 @@ var orderCases = []toolCase{
 			t.Errorf("an id that is an account's number: %s", r.text)
 		}
 	}},
-	// A figure of a leg or a fill that could not be read is null, never 0.
+	// A figure of a leg or a fill that could not be read is null, never 0,
+	// and the figures beside it that were read stay: a problem names no
+	// element of a list, but the decoder leaves a figure it could not read
+	// at 0. A cancel's leg without a price touches no fill.
 	{tool: "get_order", name: "unreadable", opts: []envOption{withFake(func(f *schwabtest.Server) {
 		f.AddOrders(schwabtest.HashFor(empty), `{"orderStrategyType":"SINGLE","orderId":1004519000007,"status":"FILLED",`+
-			`"enteredTime":"2026-11-02T15:00:00+0000","accountNumber":`+empty+`,"orderType":"LIMIT","price":10.0,"quantity":2.0,`+
+			`"enteredTime":"2026-11-02T15:00:00+0000","accountNumber":`+empty+`,"orderType":"NET_DEBIT","price":10.0,"quantity":1.0,`+
 			`"orderLegCollection":[{"orderLegType":"EQUITY","legId":1,"instrument":{"assetType":"EQUITY","symbol":"XYZ"},`+
-			`"instruction":"BUY","quantity":"2"}],"orderActivityCollection":[{"activityType":"EXECUTION","executionType":"FILL",`+
-			`"executionLegs":[{"legId":1,"price":"9.99","quantity":2.0,"mismarkedQuantity":0.0,"instrumentId":1,`+
-			`"time":"2026-11-02T15:00:01+0000"}]}]}`)
+			`"instruction":"BUY","quantity":"100"},{"orderLegType":"OPTION","legId":2,"instrument":{"assetType":"OPTION",`+
+			`"symbol":"XYZ   261218C00050000"},"instruction":"SELL_TO_OPEN","quantity":1.0}],"orderActivityCollection":[`+
+			`{"activityType":"EXECUTION","executionType":"CANCELED","executionLegs":[{"legId":1,"quantity":1.0,"mismarkedQuantity":0.0,`+
+			`"instrumentId":1,"time":"2026-11-02T15:00:01+0000"}]},`+
+			`{"activityType":"EXECUTION","executionType":"FILL","executionLegs":[{"legId":1,"price":"48.1","quantity":100.0,`+
+			`"mismarkedQuantity":0.0,"instrumentId":1,"time":"2026-11-02T15:00:02+0000"},{"legId":2,"price":2.05,"quantity":1.0,`+
+			`"mismarkedQuantity":0.0,"instrumentId":2,"time":"2026-11-02T15:00:02+0000"}]}]}`)
 	})}, args: `{"id":"1004519000007","account":"783"}`, check: func(t *testing.T, _ *env, r result) {
 		o := r.value["order"].(map[string]any)
-		leg := o["legs"].([]any)[0].(map[string]any)
-		fill := o["detail"].(map[string]any)["fills"].([]any)[0].(map[string]any)
-		if leg["quantity"] != nil || leg["fill_price"] != nil || fill["price"] != nil || fill["quantity"] != 2.0 ||
-			o["quantity"] != 2.0 || !slices.Contains(r.warnings(), "problems") {
-			t.Errorf("figures that could not be read: leg %v, fill %v, %v", leg, fill, r.warnings())
+		legs := o["legs"].([]any)
+		stock, call := legs[0].(map[string]any), legs[1].(map[string]any)
+		fills := o["detail"].(map[string]any)["fills"].([]any)
+		f1, f2 := fills[0].(map[string]any), fills[1].(map[string]any)
+		if stock["quantity"] != nil || stock["fill_price"] != nil || call["quantity"] != 1.0 || call["fill_price"] != 2.05 {
+			t.Errorf("legs: %v %v", stock, call)
+		}
+		if len(fills) != 2 || f1["price"] != nil || f1["quantity"] != 100.0 || f2["price"] != 2.05 || f2["quantity"] != 1.0 {
+			t.Errorf("fills: %v", fills)
+		}
+		if o["quantity"] != 1.0 || !slices.Contains(r.warnings(), "problems") {
+			t.Errorf("the order: %v, %v", o["quantity"], r.warnings())
 		}
 	}},
 	{tool: "get_order", name: "bad_id", args: `{"id":"99999999999999999999","account":"398"}`, check: func(t *testing.T, e *env, r result) {
@@ -312,8 +336,8 @@ func TestOrdersPages(t *testing.T) {
 	}
 }
 
-// Each account's orders are one request; Schwab's most orders, sent for an
-// account, say that older ones may be missing.
+// An account's orders are one request, though Schwab sends its most
+// orders, which say that older ones may be missing.
 func TestOrdersCapped(t *testing.T) {
 	t.Parallel()
 	var orders []string
@@ -336,24 +360,61 @@ func TestOrdersCapped(t *testing.T) {
 	}
 }
 
-// An account that the call has no time left to read fails the call with
-// timed_out, rather than an answer that a later page could not complete.
+// An account that the call has no time left to read is not asked for, and
+// its row says timed_out; the answer is not complete.
 func TestOrdersTimeOut(t *testing.T) {
 	t.Parallel()
-	e := newEnv(t, withOptions(func(o *Options) { o.CallTimeout = 2 * time.Second }), withFake(func(f *schwabtest.Server) {
+	// A budget of 4 s keeps 1 s in reserve: once ...135's answer takes 3.3 s,
+	// less than that is left, however soon its request began, while the
+	// call still has 0.7 s for what came before it.
+	e := newEnv(t, withOptions(func(o *Options) { o.CallTimeout = 4 * time.Second }), withFake(func(f *schwabtest.Server) {
 		f.Override(schwabtest.OrdersRoute, func(w http.ResponseWriter, r *http.Request) {
 			if r.PathValue("hash") == schwabtest.HashFor(individual) {
-				time.Sleep(1600 * time.Millisecond)
+				time.Sleep(3300 * time.Millisecond)
 			}
 			schwabtest.Answer(http.StatusOK, `[]`)(w, r)
 		})
 	}))
 	r := e.call("get_orders", `{}`)
-	if r.code() != "timed_out" {
-		t.Errorf("an account left without time: %s", r.text)
+	as := accountsOf(t, r)
+	if r.isError || as["...135"]["orders"] != 0.0 || as["...398"]["error"] != "timed_out" || as["...783"]["error"] != "timed_out" ||
+		r.value["complete"] != false || !slices.Contains(r.warnings(), "account_failed") {
+		t.Errorf("accounts left without time: %s", r.text)
 	}
 	if routes := apiRoutes(e.fake, 0); slices.Contains(routes[slices.Index(routes, string(schwabtest.OrdersRoute))+1:], string(schwabtest.OrdersRoute)) {
 		t.Errorf("sent %v: a request begun without time for it", routes)
+	}
+	if r := e.call("get_orders", `{"account":"398"}`); r.isError {
+		t.Errorf("one account, with time for it: %s", r.text)
+	}
+}
+
+// A page on which an account could not be read ends the answer, with no
+// cursor: a later page that could read it would miss its orders newer than
+// the cursor's.
+func TestOrdersFailureEndsThePages(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, withFake(func(f *schwabtest.Server) {
+		f.Override(schwabtest.OrdersRoute, func(w http.ResponseWriter, r *http.Request) {
+			switch r.PathValue("hash") {
+			case schwabtest.HashFor(options):
+				schwabtest.Answer(http.StatusServiceUnavailable, `{"message":"down"}`)(w, r)
+			case schwabtest.HashFor(individual):
+				schwabtest.Answer(http.StatusOK, `[`+bareOrder("1004519000011", individual, "2026-11-03T15:00:00+0000")+`,`+
+					bareOrder("1004519000012", individual, "2026-11-02T15:00:00+0000")+`]`)(w, r)
+			default:
+				schwabtest.Answer(http.StatusOK, `[]`)(w, r)
+			}
+		})
+	}))
+	r := e.call("get_orders", `{"limit":1}`)
+	if r.isError || len(ordersOf(r)) != 1 || r.value["next_cursor"] != nil || r.value["complete"] != false ||
+		!slices.Contains(r.warnings(), "partial") || !slices.Contains(r.warnings(), "account_failed") {
+		t.Errorf("a page of more orders than fit, an account failing: %s", r.text)
+	}
+	if r := e.call("get_orders", `{"limit":2}`); r.isError || len(ordersOf(r)) != 2 || r.value["complete"] != true ||
+		slices.Contains(r.warnings(), "partial") {
+		t.Errorf("one page that holds every order read, an account failing: %s", r.text)
 	}
 }
 

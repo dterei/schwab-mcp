@@ -58,8 +58,8 @@ var getOrdersDef = toolDef{
 		"fills, venue and origin. Paged: pass next_cursor back as cursor.",
 	slot: true,
 	args: map[string]argRule{
-		"from": {desc: "The first New York date of entry, YYYY-MM-DD; 59 days before to when left out. At most 364 days " +
-			"(52 weeks) from to; Schwab may serve fewer."},
+		"from": {desc: "The first New York date of entry, YYYY-MM-DD; 59 days before to when left out, and at most 363 " +
+			"days before to: one call asks for 364 days at most, to included. Schwab may serve fewer."},
 		"to": {desc: "The last New York date of entry, YYYY-MM-DD, included; today when left out, or when later than today."},
 		"statuses": {
 			desc: "Only orders in these of Schwab's statuses, such as WORKING or FILLED (schwab://reference/order-statuses " +
@@ -385,13 +385,10 @@ func getOrders(ctx context.Context, c *call, in getOrdersIn) (getOrdersOut, erro
 			if ctx.Err() != nil {
 				return getOrdersOut{}, rerr
 			}
-			// An account left unread for want of time fails the call: a
-			// cursor goes on past where the account's newer orders would
-			// lie, so a later page could not show them.
-			if errors.Is(rerr, errNoTime) {
-				return getOrdersOut{}, c.s.errorFor(codeTimedOut)
-			}
 			e := c.s.toolError(c.tool, rerr)
+			if errors.Is(rerr, errNoTime) {
+				e, out.Complete = c.s.errorFor(codeTimedOut), false
+			}
 			if one {
 				return getOrdersOut{}, e
 			}
@@ -446,12 +443,23 @@ func getOrders(ctx context.Context, c *call, in getOrdersIn) (getOrdersOut, erro
 		}
 		sizes[i] = len(b)
 	}
-	out.AsOf, out.Warnings = instantOf(c.now), slices.Clone(c.warnings)
-	fixed, err := encode(out)
+	n, err := c.orderPage(&out, sizes, q.limit)
 	if err != nil {
 		return getOrdersOut{}, err
 	}
-	n := c.pageRows(len(fixed), sizes, q.limit)
+	// A page on which an account could not be read ends the answer: a
+	// cursor goes on past the last order sent, so a later page that could
+	// read the account would leave out its orders newer than that.
+	if n < len(rows) && len(failed) > 0 {
+		out.Complete = false
+		c.warn("partial", "This page ends the answer, since an account could not be read and a later page would miss its "+
+			"orders; call again for the rest.")
+		if n, err = c.orderPage(&out, sizes, q.limit); err != nil {
+			return getOrdersOut{}, err
+		}
+		out.Orders = append(out.Orders, rows[:n]...)
+		return out, nil
+	}
 	out.Orders = append(out.Orders, rows[:n]...)
 	if n < len(rows) {
 		if out.NextCursor, err = c.newCursor(args, items[from+n-1].key); err != nil {
@@ -459,6 +467,17 @@ func getOrders(ctx context.Context, c *call, in getOrdersIn) (getOrdersOut, erro
 		}
 	}
 	return out, nil
+}
+
+// orderPage returns how many orders of sizes, their encodings' sizes, a
+// page of out holds, with the warnings so far, at most limit.
+func (c *call) orderPage(out *getOrdersOut, sizes []int, limit int) (int, error) {
+	out.AsOf, out.Warnings = instantOf(c.now), slices.Clone(c.warnings)
+	fixed, err := encode(out)
+	if err != nil {
+		return 0, err
+	}
+	return c.pageRows(len(fixed), sizes, limit), nil
 }
 
 // plural returns n and noun, with an s when n is not 1.
@@ -529,14 +548,12 @@ func (c *call) orderRowOf(a dirAccount, o schwab.Order, full bool) orderRow {
 	for _, l := range o.OrderLegCollection {
 		symbols[l.LegID] = l.Instrument.Symbol
 	}
-	priceBad := lookup.Unreadable(o.Problems, "orderActivityCollection.executionLegs.price")
-	qtyBad := lookup.Unreadable(o.Problems, "orderActivityCollection.executionLegs.quantity")
 	for _, f := range o.Fills() {
 		fill := orderFill{LegID: f.LegID, Symbol: identPtr(symbols[f.LegID]), Time: instantPtr(f.Time)}
-		if !priceBad {
+		if !unread(o.Problems, fillPricePath, f.Price) {
 			fill.Price = lookup.PriceOf(f.Price)
 		}
-		if !qtyBad {
+		if !unread(o.Problems, fillQtyPath, f.Quantity) {
 			fill.Quantity = lookup.QtyOf(f.Quantity)
 		}
 		d.Fills = append(d.Fills, fill)
@@ -562,31 +579,14 @@ func (c *call) orderFieldsOf(o schwab.Order, full bool) orderFields {
 	if o.ComplexOrderStrategyType != "NONE" {
 		f.ComplexStrategy = identPtr(o.ComplexOrderStrategyType)
 	}
-	// A figure that could not be read, in any leg or any fill, is null in
-	// every one, since a problem's path names no element of a list; so is
-	// every average fill price when a fill's leg, price or quantity could
-	// not be read.
-	fills := o.Fills()
-	qtyBad := lookup.Unreadable(o.Problems, "orderLegCollection.quantity")
-	fillsBad := false
-	for _, path := range []string{
-		"orderLegCollection.legId", "orderActivityCollection.executionType",
-		"orderActivityCollection.executionLegs.legId", "orderActivityCollection.executionLegs.price",
-		"orderActivityCollection.executionLegs.quantity",
-	} {
-		fillsBad = fillsBad || lookup.Unreadable(o.Problems, path)
-	}
 	for _, l := range o.OrderLegCollection {
 		in := l.Instrument
 		leg := orderLeg{
 			Instruction: identPtr(l.Instruction), Symbol: identPtr(in.Symbol), AssetType: identPtr(string(in.AssetType)),
-			PositionEffect: identPtr(l.PositionEffect),
+			PositionEffect: identPtr(l.PositionEffect), FillPrice: fillPrice(o, l),
 		}
-		if !qtyBad {
+		if !unread(o.Problems, "orderLegCollection.quantity", l.Quantity) {
 			leg.Quantity = lookup.QtyOf(l.Quantity)
-		}
-		if !fillsBad {
-			leg.FillPrice = averagePrice(fills, l.LegID)
 		}
 		if full {
 			ld := &orderLegDetail{
@@ -611,15 +611,55 @@ func qtyAt(v *float64) lookup.Qty {
 	return lookup.QtyOf(*v)
 }
 
-// averagePrice returns the average price of the fills of the leg legID,
-// weighted by their quantities, or none when it has none.
-func averagePrice(fills []schwab.ExecutionLeg, legID int64) lookup.Price {
-	var qty, cost float64
-	for _, f := range fills {
-		if f.LegID == legID && f.Quantity > 0 {
-			qty += f.Quantity
-			cost += f.Quantity * f.Price
+// The key paths of an execution's leg's figures.
+const (
+	fillPricePath = "orderActivityCollection.executionLegs.price"
+	fillQtyPath   = "orderActivityCollection.executionLegs.quantity"
+	fillLegPath   = "orderActivityCollection.executionLegs.legId"
+)
+
+// unread reports whether v, a figure of an element of a list of a record
+// with the problems ps, at path, may not be what Schwab sent. The decoder
+// leaves a figure that it could not read, or that Schwab did not send, at
+// 0, with a problem at its path, which names no element: so a figure other
+// than 0 was read, while a 0 is unread when a problem names its path. A
+// problem of what holds the figure, the record itself or a list on the
+// way to it, leaves every figure in it unread.
+func unread(ps []schwab.Problem, path string, v float64) bool {
+	for _, p := range ps {
+		if p.Path == path && v == 0 || p.Path == "" || strings.HasPrefix(path, p.Path+".") {
+			return true
 		}
+	}
+	return false
+}
+
+// fillPrice returns the average price of the fills of o's leg l, weighted
+// by their quantities, or none when it has none, or when a fill that
+// could be its, or one of its fills' price or quantity, is unread: an
+// activity whose type is unread, or a fill whose leg is.
+func fillPrice(o schwab.Order, l schwab.OrderLeg) lookup.Price {
+	ps := o.Problems
+	if unread(ps, "orderLegCollection.legId", float64(l.LegID)) {
+		return lookup.Price{}
+	}
+	for _, a := range o.OrderActivityCollection {
+		if a.ExecutionType == "" && unread(ps, "orderActivityCollection.executionType", 0) {
+			return lookup.Price{}
+		}
+	}
+	var qty, cost float64
+	for _, f := range o.Fills() {
+		switch {
+		case unread(ps, fillLegPath, float64(f.LegID)):
+			return lookup.Price{}
+		case f.LegID != l.LegID:
+			continue
+		case unread(ps, fillPricePath, f.Price) || unread(ps, fillQtyPath, f.Quantity):
+			return lookup.Price{}
+		}
+		qty += f.Quantity
+		cost += f.Quantity * f.Price
 	}
 	if qty == 0 {
 		return lookup.Price{}

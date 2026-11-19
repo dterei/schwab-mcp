@@ -84,10 +84,10 @@
 //     happens.
 //  4. It is recorded, in Requests.
 //  5. A method other than GET or HEAD gets a 405, a guess that says so,
-//     and nothing below happens: the fake serves GET alone, though Schwab
-//     takes POST, PUT and DELETE on the paths of orders, so a test that
-//     scripts its answers still sees a request sent with another method
-//     fail.
+//     and nothing below happens: the fake serves GET and HEAD alone,
+//     though Schwab takes POST, PUT and DELETE on the paths of orders, so
+//     a test that scripts its answers still sees a request sent with
+//     another method fail.
 //  6. The answer is the first of: the next Script entry; the route's next
 //     Queue entry; the route's Override, or, for a path that no Route
 //     serves, OverridePath's handler for it; the answer LoadRecording

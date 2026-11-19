@@ -9,7 +9,7 @@
     },
     "from": {
       "type": "string",
-      "description": "The first New York date of entry, YYYY-MM-DD; 59 days before to when left out. At most 364 days (52 weeks) from to; Schwab may serve fewer.",
+      "description": "The first New York date of entry, YYYY-MM-DD; 59 days before to when left out, and at most 363 days before to: one call asks for 364 days at most, to included. Schwab may serve fewer.",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
     },
     "to": {

@@ -412,10 +412,12 @@ today (see [the MCP server](mcp.md)); market data comes next.
       by token; in the records, replace only string values, whole or in
       part, and never change a value's type or delete a key, which would
       break the listed schema. In Schwab's JSON, which the schema lists only
-      as an object, an account number that Schwab sends as a number, as in
-      orders, becomes its masked string. Masked numbers take Schwab's own form, `...` and the last
-      three digits. `StreamerInfo` is never returned. Encode Schwab's JSON
-      with HTML escaping off, since `json.Marshal` escapes `&`. Every string
+      as an object, a number that is or may be an account number becomes
+      its masked string, as an account number that orders send as a number
+      does, and a withheld number becomes null. Masked numbers take
+      Schwab's own form, `...` and the last three digits. `StreamerInfo` is
+      never returned. Encode Schwab's JSON with HTML escaping off, since
+      `json.Marshal` escapes `&`. Every string
       the server sends or logs also passes a last check that replaces any
       account number it has seen, and the key, the secret and the tokens
 - [x] Transactions served from the local store where it holds every asked

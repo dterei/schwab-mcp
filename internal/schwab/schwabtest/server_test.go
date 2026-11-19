@@ -342,7 +342,7 @@ func TestScriptQueueOverride(t *testing.T) {
 	wantReported(t, r, "no such Route", func() { s.Override("GET /x", Answer(200, "")) })
 }
 
-// The API takes GET and HEAD alone. A request of another method with a
+// The fake takes GET and HEAD alone. A request of another method with a
 // working token is recorded and gets the fake's 405, a guess that says so,
 // ahead of every Script entry, Override, pattern and recording, so that a
 // test that scripts its answers still sees a client's wrong method fail.

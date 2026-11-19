@@ -4,7 +4,7 @@
   "warnings": [
     {
       "code": "problems",
-      "message": "The order differed from what Schwab has sent before (orderLegCollection.quantity: Schwab sent a string where a number was expected; orderActivityCollection.executionLegs.price: Schwab sent a string where a number was expected); a figure that could not be read is null."
+      "message": "The order differed from what Schwab has sent before (orderLegCollection.quantity: Schwab sent a string where a number was expected; orderActivityCollection.executionLegs.price: missing, though Schwab sends it on every record of its kind); a figure that could not be read is null."
     }
   ],
   "cut": [],
@@ -18,13 +18,13 @@
     "entered": "2026-11-02T10:00:00-05:00",
     "closed": null,
     "strategy": "SINGLE",
-    "order_type": "LIMIT",
+    "order_type": "NET_DEBIT",
     "complex_strategy": null,
     "session": null,
     "duration": null,
     "price": 10.00,
     "stop_price": null,
-    "quantity": 2,
+    "quantity": 1,
     "filled": null,
     "remaining": null,
     "legs": [
@@ -43,6 +43,22 @@
           "strike": null,
           "expiration": null
         }
+      },
+      {
+        "instruction": "SELL_TO_OPEN",
+        "symbol": "XYZ   261218C00050000",
+        "asset_type": "OPTION",
+        "quantity": 1,
+        "position_effect": null,
+        "fill_price": 2.05,
+        "detail": {
+          "description": null,
+          "cusip": null,
+          "underlying": null,
+          "put_call": null,
+          "strike": 50.00,
+          "expiration": "2026-12-18"
+        }
       }
     ],
     "held": [],
@@ -55,15 +71,26 @@
         {
           "leg_id": 1,
           "symbol": "XYZ",
-          "time": "2026-11-02T10:00:01-05:00",
-          "quantity": 2,
+          "time": "2026-11-02T10:00:02-05:00",
+          "quantity": 100,
           "price": null
+        },
+        {
+          "leg_id": 2,
+          "symbol": "XYZ   261218C00050000",
+          "time": "2026-11-02T10:00:02-05:00",
+          "quantity": 1,
+          "price": 2.05
         }
       ],
       "problems": [
         {
           "path": "orderLegCollection.quantity",
           "what": "Schwab sent a string where a number was expected"
+        },
+        {
+          "path": "orderActivityCollection.executionLegs.price",
+          "what": "missing, though Schwab sends it on every record of its kind"
         },
         {
           "path": "orderActivityCollection.executionLegs.price",

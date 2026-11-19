@@ -147,8 +147,8 @@ order of type LIMIT, NET_DEBIT or NET_CREDIT.
 | TRAILING_STOP_LIMIT | A trailing stop that becomes a limit order. |
 | MARKET_ON_CLOSE | A market order at the close. |
 | LIMIT_ON_CLOSE | A limit order at the close. |
-| NET_DEBIT | An order of several legs, an option spread or stock with options (COVERED), bought for at most price, net, per spread. |
-| NET_CREDIT | An order of several legs, an option spread or stock with options, sold for at least price, net, per spread. |
+| NET_DEBIT | An order of several legs, an option spread or stock with options (COVERED), bought for at most price, the net of its legs per share. |
+| NET_CREDIT | An order of several legs, an option spread or stock with options, sold for at least price, the net of its legs per share. |
 | NET_ZERO | An order of several legs at no net price. |
 | EXERCISE | An option's exercise. |
 | CABINET, NON_MARKETABLE, UNKNOWN | Rare kinds the spec lists. |
@@ -199,7 +199,8 @@ CLOSING, or AUTOMATIC.
   way a leg goes.
 - price is the limit price per share; an option's is its premium per
   share, which its multiplier, usually 100, scales; a NET_DEBIT or
-  NET_CREDIT order's is the net of its legs per spread. stop_price is the
+  NET_CREDIT order's is the net of its legs per share, which a spread's
+  multiplier scales, as an option's premium. stop_price is the
   stop. A figure Schwab did not send is null, never 0.
 - quantity is the shares or contracts ordered, filled what has filled and
   remaining what is left; a spread's are in spreads, and each leg's

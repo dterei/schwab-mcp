@@ -69,7 +69,8 @@ func (s OrderStatus) Final() bool {
 // Every order seen, read back from thinkorswim or from the API, has been a
 // SINGLE order whose keys are those of the first block below, each present
 // as its comment says: CloseTime once the order is done, StatusDescription
-// on a rejected order, Price on a limit order, Tag on most; the keys that
+// on a rejected order, Price on every order captured, none of which was a
+// market order, Tag on most; the keys that
 // Schwab's spec adds are kept, though none has been seen. An order that
 // holds others, such as a TRIGGER whose child is an OCO of two orders (a
 // bracket), has not been seen either, so the orders it holds are taken to
@@ -114,7 +115,8 @@ type Order struct {
 	Quantity          *float64 `json:"quantity,omitempty"`
 	FilledQuantity    *float64 `json:"filledQuantity,omitempty"`
 	RemainingQuantity *float64 `json:"remainingQuantity,omitempty"`
-	// Price is the limit price, absent on a MARKET order.
+	// Price is the limit price, or a NET_DEBIT or NET_CREDIT order's net;
+	// the spec has a MARKET order without one, which no capture holds.
 	Price *float64 `json:"price,omitempty"`
 	// RequestedDestination has been seen only as AUTO, and
 	// DestinationLinkName as the venue's code, such as CDRG, or AutoRoute

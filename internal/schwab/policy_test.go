@@ -640,8 +640,9 @@ func policyKindOf(pages []*errorPage, e schwabtest.Entry, body []byte) (string, 
 // unscrubbedKinds are the kinds of answer whose tables hold the hand-made
 // fixtures (hygiene_test.go) but that the scrubber does not scrub yet: the
 // orders', whose table no recording of real orders has been held to. The
-// scrubber leaves a recorded answer of one out, as of no kind it covers,
-// until a recording of orders has been read and the kind is taken off.
+// scrubber leaves a recorded answer of one out, and says that it does not
+// scrub its kind yet, until a recording of orders has been read and the
+// kind is taken off.
 var unscrubbedKinds = []string{"orders", "order", "allOrders"}
 
 // scrubbedKindOf returns the kind of the answer that e names, given its
