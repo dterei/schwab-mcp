@@ -1,0 +1,475 @@
+{
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "warnings": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "cut": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "shown": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "shown",
+          "total"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "transaction": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "read_from": {
+          "type": "string"
+        },
+        "row_kind": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        },
+        "account_hash": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "date": {
+          "type": "string"
+        },
+        "time": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "type": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "action": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "status": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "category": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "symbol": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "quantity": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "price": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "amount": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "fees": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "description": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "counted": {
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "counted_why": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "flags": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "detail": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "settlement_date": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "order_id": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "sub_account": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "pair_kind": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "pair_ref": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "matched_with": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "problems": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "what": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "what"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "legs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "asset_type": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "symbol": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "description": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "quantity": {
+                    "type": [
+                      "null",
+                      "number"
+                    ]
+                  },
+                  "price": {
+                    "type": [
+                      "null",
+                      "number"
+                    ]
+                  },
+                  "cost": {
+                    "type": [
+                      "null",
+                      "number"
+                    ]
+                  },
+                  "cash": {
+                    "type": [
+                      "null",
+                      "number"
+                    ]
+                  },
+                  "fee_type": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "position_effect": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "put_call": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "strike": {
+                    "type": [
+                      "null",
+                      "number"
+                    ]
+                  },
+                  "expiration": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  }
+                },
+                "required": [
+                  "asset_type",
+                  "symbol",
+                  "description",
+                  "quantity",
+                  "price",
+                  "cost",
+                  "cash",
+                  "fee_type",
+                  "position_effect",
+                  "put_call",
+                  "strike",
+                  "expiration"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "settlement_date",
+            "order_id",
+            "sub_account",
+            "pair_kind",
+            "pair_ref",
+            "matched_with",
+            "problems",
+            "legs"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ref",
+        "read_from",
+        "row_kind",
+        "account",
+        "account_hash",
+        "date",
+        "time",
+        "type",
+        "action",
+        "status",
+        "category",
+        "symbol",
+        "quantity",
+        "price",
+        "amount",
+        "fees",
+        "description",
+        "counted",
+        "counted_why",
+        "flags"
+      ],
+      "additionalProperties": false
+    },
+    "store": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "counted": {
+          "type": "boolean"
+        },
+        "counted_why": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "category": {
+          "type": "string"
+        },
+        "category_rule": {
+          "type": "string"
+        },
+        "pair_kind": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "pair_ref": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "matched_with": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "flags": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "detail": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "severity",
+              "detail"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "counted",
+        "counted_why",
+        "category",
+        "category_rule",
+        "pair_kind",
+        "pair_ref",
+        "matched_with",
+        "flags"
+      ],
+      "additionalProperties": false
+    },
+    "raw": {
+      "type": [
+        "null",
+        "object",
+        "array"
+      ],
+      "description": "Schwab's JSON, account numbers masked"
+    }
+  },
+  "required": [
+    "source",
+    "as_of",
+    "warnings",
+    "cut",
+    "transaction",
+    "store",
+    "raw"
+  ],
+  "additionalProperties": false
+}

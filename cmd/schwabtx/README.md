@@ -77,6 +77,95 @@ key; it holds only two times. Another program that uses the same key, or the
 key used on another computer, draws from Schwab's 120 too, which the 20 left
 over leave room for.
 
+### schwabtx setup
+
+`schwabtx setup`, run once in the terminal where `schwabtx` works, saves
+`config.json` for the MCP server: the app key and secret, from
+`SCHWAB_APP_KEY` and `SCHWAB_APP_SECRET` or as `config.json` has them
+already, and the token file, the store and the rate file as `schwabtx`
+finds them in that terminal, each as an absolute path, the token file's
+with every link in it followed, as `schwabtx login` takes it. The server
+reads it all from there, so that a client's configuration holds no secret
+and the server uses the files that `schwabtx` found in that terminal,
+whatever the client's working directory and the rest of its environment,
+`XDG_*` included. Only four variables of the client's environment win over
+`config.json`: `SCHWAB_APP_KEY` and `SCHWAB_APP_SECRET`, and
+`SCHWAB_TOKEN_FILE` and `SCHWAB_STORE_FILE` when they hold an absolute
+path. `SCHWAB_BASE_URL` is saved too when it names another server than
+Schwab's, as it does to run against the tests' fake; the server takes the
+API's address from `config.json` alone.
+
+```
+-store PATH   the store's file, as the store commands take it (default:
+              $SCHWAB_STORE_FILE, else history.db in schwabtx's folder of your
+              config directory, %LocalAppData% on Windows)
+-print        print what setup would save, and save nothing
+```
+
+`config.json` is `schwabtx/config.json` in your user config directory,
+beside the token file's default place, and readable only by you, as the
+token file is. Setup prints what it saved, never the secret, and of the key
+only its last three characters, and then what each kind of MCP client takes
+to start the server with that file:
+
+```
+Saved /home/you/.config/schwabtx/config.json, readable only by you:
+  app key      from SCHWAB_APP_KEY (ends in ...9c1)
+  app secret   from SCHWAB_APP_SECRET
+  token file   /home/you/.config/schwabtx/token.json (default)
+  store        /home/you/.config/schwabtx/history.db (default)
+  rate file    /home/you/.cache/schwabtx/rate-3f9a0c1d2e4b5a69 (default)
+schwabtx now reads the key and secret from this file when the environment
+has none, so .env needs them no longer.
+
+For an MCP client, the server's command and arguments, ready to paste
+(docs/mcp.md says where each kind of client takes them).
+A desktop client, in its JSON configuration's "mcpServers", then restart it:
+  "schwab": {
+    "command": "/home/you/go/bin/schwab-mcp",
+    "args": ["--config", "/home/you/.config/schwabtx/config.json"]
+  }
+A command-line agent, with the agent's own command in place of <agent>:
+  <agent> mcp add schwab -- '/home/you/go/bin/schwab-mcp' --config '/home/you/.config/schwabtx/config.json'
+An editor extension, in "servers" of your user's MCP configuration:
+  "schwab": {
+    "type": "stdio",
+    "command": "/home/you/go/bin/schwab-mcp",
+    "args": ["--config", "/home/you/.config/schwabtx/config.json"]
+  }
+```
+
+The command is the `schwab-mcp` beside `schwabtx`, where
+`go install ./cmd/schwab-mcp ./cmd/schwabtx` puts the two, by its absolute
+path, as `config.json` is, since a client may start the server in any
+folder. Without one there, as under `go run`, the lines name `schwab-mcp`,
+and setup says to put its absolute path in its place. The JSON entries hold
+each path whole, a Windows path's backslashes escaped, and the add command
+quotes each path for your system's shell, in single quotes on Linux and
+macOS and in double quotes on Windows, so that a path with a space in it
+stays one argument: the default config directory on macOS,
+`~/Library/Application Support`, has one. [docs/mcp.md](../../docs/mcp.md)
+says where each kind of client takes its lines.
+
+From then on `schwabtx` takes the key and secret from `config.json` when
+`SCHWAB_APP_KEY` or `SCHWAB_APP_SECRET` is not set; a variable that is set
+wins. It reads no path from the file: the token file, the store and the rate
+file come from `SCHWAB_TOKEN_FILE`, `SCHWAB_STORE_FILE` and `-store` as
+before. So a later variable or `-store` can move `schwabtx` to other files
+while the server stays where setup pointed it. `schwabtx login` then says so
+once it has saved the login, and each store command (`import`, `status`,
+`edit`, `export`, `store`) when it opens the store:
+
+```
+warning: the MCP server reads its login from /home/you/.config/schwabtx/token.json (config.json); run schwabtx setup in this terminal to point it here
+warning: the MCP server reads the store at /home/you/.config/schwabtx/history.db (config.json); run schwabtx setup in this terminal, with the same -store, to point it here
+```
+
+Without `config.json` they say nothing. Setup refuses a store whose files
+would take in the token file, the rate file or `config.json`, and a
+`config.json` that a newer `schwabtx` wrote or that is not one, which it
+leaves as it is.
+
 ## Accounts, positions and balances
 
 Three commands look up what your accounts hold, as Schwab reports it when

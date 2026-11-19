@@ -1,0 +1,173 @@
+{
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "warnings": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "cut": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "shown": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "shown",
+          "total"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "accounts": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "account_hash": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nickname": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "value": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "cash": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "buying_power": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "buying_power_is": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "figures": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "value"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "account",
+          "account_hash",
+          "nickname",
+          "type",
+          "value",
+          "cash",
+          "buying_power",
+          "buying_power_is"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "total_value": {
+      "type": [
+        "null",
+        "number"
+      ]
+    },
+    "total_cash": {
+      "type": [
+        "null",
+        "number"
+      ]
+    }
+  },
+  "required": [
+    "source",
+    "as_of",
+    "warnings",
+    "cut",
+    "accounts",
+    "total_value",
+    "total_cash"
+  ],
+  "additionalProperties": false
+}

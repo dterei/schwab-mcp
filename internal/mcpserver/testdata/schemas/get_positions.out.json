@@ -1,0 +1,324 @@
+{
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "warnings": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "next_cursor": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "positions": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "account_hash": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "asset_type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "quantity": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "average_price": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "value": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "cost": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "open_pl": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "account_weight": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "portfolio_weight": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "detail": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "cusip": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "put_call": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "underlying": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "long_quantity": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "short_quantity": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "maintenance_requirement": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "problems": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "what": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "what"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "cusip",
+              "put_call",
+              "underlying",
+              "long_quantity",
+              "short_quantity",
+              "maintenance_requirement",
+              "problems"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "account",
+          "account_hash",
+          "symbol",
+          "asset_type",
+          "quantity",
+          "average_price",
+          "value",
+          "cost",
+          "open_pl",
+          "account_weight",
+          "portfolio_weight",
+          "description"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "accounts": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "account_hash": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nickname": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "value": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "positions": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "positions_value": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "positions_cost": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "open_pl": {
+            "type": [
+              "null",
+              "number"
+            ]
+          }
+        },
+        "required": [
+          "account",
+          "account_hash",
+          "nickname",
+          "value",
+          "positions",
+          "positions_value",
+          "positions_cost",
+          "open_pl"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "total": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "positions_value": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "positions_cost": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "open_pl": {
+          "type": [
+            "null",
+            "number"
+          ]
+        }
+      },
+      "required": [
+        "value",
+        "positions_value",
+        "positions_cost",
+        "open_pl"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "source",
+    "as_of",
+    "warnings",
+    "next_cursor",
+    "complete",
+    "positions",
+    "accounts",
+    "total"
+  ],
+  "additionalProperties": false
+}

@@ -6,17 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"strings"
 	"time"
 
+	"github.com/dterei/schwab-mcp/internal/lookup"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
-
-// expiryWarningWindow is how long before the login lapses the tools start to
-// warn. Two days, so that a snapshot scheduled once a day warns at least a
-// day ahead, whatever the time of day of the login.
-const expiryWarningWindow = 48 * time.Hour
 
 // newAuth returns the login for cfg, kept in cfg.TokenFile and shared with
 // any other process using that file. Its warnings go to stderr.
@@ -55,19 +50,18 @@ func openLogin(cfg config, stderr io.Writer) (*schwab.Auth, error) {
 // hint adds to an error from the login or the API what to do about it.
 func hint(err error) error {
 	var what string
-	se, fromSchwab := errors.AsType[*schwab.Error](err)
-	switch {
-	case errors.Is(err, schwab.ErrNotLoggedIn):
+	switch lookup.Classify(err) {
+	case lookup.NotLoggedIn:
 		what = "run `schwabtx login` first"
-	case errors.Is(err, schwab.ErrLoginExpired):
+	case lookup.LoginExpired:
 		what = "run `schwabtx login` again (Schwab ends a login after 7 days, or sooner when you log in elsewhere)"
-	case errors.Is(err, schwab.ErrAppRejected):
+	case lookup.AppRejected:
 		what = `check SCHWAB_APP_KEY and SCHWAB_APP_SECRET, and that the app is "Ready For Use"`
-	case errors.Is(err, schwab.ErrRateLimited):
+	case lookup.RateLimited:
 		what = "Schwab is limiting requests from your app key, counting every program that uses it; wait a minute and try again"
-	case fromSchwab && se.Status == http.StatusInternalServerError && strings.Contains(se.Body, "Whitelabel Error Page"):
+	case lookup.AppNotReady:
 		what = `Schwab answers this way until the app says "Ready For Use" on developer.schwab.com, and for an account type its API does not serve`
-	case fromSchwab && se.Status == http.StatusForbidden && se.Reference != "":
+	case lookup.EdgeRefused:
 		// Akamai's other pages, such as a 503, mean that Schwab's servers did
 		// not answer it, which the message says without a hint.
 		what = "Schwab's network turned the request away; that usually passes within hours, and if it does not, write to traderapi@schwab.com with the reference"
@@ -88,17 +82,14 @@ func (h *hinted) Error() string { return h.err.Error() + "; " + h.hint }
 func (h *hinted) Unwrap() error { return h.err }
 
 // expiryWarning returns a message when the login, which lapses at expiresAt,
-// is due for renewal within expiryWarningWindow.
+// is due for renewal within lookup.ExpiryWarningWindow.
 func expiryWarning(expiresAt time.Time) string {
-	if expiresAt.IsZero() {
-		return ""
-	}
-	left := expiresAt.Sub(timeNow())
-	if left <= 0 || left > expiryWarningWindow {
+	left, soon := lookup.ExpiresIn(expiresAt, timeNow())
+	if !soon {
 		return ""
 	}
 	when := "in less than an hour"
-	if hours := int(left.Round(time.Hour) / time.Hour); hours == 1 {
+	if hours := int(left / time.Hour); hours == 1 {
 		when = "in about an hour"
 	} else if hours > 1 {
 		when = fmt.Sprintf("in about %d hours", hours)

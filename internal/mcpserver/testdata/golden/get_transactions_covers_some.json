@@ -1,0 +1,84 @@
+{
+  "source": "schwab",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [
+    {
+      "code": "store_covers_some",
+      "message": "...135 was read from Schwab: the local history holds some of these days, but not every one as whole history."
+    },
+    {
+      "code": "empty_not_proof",
+      "message": "Schwab sent no transactions of ...135 from 2024-07-01 to 2024-12-29, which does not show that there were none: Schwab may not serve that far back."
+    },
+    {
+      "code": "before_decisions",
+      "message": "Rows of ...135 come from Schwab, with the rules' category, before the user's decisions and the store's pairing."
+    }
+  ],
+  "next_cursor": null,
+  "complete": true,
+  "cut": [],
+  "transactions": [
+    {
+      "ref": "T73508261943",
+      "read_from": "schwab",
+      "row_kind": "api",
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "date": "2025-06-02",
+      "time": "2025-06-02T10:30:27-04:00",
+      "type": "TRADE",
+      "action": null,
+      "status": "VALID",
+      "category": "buy",
+      "symbol": "AAPL",
+      "quantity": 3,
+      "price": 201.82,
+      "amount": -605.46,
+      "fees": 0.00,
+      "description": null,
+      "counted": null,
+      "counted_why": null,
+      "flags": []
+    }
+  ],
+  "totals": [
+    {
+      "category": "buy",
+      "count": 1,
+      "amount": -605.46,
+      "fees": 0.00
+    }
+  ],
+  "coverage": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "nickname": "Individual",
+      "store_ref": "A1",
+      "read_from": "schwab",
+      "asked": {
+        "from": "2024-07-01",
+        "to": "2025-06-30"
+      },
+      "whole": [
+        {
+          "from": "2024-12-30",
+          "to": "2025-06-30"
+        }
+      ],
+      "partial": [
+        {
+          "source": "api",
+          "from": "2024-07-01",
+          "to": "2024-12-30"
+        }
+      ],
+      "waiting": null,
+      "last_read": null,
+      "reached_back": "2024-07-01",
+      "rows": 1,
+      "error": null
+    }
+  ]
+}

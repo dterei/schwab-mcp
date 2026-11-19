@@ -59,8 +59,9 @@ func listing(t *testing.T, dir string) []string {
 }
 
 // A new store is made readable only by you, its -wal and -shm too, in a
-// directory readable only by you; a store that others can read is made
-// private once Open has seen that it is a store, and says so.
+// directory readable only by you; a store that others can read, its group
+// or anyone, by any of its three files, is made private once Open has seen
+// that it is a store, and says so once.
 func TestOpenMakesItPrivate(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -108,6 +109,34 @@ func TestOpenMakesItPrivate(t *testing.T) {
 			t.Errorf("Open warned %q, want %q", got, want)
 		}
 	})
+	// A database that its group can read, and a -wal or a -shm alone that
+	// anyone can, beside a writer that holds the store open (holdOpen).
+	for _, tc := range []struct {
+		file string
+		mode fs.FileMode
+	}{{"", 0o640}, {"-wal", 0o604}, {"-shm", 0o604}} {
+		t.Run("history.db"+tc.file+" of mode "+tc.mode.String(), func(t *testing.T) {
+			t.Parallel()
+			path := copyTemplate(t)
+			holdOpen(t, path)
+			if err := os.Chmod(path+tc.file, tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			var w warnings
+			s, err := Open(t.Context(), Options{Path: path, Now: fixedNow, Warn: w.warn})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { s.Close() })
+			if m := mode(t, path+tc.file); m != 0o600 {
+				t.Errorf("history.db%s has mode %v, want 0600", tc.file, m)
+			}
+			want := []string{path + " could be read by others; it is now readable only by you"}
+			if got := w.all(); !slices.Equal(got, want) {
+				t.Errorf("Open warned %q, want %q", got, want)
+			}
+		})
+	}
 }
 
 // A store whose path holds what a file: URI would read as its own (#, %, a
@@ -660,7 +689,10 @@ func TestNestedWritePanics(t *testing.T) {
 // Each connection has the settings that keep the store whole: commits and
 // checkpoints flushed to the drive (fullfsync matters on macOS), foreign
 // keys checked, no function of the schema trusted, a bounded -wal on the
-// writer, and readers that cannot write.
+// writer, and readers that cannot write. None makes the store's database,
+// which Open makes, private, before any connection when the store is new:
+// once the store's files are gone, a connection that the writer's pool or
+// the readers' opens fails, and makes no file in their place.
 func TestConnectionSettings(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Options{})
@@ -693,6 +725,30 @@ func TestConnectionSettings(t *testing.T) {
 	}{"writer": {s.w, writer}, "reader": {s.r, reader}} {
 		if got := pragmas(c.db, slices.Collect(maps.Keys(c.want))...); !maps.Equal(got, c.want) {
 			t.Errorf("the %s's settings are %v, want %v", name, got, c.want)
+		}
+	}
+
+	files := []string{s.Path(), s.Path() + "-wal", s.Path() + "-shm"}
+	for _, db := range []*sql.DB{s.w, s.r} {
+		db.SetMaxIdleConns(0) // the idle connections close
+	}
+	for _, c := range []struct {
+		name string
+		db   *sql.DB
+	}{{"writer", s.w}, {"reader", s.r}} {
+		for _, f := range files {
+			if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatal(err)
+			}
+		}
+		if conn, err := c.db.Conn(t.Context()); err == nil {
+			conn.Close()
+			t.Errorf("the %s connected to a store whose files are gone", c.name)
+		}
+		for _, f := range files {
+			if _, err := os.Lstat(f); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("the %s made %s: %v", c.name, filepath.Base(f), err)
+			}
 		}
 	}
 }

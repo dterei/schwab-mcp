@@ -1,0 +1,153 @@
+{
+  "source": "schwab+store",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [
+    {
+      "code": "store_waiting",
+      "message": "2 rows of ...398 in these days wait for the user's decision and are not counted; `schwabtx status -review` lists them."
+    },
+    {
+      "code": "before_decisions",
+      "message": "Rows of ...135 come from Schwab, with the rules' category, before the user's decisions and the store's pairing."
+    }
+  ],
+  "next_cursor": "eyJ2IjoxLCJ0IjoiZ2V0X3RyYW5zYWN0aW9ucyIsImYiOiI0YjgwZThjMzRkM2ZmMWJhIiwiayI6WyIyMDI1LTEwLTAxIiwiMjAyNS0xMC0wMVQxNDo0MDowMC4wMDBaIiwiVDczNTA4MjYyMTAxIiwiNzQyQzUxQjU0NDY1NUI4NUY0MTIyNDAxOUE4MkNEN0FCM0M2QkFCREI2N0JGODA1MzFFODJCMzA2Q0I1RjY5MSJdfQ",
+  "complete": true,
+  "cut": [],
+  "transactions": [
+    {
+      "ref": "T73508262002",
+      "read_from": "store",
+      "row_kind": "api",
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "date": "2025-11-20",
+      "time": "2025-11-20T10:31:00-05:00",
+      "type": "TRADE",
+      "action": null,
+      "status": "VALID",
+      "category": "buy",
+      "symbol": "XYZ",
+      "quantity": 2,
+      "price": 25.00,
+      "amount": -50.65,
+      "fees": 0.65,
+      "description": null,
+      "counted": true,
+      "counted_why": "api",
+      "flags": []
+    },
+    {
+      "ref": "T73508262101",
+      "read_from": "schwab",
+      "row_kind": "api",
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "date": "2025-10-01",
+      "time": "2025-10-01T10:40:00-04:00",
+      "type": "DIVIDEND_OR_INTEREST",
+      "action": null,
+      "status": "VALID",
+      "category": "dividend",
+      "symbol": "BND",
+      "quantity": null,
+      "price": null,
+      "amount": 98.12,
+      "fees": 0.00,
+      "description": "Ordinary Dividend~BND",
+      "counted": null,
+      "counted_why": null,
+      "flags": []
+    }
+  ],
+  "totals": [
+    {
+      "category": "buy",
+      "count": 3,
+      "amount": -856.76,
+      "fees": 1.30
+    },
+    {
+      "category": "dividend",
+      "count": 3,
+      "amount": 198.48,
+      "fees": 0.00
+    }
+  ],
+  "coverage": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "nickname": "Individual",
+      "store_ref": "A1",
+      "read_from": "schwab",
+      "asked": {
+        "from": "2025-01-01",
+        "to": "2025-12-31"
+      },
+      "whole": [
+        {
+          "from": "2025-01-01",
+          "to": "2025-12-31"
+        }
+      ],
+      "partial": [],
+      "waiting": null,
+      "last_read": null,
+      "reached_back": "2025-01-01",
+      "rows": 2,
+      "error": null
+    },
+    {
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "nickname": "Options & Margin",
+      "store_ref": "A2",
+      "read_from": "store",
+      "asked": {
+        "from": "2025-01-01",
+        "to": "2025-12-31"
+      },
+      "whole": [
+        {
+          "from": "2025-01-01",
+          "to": "2025-12-31"
+        }
+      ],
+      "partial": [],
+      "waiting": {
+        "held_out": 2,
+        "uncertain": 0,
+        "attention": 0,
+        "filtered": 0
+      },
+      "last_read": "2026-01-05T19:11:01-05:00",
+      "reached_back": null,
+      "rows": 4,
+      "error": null
+    },
+    {
+      "account": "...783",
+      "account_hash": "8C2F1DD750834DC72D2B65A2497B6A003E30CF6559B79586433150D303FDC9DA",
+      "nickname": "Contributory",
+      "store_ref": "A3",
+      "read_from": "schwab",
+      "asked": {
+        "from": "2025-01-01",
+        "to": "2025-12-31"
+      },
+      "whole": [
+        {
+          "from": "2025-01-01",
+          "to": "2025-12-31"
+        }
+      ],
+      "partial": [],
+      "waiting": null,
+      "last_read": null,
+      "reached_back": "2025-01-01",
+      "rows": 0,
+      "error": null
+    }
+  ]
+}

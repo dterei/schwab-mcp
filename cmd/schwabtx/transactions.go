@@ -6,41 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/dterei/schwab-mcp/internal/lookup"
 	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
-
-// when returns when tx happened, for ordering: its time, or else its trade
-// date.
-func when(tx schwab.Transaction) time.Time {
-	if !tx.Time.IsZero() {
-		return tx.Time
-	}
-	return tx.TradeDate
-}
-
-// primaryItem returns the security leg of a transaction, skipping fee and
-// cash legs. ok is false when there isn't one (a dividend paid in cash, say).
-func primaryItem(tx schwab.Transaction) (item schwab.TransferItem, ok bool) {
-	for _, it := range tx.TransferItems {
-		if it.FeeType == "" && it.Instrument.AssetType != schwab.AssetCurrency && it.Instrument.Symbol != "" {
-			return it, true
-		}
-	}
-	return schwab.TransferItem{}, false
-}
-
-// key identifies tx among the transactions of one account.
-func key(tx schwab.Transaction) string {
-	if tx.ActivityID != 0 {
-		return strconv.FormatInt(tx.ActivityID, 10)
-	}
-	return string(tx.Raw)
-}
 
 type fetchOptions struct {
 	N        int
@@ -66,7 +38,7 @@ func fetchRecent(ctx context.Context, c *client, accounts []schwab.AccountNumber
 	}
 
 	sort.SliceStable(all, func(i, j int) bool {
-		if a, b := when(all[i]), when(all[j]); !a.Equal(b) {
+		if a, b := lookup.When(all[i]), lookup.When(all[j]); !a.Equal(b) {
 			return a.After(b)
 		}
 		return all[i].ActivityID > all[j].ActivityID
@@ -111,7 +83,7 @@ func fetchAccount(ctx context.Context, c *client, acct schwab.AccountNumber, opt
 		}
 		// Adjacent windows share a boundary instant, so drop repeats.
 		for _, tx := range txs {
-			if k := key(tx); !seen[k] {
+			if k := lookup.Key(tx); !seen[k] {
 				seen[k] = true
 				if tx.AccountNumber == "" {
 					tx.AccountNumber = acct.AccountNumber
@@ -167,27 +139,13 @@ func problemsWarning(noun string, problems [][]schwab.Problem) string {
 }
 
 // problemPlaces returns how many of the records have problems, and names
-// the first few places, with one problem each, since one change at Schwab
-// tends to repeat on every record.
+// the first few places, with one problem each, that lookup.ProblemPlaces
+// gives.
 func problemPlaces(problems [][]schwab.Problem) (records int, places string) {
-	var first []schwab.Problem
-	seen := map[string]bool{}
-	for _, ps := range problems {
-		if len(ps) > 0 {
-			records++
-		}
-		for _, p := range ps {
-			if !seen[p.Path] {
-				seen[p.Path] = true
-				first = append(first, p)
-			}
-		}
-	}
-	const show = 3
+	records, first, n := lookup.ProblemPlaces(problems)
 	more := ""
-	if len(first) > show {
-		more = fmt.Sprintf("; and %d more", len(first)-show)
-		first = first[:show]
+	if n > 0 {
+		more = fmt.Sprintf("; and %d more", n)
 	}
 	described := make([]string, len(first))
 	for i, p := range first {

@@ -1,0 +1,35 @@
+{
+  "source": "schwab",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [
+    {
+      "code": "extended_hours",
+      "message": "Values are as of now, outside the regular session, at extended-hours prices."
+    },
+    {
+      "code": "figures_missing",
+      "message": "Schwab sent no current value for ...783 (Contributory), so the weights that need it are null."
+    }
+  ],
+  "next_cursor": null,
+  "complete": true,
+  "positions": [],
+  "accounts": [
+    {
+      "account": "...783",
+      "account_hash": "8C2F1DD750834DC72D2B65A2497B6A003E30CF6559B79586433150D303FDC9DA",
+      "nickname": "Contributory",
+      "value": null,
+      "positions": 0,
+      "positions_value": 0.00,
+      "positions_cost": 0.00,
+      "open_pl": 0.00
+    }
+  ],
+  "total": {
+    "value": null,
+    "positions_value": 0.00,
+    "positions_cost": 0.00,
+    "open_pl": 0.00
+  }
+}

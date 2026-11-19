@@ -63,6 +63,23 @@ jobs:
       - name: Check the shell scripts
         run: shellcheck cmd/schwabtx/schedule/*.sh
 
+  # A client built on the TypeScript MCP SDK compiles the output schema of
+  # every tool with Ajv as it lists the tools, and one schema that Ajv cannot
+  # compile costs it every tool of the server. This compiles each schema the
+  # MCP server serves, from the goldens that TestSchemaGoldens holds to what
+  # it serves, with Ajv set up as that SDK sets it up (scripts/ajvcheck).
+  schemas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Node and npm come with the Ubuntu runner. package-lock.json pins Ajv
+      # and ajv-formats, with their integrity.
+      - name: Install Ajv
+        working-directory: scripts/ajvcheck
+        run: npm ci --ignore-scripts
+      - name: Compile the MCP server's schemas with Ajv
+        run: node scripts/ajvcheck/check.mjs internal/mcpserver/testdata/schemas/*.json
+
   govulncheck:
     runs-on: ubuntu-latest
     steps:

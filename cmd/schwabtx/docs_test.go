@@ -86,6 +86,26 @@ func readmeSection(t *testing.T, readme, heading string) string {
 	return rest
 }
 
+// fencedBlocks returns the contents of the fenced code blocks of s, those
+// whose opening ``` has an info string, such as json, too.
+func fencedBlocks(s string) []string {
+	var blocks []string
+	var block strings.Builder
+	in := false
+	for line := range strings.Lines(s) {
+		switch {
+		case strings.HasPrefix(line, "```") && in:
+			blocks, in = append(blocks, block.String()), false
+			block.Reset()
+		case strings.HasPrefix(line, "```"):
+			in = true
+		case in:
+			block.WriteString(line)
+		}
+	}
+	return blocks
+}
+
 // codeBlocks returns the contents of the fenced code blocks in s.
 func codeBlocks(s string) []string {
 	var blocks []string

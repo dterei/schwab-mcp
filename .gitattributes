@@ -6,3 +6,6 @@ internal/schwab/schwabtest/testdata/** -text
 # schwabfile's fixtures are schwab.com's files as written, byte order marks,
 # line ends and Windows-1252 included, which a checkout must not change.
 internal/history/schwabfile/testdata/** -text
+# The MCP server's goldens are what it serves, byte for byte: its schemas,
+# which CI's schemas job compiles, and its answers.
+internal/mcpserver/testdata/** -text

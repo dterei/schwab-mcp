@@ -1,0 +1,29 @@
+{
+  "source": "local",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [],
+  "logged_in": false,
+  "login_at": null,
+  "expires_at": null,
+  "hours_left": null,
+  "expires_soon": false,
+  "refused": false,
+  "app_configured": false,
+  "app_from": null,
+  "api_host": "api.schwabapi.com",
+  "config_file": null,
+  "config_problems": [],
+  "token_file": "~/.config/schwabtx/token.json",
+  "token_file_from": "default",
+  "rate_file": null,
+  "rate_file_from": null,
+  "store": {
+    "file": "~/.config/schwabtx/history.db",
+    "from": "default",
+    "exists": false,
+    "usable": false,
+    "problem": "no_store",
+    "waiting": null
+  },
+  "action": "The server has no Schwab app key and secret. Ask the user to run `schwabtx setup` in their own terminal and to start this server with `--config` and the path it prints (docs/mcp.md)."
+}

@@ -157,6 +157,10 @@ func TestViewsHoldNoAccountNumber(t *testing.T) {
 	if len(numbers) < 6 {
 		t.Fatalf("the store holds the accounts %d numbers, too few", len(numbers)-2)
 	}
+	// A Reader's reads hold what the views hold: none but AccountNumbers
+	// returns a value that holds an account number, stored or planted.
+	readerHoldsNoNumber(t, s, numbers)
+
 	views := storeStrings(t, s, "SELECT name FROM sqlite_schema WHERE type = 'view' ORDER BY name")
 	kinds := map[[2]string]viewColumn{}
 	for _, c := range viewColumns {

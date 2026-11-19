@@ -1,0 +1,69 @@
+{
+  "source": "store",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [
+    {
+      "code": "api_unavailable",
+      "message": "Schwab did not send the transaction, so this is the local history's row of it: [not_logged_in] There is no Schwab login at ~/.config/schwabtx/token.json (from config.json). Ask the user to run `schwabtx login` in their own terminal, then call again; do not run it yourself, it needs their browser. If schwabtx already works in their terminal, it keeps its login elsewhere: ask them to run `schwabtx setup` there, which saves the paths it uses, and to restart this server."
+    }
+  ],
+  "cut": [],
+  "transaction": {
+    "ref": "T73508261946",
+    "read_from": "store",
+    "row_kind": "api",
+    "account": "...135",
+    "account_hash": null,
+    "date": "2024-04-04",
+    "time": "2024-04-04T11:56:07-04:00",
+    "type": "TRADE",
+    "action": null,
+    "status": "VALID",
+    "category": "buy",
+    "symbol": "BND",
+    "quantity": 0.0378,
+    "price": 71.42857,
+    "amount": -2.70,
+    "fees": 0.00,
+    "description": "Dividend Reinvest",
+    "counted": true,
+    "counted_why": "api",
+    "flags": [],
+    "detail": {
+      "settlement_date": null,
+      "order_id": null,
+      "sub_account": null,
+      "pair_kind": null,
+      "pair_ref": null,
+      "matched_with": [],
+      "problems": [],
+      "legs": [
+        {
+          "asset_type": "COLLECTIVE_INVESTMENT",
+          "symbol": "BND",
+          "description": null,
+          "quantity": 0.0378,
+          "price": 71.42857,
+          "cost": -2.70,
+          "cash": null,
+          "fee_type": null,
+          "position_effect": "OPENING",
+          "put_call": null,
+          "strike": null,
+          "expiration": null
+        }
+      ]
+    }
+  },
+  "store": {
+    "counted": true,
+    "counted_why": "api",
+    "category": "buy",
+    "category_rule": "trade.reinvest",
+    "pair_kind": null,
+    "pair_ref": null,
+    "matched_with": [],
+    "flags": []
+  },
+  "raw": null
+}

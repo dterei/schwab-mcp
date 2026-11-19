@@ -132,30 +132,8 @@ func apiEntries(in accountInputs, gone map[int64]int64, revisions map[int64]int,
 		if !t.time.IsZero() {
 			e.time = sql.NullString{String: instant(t.time), Valid: true}
 		}
-		e.amount = t.net
-		var sec []legInput
-		for _, l := range t.legs {
-			if l.isSecurity() {
-				sec = append(sec, l)
-			}
-		}
-		e.fees = sql.NullInt64{Valid: true}
-		if len(sec) > 0 {
-			for _, l := range t.legs {
-				if !l.isSecurity() {
-					e.fees = addCents(e.fees, sql.NullInt64{Int64: -l.costCents.Int64, Valid: l.costCents.Valid})
-				}
-			}
-		}
-		e.gross = addCents(e.amount, e.fees)
-		sym, hasSym := schwab.SymbolAfterTilde(t.text)
-		if len(sec) == 1 {
-			e.quantity, e.price = sec[0].amountMicros, sec[0].price
-			e.symbol = nullString(sec[0].symbol)
-		}
-		if !e.symbol.Valid && hasSym {
-			e.symbol = nullString(sym)
-		}
+		f := apiEntryFields(t)
+		e.amount, e.fees, e.gross, e.quantity, e.price, e.symbol = f.amount, f.fees, f.gross, f.quantity, f.price, f.symbol
 		var decided sql.NullInt64
 		if d, ok := latest[[2]string{"entry_security", e.subject}]; ok {
 			if id, ok := in.keySecurities[strings.TrimPrefix(d.value, "k:")]; ok {
@@ -168,43 +146,13 @@ func apiEntries(in accountInputs, gone map[int64]int64, revisions map[int64]int,
 			e.flags.add(how.code, how.detail)
 		}
 
-		cl := classifyAPI(classOf(t.typ, t.status, t.text, t.net, t.legs))
-		e.family, e.category, e.rule = cl.family, cl.category, cl.rule
-		for _, f := range cl.flags {
-			e.flags.add(f.code, f.detail)
+		e.family, e.category, e.rule = f.family, f.category, f.rule
+		for _, fl := range f.flags {
+			e.flags.add(fl.code, fl.detail)
 		}
 		if d, ok := latest[[2]string{"category", e.subject}]; ok {
 			e.category, e.rule, e.userCategory = d.value, "user", true
 			e.flags.drop(answeredByCategory...)
-		}
-
-		legsCheck(&e.flags, t)
-		for _, p := range t.problems {
-			switch p.Flag {
-			case "":
-				e.flags.add("problems", p.Path)
-			default:
-				where := p.Path
-				if p.Leg != nil {
-					where = strings.Replace(p.Path, ".", "["+strconv.Itoa(*p.Leg)+"].", 1)
-				}
-				e.flags.add(p.Flag, where+" "+p.Value)
-			}
-		}
-		if t.status != string(schwab.TransactionStatusValid) {
-			e.flags.add("status", cmp.Or(t.status, "none"))
-		}
-		switch t.idSource {
-		case "none":
-			e.flags.add("no_activity_id", "")
-		case "string":
-			e.flags.add("activity_id_text", "")
-		}
-		if t.numberSent != "" {
-			e.flags.add("account_mismatch", "the row names "+t.numberSent)
-		}
-		if t.duplicate {
-			e.flags.add("duplicate_in_answer", "")
 		}
 		if revisions[t.id] > 1 {
 			e.flags.add("revised", strings.Join(changedSince(t), ", "))
@@ -244,6 +192,89 @@ func apiEntries(in accountInputs, gone map[int64]int64, revisions map[int64]int,
 	}
 	slices.SortFunc(entries, func(a, b ledgerEntry) int { return cmp.Compare(a.ref, b.ref) })
 	return entries
+}
+
+// apiFields are what the ledger derives from an API transaction by itself,
+// without the rest of the store's evidence or your decisions: its amount,
+// fees, gross amount, quantity, price and symbol (13.1 of the design), and
+// the rules' classification (13.3) and flags.
+type apiFields struct {
+	amount, fees, gross sql.NullInt64
+	quantity            sql.NullInt64
+	price               sql.NullFloat64
+	symbol              sql.NullString
+	family              string
+	category, rule      string
+	flags               flagSet
+}
+
+// apiEntryFields returns what the ledger derives from t by itself, which
+// apiEntries and DeriveAPIEntries share: the fees are minus the cost of
+// the legs that are not of a security when the transaction has a leg of
+// one, else 0; the quantity, the price and the symbol are its one security
+// leg's, the symbol else the one after its description's tilde; the rules
+// classify it; and it is flagged for its legs' cash, the numbers the store
+// rounded or could not keep, the record's problems, a status other than
+// VALID, how its activity ID came, an account number of another account,
+// and an answer that held it twice.
+func apiEntryFields(t txnInput) apiFields {
+	f := apiFields{amount: t.net}
+	var sec []legInput
+	for _, l := range t.legs {
+		if l.isSecurity() {
+			sec = append(sec, l)
+		}
+	}
+	f.fees = sql.NullInt64{Valid: true}
+	if len(sec) > 0 {
+		for _, l := range t.legs {
+			if !l.isSecurity() {
+				f.fees = addCents(f.fees, sql.NullInt64{Int64: -l.costCents.Int64, Valid: l.costCents.Valid})
+			}
+		}
+	}
+	f.gross = addCents(f.amount, f.fees)
+	sym, hasSym := schwab.SymbolAfterTilde(t.text)
+	if len(sec) == 1 {
+		f.quantity, f.price = sec[0].amountMicros, sec[0].price
+		f.symbol = nullString(sec[0].symbol)
+	}
+	if !f.symbol.Valid && hasSym {
+		f.symbol = nullString(sym)
+	}
+
+	cl := classifyAPI(classOf(t.typ, t.status, t.text, t.net, t.legs))
+	f.family, f.category, f.rule = cl.family, cl.category, cl.rule
+	f.flags = cl.flags
+	legsCheck(&f.flags, t)
+	for _, p := range t.problems {
+		switch p.Flag {
+		case "":
+			f.flags.add("problems", p.Path)
+		default:
+			where := p.Path
+			if p.Leg != nil {
+				where = strings.Replace(p.Path, ".", "["+strconv.Itoa(*p.Leg)+"].", 1)
+			}
+			f.flags.add(p.Flag, where+" "+p.Value)
+		}
+	}
+	if t.status != string(schwab.TransactionStatusValid) {
+		f.flags.add("status", cmp.Or(t.status, "none"))
+	}
+	switch t.idSource {
+	case "none":
+		f.flags.add("no_activity_id", "")
+	case "string":
+		f.flags.add("activity_id_text", "")
+	}
+	if t.numberSent != "" {
+		f.flags.add("account_mismatch", "the row names "+t.numberSent)
+	}
+	if t.duplicate {
+		f.flags.add("duplicate_in_answer", "")
+	}
+	return f
 }
 
 // A txnRef is the ref and the subject of an API transaction.

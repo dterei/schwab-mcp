@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "description": "One account: its account_hash (from list_accounts), the last 3 or more digits of its number (135 or ...135), its store ref (A1) or its nickname; every account when left out.",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "symbol": {
+      "type": "string",
+      "description": "One symbol, in any case: the positions whose symbol or underlying is it, such as a stock and its options.",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "detail": {
+      "type": "string",
+      "description": "compact (the default) or full, which adds fields.",
+      "enum": [
+        "compact",
+        "full"
+      ]
+    },
+    "limit": {
+      "type": "integer",
+      "description": "The most positions a page holds, 1 to 200; 100 when left out.",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "cursor": {
+      "type": "string",
+      "description": "next_cursor from the previous page, with the same other arguments.",
+      "minLength": 1,
+      "maxLength": 512
+    }
+  },
+  "additionalProperties": false
+}

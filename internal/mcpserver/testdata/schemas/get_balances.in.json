@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "description": "One account: its account_hash (from list_accounts), the last 3 or more digits of its number (135 or ...135), its store ref (A1) or its nickname; every account when left out.",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "detail": {
+      "type": "string",
+      "description": "compact (the default) or full, which adds fields.",
+      "enum": [
+        "compact",
+        "full"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,172 @@
+{
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "warnings": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "logged_in": {
+      "type": "boolean"
+    },
+    "login_at": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "expires_at": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "hours_left": {
+      "type": [
+        "null",
+        "integer"
+      ]
+    },
+    "expires_soon": {
+      "type": "boolean"
+    },
+    "refused": {
+      "type": "boolean"
+    },
+    "app_configured": {
+      "type": "boolean"
+    },
+    "app_from": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "api_host": {
+      "type": "string"
+    },
+    "config_file": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "config_problems": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "token_file": {
+      "type": "string"
+    },
+    "token_file_from": {
+      "type": "string"
+    },
+    "rate_file": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "rate_file_from": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "store": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "usable": {
+          "type": "boolean"
+        },
+        "problem": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "waiting": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        }
+      },
+      "required": [
+        "file",
+        "from",
+        "exists",
+        "usable",
+        "problem",
+        "waiting"
+      ],
+      "additionalProperties": false
+    },
+    "action": {
+      "type": [
+        "null",
+        "string"
+      ]
+    }
+  },
+  "required": [
+    "source",
+    "as_of",
+    "warnings",
+    "logged_in",
+    "login_at",
+    "expires_at",
+    "hours_left",
+    "expires_soon",
+    "refused",
+    "app_configured",
+    "app_from",
+    "api_host",
+    "config_file",
+    "config_problems",
+    "token_file",
+    "token_file_from",
+    "rate_file",
+    "rate_file_from",
+    "store",
+    "action"
+  ],
+  "additionalProperties": false
+}

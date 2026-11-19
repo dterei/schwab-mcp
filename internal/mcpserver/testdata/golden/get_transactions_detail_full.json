@@ -1,0 +1,483 @@
+{
+  "source": "schwab+store",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [
+    {
+      "code": "store_waiting",
+      "message": "2 rows of ...398 in these days wait for the user's decision and are not counted; `schwabtx status -review` lists them."
+    },
+    {
+      "code": "before_decisions",
+      "message": "Rows of ...135 come from Schwab, with the rules' category, before the user's decisions and the store's pairing."
+    }
+  ],
+  "next_cursor": null,
+  "complete": true,
+  "cut": [],
+  "transactions": [
+    {
+      "ref": "T73508262002",
+      "read_from": "store",
+      "row_kind": "api",
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "date": "2025-11-20",
+      "time": "2025-11-20T10:31:00-05:00",
+      "type": "TRADE",
+      "action": null,
+      "status": "VALID",
+      "category": "buy",
+      "symbol": "XYZ",
+      "quantity": 2,
+      "price": 25.00,
+      "amount": -50.65,
+      "fees": 0.65,
+      "description": null,
+      "counted": true,
+      "counted_why": "api",
+      "flags": [],
+      "detail": {
+        "settlement_date": null,
+        "order_id": null,
+        "sub_account": null,
+        "pair_kind": null,
+        "pair_ref": null,
+        "matched_with": [
+          "C2cdf9679.6"
+        ],
+        "problems": [],
+        "legs": [
+          {
+            "asset_type": "CURRENCY",
+            "symbol": "CURRENCY_USD",
+            "description": null,
+            "quantity": null,
+            "price": null,
+            "cost": -0.65,
+            "cash": 0.65,
+            "fee_type": "COMMISSION",
+            "position_effect": null,
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          },
+          {
+            "asset_type": "EQUITY",
+            "symbol": "XYZ",
+            "description": null,
+            "quantity": 2,
+            "price": 25.00,
+            "cost": -50.00,
+            "cash": null,
+            "fee_type": null,
+            "position_effect": "OPENING",
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          }
+        ]
+      }
+    },
+    {
+      "ref": "C2cdf9679.6",
+      "read_from": "store",
+      "row_kind": "file",
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "date": "2025-11-20",
+      "time": null,
+      "type": null,
+      "action": "Buy",
+      "status": null,
+      "category": "buy",
+      "symbol": "XYZ",
+      "quantity": 2,
+      "price": 25.00,
+      "amount": -50.65,
+      "fees": 0.65,
+      "description": "XYZ CORP",
+      "counted": false,
+      "counted_why": "linked",
+      "flags": [],
+      "detail": {
+        "settlement_date": null,
+        "order_id": null,
+        "sub_account": null,
+        "pair_kind": null,
+        "pair_ref": null,
+        "matched_with": [
+          "T73508262002"
+        ],
+        "problems": [],
+        "legs": [
+          {
+            "asset_type": "EQUITY",
+            "symbol": "XYZ",
+            "description": null,
+            "quantity": 2,
+            "price": 25.00,
+            "cost": -50.00,
+            "cash": null,
+            "fee_type": null,
+            "position_effect": null,
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          },
+          {
+            "asset_type": "CURRENCY",
+            "symbol": null,
+            "description": null,
+            "quantity": null,
+            "price": null,
+            "cost": -0.65,
+            "cash": 0.65,
+            "fee_type": null,
+            "position_effect": null,
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          }
+        ]
+      }
+    },
+    {
+      "ref": "T73508262101",
+      "read_from": "schwab",
+      "row_kind": "api",
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "date": "2025-10-01",
+      "time": "2025-10-01T10:40:00-04:00",
+      "type": "DIVIDEND_OR_INTEREST",
+      "action": null,
+      "status": "VALID",
+      "category": "dividend",
+      "symbol": "BND",
+      "quantity": null,
+      "price": null,
+      "amount": 98.12,
+      "fees": 0.00,
+      "description": "Ordinary Dividend~BND",
+      "counted": null,
+      "counted_why": null,
+      "flags": [],
+      "detail": {
+        "settlement_date": null,
+        "order_id": null,
+        "sub_account": "CASH",
+        "pair_kind": null,
+        "pair_ref": null,
+        "matched_with": [],
+        "problems": [],
+        "legs": [
+          {
+            "asset_type": "CURRENCY",
+            "symbol": "CURRENCY_USD",
+            "description": "USD currency",
+            "quantity": null,
+            "price": null,
+            "cost": 0.00,
+            "cash": 98.12,
+            "fee_type": null,
+            "position_effect": null,
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          }
+        ]
+      }
+    },
+    {
+      "ref": "C2cdf9679.5",
+      "read_from": "store",
+      "row_kind": "file",
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "date": "2025-10-01",
+      "time": null,
+      "type": null,
+      "action": "Credit Interest",
+      "status": null,
+      "category": "interest",
+      "symbol": null,
+      "quantity": null,
+      "price": null,
+      "amount": 0.07,
+      "fees": 0.00,
+      "description": "SCHWAB1 INT 09/01-09/30",
+      "counted": false,
+      "counted_why": "held_out",
+      "flags": [
+        "held_out"
+      ],
+      "detail": {
+        "settlement_date": null,
+        "order_id": null,
+        "sub_account": null,
+        "pair_kind": null,
+        "pair_ref": null,
+        "matched_with": [],
+        "problems": [],
+        "legs": [
+          {
+            "asset_type": "CURRENCY",
+            "symbol": null,
+            "description": null,
+            "quantity": null,
+            "price": null,
+            "cost": 0.00,
+            "cash": 0.07,
+            "fee_type": null,
+            "position_effect": null,
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          }
+        ]
+      }
+    },
+    {
+      "ref": "C2cdf9679.4",
+      "read_from": "store",
+      "row_kind": "file",
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "date": "2025-06-16",
+      "time": null,
+      "type": null,
+      "action": "Qualified Dividend",
+      "status": null,
+      "category": "dividend",
+      "symbol": "XYZ",
+      "quantity": null,
+      "price": null,
+      "amount": 4.00,
+      "fees": 0.00,
+      "description": "XYZ CORP",
+      "counted": false,
+      "counted_why": "held_out",
+      "flags": [
+        "held_out"
+      ],
+      "detail": {
+        "settlement_date": null,
+        "order_id": null,
+        "sub_account": null,
+        "pair_kind": null,
+        "pair_ref": null,
+        "matched_with": [],
+        "problems": [],
+        "legs": [
+          {
+            "asset_type": "CURRENCY",
+            "symbol": null,
+            "description": null,
+            "quantity": null,
+            "price": null,
+            "cost": 0.00,
+            "cash": 4.00,
+            "fee_type": null,
+            "position_effect": null,
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          }
+        ]
+      }
+    },
+    {
+      "ref": "T73508261943",
+      "read_from": "schwab",
+      "row_kind": "api",
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "date": "2025-06-02",
+      "time": "2025-06-02T10:30:27-04:00",
+      "type": "TRADE",
+      "action": null,
+      "status": "VALID",
+      "category": "buy",
+      "symbol": "AAPL",
+      "quantity": 3,
+      "price": 201.82,
+      "amount": -605.46,
+      "fees": 0.00,
+      "description": null,
+      "counted": null,
+      "counted_why": null,
+      "flags": [],
+      "detail": {
+        "settlement_date": null,
+        "order_id": "1004517639411",
+        "sub_account": "CASH",
+        "pair_kind": null,
+        "pair_ref": null,
+        "matched_with": [],
+        "problems": [],
+        "legs": [
+          {
+            "asset_type": "CURRENCY",
+            "symbol": "CURRENCY_USD",
+            "description": "USD currency",
+            "quantity": null,
+            "price": null,
+            "cost": 0.00,
+            "cash": 0.00,
+            "fee_type": "COMMISSION",
+            "position_effect": null,
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          },
+          {
+            "asset_type": "CURRENCY",
+            "symbol": "CURRENCY_USD",
+            "description": "USD currency",
+            "quantity": null,
+            "price": null,
+            "cost": 0.00,
+            "cash": 0.00,
+            "fee_type": "SEC_FEE",
+            "position_effect": null,
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          },
+          {
+            "asset_type": "CURRENCY",
+            "symbol": "CURRENCY_USD",
+            "description": "USD currency",
+            "quantity": null,
+            "price": null,
+            "cost": 0.00,
+            "cash": 0.00,
+            "fee_type": "OPT_REG_FEE",
+            "position_effect": null,
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          },
+          {
+            "asset_type": "CURRENCY",
+            "symbol": "CURRENCY_USD",
+            "description": "USD currency",
+            "quantity": null,
+            "price": null,
+            "cost": 0.00,
+            "cash": 0.00,
+            "fee_type": "TAF_FEE",
+            "position_effect": null,
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          },
+          {
+            "asset_type": "EQUITY",
+            "symbol": "AAPL",
+            "description": null,
+            "quantity": 3,
+            "price": 201.82,
+            "cost": -605.46,
+            "cash": null,
+            "fee_type": null,
+            "position_effect": "OPENING",
+            "put_call": null,
+            "strike": null,
+            "expiration": null
+          }
+        ]
+      }
+    }
+  ],
+  "totals": [
+    {
+      "category": "buy",
+      "count": 2,
+      "amount": -656.11,
+      "fees": 0.65
+    },
+    {
+      "category": "dividend",
+      "count": 1,
+      "amount": 98.12,
+      "fees": 0.00
+    }
+  ],
+  "coverage": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "nickname": "Individual",
+      "store_ref": "A1",
+      "read_from": "schwab",
+      "asked": {
+        "from": "2025-06-01",
+        "to": "2025-11-30"
+      },
+      "whole": [
+        {
+          "from": "2025-06-01",
+          "to": "2025-11-30"
+        }
+      ],
+      "partial": [],
+      "waiting": null,
+      "last_read": null,
+      "reached_back": "2025-06-01",
+      "rows": 2,
+      "error": null
+    },
+    {
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "nickname": "Options & Margin",
+      "store_ref": "A2",
+      "read_from": "store",
+      "asked": {
+        "from": "2025-06-01",
+        "to": "2025-11-30"
+      },
+      "whole": [
+        {
+          "from": "2025-06-01",
+          "to": "2025-11-30"
+        }
+      ],
+      "partial": [],
+      "waiting": {
+        "held_out": 2,
+        "uncertain": 0,
+        "attention": 0,
+        "filtered": 0
+      },
+      "last_read": "2026-01-05T19:11:01-05:00",
+      "reached_back": null,
+      "rows": 4,
+      "error": null
+    },
+    {
+      "account": "...783",
+      "account_hash": "8C2F1DD750834DC72D2B65A2497B6A003E30CF6559B79586433150D303FDC9DA",
+      "nickname": "Contributory",
+      "store_ref": "A3",
+      "read_from": "schwab",
+      "asked": {
+        "from": "2025-06-01",
+        "to": "2025-11-30"
+      },
+      "whole": [
+        {
+          "from": "2025-06-01",
+          "to": "2025-11-30"
+        }
+      ],
+      "partial": [],
+      "waiting": null,
+      "last_read": null,
+      "reached_back": "2025-06-01",
+      "rows": 0,
+      "error": null
+    }
+  ]
+}

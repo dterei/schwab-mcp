@@ -11,10 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 
 	"github.com/dterei/schwab-mcp/internal/history/schwabfile"
+	"github.com/dterei/schwab-mcp/internal/lookup"
 	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
@@ -63,7 +63,7 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	for i, a := range accounts {
 		positions += len(a.SecuritiesAccount.Positions)
 		current[a.SecuritiesAccount.AccountNumber] = true
-		raws[i], problems[i] = a.Raw, accountProblems(a)
+		raws[i], problems[i] = a.Raw, lookup.AccountProblems(a)
 	}
 	warn := func(msg string) { fmt.Fprintln(stderr, "warning:", msg) }
 	if w := problemsWarning("account", problems); w != "" {
@@ -91,21 +91,6 @@ func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	}
 	fmt.Fprintf(stdout, "Saved a snapshot of %d accounts with %d positions to %s\n", len(accounts), positions, path)
 	return nil
-}
-
-// accountProblems returns the problems of a and of its positions.
-func accountProblems(a schwab.Account) []schwab.Problem {
-	ps := slices.Clone(a.Problems)
-	for _, pos := range a.SecuritiesAccount.Positions {
-		for _, p := range pos.Problems {
-			path := "securitiesAccount.positions"
-			if p.Path != "" {
-				path += "." + p.Path
-			}
-			ps = append(ps, schwab.Problem{Path: path, What: p.What})
-		}
-	}
-	return ps
 }
 
 // snapshotPath picks the snapshot file: the -file flag, then

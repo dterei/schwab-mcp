@@ -155,8 +155,10 @@ func storeOptions(path string, mustExist bool, stderr io.Writer) history.Options
 }
 
 // openStore opens the store at path, as storeOptions says, for a command
-// that needs one there and makes none.
+// that needs one there and makes none. It first warns when the MCP server
+// reads another store (warnStoreDrift).
 func openStore(ctx context.Context, path string, stderr io.Writer) (*history.Store, error) {
+	warnStoreDrift(path, stderr)
 	return history.Open(ctx, storeOptions(path, true, stderr))
 }
 
@@ -202,7 +204,15 @@ func quoteArg(s string) string {
 	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:@._/+-,=") == "" {
 		return s
 	}
-	if runtime.GOOS == "windows" {
+	return quoteWord(s, runtime.GOOS == "windows")
+}
+
+// quoteWord quotes s as one word of a command line: for the shells of
+// Windows when windows is set, in double quotes with each " in s written
+// twice, and else for those of Linux and macOS, in single quotes, which
+// each ' in s ends, follows as \' and opens again.
+func quoteWord(s string, windows bool) string {
+	if windows {
 		return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"

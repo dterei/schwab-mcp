@@ -1,0 +1,29 @@
+{
+  "source": "local",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [],
+  "logged_in": false,
+  "login_at": null,
+  "expires_at": null,
+  "hours_left": null,
+  "expires_soon": false,
+  "refused": false,
+  "app_configured": true,
+  "app_from": "config file",
+  "api_host": "127.0.0.1:PORT",
+  "config_file": "~/.config/schwabtx/config.json",
+  "config_problems": [],
+  "token_file": "~/.config/schwabtx/token.json",
+  "token_file_from": "config file",
+  "rate_file": "~/.cache/schwabtx/rate",
+  "rate_file_from": "config file",
+  "store": {
+    "file": "history.db",
+    "from": "config file",
+    "exists": true,
+    "usable": true,
+    "problem": null,
+    "waiting": 2
+  },
+  "action": "There is no Schwab login at ~/.config/schwabtx/token.json (from config.json). Ask the user to run `schwabtx login` in their own terminal, then call again; do not run it yourself, it needs their browser. If schwabtx already works in their terminal, it keeps its login elsewhere: ask them to run `schwabtx setup` there, which saves the paths it uses, and to restart this server."
+}

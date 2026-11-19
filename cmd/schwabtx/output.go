@@ -5,15 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
-	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/dterei/schwab-mcp/internal/lookup"
 	"github.com/dterei/schwab-mcp/internal/mask"
 	"github.com/dterei/schwab-mcp/internal/schwab"
 )
@@ -27,7 +26,7 @@ func printTable(w io.Writer, txs []schwab.Transaction, showAccounts bool) error 
 	for i, tx := range txs {
 		date := "?"
 		switch {
-		case !tx.Time.IsZero() && !newYorkMidnight(tx.Time):
+		case !tx.Time.IsZero() && !lookup.NewYorkMidnight(tx.Time):
 			date = tx.Time.Local().Format("2006-01-02 15:04")
 		case tx.TradeDay() != "":
 			date = string(tx.TradeDay())
@@ -38,7 +37,7 @@ func printTable(w io.Writer, txs []schwab.Transaction, showAccounts bool) error 
 		}
 		symbol, qty, price := "", "", ""
 		desc := tx.Description
-		if it, ok := primaryItem(tx); ok {
+		if it, ok := lookup.PrimaryItem(tx); ok {
 			symbol = it.Instrument.Symbol
 			qty = formatNumber(it.Amount)
 			if it.Price != 0 {
@@ -88,12 +87,6 @@ func printRaw(w io.Writer, raws []json.RawMessage) error {
 	return err
 }
 
-// newYorkMidnight reports whether t is midnight in New York: the instant
-// before it is on another date there.
-func newYorkMidnight(t time.Time) bool {
-	return schwab.DateInNewYork(t) != schwab.DateInNewYork(t.Add(-time.Nanosecond))
-}
-
 func formatNumber(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
@@ -105,93 +98,6 @@ func truncate(s string, limit int) string {
 		return s
 	}
 	return string(r[:limit-3]) + "..."
-}
-
-// money is an amount in cents, or none: a figure that Schwab did not send,
-// or that could not be read.
-type money struct {
-	cents int64
-	ok    bool
-}
-
-// moneyOf returns *v in cents, or none for nil.
-func moneyOf(v *float64) money {
-	if v == nil {
-		return money{}
-	}
-	return amount(*v)
-}
-
-// amount returns x in cents, rounded as scaled rounds it.
-func amount(x float64) money {
-	cents, ok := scaled(x, 2)
-	return money{cents: cents, ok: ok}
-}
-
-// plus returns m + n, or none when either is none.
-func (m money) plus(n money) money {
-	if !m.ok || !n.ok {
-		return money{}
-	}
-	return money{cents: m.cents + n.cents, ok: true}
-}
-
-// minus returns m - n, or none when either is none.
-func (m money) minus(n money) money {
-	return m.plus(money{cents: -n.cents, ok: n.ok})
-}
-
-// String returns m with two decimals and a leading - when it is negative,
-// as the transactions table prints amounts, or "-" for none. Zero is 0.00,
-// never -0.00.
-func (m money) String() string {
-	if !m.ok {
-		return "-"
-	}
-	return formatScaled(m.cents, 2, 2)
-}
-
-// scaled returns x rounded to places decimals, half away from zero, as a
-// whole number of tenths, hundredths or the like. It rounds the shortest
-// decimal that reads back as x, which is the number as Schwab wrote it, so
-// that 1.005 rounds up, though the double nearest to it is below it. ok is
-// false for a trillion or more, which no real figure reaches, so that sums
-// of the results cannot overflow.
-func scaled(x float64, places int) (int64, bool) {
-	if math.Abs(x) >= 1e12 {
-		return 0, false
-	}
-	whole, frac, _ := strings.Cut(strconv.FormatFloat(math.Abs(x), 'f', -1, 64), ".")
-	frac += strings.Repeat("0", places+1)
-	n, err := strconv.ParseInt(whole+frac[:places], 10, 64)
-	if err != nil { // NaN, which JSON cannot hold
-		return 0, false
-	}
-	if frac[places] >= '5' {
-		n++
-	}
-	if x < 0 {
-		n = -n
-	}
-	return n, true
-}
-
-// formatScaled writes n, a whole number of tenths, hundredths or the like,
-// as places says, as a decimal with at least keep decimals: the zeros that
-// end the others are dropped, with the point when none is left. It never
-// writes -0.
-func formatScaled(n int64, places, keep int) string {
-	sign := ""
-	if n < 0 {
-		sign, n = "-", -n
-	}
-	digits := fmt.Sprintf("%0*d", places+1, n)
-	whole, frac := digits[:len(digits)-places], strings.TrimRight(digits[len(digits)-places:], "0")
-	frac += strings.Repeat("0", max(0, keep-len(frac)))
-	if frac == "" {
-		return sign + whole
-	}
-	return sign + whole + "." + frac
 }
 
 // accountCell returns an account's number for a table: masked as Schwab
@@ -238,27 +144,6 @@ func tailCell(s string, limit int) string {
 		tail = tail[slices.Index(tail, ' ')+1:]
 	}
 	return plainCell("..." + string(tail))
-}
-
-// formatQuantity returns x rounded to 6 decimals, as scaled rounds it,
-// without the zeros that end it: 12, 2.1788, -2; or - when it is too large
-// to be one.
-func formatQuantity(x float64) string {
-	n, ok := scaled(x, 6)
-	if !ok {
-		return "-"
-	}
-	return formatScaled(n, 6, 0)
-}
-
-// formatPrice returns x rounded to 6 decimals, as scaled rounds it, with
-// at least 2: 81.50, 251.3075; or - when it is too large to be one.
-func formatPrice(x float64) string {
-	n, ok := scaled(x, 6)
-	if !ok {
-		return "-"
-	}
-	return formatScaled(n, 6, 2)
 }
 
 // plural returns n and noun, which takes an s unless n is 1.

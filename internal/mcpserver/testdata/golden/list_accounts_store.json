@@ -1,0 +1,50 @@
+{
+  "source": "store",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [
+    {
+      "code": "api_unavailable",
+      "message": "Schwab could not be read, so the accounts come from the local history, without values or hashes: [not_logged_in] There is no Schwab login at ~/.config/schwabtx/token.json (from config.json). Ask the user to run `schwabtx login` in their own terminal, then call again; do not run it yourself, it needs their browser. If schwabtx already works in their terminal, it keeps its login elsewhere: ask them to run `schwabtx setup` there, which saves the paths it uses, and to restart this server."
+    }
+  ],
+  "accounts": [
+    {
+      "account": "...135",
+      "account_hash": null,
+      "nickname": "Individual",
+      "store_ref": "A1",
+      "type": "CASH",
+      "kind": null,
+      "primary": true,
+      "value": null,
+      "cash": null,
+      "not_shared_since": null
+    },
+    {
+      "account": "...398",
+      "account_hash": null,
+      "nickname": "Options & Margin",
+      "store_ref": "A2",
+      "type": "MARGIN",
+      "kind": null,
+      "primary": false,
+      "value": null,
+      "cash": null,
+      "not_shared_since": null
+    },
+    {
+      "account": "...783",
+      "account_hash": null,
+      "nickname": "Contributory",
+      "store_ref": "A3",
+      "type": "MARGIN",
+      "kind": null,
+      "primary": false,
+      "value": null,
+      "cash": null,
+      "not_shared_since": null
+    }
+  ],
+  "total_value": null,
+  "total_cash": null
+}
