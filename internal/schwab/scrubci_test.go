@@ -53,14 +53,20 @@ func answerOf(t *testing.T, file string) testAnswer {
 }
 
 // apiFixtures returns F: the indexed files made by hand whose request is a
-// GET of an API path, as answers, in the index's order. The token
-// endpoint's bodies are never recorded, so they are not among them, and a
-// recording, once committed, holds the fakes that a planting is to stand
-// apart from.
+// GET of an API path, as answers, in the index's order, but those of a kind
+// that the scrubber does not scrub yet, the orders', which it would only
+// leave out. The token endpoint's bodies are never recorded, so they are
+// not among them, and a recording, once committed, holds the fakes that a
+// planting is to stand apart from.
 func apiFixtures(t *testing.T) []testAnswer {
 	t.Helper()
 	var f []testAnswer
 	for _, e := range schwabtest.Index() {
+		if route, ok := e.Route(); ok {
+			if k, ok := kindOfRoute(route); ok && slices.Contains(unscrubbedKinds, k.name) {
+				continue
+			}
+		}
 		if e.Source != "recorded" && e.Request.Method == http.MethodGet && underAPI(e.Request.Path) {
 			f = append(f, answerOf(t, e.File))
 		}
@@ -213,7 +219,7 @@ func (p *planter) plant(answers []testAnswer) []testAnswer {
 	for i, a := range answers {
 		var e schwabtest.Entry
 		e.Request.Method, e.Request.Path, e.Response.Status = http.MethodGet, a.path, a.status
-		kind, ok := policyKindOf(pages, e, []byte(a.body))
+		kind, ok := scrubbedKindOf(pages, e, []byte(a.body))
 		if !ok || schwabtest.ExtensionFor([]byte(a.body)) != ".json" {
 			continue
 		}

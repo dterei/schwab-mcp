@@ -1252,7 +1252,11 @@ func TestRouteName(t *testing.T) {
 		},
 		{
 			"GET", "/trader/v1/accounts/" + schwabtest.FixtureAccounts[0].Hash + "/orders/1004517592340", "", 200,
-			"GET /trader/v1/accounts/{…}/orders/{…}, 200",
+			"GET /trader/v1/accounts/{hash}/orders/{id}, 200",
+		},
+		{
+			"GET", "/trader/v1/accounts/" + schwabtest.FixtureAccounts[0].Hash + "/previewOrder/1004517592340", "", 200,
+			"GET /trader/v1/accounts/{…}/previewOrder/{…}, 200",
 		},
 		{"GET", "/marketdata/v1/AAPL/quotes", "fields=quote%2Creference&a%20b=1", 401, "GET /marketdata/v1/{…}/quotes?fields&{…}, 401"},
 	} {

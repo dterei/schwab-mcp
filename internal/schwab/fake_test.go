@@ -70,6 +70,9 @@ var testdataKinds = []struct {
 	{schwabtest.AccountRoute, reflect.TypeFor[Account](), false},
 	{schwabtest.TransactionsRoute, reflect.TypeFor[Transaction](), true},
 	{schwabtest.TransactionRoute, reflect.TypeFor[Transaction](), false},
+	{schwabtest.OrdersRoute, reflect.TypeFor[Order](), true},
+	{schwabtest.OrderRoute, reflect.TypeFor[Order](), false},
+	{schwabtest.AllOrdersRoute, reflect.TypeFor[Order](), true},
 	{schwabtest.UserPreferenceRoute, reflect.TypeFor[UserPreference](), false},
 }
 
@@ -185,6 +188,8 @@ func TestTestdataAnswers(t *testing.T) {
 		"accounts.json: 3 Account",
 		"transactions.json: 14 Transaction",
 		"transaction.json: 1 Transaction",
+		"orders.json: 8 Order",
+		"order.json: 1 Order",
 		"user_preference.json: 1 UserPreference",
 	}
 	if !slices.Equal(got, want) {

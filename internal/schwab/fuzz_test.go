@@ -69,11 +69,11 @@ var everyRecordSeeds = []string{
 }
 
 // checkRecord checks the properties that fuzzRecord lists on a record of
-// type T decoded from b, where paths are the record's field paths.
+// type T decoded from b, where isPath tells the record's field paths.
 func checkRecord[T any, PT interface {
 	*T
 	json.Unmarshaler
-}](t *testing.T, b []byte, paths map[string]bool,
+}](t *testing.T, b []byte, isPath func(string) bool,
 ) {
 	t.Helper()
 	var rec T
@@ -111,7 +111,7 @@ func checkRecord[T any, PT interface {
 	})
 	ps := gatheredProblems(v)
 	for _, p := range ps {
-		if !paths[p.Path] {
+		if !isPath(p.Path) {
 			t.Fatalf("%q has a problem at %q, which is no field's path: %q", b, p.Path, p)
 		}
 		if strings.HasPrefix(p.What, "the JSON could not be read") || strings.HasPrefix(p.What, "Schwab's value could not be read") {
@@ -157,30 +157,19 @@ func checkRecord[T any, PT interface {
 	}
 }
 
-// recordPaths returns the path of every field that a record of type t holds,
-// at any depth, and "", the record's own: every path that one of its
-// problems may have. problems is the package's field, not Schwab's.
-func recordPaths(t reflect.Type) map[string]bool {
-	paths := map[string]bool{"": true}
-	var add func(t reflect.Type, path string)
-	add = func(t reflect.Type, path string) {
-		t = derefType(t)
-		if t.Kind() == reflect.Slice {
-			add(t.Elem(), path)
-			return
+// recordPaths returns whether a path is one that a problem of a record of
+// type t may have: "", the record's own, or the path of a field that it
+// holds, at any depth, matched as a Problem spells it. problems is the
+// package's field, not Schwab's. It goes by the path, so that a type that
+// holds itself, as an order holds orders, has paths of any depth.
+func recordPaths(t reflect.Type) func(path string) bool {
+	return func(path string) bool {
+		if path == "" {
+			return true
 		}
-		if t.Kind() != reflect.Struct || t == timeType {
-			return
-		}
-		for f := range t.Fields() {
-			if name := jsonName(f); name != "" && name != "problems" {
-				paths[joinPath(path, name)] = true
-				add(f.Type, joinPath(path, name))
-			}
-		}
+		_, at, ok := fieldAt(t, strings.Split(path, "."))
+		return ok && at == path
 	}
-	add(t, "")
-	return paths
 }
 
 // recordsIn calls fn with the problems of v, a record, and then of each
@@ -592,6 +581,30 @@ func FuzzPosition(f *testing.F) {
 		" "+basePosition+"\n",
 		withKeys(basePosition, "problems", "5"),
 		withKeys(basePosition, "problems", "[{}]"),
+	)
+}
+
+// FuzzOrder checks the properties above on an order. The seeds hold a
+// leg with an option, an execution with its legs and a cancel, a bracket
+// whose orders hold orders, nulls among them, and the fixtures' orders.
+func FuzzOrder(f *testing.F) {
+	leg := `{"orderLegType":"OPTION","legId":1,"instrument":{"assetType":"OPTION","symbol":"XYZ   260918C00050000",` +
+		`"putCall":"CALL","optionDeliverables":[{"symbol":"XYZ","deliverableUnits":100.0}]},"instruction":"SELL_TO_CLOSE",` +
+		`"positionEffect":"CLOSING","quantity":1.0}`
+	fill := `{"activityType":"EXECUTION","activityId":91437825012,"executionType":"FILL","quantity":1.0,` +
+		`"orderRemainingQuantity":0.0,"executionLegs":[{"legId":1,"price":3.12,"quantity":1.0,"mismarkedQuantity":0.0,` +
+		`"instrumentId":219834765,"time":"2026-08-04T15:22:41+0000"}]}`
+	fuzzRecord[Order](f,
+		baseOrder,
+		withKeys(baseOrder, "orderLegCollection", "["+leg+"]", "orderActivityCollection", "["+fill+"]",
+			"price", "3.1", "quantity", "1.0", "cancelable", "false", "closeTime", `"2026-08-04T15:22:41+0000"`),
+		withKeys(baseOrder, "orderActivityCollection", `[{"activityType":"EXECUTION","executionType":"CANCELED",`+
+			`"executionLegs":[null,{"legId":1,"price":0.0,"quantity":1.0,"mismarkedQuantity":0.0,"instrumentId":1,"time":"soon"}]}]`),
+		withKeys(baseOrder, "orderStrategyType", `"TRIGGER"`, "childOrderStrategies",
+			"["+withKeys(baseOrder, "orderStrategyType", `"OCO"`, "childOrderStrategies", "["+baseOrder+","+withKeys(baseOrder, "status", "null")+"]")+"]"),
+		withKeys(baseOrder, "childOrderStrategies", "[null,5]", "replacingOrderCollection", `"x"`),
+		withKeys(baseOrder, "accountNumber", `"61803398"`, "orderId", "1.5", "enteredTime", "1712246167"),
+		withKeys(baseOrder, "stopPrice", `"45"`, "cancelTime", `"2024-13-45"`, "tag", "7"),
 	)
 }
 

@@ -2,8 +2,8 @@
 // login, the refresh of the access token, the token file that every process
 // using the login shares, a Client that reads from the API, trying again
 // after a failure where that is safe, under a rate limit that every process
-// using the app key shares, and the records that the account endpoints
-// return.
+// using the app key shares, and the records that the account and order
+// endpoints return.
 //
 // Processes share the login through the token file. A lock file next to it
 // lets one process at a time decide whether to refresh, refresh, or replace
@@ -17,8 +17,8 @@
 //
 // # Records
 //
-// AccountNumber, Account, Position, Transaction and UserPreference are
-// written by hand, since Schwab's answers differ from its spec, and they
+// AccountNumber, Account, Position, Transaction, Order and UserPreference
+// are written by hand, since Schwab's answers differ from its spec, and they
 // decode leniently, so that a change at Schwab costs a field rather than an
 // answer:
 //
@@ -43,7 +43,8 @@
 //
 // A record's Problems cover its own JSON and the objects nested in it, at
 // every depth, but not the Positions inside an Account, which have their
-// own.
+// own. The orders that an Order holds have their own too, which its
+// Problems also hold, under the key that holds them.
 //
 // To build a type around a record, give it the record as a named field. A
 // record embedded in a struct brings its UnmarshalJSON along, which would

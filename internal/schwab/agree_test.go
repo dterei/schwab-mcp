@@ -164,9 +164,10 @@ func TestFakeAuthorizePage(t *testing.T) {
 	}
 }
 
-// The fake's accounts, as LoadFixtures and as it builds them, read through
-// the client with no problems; the user preferences it builds carry every
-// key that Schwab sends and no other.
+// The fake's accounts, as LoadFixtures and as it builds them, and their
+// transactions and orders, read through the client with no problems; the
+// user preferences it builds carry every key that Schwab sends and no
+// other.
 func TestFakeAnswersDecode(t *testing.T) {
 	s := schwabtest.New(t)
 	s.LoadFixtures()
@@ -202,6 +203,23 @@ func TestFakeAnswersDecode(t *testing.T) {
 	}
 	if _, err := cl.Transaction(ctx, AccountHash(schwabtest.UnknownHash), 73508261946); !errors.Is(err, ErrInvalidAccount) {
 		t.Errorf("a transaction of an unknown hash: %v, want ErrInvalidAccount", err)
+	}
+	year := OrderQuery{Start: testNow.Add(-MaxOrderWindow), End: testNow}
+	orders, err := cl.Orders(ctx, numbers[1].HashValue, year)
+	if err != nil || len(orders) == 0 {
+		t.Fatalf("Orders: %d, %v", len(orders), err)
+	}
+	noProblems(t, orders, func(o Order) []Problem { return o.Problems })
+	all, err := cl.AllOrders(ctx, year)
+	if err != nil || len(all) < len(orders) {
+		t.Fatalf("AllOrders: %d, %v", len(all), err)
+	}
+	noProblems(t, all, func(o Order) []Problem { return o.Problems })
+	if o, err := cl.Order(ctx, numbers[1].HashValue, orders[0].OrderID); err != nil || len(o.Problems) > 0 || o.OrderID != orders[0].OrderID {
+		t.Errorf("Order: %+v, %v", o, err)
+	}
+	if _, err := cl.Orders(ctx, AccountHash(schwabtest.UnknownHash), year); !errors.Is(err, ErrInvalidAccount) {
+		t.Errorf("the orders of an unknown hash: %v, want ErrInvalidAccount", err)
 	}
 
 	s.SetUserPreference("")

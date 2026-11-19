@@ -169,9 +169,9 @@ func wantEvidence(t *testing.T, report, probe string, lines ...string) {
 // schwabTime returns t as Schwab gives an instant in an answer.
 func schwabTime(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05+0000") }
 
-// A fakeOrder is an order as the fake serves it, on the paths of orders,
-// which no Route serves: entered at entered, and filled at filled, working
-// until then, or for good while filled is zero, with an execution at each
+// A fakeOrder is an order as the probes' fake serves it, on the routes of
+// orders, over the fake's own: entered at entered, and filled at filled,
+// working until then, or for good while filled is zero, with an execution at each
 // of earlier before that, as of an order filled in parts.
 type fakeOrder struct {
 	account         schwabtest.FixtureAccount
@@ -245,7 +245,7 @@ func serveOrdersOf(fl *fakeLive, orders func() []fakeOrder, kept func(entered, n
 		}
 		writeJSON(w, http.StatusOK, "["+strings.Join(es, ",")+"]")
 	}
-	fl.f.OverridePath("GET /trader/v1/accounts/{hash}/orders/{id}", func(w http.ResponseWriter, r *http.Request) {
+	fl.f.Override(schwabtest.OrderRoute, func(w http.ResponseWriter, r *http.Request) {
 		for _, o := range orders() {
 			if o.account.Hash == r.PathValue("hash") && strconv.FormatInt(o.id, 10) == r.PathValue("id") {
 				writeJSON(w, http.StatusOK, o.json(fl.clock.Now()))
@@ -254,10 +254,10 @@ func serveOrdersOf(fl *fakeLive, orders func() []fakeOrder, kept func(entered, n
 		}
 		writeJSON(w, http.StatusNotFound, `{"message":"a guess: no such order"}`)
 	})
-	fl.f.OverridePath("GET /trader/v1/accounts/{hash}/orders", func(w http.ResponseWriter, r *http.Request) {
+	fl.f.Override(schwabtest.OrdersRoute, func(w http.ResponseWriter, r *http.Request) {
 		list(w, r, func(o fakeOrder) bool { return o.account.Hash == r.PathValue("hash") })
 	})
-	fl.f.OverridePath("GET /trader/v1/orders", func(w http.ResponseWriter, r *http.Request) {
+	fl.f.Override(schwabtest.AllOrdersRoute, func(w http.ResponseWriter, r *http.Request) {
 		list(w, r, func(fakeOrder) bool { return true })
 	})
 }

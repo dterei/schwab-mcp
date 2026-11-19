@@ -25,6 +25,9 @@ const (
 	AccountRoute        Route = "GET /trader/v1/accounts/{hash}"
 	TransactionsRoute   Route = "GET /trader/v1/accounts/{hash}/transactions"
 	TransactionRoute    Route = "GET /trader/v1/accounts/{hash}/transactions/{id}"
+	OrdersRoute         Route = "GET /trader/v1/accounts/{hash}/orders"
+	OrderRoute          Route = "GET /trader/v1/accounts/{hash}/orders/{id}"
+	AllOrdersRoute      Route = "GET /trader/v1/orders"
 	UserPreferenceRoute Route = "GET /trader/v1/userPreference"
 	// TestRoute answers {"ok":true}. It is not Schwab's.
 	TestRoute Route = "GET /trader/v1/test"
@@ -33,7 +36,7 @@ const (
 // allRoutes are the Routes, in the order above.
 var allRoutes = []Route{
 	AccountNumbersRoute, AccountsRoute, AccountRoute, TransactionsRoute, TransactionRoute,
-	UserPreferenceRoute, TestRoute,
+	OrdersRoute, OrderRoute, AllOrdersRoute, UserPreferenceRoute, TestRoute,
 }
 
 // apiPrefixes are the paths of the API, which need an access token.
@@ -326,6 +329,12 @@ func (s *Server) own(route Route, r *http.Request) answer {
 		return s.transactions(r.PathValue("hash"), q)
 	case TransactionRoute:
 		return s.transaction(r.PathValue("hash"), r.PathValue("id"))
+	case OrdersRoute:
+		return s.orders(r.PathValue("hash"), q)
+	case OrderRoute:
+		return s.order(r.PathValue("hash"), r.PathValue("id"))
+	case AllOrdersRoute:
+		return s.allOrders(q)
 	case UserPreferenceRoute:
 		return s.userPreference()
 	case TestRoute:

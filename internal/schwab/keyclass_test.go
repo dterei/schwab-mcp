@@ -17,6 +17,7 @@ var maskerTables = map[*table]struct {
 	classes *keyClasses
 }{
 	transactionTable: {TransactionKeyClass, transactionKeyClasses},
+	orderTable:       {OrderKeyClass, orderKeyClasses},
 }
 
 // allRules returns the rules of t and of the tables nested in it, each at
