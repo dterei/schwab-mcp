@@ -1,0 +1,389 @@
+[
+  {
+    "session": "NORMAL",
+    "duration": "GOOD_TILL_CANCEL",
+    "orderType": "LIMIT",
+    "complexOrderStrategyType": "NONE",
+    "quantity": 10.0,
+    "filledQuantity": 0.0,
+    "remainingQuantity": 10.0,
+    "requestedDestination": "AUTO",
+    "destinationLinkName": "CDRG",
+    "price": 250.0,
+    "orderLegCollection": [
+      {
+        "orderLegType": "EQUITY",
+        "legId": 1,
+        "instrument": {"assetType": "COLLECTIVE_INVESTMENT", "cusip": "922908769", "symbol": "VTI", "description": "VANGUARD TOTAL STOCK MARKET ETF", "instrumentId": 5215623, "type": "EXCHANGE_TRADED_FUND"},
+        "instruction": "BUY",
+        "positionEffect": "OPENING",
+        "quantity": 10.0
+      }
+    ],
+    "orderStrategyType": "SINGLE",
+    "orderId": 1004518210415,
+    "cancelable": true,
+    "editable": true,
+    "status": "WORKING",
+    "enteredTime": "2026-09-28T13:31:07+0000",
+    "tag": "TAG 1",
+    "accountNumber": 29470135
+  },
+  {
+    "session": "NORMAL",
+    "duration": "DAY",
+    "orderType": "LIMIT",
+    "complexOrderStrategyType": "NONE",
+    "quantity": 5.0,
+    "filledQuantity": 0.0,
+    "remainingQuantity": 5.0,
+    "requestedDestination": "AUTO",
+    "destinationLinkName": "AutoRoute",
+    "price": 1.0,
+    "orderLegCollection": [
+      {
+        "orderLegType": "EQUITY",
+        "legId": 1,
+        "instrument": {"assetType": "COLLECTIVE_INVESTMENT", "cusip": "78462F103", "symbol": "SPY", "description": "SPDR S&P 500 ETF", "instrumentId": 1281357639, "type": "EXCHANGE_TRADED_FUND"},
+        "instruction": "BUY",
+        "positionEffect": "OPENING",
+        "quantity": 5.0
+      }
+    ],
+    "orderStrategyType": "SINGLE",
+    "orderId": 1004517650222,
+    "cancelable": false,
+    "editable": false,
+    "status": "REJECTED",
+    "statusDescription": "Your limit price is significantly away from the current market price. Please adjust your order.",
+    "enteredTime": "2025-06-02T14:28:56+0000",
+    "closeTime": "2025-06-02T14:28:56+0000",
+    "tag": "API_TOS:TRADE_ALL",
+    "accountNumber": 29470135
+  },
+  {
+    "session": "NORMAL",
+    "duration": "DAY",
+    "orderType": "LIMIT",
+    "complexOrderStrategyType": "NONE",
+    "quantity": 3.0,
+    "filledQuantity": 3.0,
+    "remainingQuantity": 0.0,
+    "requestedDestination": "AUTO",
+    "destinationLinkName": "CDRG",
+    "price": 202.0,
+    "orderLegCollection": [
+      {
+        "orderLegType": "EQUITY",
+        "legId": 1,
+        "instrument": {"assetType": "EQUITY", "cusip": "037833100", "symbol": "AAPL", "instrumentId": 1973757747},
+        "instruction": "BUY",
+        "positionEffect": "OPENING",
+        "quantity": 3.0
+      }
+    ],
+    "orderStrategyType": "SINGLE",
+    "orderId": 1004517639411,
+    "cancelable": false,
+    "editable": false,
+    "status": "FILLED",
+    "enteredTime": "2025-06-02T14:30:21+0000",
+    "closeTime": "2025-06-02T14:30:27+0000",
+    "tag": "API_TOS:TRADE_ALL",
+    "accountNumber": 29470135,
+    "orderActivityCollection": [
+      {
+        "activityType": "EXECUTION",
+        "activityId": 91437825011,
+        "executionType": "FILL",
+        "quantity": 3.0,
+        "orderRemainingQuantity": 0.0,
+        "executionLegs": [
+          {"legId": 1, "quantity": 3.0, "mismarkedQuantity": 0.0, "price": 201.82, "time": "2025-06-02T14:30:27+0000", "instrumentId": 1973757747}
+        ]
+      }
+    ]
+  },
+  {
+    "session": "NORMAL",
+    "duration": "DAY",
+    "orderType": "LIMIT",
+    "complexOrderStrategyType": "NONE",
+    "quantity": 100.0,
+    "filledQuantity": 0.0,
+    "remainingQuantity": 100.0,
+    "requestedDestination": "AUTO",
+    "destinationLinkName": "CDRG",
+    "price": 48.5,
+    "orderLegCollection": [
+      {
+        "orderLegType": "EQUITY",
+        "legId": 1,
+        "instrument": {"assetType": "EQUITY", "cusip": "852234103", "symbol": "XYZ", "instrumentId": 1866431205},
+        "instruction": "BUY",
+        "positionEffect": "OPENING",
+        "quantity": 100.0
+      }
+    ],
+    "orderStrategyType": "TRIGGER",
+    "orderId": 1004518301101,
+    "cancelable": true,
+    "editable": false,
+    "status": "WORKING",
+    "enteredTime": "2026-09-29T14:10:33+0000",
+    "tag": "API_TOS:TRADE_ALL",
+    "accountNumber": 61803398,
+    "childOrderStrategies": [
+      {
+        "orderStrategyType": "OCO",
+        "orderId": 1004518301102,
+        "cancelable": true,
+        "editable": false,
+        "status": "AWAITING_PARENT_ORDER",
+        "enteredTime": "2026-09-29T14:10:33+0000",
+        "accountNumber": 61803398,
+        "childOrderStrategies": [
+          {
+            "session": "NORMAL",
+            "duration": "GOOD_TILL_CANCEL",
+            "orderType": "LIMIT",
+            "complexOrderStrategyType": "NONE",
+            "quantity": 100.0,
+            "filledQuantity": 0.0,
+            "remainingQuantity": 100.0,
+            "requestedDestination": "AUTO",
+            "destinationLinkName": "AutoRoute",
+            "price": 55.0,
+            "orderLegCollection": [
+              {
+                "orderLegType": "EQUITY",
+                "legId": 1,
+                "instrument": {"assetType": "EQUITY", "cusip": "852234103", "symbol": "XYZ", "instrumentId": 1866431205},
+                "instruction": "SELL",
+                "positionEffect": "CLOSING",
+                "quantity": 100.0
+              }
+            ],
+            "orderStrategyType": "SINGLE",
+            "orderId": 1004518301103,
+            "cancelable": true,
+            "editable": false,
+            "status": "AWAITING_PARENT_ORDER",
+            "enteredTime": "2026-09-29T14:10:33+0000",
+            "accountNumber": 61803398
+          },
+          {
+            "session": "NORMAL",
+            "duration": "GOOD_TILL_CANCEL",
+            "orderType": "STOP",
+            "complexOrderStrategyType": "NONE",
+            "quantity": 100.0,
+            "filledQuantity": 0.0,
+            "remainingQuantity": 100.0,
+            "requestedDestination": "AUTO",
+            "destinationLinkName": "AutoRoute",
+            "stopPrice": 45.0,
+            "stopType": "STANDARD",
+            "orderLegCollection": [
+              {
+                "orderLegType": "EQUITY",
+                "legId": 1,
+                "instrument": {"assetType": "EQUITY", "cusip": "852234103", "symbol": "XYZ", "instrumentId": 1866431205},
+                "instruction": "SELL",
+                "positionEffect": "CLOSING",
+                "quantity": 100.0
+              }
+            ],
+            "orderStrategyType": "SINGLE",
+            "orderId": 1004518301104,
+            "cancelable": true,
+            "editable": false,
+            "status": "AWAITING_PARENT_ORDER",
+            "enteredTime": "2026-09-29T14:10:33+0000",
+            "accountNumber": 61803398
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "session": "NORMAL",
+    "duration": "DAY",
+    "orderType": "LIMIT",
+    "complexOrderStrategyType": "NONE",
+    "quantity": 1.0,
+    "filledQuantity": 1.0,
+    "remainingQuantity": 0.0,
+    "requestedDestination": "AUTO",
+    "destinationLinkName": "WEXM",
+    "price": 3.1,
+    "orderLegCollection": [
+      {
+        "orderLegType": "OPTION",
+        "legId": 1,
+        "instrument": {"assetType": "OPTION", "cusip": "0XYZ..IU60050000", "symbol": "XYZ   260918C00050000", "description": "BLOCK INC 09/18/2026 $50 Call", "instrumentId": 219834765, "type": "VANILLA", "putCall": "CALL", "underlyingSymbol": "XYZ", "optionDeliverables": [{"symbol": "XYZ", "deliverableUnits": 100.0}]},
+        "instruction": "SELL_TO_CLOSE",
+        "positionEffect": "CLOSING",
+        "quantity": 1.0
+      }
+    ],
+    "orderStrategyType": "SINGLE",
+    "orderId": 1004517638295,
+    "cancelable": false,
+    "editable": false,
+    "status": "FILLED",
+    "enteredTime": "2026-08-04T15:20:02+0000",
+    "closeTime": "2026-08-04T15:22:41+0000",
+    "tag": "API_TOS:TRADE_ALL",
+    "accountNumber": 61803398,
+    "orderActivityCollection": [
+      {
+        "activityType": "EXECUTION",
+        "activityId": 91437825012,
+        "executionType": "FILL",
+        "quantity": 1.0,
+        "orderRemainingQuantity": 0.0,
+        "executionLegs": [
+          {"legId": 1, "quantity": 1.0, "mismarkedQuantity": 0.0, "price": 3.12, "time": "2026-08-04T15:22:41+0000", "instrumentId": 219834765}
+        ]
+      }
+    ]
+  },
+  {
+    "session": "NORMAL",
+    "duration": "DAY",
+    "orderType": "LIMIT",
+    "complexOrderStrategyType": "NONE",
+    "quantity": 1.0,
+    "filledQuantity": 1.0,
+    "remainingQuantity": 0.0,
+    "requestedDestination": "AUTO",
+    "destinationLinkName": "JNST",
+    "price": 603.4,
+    "orderLegCollection": [
+      {
+        "orderLegType": "EQUITY",
+        "legId": 1,
+        "instrument": {"assetType": "EQUITY", "cusip": "30303M102", "symbol": "META", "instrumentId": 1940083512},
+        "instruction": "SELL",
+        "positionEffect": "CLOSING",
+        "quantity": 1.0
+      }
+    ],
+    "orderStrategyType": "SINGLE",
+    "orderId": 1004517688020,
+    "cancelable": false,
+    "editable": false,
+    "status": "FILLED",
+    "enteredTime": "2026-03-13T13:50:09+0000",
+    "closeTime": "2026-03-13T13:55:09+0000",
+    "tag": "API_TOS:TRADE_ALL",
+    "accountNumber": 61803398,
+    "orderActivityCollection": [
+      {
+        "activityType": "EXECUTION",
+        "activityId": 91437825013,
+        "executionType": "FILL",
+        "quantity": 1.0,
+        "orderRemainingQuantity": 0.0,
+        "executionLegs": [
+          {"legId": 1, "quantity": 1.0, "mismarkedQuantity": 0.0, "price": 603.4, "time": "2026-03-13T13:55:09+0000", "instrumentId": 1940083512}
+        ]
+      }
+    ]
+  },
+  {
+    "session": "NORMAL",
+    "duration": "DAY",
+    "orderType": "NET_CREDIT",
+    "complexOrderStrategyType": "VERTICAL",
+    "quantity": 1.0,
+    "filledQuantity": 0.0,
+    "remainingQuantity": 0.0,
+    "requestedDestination": "AUTO",
+    "destinationLinkName": "CDRG",
+    "price": 0.85,
+    "orderLegCollection": [
+      {
+        "orderLegType": "OPTION",
+        "legId": 1,
+        "instrument": {"assetType": "OPTION", "cusip": "0XYZ..VH50045000", "symbol": "XYZ   251017P00045000", "description": "BLOCK INC 10/17/2025 $45 Put", "instrumentId": 221372233, "type": "VANILLA", "putCall": "PUT", "underlyingSymbol": "XYZ", "optionDeliverables": [{"symbol": "XYZ", "deliverableUnits": 100.0}]},
+        "instruction": "SELL_TO_OPEN",
+        "positionEffect": "OPENING",
+        "quantity": 1.0
+      },
+      {
+        "orderLegType": "OPTION",
+        "legId": 2,
+        "instrument": {"assetType": "OPTION", "cusip": "0XYZ..VH50040000", "symbol": "XYZ   251017P00040000", "description": "BLOCK INC 10/17/2025 $40 Put", "instrumentId": 221175400, "type": "VANILLA", "putCall": "PUT", "underlyingSymbol": "XYZ", "optionDeliverables": [{"symbol": "XYZ", "deliverableUnits": 100.0}]},
+        "instruction": "BUY_TO_OPEN",
+        "positionEffect": "OPENING",
+        "quantity": 1.0
+      }
+    ],
+    "orderStrategyType": "SINGLE",
+    "orderId": 1004517610333,
+    "cancelable": false,
+    "editable": false,
+    "status": "CANCELED",
+    "enteredTime": "2025-09-30T14:02:11+0000",
+    "closeTime": "2025-09-30T14:40:00+0000",
+    "tag": "API_TOS:TRADE_ALL",
+    "accountNumber": 61803398,
+    "orderActivityCollection": [
+      {
+        "activityType": "EXECUTION",
+        "activityId": 91437825014,
+        "executionType": "CANCELED",
+        "quantity": 1.0,
+        "orderRemainingQuantity": 0.0,
+        "executionLegs": [
+          {"legId": 1, "quantity": 1.0, "mismarkedQuantity": 0.0, "price": 0.0, "time": "2025-09-30T14:40:00+0000", "instrumentId": 221372233}
+        ]
+      }
+    ]
+  },
+  {
+    "session": "NORMAL",
+    "duration": "DAY",
+    "orderType": "LIMIT",
+    "complexOrderStrategyType": "NONE",
+    "quantity": 2.0,
+    "filledQuantity": 2.0,
+    "remainingQuantity": 0.0,
+    "requestedDestination": "AUTO",
+    "destinationLinkName": "CDRG",
+    "price": 2.0,
+    "orderLegCollection": [
+      {
+        "orderLegType": "OPTION",
+        "legId": 1,
+        "instrument": {"assetType": "OPTION", "cusip": "0XYZ..NL50040000", "symbol": "XYZ   250221P00040000", "description": "BLOCK INC 02/21/2025 $40 Put", "instrumentId": 219771034, "type": "VANILLA", "putCall": "PUT", "underlyingSymbol": "XYZ", "optionDeliverables": [{"symbol": "XYZ", "deliverableUnits": 100.0}]},
+        "instruction": "BUY_TO_OPEN",
+        "positionEffect": "OPENING",
+        "quantity": 2.0
+      }
+    ],
+    "orderStrategyType": "SINGLE",
+    "orderId": 1004517601177,
+    "cancelable": false,
+    "editable": false,
+    "status": "FILLED",
+    "enteredTime": "2025-01-21T16:04:58+0000",
+    "closeTime": "2025-01-21T16:05:12+0000",
+    "tag": "API_TOS:TRADE_ALL",
+    "accountNumber": 61803398,
+    "orderActivityCollection": [
+      {
+        "activityType": "EXECUTION",
+        "activityId": 91437825015,
+        "executionType": "FILL",
+        "quantity": 2.0,
+        "orderRemainingQuantity": 0.0,
+        "executionLegs": [
+          {"legId": 1, "quantity": 2.0, "mismarkedQuantity": 0.0, "price": 2.0, "time": "2025-01-21T16:05:12+0000", "instrumentId": 219771034}
+        ]
+      }
+    ]
+  }
+]

@@ -124,6 +124,9 @@ var answerKinds = []answerKind{
 	answerKindOf[Account]("account", schwabtest.AccountRoute, false),
 	answerKindOf[Transaction]("transactions", schwabtest.TransactionsRoute, true),
 	answerKindOf[Transaction]("transaction", schwabtest.TransactionRoute, false),
+	answerKindOf[Order]("orders", schwabtest.OrdersRoute, true),
+	answerKindOf[Order]("order", schwabtest.OrderRoute, false),
+	answerKindOf[Order]("allOrders", schwabtest.AllOrdersRoute, true),
 	answerKindOf[UserPreference]("userPreference", schwabtest.UserPreferenceRoute, false),
 }
 
@@ -359,11 +362,11 @@ func TestCheckAnswer(t *testing.T) {
 		}
 	}
 	defer func() {
-		if r := recover(); fmt.Sprint(r) != `checkAnswer: no kind of answer is called "orders"` {
+		if r := recover(); fmt.Sprint(r) != `checkAnswer: no kind of answer is called "quotes"` {
 			t.Errorf("checkAnswer of a kind it does not read: %v", r)
 		}
 	}()
-	checkAnswer("orders", []byte("[]"))
+	checkAnswer("quotes", []byte("{}"))
 }
 
 // valueFree takes out each value that a problem quotes, a string or a
@@ -1025,7 +1028,8 @@ func TestCheckFixtures(t *testing.T) {
 // Every answer of the fake's world, as LoadFixtures fills it, passes
 // checkAnswer: the account numbers, the accounts with their positions and
 // without, each account alone, each account's transactions over windows
-// back past its oldest, each transaction by its id, and the user's
+// back past its oldest, each transaction by its id, each account's orders
+// by the year and every account's, each order by its id, and the user's
 // preferences, the fixture's and those the fake builds. Only the
 // transaction that transaction.json answers by id is reported.
 func TestCheckTheFakesAnswers(t *testing.T) {
@@ -1091,6 +1095,38 @@ func TestCheckTheFakesAnswers(t *testing.T) {
 		}
 		path := "/trader/v1/accounts/" + string(hashes[row.AccountNumber]) + "/transactions/" + strconv.FormatInt(row.ActivityID, 10)
 		check("transaction", path, nil, want...)
+	}
+	orders, err := decodeList[Order](readTestdata(t, "orders.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordersListed := 0
+	years := []OrderQuery{
+		{Start: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), End: time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC)},
+		{Start: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), End: time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC)},
+	}
+	for _, fa := range schwabtest.FixtureAccounts {
+		for _, year := range years {
+			q, err := year.values()
+			if err != nil {
+				t.Fatal(err)
+			}
+			ordersListed += len(elements(t, check("orders", "/trader/v1/accounts/"+fa.Hash+"/orders", q)))
+		}
+	}
+	if ordersListed != len(orders) {
+		t.Errorf("the windows listed %d orders, want the fixture's %d", ordersListed, len(orders))
+	}
+	for _, o := range orders {
+		path := "/trader/v1/accounts/" + string(hashes[strconv.FormatInt(o.AccountNumber, 10)]) + "/orders/" + strconv.FormatInt(o.OrderID, 10)
+		check("order", path, nil)
+	}
+	for _, year := range years {
+		q, err := year.values()
+		if err != nil {
+			t.Fatal(err)
+		}
+		check("allOrders", "/trader/v1/orders", q)
 	}
 	check("userPreference", "/trader/v1/userPreference", nil)
 	f.SetUserPreference("")

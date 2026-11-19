@@ -129,6 +129,8 @@ var toolTitles = map[string]string{
 	"get_positions":    "Schwab positions",
 	"get_transactions": "Schwab transactions",
 	"get_transaction":  "One Schwab transaction",
+	"get_orders":       "Schwab orders",
+	"get_order":        "One Schwab order",
 }
 
 // Every tool has design 10.0's title, as its own and in its annotations,

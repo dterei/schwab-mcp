@@ -267,7 +267,7 @@ func (s *scrubber) newAnswer(a recordedAnswer) *scrubAnswer {
 	sa := &scrubAnswer{raw: a, ext: schwabtest.ExtensionFor(a.body), review: answerReview{mapped: map[identifier]int{}}}
 	sa.entry.Request.Method, sa.entry.Request.Path, sa.entry.Request.Query = a.meta.Request.Method, a.meta.Request.Path, a.meta.Request.Query
 	sa.entry.Response.Status = a.meta.Response.Status
-	if kind, ok := policyKindOf(s.pages, sa.entry, a.body); ok {
+	if kind, ok := scrubbedKindOf(s.pages, sa.entry, a.body); ok {
 		sa.kind = kind
 		if sa.ext == ".json" {
 			sa.table = policyTables[kind]

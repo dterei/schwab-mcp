@@ -55,8 +55,20 @@ var (
 		`400 Bad Request: "{\"error_description\":\"Exception while authenticating refresh token [tokenDigest=abc], ` +
 			`Exception=Failed refresh token authentication [tokenDigest=abc]]\",\"error\":\"refresh_token_authentication_error\"}"`,
 	}
+	// schwabRejections are Schwab's sentences about rejected orders, an
+	// order's statusDescription, as z-Wind/schwab_api's and
+	// jwplatta/schwab_rb's captures of 2024 and 2025 hold them.
+	schwabRejections = []string{
+		"Orders above $1 can be entered in no more than two decimals; orders below $1, no more than four decimals.",
+		"The account is not approved for this level of options trading.",
+		"You do not have enough available cash/buying power for this order.",
+		"Your limit price is significantly away from the current market price. Please adjust your order.",
+	}
+	// schwabTags are the tags of orders placed on Schwab's own platform,
+	// thinkorswim, as those captures hold them, which name no one.
+	schwabTags = []string{"API_TOS:TRADE_ALL", "API_TOS:POS_STMT"}
 	// schwabWording is the whole of Schwab's wording.
-	schwabWording = slices.Concat(schwabDescriptions, schwabMessages)
+	schwabWording = slices.Concat(schwabDescriptions, schwabMessages, schwabRejections, schwabTags)
 )
 
 // What # and <value> in an entry of schwabWording take: one or two
@@ -201,16 +213,50 @@ func TestSchwabWording(t *testing.T) {
 	}
 }
 
-// The wording has two parts, as the scrub policy's free text takes it: a
-// transaction's description may be one of the descriptions alone, and an
-// error's message one of the messages alone, while onWording takes either.
+// The wording has four parts, as the scrub policy's free text takes it: a
+// transaction's description may be one of the descriptions alone, an
+// error's message one of the messages alone, an order's status description
+// one of the rejections alone and its tag one of the tags alone, while
+// onWording takes any.
 func TestSchwabWordingParts(t *testing.T) {
-	if len(schwabWording) != len(schwabDescriptions)+len(schwabMessages) {
-		t.Errorf("%d entries of wording, from %d descriptions and %d messages", len(schwabWording), len(schwabDescriptions), len(schwabMessages))
+	parts := [][]string{schwabDescriptions, schwabMessages, schwabRejections, schwabTags}
+	if n := len(slices.Concat(parts...)); len(schwabWording) != n {
+		t.Errorf("%d entries of wording, from %d in its parts", len(schwabWording), n)
 	}
-	for _, d := range schwabDescriptions {
-		if slices.Contains(schwabMessages, d) {
-			t.Errorf("%q is a description and a message", d)
+	for i, part := range parts {
+		for _, other := range parts[i+1:] {
+			for _, e := range part {
+				if slices.Contains(other, e) {
+					t.Errorf("%q is in two parts", e)
+				}
+			}
+		}
+	}
+	for _, tc := range []struct {
+		text      string
+		rejection bool
+	}{
+		{"You do not have enough available cash/buying power for this order.", true},
+		{"Your limit price is significantly away from the current market price. Please adjust your order.|" +
+			"Your limit price is significantly away from the current market price. Please adjust your order.", false},
+		{"You do not have enough available cash/buying power for this order. Call 800-555-0100.", false},
+		{"API_TOS:TRADE_ALL", false},
+	} {
+		if _, ok := onWordingOf(schwabRejections, tc.text); ok != tc.rejection {
+			t.Errorf("%q: a rejection %v, want %v", tc.text, ok, tc.rejection)
+		}
+	}
+	for _, tc := range []struct {
+		text string
+		tag  bool
+	}{
+		{"API_TOS:TRADE_ALL", true},
+		{"API_TOS:POS_STMT", true},
+		{"TA_gmailcom12345678", false},
+		{"API_TOS:TRADE_ALL ", false},
+	} {
+		if _, ok := onWordingOf(schwabTags, tc.text); ok != tc.tag {
+			t.Errorf("%q: a tag %v, want %v", tc.text, ok, tc.tag)
 		}
 	}
 	for _, tc := range []struct {

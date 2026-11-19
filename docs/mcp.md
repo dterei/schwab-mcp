@@ -1,9 +1,9 @@
 # The MCP server
 
 `schwab-mcp` is an [MCP](https://modelcontextprotocol.io) server that lets
-a model read your Charles Schwab accounts: their balances, positions and
-transactions, from Schwab's Trader API and from the local history that
-`schwabtx` keeps. A client starts it on your computer and speaks the
+a model read your Charles Schwab accounts: their balances, positions,
+transactions and orders, from Schwab's Trader API and from the local
+history that `schwabtx` keeps. A client starts it on your computer and speaks the
 protocol on its stdin and stdout: a desktop client, a command-line agent
 or an editor extension.
 
@@ -18,8 +18,8 @@ This page covers setting it up for each kind of client, the tools, the
 resources and the prompt, the errors and warnings that answers carry, what
 reaches the model, the limits, and what to do when something fails. The
 command's flags, config file, exit codes and logs are in its
-[README](../cmd/schwab-mcp/README.md). Orders and market data come later
-(see [Later](#later)).
+[README](../cmd/schwab-mcp/README.md). Market data comes later (see
+[Later](#later)).
 
 ## Set up
 
@@ -160,6 +160,8 @@ its next call, with no restart.
 | `get_positions` | What each account holds, the figures of `schwabtx positions`: quantity, average price, market value, cost, open profit or loss, and each position's share of its account and of every account, with totals. `symbol` keeps one symbol and its options. | "What do I hold, and what is my largest position?" |
 | `get_transactions` | The transactions between two New York dates, the last 90 days unless asked, newest first, with totals per category over every page, and a coverage row per account that says where its rows came from and which days they cover. Filters: account, categories, Schwab's types, symbol. | "How much did I get in dividends this year?" |
 | `get_transaction` | One transaction in full: every leg, the settlement date, the order ID, what the local history says of it (counted or not and why, its pair, its matches and its flags), and with `include_raw` Schwab's JSON of it. | "What were the fees on that trade?" |
+| `get_orders` | The orders entered between two New York dates, the last 60 days unless asked, newest first: status, and whether the order is open, its type, prices, quantities ordered, filled and remaining, and each leg's instruction, symbol, quantity and average fill price; the orders it holds, such as a bracket's, in `held`. Filters: account, Schwab's statuses, open, symbol. `detail: "full"` adds each fill, the venue and where the order came from. | "Which orders do I have open?" |
+| `get_order` | One order in full, by Schwab's order ID: each leg and fill, the orders it holds, and with `include_raw` Schwab's JSON of it. | "At what price did my META sale fill?" |
 
 `get_transactions` reads each account from the local history when the
 history holds every asked day of it whole, and else from Schwab, but never
@@ -178,6 +180,20 @@ at most 724 days of an account from Schwab; for older years, import
 schwab.com's History exports with `schwabtx import` and ask with
 `source: "store"`.
 
+`get_orders` and `get_order` read Schwab alone, since the local history
+keeps no orders: one request for each account's orders entered in the
+asked days, or for the order. An order of Schwab's TRIGGER strategy, such
+as a bracket, holds the orders it places once it fills, and an OCO holds
+two orders, one of which cancels the other; `held` lists them flat, each
+with `parent_id`, the order that holds it, and so the orders that
+replaced an order. Schwab's spec serves an account's orders for a year,
+but it is reported to serve 60 days only; one call asks for at most 365
+days. `open` is true for an order that may still fill or change, in any
+status but FILLED, CANCELED, REJECTED, EXPIRED and REPLACED. `get_order`
+needs `account` when the login shares several accounts: each order of
+`get_orders` names its `account_hash`. The reference pages say what each
+order type and status means.
+
 ## Arguments and answers
 
 - **Accounts.** `account` takes an account's `account_hash`, from
@@ -188,8 +204,8 @@ schwab.com's History exports with `schwabtx import` and ask with
   lists the accounts, and one that matches several is
   `account_ambiguous`.
 - **Detail.** Answers are compact; `detail: "full"` adds fields.
-- **Pages.** `get_positions` and `get_transactions` answer a page at a
-  time: pass `next_cursor` back as `cursor`, with the same other arguments,
+- **Pages.** `get_positions`, `get_transactions` and `get_orders` answer a
+  page at a time: pass `next_cursor` back as `cursor`, with the same other arguments,
   until it is null. `limit` caps a page's rows. A page also stops at about
   20,000 bytes. When the call's time runs out before Schwab answered for
   every asked day, the page holds what came, `complete` is false, the
@@ -215,7 +231,8 @@ schwab.com's History exports with `schwabtx import` and ask with
   stay right.
 - **Cuts.** An answer that would pass the 24,000-byte cap on its own has
   its longest lists cut, halved until it fits: `get_balances`' figures,
-  and the legs of `get_transactions` and `get_transaction`. `cut` names
+  the legs of `get_transactions` and `get_transaction`, and the fills and
+  held orders of `get_orders` and `get_order`. `cut` names
   each list, with how many items it shows of how many, and the warning
   `list_cut` says so. The accounts, the coverage and the totals are never
   cut.
@@ -233,10 +250,12 @@ schwab.com's History exports with `schwabtx import` and ask with
 | `schwab://accounts` | What `list_accounts` answers. |
 | `schwab://accounts/{account}/positions` | The first page of `get_positions` for one account, where `{account}` is its `account_hash` or 12 or more of its first characters, its store ref (`A1`), or the last 3 or more digits of its number; not a nickname. `get_positions` gives the rest. |
 | `schwab://reference/transaction-types` | Schwab's transaction types, what a transaction row holds, and the local history's categories, as Markdown. |
+| `schwab://reference/order-types` | Schwab's order types, strategies, sessions, durations and leg instructions, and what an order's figures mean, as Markdown. |
+| `schwab://reference/order-statuses` | Schwab's order statuses, what each means and which are final, as Markdown. |
 
 The answers of the account resources are private to you, and are not to
-be kept; the reference page is fixed text, which a client may keep for a
-day. Nothing a model needs exists only as a resource, since some clients
+be kept; the reference pages are fixed text, which a client may keep for
+a day. Nothing a model needs exists only as a resource, since some clients
 show resources only when you attach them.
 
 ## The prompt
@@ -280,7 +299,7 @@ codes are fixed; their sentences may change.
 | `account_not_found` | No account matches the `account` argument; the error lists the accounts. |
 | `account_ambiguous` | The `account` argument matches several accounts; give more of the last digits, or the `account_hash`. |
 | `account_not_shared` | Schwab no longer shares the account, or a tool that reads Schwab was given one that only the local history knows: run `schwabtx login` and tick it; `get_transactions` with `source` `store` reads its local history. |
-| `not_found` | Schwab or the local history has no transaction of that ID. |
+| `not_found` | Schwab or the local history has no transaction or order of that ID. |
 | `bad_argument` | An argument is not one the tool takes; the error says what it takes. |
 | `bad_cursor` | The cursor belongs to other arguments or another tool, or the accounts' names changed under it: a new login, or Schwab's account list read for one page and not the other (see [Pages](#arguments-and-answers)). Call again without it. |
 | `no_store` | There is no local history yet; `schwabtx import` makes one. |
@@ -290,9 +309,10 @@ codes are fixed; their sentences may change.
 | `store_unusable` | The local history cannot be read: it is damaged, on a network drive, or not a `schwabtx` store; `schwabtx status` says what to do. |
 | `internal` | A bug of the server's; it is still running. |
 
-When `get_transactions` reads several accounts and some of them fail, it
-answers with the others: each that failed has the error's code in its
-coverage row, and the warning `account_failed` says why.
+When `get_transactions` or `get_orders` reads several accounts and some of
+them fail, it answers with the others: each that failed has the error's
+code in its coverage or account row, and the warning `account_failed`
+says why.
 
 ## Warnings
 
@@ -312,7 +332,7 @@ coverage row, and the warning `account_failed` says why.
 | `store_covers_some` | An account was read from Schwab: the local history holds some of the asked days, but not every one whole. |
 | `before_decisions` | Rows read from Schwab carry the rules' category, before your decisions and the local history's pairing. |
 | `empty_not_proof` | Schwab refused an older window as too old, or sent nothing for it, which does not show that there is nothing older. |
-| `partial` | The call's time ran out before every asked day was read, and `next_cursor` goes on from there; or Schwab sent its most rows for part of a window, so some may be missing. Totals are null. |
+| `partial` | The call's time ran out before every asked day was read, and `next_cursor` goes on from there; or Schwab sent its most rows, or its most orders, 3000, for part of a window, so some may be missing. Totals are null. |
 | `account_failed` | One account could not be read; its row has the error's code. |
 | `types_filter` | `types` leaves out the local history's rows of History exports, which have no Schwab type. |
 | `raw_omitted` | Schwab's JSON was left out to stay under the size cap. |
@@ -323,8 +343,8 @@ coverage row, and the warning `account_failed` says why.
 
 What reaches the model: account numbers masked as `...` and the last three
 digits, Schwab's account hashes, your nicknames and the kinds you gave
-accounts, figures, symbols, Schwab's descriptions of transactions, dates,
-and paths, with your home folder written `~`, each run of 8 or more digits
+accounts, figures, symbols, Schwab's descriptions of transactions, its
+sentences about rejected orders, dates, and paths, with your home folder written `~`, each run of 8 or more digits
 and each account number the server has seen in a path's names masked, and
 a path outside your home folder shown by its file name alone; the name
 that `schwabtx setup` gives the rate-limit file, `rate-` and 16 hex digits
@@ -333,8 +353,11 @@ data, which the server's instructions tell the model not to take as
 instructions.
 
 What never does: a full account number, the `user` details that Schwab's
-spec puts on a transaction (a person's name and login), the app key and
-secret, and the login's tokens. `include_raw` withholds a value of
+spec puts on a transaction (a person's name and login), an order's tag
+beyond where the order came from (`API_TOS:TRADE_ALL` for thinkorswim,
+`TA_...` for an app, whose tag may hold its developer's email address,
+`[withheld]` for anything else), the app key and secret, and the login's
+tokens. `include_raw` withholds a value of
 Schwab's JSON under a key the server does not know, unless it is a time,
 a code, a number that cannot be an account number or a number already
 masked. A last pass over every string the server sends replaces any
@@ -369,8 +392,8 @@ bug report.
 
 ## Limits
 
-- A page of `get_positions` or `get_transactions` stops at about 20,000
-  bytes, and no answer passes 24,000 bytes; one that would is cut (see
+- A page of `get_positions`, `get_transactions` or `get_orders` stops at
+  about 20,000 bytes, and no answer passes 24,000 bytes; one that would is cut (see
   [Cuts](#arguments-and-answers)) or, with nothing left to cut, is
   `too_big`.
 - Each call has 45 seconds (`--call-timeout`, 5 s to 240 s); a walk over
@@ -378,7 +401,8 @@ bug report.
 - 4 calls run at once (`--max-calls`, 1 to 16); a call waits at most 10
   seconds for its turn, then answers `busy`. `auth_status` never waits.
 - Schwab ends a login after 7 days.
-- One call reads at most 724 days of an account from Schwab.
+- One call reads at most 724 days of an account's transactions from
+  Schwab, and asks for at most 365 days of orders.
 
 ## Troubleshooting
 
@@ -432,9 +456,6 @@ and the logs.
 These come with later stages of milestone 3 and are not served yet; their
 names are fixed now.
 
-- **Orders**: `get_orders` and `get_order`, and the reference pages
-  `schwab://reference/order-types` and `schwab://reference/order-statuses`.
-  An order's tag will be shown only as its origin.
 - **Market data**: `get_quotes`, `get_price_history`, `get_option_chain`,
   `get_option_expirations`, `search_instruments`, `get_market_hours` and
   `get_movers`, which need the Market Data product on the Schwab app; an

@@ -1,0 +1,268 @@
+{
+  "source": "schwab",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [],
+  "cut": [],
+  "order": {
+    "account": "...398",
+    "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+    "order_id": "1004518301101",
+    "status": "WORKING",
+    "open": true,
+    "status_description": null,
+    "entered": "2026-09-29T10:10:33-04:00",
+    "closed": null,
+    "strategy": "TRIGGER",
+    "order_type": "LIMIT",
+    "complex_strategy": null,
+    "session": "NORMAL",
+    "duration": "DAY",
+    "price": 48.50,
+    "stop_price": null,
+    "quantity": 100,
+    "filled": 0,
+    "remaining": 100,
+    "legs": [
+      {
+        "instruction": "BUY",
+        "symbol": "XYZ",
+        "asset_type": "EQUITY",
+        "quantity": 100,
+        "position_effect": "OPENING",
+        "fill_price": null,
+        "detail": {
+          "description": null,
+          "cusip": "852234103",
+          "underlying": null,
+          "put_call": null,
+          "strike": null,
+          "expiration": null
+        }
+      }
+    ],
+    "held": [
+      {
+        "parent_id": "1004518301101",
+        "relation": "child",
+        "order_id": "1004518301102",
+        "status": "AWAITING_PARENT_ORDER",
+        "open": true,
+        "status_description": null,
+        "entered": "2026-09-29T10:10:33-04:00",
+        "closed": null,
+        "strategy": "OCO",
+        "order_type": null,
+        "complex_strategy": null,
+        "session": null,
+        "duration": null,
+        "price": null,
+        "stop_price": null,
+        "quantity": null,
+        "filled": null,
+        "remaining": null,
+        "legs": []
+      },
+      {
+        "parent_id": "1004518301102",
+        "relation": "child",
+        "order_id": "1004518301103",
+        "status": "AWAITING_PARENT_ORDER",
+        "open": true,
+        "status_description": null,
+        "entered": "2026-09-29T10:10:33-04:00",
+        "closed": null,
+        "strategy": "SINGLE",
+        "order_type": "LIMIT",
+        "complex_strategy": null,
+        "session": "NORMAL",
+        "duration": "GOOD_TILL_CANCEL",
+        "price": 55.00,
+        "stop_price": null,
+        "quantity": 100,
+        "filled": 0,
+        "remaining": 100,
+        "legs": [
+          {
+            "instruction": "SELL",
+            "symbol": "XYZ",
+            "asset_type": "EQUITY",
+            "quantity": 100,
+            "position_effect": "CLOSING",
+            "fill_price": null,
+            "detail": {
+              "description": null,
+              "cusip": "852234103",
+              "underlying": null,
+              "put_call": null,
+              "strike": null,
+              "expiration": null
+            }
+          }
+        ]
+      },
+      {
+        "parent_id": "1004518301102",
+        "relation": "child",
+        "order_id": "1004518301104",
+        "status": "AWAITING_PARENT_ORDER",
+        "open": true,
+        "status_description": null,
+        "entered": "2026-09-29T10:10:33-04:00",
+        "closed": null,
+        "strategy": "SINGLE",
+        "order_type": "STOP",
+        "complex_strategy": null,
+        "session": "NORMAL",
+        "duration": "GOOD_TILL_CANCEL",
+        "price": null,
+        "stop_price": 45.00,
+        "quantity": 100,
+        "filled": 0,
+        "remaining": 100,
+        "legs": [
+          {
+            "instruction": "SELL",
+            "symbol": "XYZ",
+            "asset_type": "EQUITY",
+            "quantity": 100,
+            "position_effect": "CLOSING",
+            "fill_price": null,
+            "detail": {
+              "description": null,
+              "cusip": "852234103",
+              "underlying": null,
+              "put_call": null,
+              "strike": null,
+              "expiration": null
+            }
+          }
+        ]
+      }
+    ],
+    "detail": {
+      "origin": "API_TOS:TRADE_ALL",
+      "venue": "CDRG",
+      "cancelable": true,
+      "editable": false,
+      "fills": [],
+      "problems": []
+    }
+  },
+  "raw": {
+    "session": "NORMAL",
+    "duration": "DAY",
+    "orderType": "LIMIT",
+    "complexOrderStrategyType": "NONE",
+    "quantity": 100.0,
+    "filledQuantity": 0.0,
+    "remainingQuantity": 100.0,
+    "requestedDestination": "AUTO",
+    "destinationLinkName": "CDRG",
+    "price": 48.5,
+    "orderLegCollection": [
+      {
+        "orderLegType": "EQUITY",
+        "legId": 1,
+        "instrument": {
+          "assetType": "EQUITY",
+          "cusip": "852234103",
+          "symbol": "XYZ",
+          "instrumentId": 1866431205
+        },
+        "instruction": "BUY",
+        "positionEffect": "OPENING",
+        "quantity": 100.0
+      }
+    ],
+    "orderStrategyType": "TRIGGER",
+    "orderId": 1004518301101,
+    "cancelable": true,
+    "editable": false,
+    "status": "WORKING",
+    "enteredTime": "2026-09-29T14:10:33+0000",
+    "tag": "API_TOS:TRADE_ALL",
+    "accountNumber": "...398",
+    "childOrderStrategies": [
+      {
+        "orderStrategyType": "OCO",
+        "orderId": 1004518301102,
+        "cancelable": true,
+        "editable": false,
+        "status": "AWAITING_PARENT_ORDER",
+        "enteredTime": "2026-09-29T14:10:33+0000",
+        "accountNumber": "...398",
+        "childOrderStrategies": [
+          {
+            "session": "NORMAL",
+            "duration": "GOOD_TILL_CANCEL",
+            "orderType": "LIMIT",
+            "complexOrderStrategyType": "NONE",
+            "quantity": 100.0,
+            "filledQuantity": 0.0,
+            "remainingQuantity": 100.0,
+            "requestedDestination": "AUTO",
+            "destinationLinkName": "AutoRoute",
+            "price": 55.0,
+            "orderLegCollection": [
+              {
+                "orderLegType": "EQUITY",
+                "legId": 1,
+                "instrument": {
+                  "assetType": "EQUITY",
+                  "cusip": "852234103",
+                  "symbol": "XYZ",
+                  "instrumentId": 1866431205
+                },
+                "instruction": "SELL",
+                "positionEffect": "CLOSING",
+                "quantity": 100.0
+              }
+            ],
+            "orderStrategyType": "SINGLE",
+            "orderId": 1004518301103,
+            "cancelable": true,
+            "editable": false,
+            "status": "AWAITING_PARENT_ORDER",
+            "enteredTime": "2026-09-29T14:10:33+0000",
+            "accountNumber": "...398"
+          },
+          {
+            "session": "NORMAL",
+            "duration": "GOOD_TILL_CANCEL",
+            "orderType": "STOP",
+            "complexOrderStrategyType": "NONE",
+            "quantity": 100.0,
+            "filledQuantity": 0.0,
+            "remainingQuantity": 100.0,
+            "requestedDestination": "AUTO",
+            "destinationLinkName": "AutoRoute",
+            "stopPrice": 45.0,
+            "stopType": "STANDARD",
+            "orderLegCollection": [
+              {
+                "orderLegType": "EQUITY",
+                "legId": 1,
+                "instrument": {
+                  "assetType": "EQUITY",
+                  "cusip": "852234103",
+                  "symbol": "XYZ",
+                  "instrumentId": 1866431205
+                },
+                "instruction": "SELL",
+                "positionEffect": "CLOSING",
+                "quantity": 100.0
+              }
+            ],
+            "orderStrategyType": "SINGLE",
+            "orderId": 1004518301104,
+            "cancelable": true,
+            "editable": false,
+            "status": "AWAITING_PARENT_ORDER",
+            "enteredTime": "2026-09-29T14:10:33+0000",
+            "accountNumber": "...398"
+          }
+        ]
+      }
+    ]
+  }
+}

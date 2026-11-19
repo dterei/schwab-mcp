@@ -15,7 +15,9 @@ looks up your accounts, positions and balances, saves snapshots of your
 positions and balances, and keeps your history in a local store, from those
 snapshots, Schwab's own transactions and the files you export from
 schwab.com, each transaction counted once, which it exports for your
-calculators.
+calculators; and a read-only MCP server that answers an AI assistant about
+your accounts, balances, positions, transactions and orders, from Schwab
+and from that store.
 
 This project is not affiliated with, endorsed by or supported by Charles
 Schwab & Co.
@@ -31,10 +33,12 @@ Schwab & Co.
 | `schwabtx sync`: your whole history from Schwab's API into the store, kept current (milestone 2) | Waits for the live probes |
 | Export formats for Portfolio Performance and Ghostfolio (milestone 2) | Planned |
 | Go client for Schwab's API (milestone 1): the login, retries under a shared rate limit, and the account records | In progress, internal for now |
-| MCP server, read-only first (milestone 3) | Planned |
+| [`schwab-mcp`](docs/mcp.md) (milestone 3): a read-only MCP server over stdio for your accounts, balances, positions, transactions and orders, from Schwab and the store, account numbers masked; `schwabtx setup` saves its config | Works, not yet tried against a real account |
+| Market data in the MCP server (milestone 3) | Planned |
 
 The [roadmap](docs/ROADMAP.md) has the plan and the full feature list,
 [docs/store.md](docs/store.md) describes the store and its commands,
+[docs/mcp.md](docs/mcp.md) the MCP server and how to add it to a client,
 [docs/schwab-api.md](docs/schwab-api.md) has notes on the API itself,
 [docs/schwab-exports.md](docs/schwab-exports.md) on schwab.com's exports, and
 [docs/prior-art.md](docs/prior-art.md) surveys existing Schwab MCP servers and
@@ -73,9 +77,10 @@ guides, so menu names on the portal may differ slightly.
 3. On the API Products page open **Trader API - Individual** and click Request
    Access if it asks.
 4. Dashboard > Apps > Create App. Add both API products, **Accounts and
-   Trading Production** and **Market Data Production**: the CLI needs the
-   first, the planned MCP server both, and calls to a product the app lacks
-   fail with "Client not authorized". Set the callback URLs to
+   Trading Production** and **Market Data Production**: the CLI and the MCP
+   server need the first, the server's planned market-data tools the
+   second, and calls to a product the app lacks fail with "Client not
+   authorized". Set the callback URLs to
    `https://127.0.0.1,https://127.0.0.1:8182`: two URLs, comma-separated,
    with no trailing slashes. The CLI uses the first. The second is for an
    automatic login planned for later, which needs a port that does not
@@ -146,10 +151,11 @@ See [cmd/schwabtx](cmd/schwabtx/README.md) for flags and troubleshooting.
   file's symbols are kept as written), unless you ask for them with
   `-show-accounts` or `-raw`. See
   [docs/store.md](docs/store.md#privacy).
-- Once the MCP server exists, what its tools return also goes to your AI
-  assistant's model, which for most assistants runs on the provider's
-  servers rather than your machine. The server will mask account numbers in
-  everything it returns.
+- What the MCP server's tools return goes to your AI assistant's model,
+  which for most assistants runs on the provider's servers rather than your
+  machine. The server masks account numbers in everything it returns and
+  logs, Schwab's JSON included, and never returns the app key, the secret
+  or the tokens. See [docs/mcp.md](docs/mcp.md#privacy).
 
 Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
@@ -158,11 +164,12 @@ Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 You need Go 1.26 or newer.
 
 ```sh
-make check   # everything CI runs: go.mod tidiness, libc, lint, tests, govulncheck
+make check   # everything CI runs: go.mod tidiness, libc, lint, schemas, tests, govulncheck
 make test    # tests with the race detector
 make fuzz    # fuzz each target in turn (needs Go 1.27)
 make lint    # golangci-lint, with go vet and the format check, and ShellCheck
 make libc    # check that modernc.org/libc is the one modernc.org/sqlite requires
+make schemas # compile the MCP server's schemas with Ajv (needs npm)
 make fmt     # format the code
 make help    # all targets
 ```
@@ -181,18 +188,22 @@ To get the same formatting on save, set up gopls in your editor with
 cmd/schwabtx/   the CLI and its tests, which run it against a fake Schwab server
 cmd/schwabtx/schedule/
                 scripts and steps for running snapshots daily
+cmd/schwab-mcp/ the MCP server's command: its flags, config and logs
+internal/mcpserver/
+                the MCP server's tools, resources and prompt, and the last
+                check that masks every string it sends or logs
 internal/schwab/
                 the Schwab client: the login, its refresh and the token file
                 that every process using the login shares, reads that are
                 tried again after a failure, under a rate limit that every
                 process using the app key shares, and the accounts,
-                positions, transactions and preferences they return, with
-                Schwab's JSON kept
+                positions, transactions, orders and preferences they return,
+                with Schwab's JSON kept
 internal/schwab/schwabtest/
                 a fake Schwab for the tests, kept out of the programs: its
-                token endpoint, authorize page and account endpoints, with
-                Schwab's rules for tokens and its error answers, and fixtures
-                in the shape Schwab sends them
+                token endpoint, authorize page, and account and order
+                endpoints, with Schwab's rules for tokens and its error
+                answers, and fixtures in the shape Schwab sends them
 internal/filelock/
                 file locks across processes, which keep two processes from
                 refreshing the login at once, or from going over the rate
@@ -201,12 +212,21 @@ internal/history/
                 the store: one SQLite file that keeps what Schwab, schwab.com's
                 exports and you gave it, and derives from it each
                 transaction once, classified, and the views that exports
-                and, later, the MCP server read
+                and the MCP server read
 internal/history/schwabfile/
                 the readers of schwab.com's exports and of schwabtx's own files
 internal/nyse/, internal/nytime/
                 the NYSE's sessions since 2000, and New York's time zone
 internal/mask/  account numbers and free text masked to the last 3 digits
+internal/lookup/
+                the accounts, balances and positions that the CLI prints and
+                the MCP server returns
+internal/config/
+                config.json, which schwabtx setup saves and the MCP server
+                reads
+scripts/ajvcheck/
+                compiles the MCP server's schemas as the TypeScript MCP SDK's
+                clients do
 docs/           roadmap, the store, notes on the Schwab API and schwab.com's
                 exports, the live mode and a survey of prior art
 .github/        CI and Dependabot
@@ -231,13 +251,14 @@ What runs where:
   Linux, macOS and Windows with the latest Go, and on Linux with the oldest
   supported Go; golangci-lint, ShellCheck, a `go mod tidy` check and
   `make libc`, which checks that `modernc.org/libc` is the version that
-  `modernc.org/sqlite` requires; govulncheck.
+  `modernc.org/sqlite` requires; the MCP server's schemas compiled with
+  Ajv; govulncheck.
 - **Dependabot** ([`.github/dependabot.yml`](.github/dependabot.yml)): weekly
-  grouped updates for Go modules and GitHub Actions, each release left to age
-  a week first, but for `modernc.org/libc`, which moves only with
-  `modernc.org/sqlite`. Actions are referenced by major version (`@v7`), so
-  their minor and patch releases arrive without Dependabot and without the
-  wait.
+  grouped updates for Go modules, GitHub Actions and the schemas check's
+  Ajv, each release left to age a week first, but for `modernc.org/libc`,
+  which moves only with `modernc.org/sqlite`. Actions are referenced by
+  major version (`@v7`), so their minor and patch releases arrive without
+  Dependabot and without the wait.
 - **Fuzzing**, by hand: `make fuzz` fuzzes each target in `internal/schwab`,
   `internal/mask` and `internal/history/schwabfile` in turn, 30 seconds each
   unless `FUZZTIME` says otherwise, and stops at the first that fails. It

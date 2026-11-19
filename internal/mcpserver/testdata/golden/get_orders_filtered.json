@@ -1,0 +1,103 @@
+{
+  "source": "schwab",
+  "as_of": "2026-11-13T16:40:00-05:00",
+  "warnings": [],
+  "next_cursor": null,
+  "complete": true,
+  "cut": [],
+  "orders": [
+    {
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "order_id": "1004517610333",
+      "status": "CANCELED",
+      "open": false,
+      "status_description": null,
+      "entered": "2025-09-30T10:02:11-04:00",
+      "closed": "2025-09-30T10:40:00-04:00",
+      "strategy": "SINGLE",
+      "order_type": "NET_CREDIT",
+      "complex_strategy": "VERTICAL",
+      "session": "NORMAL",
+      "duration": "DAY",
+      "price": 0.85,
+      "stop_price": null,
+      "quantity": 1,
+      "filled": 0,
+      "remaining": 0,
+      "legs": [
+        {
+          "instruction": "SELL_TO_OPEN",
+          "symbol": "XYZ   251017P00045000",
+          "asset_type": "OPTION",
+          "quantity": 1,
+          "position_effect": "OPENING",
+          "fill_price": null
+        },
+        {
+          "instruction": "BUY_TO_OPEN",
+          "symbol": "XYZ   251017P00040000",
+          "asset_type": "OPTION",
+          "quantity": 1,
+          "position_effect": "OPENING",
+          "fill_price": null
+        }
+      ],
+      "held": []
+    },
+    {
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "order_id": "1004517601177",
+      "status": "FILLED",
+      "open": false,
+      "status_description": null,
+      "entered": "2025-01-21T11:04:58-05:00",
+      "closed": "2025-01-21T11:05:12-05:00",
+      "strategy": "SINGLE",
+      "order_type": "LIMIT",
+      "complex_strategy": null,
+      "session": "NORMAL",
+      "duration": "DAY",
+      "price": 2.00,
+      "stop_price": null,
+      "quantity": 2,
+      "filled": 2,
+      "remaining": 0,
+      "legs": [
+        {
+          "instruction": "BUY_TO_OPEN",
+          "symbol": "XYZ   250221P00040000",
+          "asset_type": "OPTION",
+          "quantity": 2,
+          "position_effect": "OPENING",
+          "fill_price": 2.00
+        }
+      ],
+      "held": []
+    }
+  ],
+  "accounts": [
+    {
+      "account": "...135",
+      "account_hash": "742C51B544655B85F41224019A82CD7AB3C6BABDB67BF80531E82B306CB5F691",
+      "nickname": "Individual",
+      "orders": 0,
+      "error": null
+    },
+    {
+      "account": "...398",
+      "account_hash": "1C56D4AFB6D63159948EDC251323B17E5BDD4905D5174675786F7C637B43EA31",
+      "nickname": "Options & Margin",
+      "orders": 2,
+      "error": null
+    },
+    {
+      "account": "...783",
+      "account_hash": "8C2F1DD750834DC72D2B65A2497B6A003E30CF6559B79586433150D303FDC9DA",
+      "nickname": "Contributory",
+      "orders": 0,
+      "error": null
+    }
+  ]
+}

@@ -105,3 +105,48 @@ func TransactionKeyClass(path []string) mask.Class {
 	c, _ := transactionKeyClasses.classOf(path)
 	return c
 }
+
+// orderKeyClasses are the classes of an order's key paths, and of the
+// orders it holds: its account number; its tag, which may name an app's
+// developer; its IDs and codes; its times; its prices and quantities; and
+// Schwab's sentence about a rejection, which is free text.
+var orderKeyClasses = func() *keyClasses {
+	t := &keyClasses{classes: slices.Concat(
+		classesAt(mask.AccountNumber, "accountNumber"),
+		classesAt(mask.Tag, "tag"),
+		classesAt(mask.Identifier, "orderId", "status", "orderStrategyType", "orderType", "complexOrderStrategyType",
+			"session", "duration", "requestedDestination", "destinationLinkName", "cancelable", "editable",
+			"stopPriceLinkBasis", "stopPriceLinkType", "stopType", "priceLinkBasis", "priceLinkType", "taxLotMethod",
+			"specialInstruction",
+			"orderLegCollection.orderLegType", "orderLegCollection.legId", "orderLegCollection.instruction",
+			"orderLegCollection.positionEffect", "orderLegCollection.quantityType", "orderLegCollection.divCapGains",
+			"orderLegCollection.toSymbol",
+			"orderActivityCollection.activityType", "orderActivityCollection.activityId",
+			"orderActivityCollection.executionType", "orderActivityCollection.executionLegs.legId",
+			"orderActivityCollection.executionLegs.instrumentId"),
+		classesAt(mask.Time, "enteredTime", "closeTime", "cancelTime", "releaseTime",
+			"orderActivityCollection.executionLegs.time"),
+		classesAt(mask.Amount, "quantity", "filledQuantity", "remainingQuantity", "price", "stopPrice",
+			"stopPriceOffset", "activationPrice", "orderLegCollection.quantity", "orderActivityCollection.quantity",
+			"orderActivityCollection.orderRemainingQuantity", "orderActivityCollection.executionLegs.price",
+			"orderActivityCollection.executionLegs.quantity", "orderActivityCollection.executionLegs.mismarkedQuantity"),
+		classesAt(mask.FreeText, "statusDescription"),
+	)}
+	t.nested = []nestedKeyClasses{
+		{keys: []string{"orderLegCollection", "instrument"}, table: instrumentKeyClasses},
+		{keys: []string{"childOrderStrategies"}, table: t},
+		{keys: []string{"replacingOrderCollection"}, table: t},
+	}
+	return t
+}()
+
+// OrderKeyClass returns the class of the values at path in an order's
+// JSON, for mask.JSON, as TransactionKeyClass does of a transaction's: the
+// account number becomes its masked form, a string, though Schwab sends a
+// number; the tag is shown only as its origin (mask.Tag); and the orders
+// that an order holds are classed as orders. A key that the table does not
+// name is mask.Unknown.
+func OrderKeyClass(path []string) mask.Class {
+	c, _ := orderKeyClasses.classOf(path)
+	return c
+}

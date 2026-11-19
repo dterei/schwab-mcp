@@ -370,13 +370,29 @@ The data your return calculators need, kept complete and current.
 
 ### M3. MCP server, read-only
 
-- [ ] `cmd/schwab-mcp` on the official Go MCP SDK, stdio transport first:
+The server serves accounts, balances, positions, transactions and orders
+today (see [the MCP server](mcp.md)); market data comes next.
+
+- [x] `cmd/schwab-mcp` on the official Go MCP SDK, stdio transport first:
       over stdio every MCP protocol version works, including the elicitation
-      that milestone 5 uses for confirmations
-- [ ] Typed models and fake-server endpoints for orders and market data:
-      quotes, price history, option chains and expirations, instruments,
-      market hours, movers
-- [ ] The read-only tools in the [tool catalog](#mcp-tool-catalog), with
+      that milestone 5 uses for confirmations. It reads its paths, key and
+      secret from the `config.json` that `schwabtx setup` saves, so a
+      client's configuration holds no secret
+- [x] Typed models and fake-server endpoints for orders, the three read
+      endpoints, with fixtures modeled on captured orders
+- [ ] Typed models and fake-server endpoints for market data: quotes, price
+      history, option chains and expirations, instruments, market hours,
+      movers
+- [x] The read-only tools for accounts, balances, positions and
+      transactions: `auth_status`, `list_accounts`, `get_balances`,
+      `get_positions`, `get_transactions` and `get_transaction`, each with
+      the figures `schwabtx` prints, and a CI job that compiles every schema
+      with Ajv as clients on the TypeScript MCP SDK do
+- [x] The read-only tools for orders, `get_orders` and `get_order`: the
+      orders an order holds, such as a bracket's, listed flat under it,
+      and its tag shown only as where it came from
+- [ ] The read-only tools for market data in the
+      [tool catalog](#mcp-tool-catalog), with
       input and output schemas, structured results and `readOnlyHint`. The
       SDK checks every result against its tool's output schema, and the
       schemas it infers describe `json.RawMessage` and `json.Number` wrongly,
@@ -387,8 +403,9 @@ The data your return calculators need, kept complete and current.
       named field, never by embedding it, since its UnmarshalJSON would come
       along
 - [ ] Compact results by default with a `detail` option; pagination for
-      transactions; option chains always bounded
-- [ ] Account numbers masked everywhere a tool or resource returns data,
+      transactions; option chains always bounded. Done but for option
+      chains: answers stop at about 20,000 bytes a page and 24,000 in all
+- [x] Account numbers masked everywhere a tool or resource returns data,
       Schwab's JSON included: inside each handler, before the result is
       returned, since the SDK checks results and quotes a failing value in
       its error. Mask deep copies of the records, and Schwab's JSON decoded
@@ -396,20 +413,25 @@ The data your return calculators need, kept complete and current.
       change a value's type or delete a key, which would break the listed
       schema. Masked numbers take Schwab's own form, `...` and the last
       three digits. `StreamerInfo` is never returned. Encode Schwab's JSON
-      with HTML escaping off, since `json.Marshal` escapes `&`
-- [ ] Transactions served from the local store once milestone 2 has synced
-      it, from the API otherwise; store-backed results say which dates they
-      cover, per account
-- [ ] Clear tool errors when the login has expired or is about to, telling
+      with HTML escaping off, since `json.Marshal` escapes `&`. Every string
+      the server sends or logs also passes a last check that replaces any
+      account number it has seen, and the key, the secret and the tokens
+- [x] Transactions served from the local store where it holds every asked
+      day of an account, from the API otherwise, never one account's days
+      from both; results say where each account's rows came from and which
+      dates they cover
+- [x] Clear tool errors when the login has expired or is about to, telling
       you to run `schwabtx login`; an `auth_status` tool
-- [ ] Resources: account list, positions per account, and reference pages
+- [x] Resources: account list, positions per account, and reference pages
       for Schwab's enums (transaction types, order types and statuses)
-- [ ] A prompt for a portfolio review
-- [ ] Setup docs for the common MCP clients, desktop and command-line
-- [ ] Tests through the SDK's in-memory transport against the fake Schwab
+- [x] A prompt for a portfolio review
+- [x] Setup docs for the common MCP clients, desktop and command-line
+- [x] Tests through the SDK's in-memory transport against the fake Schwab
       that call every tool with empty and with full responses, so the SDK's
       output check covers every schema, and that fail if a full account
-      number appears in any result or error
+      number appears in any result or error; each tool's cases run in a
+      2026-07-28 session and in a 2025-06-18 one
+- [ ] Tried against a real account and from a real MCP client
 
 ### M4. Returns and performance
 
@@ -595,7 +617,8 @@ Everything planned, by area.
 | Login | Token in the OS keychain | Later |
 | Client | Accounts, balances, positions, transactions and preferences, typed, raw JSON kept | done |
 | Client | Rate limiting, retries for reads, correlation IDs in errors | done |
-| Client | Orders and every Market Data endpoint, typed, raw JSON kept | M3 |
+| Client | Orders' read endpoints, typed, raw JSON kept | done |
+| Client | Every Market Data endpoint, typed, raw JSON kept | M3 |
 | History | Recent transactions across all accounts (`schwabtx`) | done |
 | History | Position and balance snapshots (`schwabtx snapshot`) | done |
 | History | Snapshots on a daily schedule, with sample scheduler entries | done |
@@ -606,8 +629,10 @@ Everything planned, by area.
 | History | CSV and JSON Lines export | done |
 | History | Portfolio Performance and Ghostfolio export | M2 |
 | Lookups | Accounts, positions and balances at a glance (`schwabtx accounts`, `positions`, `balances`) | done |
-| MCP | Read-only tools for accounts, positions, history, orders, market data | M3 |
-| MCP | Resources, prompts, structured output, tool annotations, masked account numbers | M3 |
+| MCP | Read-only tools for accounts, balances, positions and transactions | done |
+| MCP | Read-only tools for orders | done |
+| MCP | Read-only tools for market data | M3 |
+| MCP | Resources, a prompt, structured output, tool annotations, masked account numbers | done |
 | MCP | Streamable HTTP on `127.0.0.1`, with a token and an `Origin` check | M7 |
 | Returns | Per-account and whole-portfolio cash flows | M4 |
 | Returns | Daily valuation series, exact or rebuilt, with gaps reported | M4 |

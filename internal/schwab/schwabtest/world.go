@@ -30,11 +30,12 @@ type Account struct {
 	NoHistory bool
 }
 
-// account is an Account in the world, with its rows.
+// account is an Account in the world, with its rows and its orders.
 type account struct {
 	Account
 	serial int // which account it is, whatever its hash
 	rows   []*row
+	orders []*order
 }
 
 // numberJSON returns the account's element of GET /accounts/accountNumbers.
@@ -203,8 +204,8 @@ func (s *Server) SetDetails(hash, details string) {
 }
 
 // RemoveAccount takes the account with the given hash out of the world,
-// with its rows, as when it is no longer shared: its paths then get 400
-// Invalid account number.
+// with its rows and orders, as when it is no longer shared: its paths then
+// get 400 Invalid account number.
 func (s *Server) RemoveAccount(hash string) {
 	s.t.Helper()
 	s.mu.Lock()
@@ -218,10 +219,10 @@ func (s *Server) RemoveAccount(hash string) {
 }
 
 // Rehash gives the account with oldHash the hash newHash, as Schwab is
-// reported to do on a new login. The account keeps its place, its rows and
-// its RowRefs, and the hashValue string in a NumberJSON that was given is
-// replaced; one without a hashValue string fails the test. The old hash
-// then gets 400 Invalid account number.
+// reported to do on a new login. The account keeps its place, its rows,
+// its RowRefs and its orders, and the hashValue string in a NumberJSON
+// that was given is replaced; one without a hashValue string fails the
+// test. The old hash then gets 400 Invalid account number.
 func (s *Server) Rehash(oldHash, newHash string) {
 	s.t.Helper()
 	s.mu.Lock()
@@ -557,6 +558,32 @@ func (s *Server) loadFixtures() error {
 	}
 	if err := s.setRowByID(hashes[probe.AccountNumber], probe.ActivityID, string(one)); err != nil {
 		return fmt.Errorf("transaction.json: %w", err)
+	}
+	orders, err := read("orders.json")
+	if err != nil {
+		return err
+	}
+	for _, o := range orders {
+		var probe struct {
+			AccountNumber json.Number `json:"accountNumber"`
+		}
+		if err := json.Unmarshal(o, &probe); err != nil {
+			return fmt.Errorf("orders.json: %w", err)
+		}
+		if err := s.addOrders(hashes[probe.AccountNumber.String()], string(o)); err != nil {
+			return fmt.Errorf("orders.json: %w", err)
+		}
+	}
+	oneOrder := mustFixture("order.json")
+	var orderProbe struct {
+		AccountNumber json.Number `json:"accountNumber"`
+		OrderID       int64       `json:"orderId"`
+	}
+	if err := json.Unmarshal(oneOrder, &orderProbe); err != nil {
+		return fmt.Errorf("order.json: %w", err)
+	}
+	if err := s.setOrderByID(hashes[orderProbe.AccountNumber.String()], orderProbe.OrderID, string(oneOrder)); err != nil {
+		return fmt.Errorf("order.json: %w", err)
 	}
 	s.preference = string(mustFixture("user_preference.json"))
 	return nil

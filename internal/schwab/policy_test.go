@@ -190,6 +190,7 @@ var (
 	nameGrammar   = stringGrammar("a security's name", nameForm.MatchString)
 	urlGrammar    = stringGrammar("an address of Schwab's streamer", streamerURLForm.MatchString)
 	codeGrammar   = stringGrammar("a code", codeForm.MatchString)
+	venueGrammar  = stringGrammar("a venue's code", venueForm.MatchString)
 	numberGrammar = &grammar{name: "a number", match: isJSONNumber}
 	boolGrammar   = &grammar{name: "a boolean", match: isJSONBool}
 	// statusGrammar is an error's HTTP status: three digits, as a number,
@@ -212,9 +213,10 @@ var (
 	// cusipForm is a CUSIP as Schwab sends one: nine characters, or, for an
 	// option, up to sixteen with dots, such as 0XYZ..RI60045000.
 	cusipForm = regexp.MustCompile(`^[0-9A-Z.]{9,16}$`)
-	// nameForm is a security's name, such as VANGUARD TOTAL STOCK MARKET ETF
-	// or E-MINI S&P 500 OPTIONS MAR 25 5050 PUT.
-	nameForm = regexp.MustCompile(`^[A-Za-z0-9 &.,/'()%-]{1,64}$`)
+	// nameForm is a security's name, such as VANGUARD TOTAL STOCK MARKET ETF,
+	// E-MINI S&P 500 OPTIONS MAR 25 5050 PUT or, in an order, FORD MTR CO
+	// DEL 03/20/2026 $14 Call.
+	nameForm = regexp.MustCompile(`^[A-Za-z0-9 &.,/'()%$-]{1,64}$`)
 	// streamerURLForm is an address of Schwab's streamer: wss or https, on a
 	// host under schwab.com, with no port, query or fragment.
 	streamerURLForm = regexp.MustCompile(`^(?:wss|https)://(?:[a-z0-9-]+\.)*schwab\.com(?:/[A-Za-z0-9._-]+)*/?$`)
@@ -223,6 +225,9 @@ var (
 	apiURLForm = regexp.MustCompile(`^https?://api\.schwabapi\.com/(?:v1/oauth|trader/v1|marketdata/v1)(?:/[^\s?#]*)?(?:\?[^\s#]*)?$`)
 	// codeForm is a code of the streamer's, such as N9 or APIAPP.
 	codeForm = regexp.MustCompile(`^[A-Z0-9]{2,12}$`)
+	// venueForm is the code of the venue an order was routed to, such as
+	// CDRG or WEXM, or AutoRoute before it is routed.
+	venueForm = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]{1,15}$`)
 	// javaDateForm is a time as Java's Date.toString writes it, EEE MMM dd
 	// HH:mm:ss zzz yyyy, such as Mon Nov 02 10:01:02 EST 2026.
 	javaDateForm = regexp.MustCompile(`^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ` +
@@ -325,6 +330,32 @@ var (
 	lotSelectionMethods = enumOf("FIFO", "LIFO", "HIGH_COST", "LOW_COST", "AVERAGE_COST", "SPECIFIC_LOT", "LOSS_HARVESTER")
 	// marketDataPermissions: the spec has none, and only NP has been seen.
 	marketDataPermissions = enumOf("NP")
+	// The enums of orders: the spec's lists, and CANCELED, seen as an
+	// execution's type, which the spec lists FILL alone for.
+	orderStatuses      = enumOf(AllOrderStatuses()...)
+	orderStrategyTypes = enumOf("SINGLE", "CANCEL", "RECALL", "PAIR", "FLATTEN", "TWO_DAY_SWAP", "BLAST_ALL", "OCO", "TRIGGER")
+	orderTypes         = enumOf("MARKET", "LIMIT", "STOP", "STOP_LIMIT", "TRAILING_STOP", "CABINET", "NON_MARKETABLE",
+		"MARKET_ON_CLOSE", "EXERCISE", "TRAILING_STOP_LIMIT", "NET_DEBIT", "NET_CREDIT", "NET_ZERO", "LIMIT_ON_CLOSE", "UNKNOWN")
+	complexOrderStrategyTypes = enumOf("NONE", "COVERED", "VERTICAL", "BACK_RATIO", "CALENDAR", "DIAGONAL", "STRADDLE",
+		"STRANGLE", "COLLAR_SYNTHETIC", "BUTTERFLY", "CONDOR", "IRON_CONDOR", "VERTICAL_ROLL", "COLLAR_WITH_STOCK",
+		"DOUBLE_DIAGONAL", "UNBALANCED_BUTTERFLY", "UNBALANCED_CONDOR", "UNBALANCED_IRON_CONDOR", "UNBALANCED_VERTICAL_ROLL",
+		"MUTUAL_FUND_SWAP", "CUSTOM")
+	orderSessions  = enumOf("NORMAL", "AM", "PM", "SEAMLESS")
+	orderDurations = enumOf("DAY", "GOOD_TILL_CANCEL", "FILL_OR_KILL", "IMMEDIATE_OR_CANCEL", "END_OF_WEEK", "END_OF_MONTH",
+		"NEXT_END_OF_MONTH", "UNKNOWN")
+	orderDestinations = enumOf("INET", "ECN_ARCA", "CBOE", "AMEX", "PHLX", "ISE", "BOX", "NYSE", "NASDAQ", "BATS", "C2",
+		"AUTO")
+	priceLinkBases      = enumOf("MANUAL", "BASE", "TRIGGER", "LAST", "BID", "ASK", "ASK_BID", "MARK", "AVERAGE")
+	priceLinkTypes      = enumOf("VALUE", "PERCENT", "TICK")
+	stopTypes           = enumOf("STANDARD", "BID", "ASK", "LAST", "MARK")
+	specialInstructions = enumOf("ALL_OR_NONE", "DO_NOT_REDUCE", "ALL_OR_NONE_DO_NOT_REDUCE")
+	orderLegTypes       = enumOf("EQUITY", "OPTION", "INDEX", "MUTUAL_FUND", "CASH_EQUIVALENT", "FIXED_INCOME", "CURRENCY",
+		"COLLECTIVE_INVESTMENT")
+	orderInstructions = enumOf("BUY", "SELL", "BUY_TO_COVER", "SELL_SHORT", "BUY_TO_OPEN", "BUY_TO_CLOSE", "SELL_TO_OPEN",
+		"SELL_TO_CLOSE", "EXCHANGE", "SELL_SHORT_EXEMPT")
+	quantityTypes  = enumOf("ALL_SHARES", "DOLLARS", "SHARES")
+	divCapGains    = enumOf("REINVEST", "PAYOUT")
+	executionTypes = enumOf("FILL", "CANCELED")
 	// faultCodes are the gateway's codes, those of testdata/errors.
 	faultCodes = enumOf("messaging.adaptors.http.flow.GatewayTimeout", "messaging.adaptors.http.flow.ServiceUnavailable",
 		"oauth.v2.InvalidApiKey", "protocol.http.TooBigBody")
@@ -360,10 +391,14 @@ func (f *freeText) isPlaceholder(s string) bool {
 }
 
 // The free text that the tables replace: the descriptions of transactions,
-// and the messages of errors.
+// the messages of errors, Schwab's sentences about rejected orders, and
+// orders' tags, of which Schwab's own platform's name no one, while
+// another's, of an app, may name its developer.
 var (
 	descriptionText = &freeText{name: "a description", word: "DESCRIPTION", words: schwabDescriptions}
 	messageText     = &freeText{name: "a message", word: "MESSAGE", words: schwabMessages}
+	rejectionText   = &freeText{name: "an order's status description", word: "STATUS", words: schwabRejections}
+	tagText         = &freeText{name: "an order's tag", word: "TAG", words: schwabTags}
 )
 
 // balanceFigures are the money figures of a set of balances: every field
@@ -448,6 +483,57 @@ var transactionTable = &table{
 	nested: []nestedTable{{keys: []string{"transferItems", "instrument"}, table: instrumentTable}},
 }
 
+// orderTable is the policy for an order, and for the orders it holds: its
+// ids and account number are mapped; its quantities are money, while its
+// prices, as transactions' are, its codes and its times are kept, as its
+// legs' instruments are; and its tag and Schwab's sentence about a
+// rejection are free text.
+var orderTable = func() *table {
+	t := &table{rules: slices.Concat(
+		mapAt(idOrder, "orderId"),
+		mapAt(idAccountNumber, "accountNumber"),
+		mapAt(idActivity, "orderActivityCollection.activityId"),
+		scaleAt("quantity", "filledQuantity", "remainingQuantity", "orderLegCollection.quantity",
+			"orderActivityCollection.quantity", "orderActivityCollection.orderRemainingQuantity",
+			"orderActivityCollection.executionLegs.quantity", "orderActivityCollection.executionLegs.mismarkedQuantity"),
+		keepAt(numberGrammar, "price", "stopPrice", "stopPriceOffset", "activationPrice", "orderLegCollection.legId",
+			"orderActivityCollection.executionLegs.legId", "orderActivityCollection.executionLegs.price",
+			"orderActivityCollection.executionLegs.instrumentId"),
+		keepAt(timeGrammar, "enteredTime", "closeTime", "cancelTime", "releaseTime",
+			"orderActivityCollection.executionLegs.time"),
+		keepAt(orderStatuses, "status"),
+		keepAt(orderStrategyTypes, "orderStrategyType"),
+		keepAt(orderTypes, "orderType"),
+		keepAt(complexOrderStrategyTypes, "complexOrderStrategyType"),
+		keepAt(orderSessions, "session"),
+		keepAt(orderDurations, "duration"),
+		keepAt(orderDestinations, "requestedDestination"),
+		keepAt(venueGrammar, "destinationLinkName"),
+		keepAt(priceLinkBases, "stopPriceLinkBasis", "priceLinkBasis"),
+		keepAt(priceLinkTypes, "stopPriceLinkType", "priceLinkType"),
+		keepAt(stopTypes, "stopType"),
+		keepAt(lotSelectionMethods, "taxLotMethod"),
+		keepAt(specialInstructions, "specialInstruction"),
+		keepAt(boolGrammar, "cancelable", "editable"),
+		keepAt(orderLegTypes, "orderLegCollection.orderLegType"),
+		keepAt(orderInstructions, "orderLegCollection.instruction"),
+		keepAt(positionEffects, "orderLegCollection.positionEffect"),
+		keepAt(quantityTypes, "orderLegCollection.quantityType"),
+		keepAt(divCapGains, "orderLegCollection.divCapGains"),
+		keepAt(symbolGrammar, "orderLegCollection.toSymbol"),
+		keepAt(activityTypes, "orderActivityCollection.activityType"),
+		keepAt(executionTypes, "orderActivityCollection.executionType"),
+		placeholderAt(tagText, "tag"),
+		placeholderAt(rejectionText, "statusDescription"),
+	)}
+	t.nested = []nestedTable{
+		{keys: []string{"orderLegCollection", "instrument"}, table: instrumentTable},
+		{keys: []string{"childOrderStrategies"}, table: t},
+		{keys: []string{"replacingOrderCollection"}, table: t},
+	}
+	return t
+}()
+
 // instrumentTable is the policy for an instrument, wherever one is held: it
 // is public reference data, kept. An option's deliverable is an instrument
 // too. Besides the fields that transactions and positions send, an option
@@ -522,6 +608,9 @@ var policyTables = map[string]*table{
 	"account":        accountTable,
 	"transactions":   transactionTable,
 	"transaction":    transactionTable,
+	"orders":         orderTable,
+	"order":          orderTable,
+	"allOrders":      orderTable,
 	"userPreference": userPreferenceTable,
 	errorsKind:       errorsTable,
 }
@@ -532,8 +621,7 @@ var policyTables = map[string]*table{
 // of the kind errors when it has the shape of one of Schwab's errors, as
 // errorShaped says, on any path: so is each file of testdata/errors, the
 // token endpoint's refusals among them. Any other answer, such as one of
-// orders or of market data, is of no kind the policy covers. pages are
-// errorPages'.
+// market data, is of no kind the policy covers. pages are errorPages'.
 func policyKindOf(pages []*errorPage, e schwabtest.Entry, body []byte) (string, bool) {
 	if e.Response.Status == http.StatusOK {
 		route, ok := e.Route()
@@ -547,6 +635,24 @@ func policyKindOf(pages []*errorPage, e schwabtest.Entry, body []byte) (string, 
 		return errorsKind, true
 	}
 	return "", false
+}
+
+// unscrubbedKinds are the kinds of answer whose tables hold the hand-made
+// fixtures (hygiene_test.go) but that the scrubber does not scrub yet: the
+// orders', whose table no recording of real orders has been held to. The
+// scrubber leaves a recorded answer of one out, as of no kind it covers,
+// until a recording of orders has been read and the kind is taken off.
+var unscrubbedKinds = []string{"orders", "order", "allOrders"}
+
+// scrubbedKindOf returns the kind of the answer that e names, given its
+// body, as policyKindOf does, and whether the scrubber scrubs it: an
+// answer of no kind, or of one of unscrubbedKinds, is not scrubbed.
+func scrubbedKindOf(pages []*errorPage, e schwabtest.Entry, body []byte) (string, bool) {
+	kind, ok := policyKindOf(pages, e, body)
+	if !ok || slices.Contains(unscrubbedKinds, kind) {
+		return "", false
+	}
+	return kind, true
 }
 
 // errorShaped reports whether body has the shape of one of Schwab's errors:
@@ -738,22 +844,34 @@ type recordField struct {
 // scalarFields returns the scalar fields of t, a record's type, and of the
 // records it holds, at any depth, through slices and pointers: each string,
 // number, boolean and time, under the keys that lead to it, after prefix.
-// The record's own Problems and Raw are not Schwab's, and are left out.
+// The record's own Problems and Raw are not Schwab's, and are left out. A
+// type that holds itself, as an order holds orders, is followed once more,
+// as allRules follows a table nested in itself.
 func scalarFields(t reflect.Type, prefix []string) []recordField {
+	return scalarFieldsIn(t, prefix, map[reflect.Type]int{})
+}
+
+// scalarFieldsIn is scalarFields, with depth counting the struct types on
+// the way to t.
+func scalarFieldsIn(t reflect.Type, prefix []string, depth map[reflect.Type]int) []recordField {
 	t = derefType(t)
 	switch {
 	case t.Kind() == reflect.Slice:
-		return scalarFields(t.Elem(), prefix)
+		return scalarFieldsIn(t.Elem(), prefix, depth)
 	case t.Kind() != reflect.Struct || t == timeType:
 		return []recordField{{keys: prefix, typ: t}}
+	case depth[t] >= 2:
+		return nil
 	}
+	depth[t]++
+	defer func() { depth[t]-- }()
 	var fs []recordField
 	for f := range t.Fields() {
 		name := jsonName(f)
 		if name == "" || name == "problems" {
 			continue
 		}
-		fs = append(fs, scalarFields(f.Type, append(slices.Clip(prefix), name))...)
+		fs = append(fs, scalarFieldsIn(f.Type, append(slices.Clip(prefix), name), depth)...)
 	}
 	return fs
 }
@@ -1059,12 +1177,13 @@ func policyEntry(method, path string, status int) schwabtest.Entry {
 // testdata/errors and every other answer of a recording, the pages and the
 // 429's white space among them, on any path. A 200 of another route,
 // or an answer that is not a 200 and has no shape of Schwab's errors, is of
-// no kind.
+// no kind. The scrubber scrubs every kind but the orders'.
 func TestPolicyKinds(t *testing.T) {
 	pages := errorPages(t)
 	routes := map[string]string{
 		"account_numbers.json": "accountNumbers", "accounts.json": "accounts", "transactions.json": "transactions",
-		"transaction.json": "transaction", "user_preference.json": "userPreference",
+		"transaction.json": "transaction", "user_preference.json": "userPreference", "orders.json": "orders",
+		"order.json": "order",
 	}
 	for _, e := range schwabtest.Index() {
 		want, ok := routes[e.File]
@@ -1092,7 +1211,9 @@ func TestPolicyKinds(t *testing.T) {
 		want string // "" for no kind
 	}{
 		{policyEntry("GET", "/trader/v1/accounts/"+hash, 200), `{}`, "account"},
-		{policyEntry("GET", "/trader/v1/accounts/"+hash+"/orders", 200), `[]`, ""},
+		{policyEntry("GET", "/trader/v1/accounts/"+hash+"/orders", 200), `[]`, "orders"},
+		{policyEntry("GET", "/trader/v1/accounts/"+hash+"/orders/1", 200), `{}`, "order"},
+		{policyEntry("GET", "/trader/v1/orders", 200), `[]`, "allOrders"},
 		{policyEntry("GET", "/marketdata/v1/quotes", 200), `{}`, ""},
 		{policyEntry("GET", "/trader/v1/test", 200), `{"ok":true}`, ""},
 		{policyEntry("GET", "/marketdata/v1/quotes", 401), string(readTestdata(t, "errors/not_authorized_401.json")), errorsKind},
@@ -1114,6 +1235,18 @@ func TestPolicyKinds(t *testing.T) {
 		got, ok := policyKindOf(pages, tc.e, []byte(tc.body))
 		if got != tc.want || ok != (tc.want != "") {
 			t.Errorf("%s %s, %d %q: of kind %q, %v; want %q", tc.e.Request.Method, tc.e.Request.Path, tc.e.Response.Status, tc.body, got, ok, tc.want)
+		}
+		wantScrubbed := tc.want
+		if slices.Contains(unscrubbedKinds, tc.want) {
+			wantScrubbed = ""
+		}
+		if got, ok := scrubbedKindOf(pages, tc.e, []byte(tc.body)); got != wantScrubbed || ok != (wantScrubbed != "") {
+			t.Errorf("%s %s, %d %q: scrubbed as of kind %q, %v; want %q", tc.e.Request.Method, tc.e.Request.Path, tc.e.Response.Status, tc.body, got, ok, wantScrubbed)
+		}
+	}
+	for _, kind := range unscrubbedKinds {
+		if _, ok := policyTables[kind]; !ok {
+			t.Errorf("%s, which the scrubber does not scrub, has no table", kind)
 		}
 	}
 }

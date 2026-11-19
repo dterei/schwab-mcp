@@ -148,6 +148,7 @@ func New(o Options) (*Server, error) {
 	s.registerAuth()
 	s.registerAccounts()
 	s.registerTransactions()
+	s.registerOrders()
 	return s, nil
 }
 

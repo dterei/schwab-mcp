@@ -1,0 +1,64 @@
+{
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "description": "One account: its account_hash (from list_accounts), the last 3 or more digits of its number (135 or ...135), its store ref (A1) or its nickname; every account when left out.",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "from": {
+      "type": "string",
+      "description": "The first New York date of entry, YYYY-MM-DD; 59 days before to when left out. At most 365 days from to; Schwab may serve fewer.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "to": {
+      "type": "string",
+      "description": "The last New York date of entry, YYYY-MM-DD, included; today when left out, or when later than today.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "statuses": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string",
+        "pattern": "^[$A-Za-z_]{1,40}$"
+      },
+      "description": "Only orders in these of Schwab's statuses, such as WORKING or FILLED (schwab://reference/order-statuses lists them); every status when left out.",
+      "maxItems": 21
+    },
+    "open": {
+      "type": "boolean",
+      "description": "Only open orders, which may still fill or change: every status but FILLED, CANCELED, REJECTED, EXPIRED and REPLACED."
+    },
+    "symbol": {
+      "type": "string",
+      "description": "One symbol, in any case: the orders with a leg of it, or of an option on it.",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "detail": {
+      "type": "string",
+      "description": "compact (the default) or full, which adds each order's fills, venue and origin, and each leg's instrument.",
+      "enum": [
+        "compact",
+        "full"
+      ]
+    },
+    "limit": {
+      "type": "integer",
+      "description": "The most orders of a page, 1 to 200; 50 when left out. A page also stops at about 20,000 bytes.",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "cursor": {
+      "type": "string",
+      "description": "next_cursor from the previous page, with the same other arguments.",
+      "minLength": 1,
+      "maxLength": 512
+    }
+  },
+  "additionalProperties": false
+}

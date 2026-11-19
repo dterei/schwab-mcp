@@ -328,6 +328,17 @@ func isShortCode(s string) bool {
 	return shortCode.MatchString(s) && !sixDigits.MatchString(s)
 }
 
+// TagOrigin returns what an order's tag shows of where the order came
+// from, as the Tag class masks one: a tag of Schwab's own platform as it
+// is, "TA_..." for an app's TA_ tag, whose text may name its developer,
+// "[withheld]" for any other, and "" for "".
+func TagOrigin(tag string) string {
+	if tag == "" {
+		return ""
+	}
+	return tagOrigin(tag)
+}
+
 // tagOrigin returns what an order's tag becomes: a tag of Schwab's own
 // platform as it is, "TA_..." for a TA_ tag, and "[withheld]" for any
 // other.

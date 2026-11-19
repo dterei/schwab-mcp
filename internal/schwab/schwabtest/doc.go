@@ -1,9 +1,9 @@
 // Package schwabtest is a fake of Charles Schwab's Trader API for tests: a
 // server that imitates Schwab's token endpoint, its authorize page and the
-// account endpoints behind them, with Schwab's rules for tokens, and the
-// fixtures it serves, which are answers in the shape Schwab sends them,
-// with an index that says what request each file answers and where it
-// came from.
+// account and order endpoints behind them, with Schwab's rules for tokens,
+// and the fixtures it serves, which are answers in the shape Schwab sends
+// them, with an index that says what request each file answers and where
+// it came from.
 //
 // It does not import package schwab, so that package's own tests can use
 // it as well as everyone else's. It is for tests only. go build would
@@ -15,8 +15,8 @@
 // New starts a fake over HTTP and NewTLS one over HTTPS, which speaks
 // HTTP/2. A client logs in to URL with AppKey, AppSecret, CallbackURL and
 // Code, or through the authorize page, as a browser would. LoadFixtures
-// gives the fake the fixtures' three accounts, and AddAccount and AddRow
-// give it others. Script, Queue, Override and OverridePath make the API
+// gives the fake the fixtures' three accounts, with their transactions and
+// orders, and AddAccount, AddRow and AddOrders give it others. Script, Queue, Override and OverridePath make the API
 // answer as a test needs, with a handler of the test's or a canned answer,
 // such as TooMany or AccessDenied, each of which says whether Schwab was
 // seen sending it; FailTokens does the same for the token endpoint.
@@ -54,8 +54,12 @@
 // Invalid account number. A window of transactions gets the account's
 // rows in it, [] past its history, as TransactionRules says: by default
 // at most MaxTransactions, the newest kept, grouped by type in the spec's
-// order and newest first within each type. GET /userPreference sends what
-// SetUserPreference set, or one built from the accounts. A path under
+// order and newest first within each type. An account's orders, and every
+// account's, are those entered in the window, both ends included, newest
+// first by entry and a larger orderId first at one time, of status= only
+// when it is set, and at most maxResults, MaxOrders by default; an order is
+// found by its orderId in its own account only. GET /userPreference sends
+// what SetUserPreference set, or one built from the accounts. A path under
 // /trader/v1/ or /marketdata/v1/ that no Route serves and nothing else
 // answers gets a 404 that says it is the fake's.
 //
@@ -137,4 +141,11 @@
 //   - Query dates are taken as RFC 3339 instants with Z or an offset and a
 //     fraction of up to 9 digits, or none; only a fraction of 3 digits
 //     with Z was seen taken.
+//   - Of orders, Schwab's answer to a window over a year, to a query
+//     without either time, and to an id it does not know are not
+//     recorded, nor how it orders a list, nor which orders maxResults
+//     keeps; nor whether it serves an account's orders for a year or for 60
+//     days, or every account's from 60 days back only, as its spec says.
+//     The fake serves a year of either and refuses the rest with 400s and
+//     a 404 that say they are guesses.
 package schwabtest

@@ -112,3 +112,152 @@ decision, either way.
 A row read from Schwab carries the rules' category, before the user's
 decisions and the local history's pairing.
 `
+
+// orderTypesPage returns schwab://reference/order-types: Schwab's order
+// types, strategies, complex strategies, sessions, durations, instructions
+// and position effects as its spec lists them, and how get_orders shows
+// an order's figures (docs/schwab-api.md, Orders). TestOrderPages holds its
+// lists to the spec's.
+func orderTypesPage() referencePage {
+	return referencePage{
+		uri:   referencePrefix + "order-types",
+		name:  "order-types",
+		title: "Schwab order types",
+		description: "Schwab's order types, strategies, sessions, durations and leg instructions, and what an order's " +
+			"figures mean, for reading get_orders and get_order.",
+		text: orderTypesText,
+	}
+}
+
+// orderTypesText is the page of order types.
+const orderTypesText = "# Schwab's order types\n" + `
+The values as Schwab's spec lists them; Schwab may send others. Every
+order read back so far, from thinkorswim or an app, has been a SINGLE
+order of type MARKET, LIMIT, NET_DEBIT or NET_CREDIT.
+
+## order_type
+
+| Type | What it is |
+| --- | --- |
+| MARKET | Buy or sell at the market's price; it has no price. |
+| LIMIT | Buy at price or lower, or sell at price or higher. |
+| STOP | A market order once the market reaches stop_price. |
+| STOP_LIMIT | A limit order at price once the market reaches stop_price. |
+| TRAILING_STOP | A stop that follows the market by an offset. |
+| TRAILING_STOP_LIMIT | A trailing stop that becomes a limit order. |
+| MARKET_ON_CLOSE | A market order at the close. |
+| LIMIT_ON_CLOSE | A limit order at the close. |
+| NET_DEBIT | A spread of option legs bought for at most price, net, per spread. |
+| NET_CREDIT | A spread of option legs sold for at least price, net, per spread. |
+| NET_ZERO | A spread of option legs at no net price. |
+| EXERCISE | An option's exercise. |
+| CABINET, NON_MARKETABLE, UNKNOWN | Rare kinds the spec lists. |
+
+## strategy
+
+SINGLE is one order. The others hold orders, which held lists, each with
+the order that holds it in parent_id:
+
+- TRIGGER places the orders it holds once it fills, as a bracket does: a
+  buy that, once filled, places an OCO of a sale at a profit and a stop.
+- OCO holds two orders, one cancels the other: when one fills, the other
+  is canceled.
+- CANCEL, RECALL, PAIR, FLATTEN, TWO_DAY_SWAP and BLAST_ALL are rare kinds
+  the spec lists.
+
+## complex_strategy
+
+How an order's legs make up a spread: null for a single leg (Schwab's
+NONE); COVERED (stock and a call), VERTICAL, BACK_RATIO, CALENDAR,
+DIAGONAL, STRADDLE, STRANGLE, COLLAR_SYNTHETIC, BUTTERFLY, CONDOR,
+IRON_CONDOR, VERTICAL_ROLL, COLLAR_WITH_STOCK, DOUBLE_DIAGONAL,
+UNBALANCED_BUTTERFLY, UNBALANCED_CONDOR, UNBALANCED_IRON_CONDOR,
+UNBALANCED_VERTICAL_ROLL, MUTUAL_FUND_SWAP or CUSTOM.
+
+## session and duration
+
+session is when the order may fill: NORMAL, the regular session; AM,
+before it; PM, after it; SEAMLESS, all of them.
+
+duration is how long it works: DAY, until the session ends;
+GOOD_TILL_CANCEL, until it fills or is canceled, which Schwab ends after
+some months; FILL_OR_KILL, all at once or not at all; IMMEDIATE_OR_CANCEL,
+what fills at once, the rest canceled; END_OF_WEEK, END_OF_MONTH and
+NEXT_END_OF_MONTH; UNKNOWN.
+
+## A leg's instruction and position_effect
+
+instruction is BUY or SELL for a stock or a fund; SELL_SHORT and
+BUY_TO_COVER to open and close a short position, SELL_SHORT_EXEMPT too;
+BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE and SELL_TO_CLOSE for an option;
+EXCHANGE for a mutual fund's exchange. position_effect is OPENING or
+CLOSING, or AUTOMATIC.
+
+## What an order's figures mean
+
+- Figures are as Schwab sends them, never signed: instruction says which
+  way a leg goes.
+- price is the limit price per share; an option's is its premium per
+  share, which its multiplier, usually 100, scales; a NET_DEBIT or
+  NET_CREDIT order's is the net of its legs per spread. stop_price is the
+  stop. A figure Schwab did not send is null, never 0.
+- quantity is the shares or contracts ordered, filled what has filled and
+  remaining what is left; a spread's are in spreads, and each leg's
+  quantity is that leg's.
+- A leg's fill_price is the average price of its fills, per share. detail
+  full lists each fill, with its time.
+- entered is when the order was placed; closed when it filled, was
+  canceled or rejected, was replaced, or expired.
+`
+
+// orderStatusesPage returns schwab://reference/order-statuses: Schwab's
+// order statuses as its spec lists them, what each means, and which are
+// final. TestOrderPages holds it to schwab.AllOrderStatuses and
+// OrderStatus.Final.
+func orderStatusesPage() referencePage {
+	return referencePage{
+		uri:   referencePrefix + "order-statuses",
+		name:  "order-statuses",
+		title: "Schwab order statuses",
+		description: "Schwab's order statuses, what each means, and which are final, for reading get_orders' status " +
+			"and open, and for its statuses filter.",
+		text: orderStatusesText,
+	}
+}
+
+// orderStatusesText is the page of order statuses.
+const orderStatusesText = "# Schwab's order statuses\n" + `
+The statuses as Schwab's spec lists them; Schwab may send others. An
+order is open, and may still fill or change, in any status but the five
+final ones; get_orders' open is true then, and open: true asks for those
+orders alone. Of these, FILLED, CANCELED, REJECTED, REPLACED and
+PENDING_ACTIVATION have been seen.
+
+| Status | Final | What it means |
+| --- | --- | --- |
+| AWAITING_PARENT_ORDER | no | Held by another order, as a bracket's orders are, until that one fills. |
+| AWAITING_CONDITION | no | Waiting for a condition to be met. |
+| AWAITING_STOP_CONDITION | no | A stop order waiting for the market to reach its stop. |
+| AWAITING_MANUAL_REVIEW | no | Waiting for Schwab to review it. |
+| ACCEPTED | no | Accepted, not yet working. |
+| AWAITING_UR_OUT | no | Waiting for an earlier order's cancel or replacement to finish. |
+| PENDING_ACTIVATION | no | Entered outside the session it is for, waiting for it to open. |
+| QUEUED | no | Queued to be sent to the market. |
+| WORKING | no | At the market, waiting to fill. |
+| REJECTED | yes | Refused; status_description says why. |
+| PENDING_CANCEL | no | A cancel was asked for and has not finished. |
+| CANCELED | yes | Canceled before it filled in full; filled says what had filled. |
+| PENDING_REPLACE | no | A replacement was asked for and has not finished. |
+| REPLACED | yes | Replaced by another order, which has its own order_id. |
+| FILLED | yes | Filled in full. |
+| EXPIRED | yes | Ended with its duration before it filled in full. |
+| NEW | no | Just entered. |
+| AWAITING_RELEASE_TIME | no | Waiting for the time it is to be sent. |
+| PENDING_ACKNOWLEDGEMENT | no | Sent, waiting for the market to acknowledge it. |
+| PENDING_RECALL | no | Being recalled. |
+| UNKNOWN | no | Schwab does not say. |
+
+A status that is not on this list is taken as open. A rejected order's
+status_description says why, in Schwab's words, such as "You do not have
+enough available cash/buying power for this order."
+`

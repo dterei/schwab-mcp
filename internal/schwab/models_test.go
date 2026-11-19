@@ -319,7 +319,9 @@ var liveKeys = map[reflect.Type][]string{
 		"netChange", "closingPrice", "putCall", "strikePrice", "expirationDate", "optionPremiumMultiplier",
 		"underlyingSymbol", "underlyingCusip", "optionDeliverables",
 	},
-	reflect.TypeFor[OptionDeliverable](): {"rootSymbol", "strikePercent", "deliverableNumber", "deliverableUnits", "deliverable"},
+	reflect.TypeFor[OptionDeliverable](): {
+		"rootSymbol", "strikePercent", "deliverableNumber", "deliverableUnits", "deliverable", "symbol",
+	},
 	reflect.TypeFor[Deliverable](): {
 		"assetType", "symbol", "uniformSymbol", "description", "instrumentId", "type", "status", "closingPrice",
 	},
@@ -327,7 +329,16 @@ var liveKeys = map[reflect.Type][]string{
 		"activityId", "time", "tradeDate", "settlementDate", "accountNumber", "type", "status", "subAccount",
 		"description", "netAmount", "orderId", "positionId", "qualifiedDividend", "transferItems",
 	},
-	reflect.TypeFor[TransferItem]():   {"instrument", "amount", "cost", "price", "feeType", "positionEffect"},
+	reflect.TypeFor[TransferItem](): {"instrument", "amount", "cost", "price", "feeType", "positionEffect"},
+	reflect.TypeFor[Order](): {
+		"session", "duration", "orderType", "complexOrderStrategyType", "quantity", "filledQuantity",
+		"remainingQuantity", "requestedDestination", "destinationLinkName", "price", "orderLegCollection",
+		"orderStrategyType", "orderId", "cancelable", "editable", "status", "statusDescription", "enteredTime",
+		"closeTime", "tag", "accountNumber", "orderActivityCollection",
+	},
+	reflect.TypeFor[OrderLeg]():       {"orderLegType", "legId", "instrument", "instruction", "positionEffect", "quantity"},
+	reflect.TypeFor[OrderActivity]():  {"activityType", "activityId", "executionType", "quantity", "orderRemainingQuantity", "executionLegs"},
+	reflect.TypeFor[ExecutionLeg]():   {"legId", "price", "quantity", "mismarkedQuantity", "instrumentId", "time"},
 	reflect.TypeFor[UserPreference](): {"accounts", "streamerInfo", "offers"},
 	reflect.TypeFor[PreferenceAccount](): {
 		"accountNumber", "primaryAccount", "type", "nickName", "displayAcctId", "autoPositionEffect",
@@ -1327,7 +1338,7 @@ func encodedList(enc []byte, key string) string {
 	return ""
 }
 
-// baseRecords are a record of each of the five types that Schwab's answers
+// baseRecords are a record of each of the six types that Schwab's answers
 // hold, without problems, for tests to change.
 var baseRecords = []struct {
 	typ  reflect.Type
@@ -1337,8 +1348,13 @@ var baseRecords = []struct {
 	{reflect.TypeFor[Account](), `{"securitiesAccount":` + baseSecuritiesAccount + "}"},
 	{reflect.TypeFor[Position](), basePosition},
 	{reflect.TypeFor[Transaction](), baseTransaction},
+	{reflect.TypeFor[Order](), baseOrder},
 	{reflect.TypeFor[UserPreference](), `{"accounts":[],"streamerInfo":[],"offers":[]}`},
 }
+
+// baseOrder is an order with every key that Schwab sends on every order.
+const baseOrder = `{"orderStrategyType":"SINGLE","orderId":1004517688020,"status":"FILLED",` +
+	`"enteredTime":"2026-03-13T13:50:09+0000","accountNumber":61803398}`
 
 // A problems key from Schwab is a key that no field takes, whatever it holds
 // and in whatever case: it fills no field and gives no problem, on every Go
@@ -1427,7 +1443,8 @@ func TestOnlyJSONWhiteSpaceAround(t *testing.T) {
 // recordTypes are the types that decode themselves leniently.
 var recordTypes = []reflect.Type{
 	reflect.TypeFor[AccountNumber](), reflect.TypeFor[Account](), reflect.TypeFor[Position](),
-	reflect.TypeFor[Instrument](), reflect.TypeFor[Transaction](), reflect.TypeFor[UserPreference](),
+	reflect.TypeFor[Instrument](), reflect.TypeFor[Transaction](), reflect.TypeFor[Order](),
+	reflect.TypeFor[ExecutionLeg](), reflect.TypeFor[UserPreference](),
 }
 
 // reachable adds t, if it is a struct, and the struct types that it holds,
@@ -1541,10 +1558,14 @@ func fieldIndex(typ reflect.Type, name string) []int {
 	panic("no field " + name)
 }
 
-// problemsField returns the problems of v, a record, whether exported or not.
+// problemsField returns the problems of v, a record, whether exported or not:
+// those of an instrument or an execution's leg are unexported.
 func problemsField(v reflect.Value) []Problem {
 	if f := v.FieldByName("Problems"); f.IsValid() {
 		return f.Interface().([]Problem)
+	}
+	if leg, ok := reflect.TypeAssert[*ExecutionLeg](v.Addr()); ok {
+		return leg.problems
 	}
 	return v.Addr().Interface().(*Instrument).problems
 }

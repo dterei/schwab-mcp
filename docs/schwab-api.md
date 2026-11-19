@@ -497,6 +497,31 @@ them, with sources.
   symbols from the chain rather than building them from the index symbol.
 - To learn an order's JSON, place it in thinkorswim and read it back with
   `GET`.
+- **What a read order holds**, from the orders that
+  [z-Wind/schwab_api](https://github.com/z-Wind/schwab_api) (2024-25) and
+  [jwplatta/schwab_rb](https://github.com/jwplatta/schwab_rb) (2025)
+  captured, all SINGLE orders:
+  - `accountNumber` is a JSON number, though a string everywhere else.
+  - Every order has `orderId`, `status`, `enteredTime`, `orderStrategyType`,
+    the quantities (`quantity`, `filledQuantity`, `remainingQuantity`),
+    `cancelable` and `editable`; `closeTime` once it is done; `price` but on
+    a market order; `tag` on most, `API_TOS:TRADE_ALL` or
+    `API_TOS:POS_STMT` from thinkorswim, or `TA_` and an app's own text,
+    which may hold its developer's email address.
+  - `orderActivityCollection` holds each execution: `executionType` FILL,
+    with each leg's price, quantity and time, or CANCELED for a cancel,
+    whose leg has a time and a price of 0, and for a spread names only its
+    first leg. Most activities carry an `activityId`, which the spec lacks.
+  - A rejected order says why in `statusDescription`, such as "You do not
+    have enough available cash/buying power for this order.", sometimes
+    the same sentence twice joined by `|`.
+  - `destinationLinkName` is the venue (CDRG, JNST, WEXM), or AutoRoute
+    before the order is routed; an option leg's instrument has a CUSIP and
+    a description such as `FORD MTR CO DEL 03/20/2026 $14 Call`, and its
+    deliverable only a symbol and units.
+  - The list comes newest first by `enteredTime`, but not always.
+  - No capture holds `childOrderStrategies` or `replacingOrderCollection`,
+    so what a bracket's orders carry is not known.
 
 ## Market Data
 

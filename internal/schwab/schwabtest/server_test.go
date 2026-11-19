@@ -338,7 +338,7 @@ func TestScriptQueueOverride(t *testing.T) {
 
 	r := &recorder{TB: t}
 	s = New(r)
-	wantReported(t, r, "no such Route", func() { s.Queue("GET /trader/v1/orders", Answer(200, "")) })
+	wantReported(t, r, "no such Route", func() { s.Queue("GET /trader/v1/accounts/{hash}/previewOrder", Answer(200, "")) })
 	wantReported(t, r, "no such Route", func() { s.Override("GET /x", Answer(200, "")) })
 }
 
@@ -407,14 +407,14 @@ func TestOverridePath(t *testing.T) {
 	r := &recorder{TB: t}
 	s := New(r)
 	tok := login(t, s)
-	orders := func(w http.ResponseWriter, r *http.Request) {
+	preview := func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, r.Pattern+" "+r.PathValue("hash"))
 	}
-	s.OverridePath("GET /trader/v1/accounts/{hash}/orders", orders)
+	s.OverridePath("GET /trader/v1/accounts/{hash}/previewOrder", preview)
 	s.OverridePath("/marketdata/v1/", Answer(http.StatusTeapot, "market data"))
-	if resp, body := get(t, s, "/trader/v1/accounts/AB%2FC/orders", tok); resp.StatusCode != http.StatusOK ||
-		body != "GET /trader/v1/accounts/{hash}/orders AB/C" {
-		t.Errorf("orders: %d %s", resp.StatusCode, body)
+	if resp, body := get(t, s, "/trader/v1/accounts/AB%2FC/previewOrder", tok); resp.StatusCode != http.StatusOK ||
+		body != "GET /trader/v1/accounts/{hash}/previewOrder AB/C" {
+		t.Errorf("previewOrder: %d %s", resp.StatusCode, body)
 	}
 	if resp, body := get(t, s, "/marketdata/v1/quotes", tok); resp.StatusCode != http.StatusTeapot || body != "market data" {
 		t.Errorf("market data: %d %s", resp.StatusCode, body)
@@ -435,7 +435,7 @@ func TestOverridePath(t *testing.T) {
 	if resp, _ := get(t, s, "/marketdata/v1/quotes", tok); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("after OverridePath(nil): %d", resp.StatusCode)
 	}
-	if resp, _ := get(t, s, "/trader/v1/accounts/x/orders", tok); resp.StatusCode != http.StatusOK {
+	if resp, _ := get(t, s, "/trader/v1/accounts/x/previewOrder", tok); resp.StatusCode != http.StatusOK {
 		t.Errorf("the other pattern after OverridePath(nil): %d", resp.StatusCode)
 	}
 	if errs := r.took(); len(errs) > 0 {
@@ -479,12 +479,12 @@ func TestOverridePathMatchesOnlyItsPatterns(t *testing.T) {
 	if err := s.loadRecording(fsys, []Entry{e}, "2026-11-08"); err != nil {
 		t.Fatal(err)
 	}
-	s.OverridePath("GET /trader/v1/accounts/{hash}/orders/", Answer(http.StatusTeapot, "orders/"))
+	s.OverridePath("GET /trader/v1/accounts/{hash}/previewOrder/", Answer(http.StatusTeapot, "previewOrder/"))
 
-	if rec := serve(t, s, "/trader/v1/accounts/x/orders/", auth); rec.Code != http.StatusTeapot || rec.Body.String() != "orders/" {
+	if rec := serve(t, s, "/trader/v1/accounts/x/previewOrder/", auth); rec.Code != http.StatusTeapot || rec.Body.String() != "previewOrder/" {
 		t.Errorf("the pattern's own path: %d %s", rec.Code, rec.Body)
 	}
-	for _, path := range []string{"/trader/v1/accounts/x/orders", "/marketdata/v1/movers"} {
+	for _, path := range []string{"/trader/v1/accounts/x/previewOrder", "/marketdata/v1/movers"} {
 		rec := serve(t, s, path, auth)
 		if rec.Code != http.StatusNotFound || rec.Body.String() != `{"message":"Not Found (the fake has no such route)"}` {
 			t.Errorf("%s beside a pattern: %d %v %s, want the fake's own 404", path, rec.Code, rec.Header(), rec.Body)

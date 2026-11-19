@@ -25,6 +25,15 @@ Every file here today is made by hand; none is a recording.
   holds rows of two accounts over three years, which no one request
   returns. `transaction.json` sends `assetType` twice in one instrument, as
   a capture of 2024 does.
+- `orders.json` and `order.json` are answers of the order endpoints, of the
+  same accounts, modeled on the captures of orders that z-Wind/schwab_api
+  and jwplatta/schwab_rb keep. `orders.json` holds orders of two accounts
+  over two years, which no one request returns: filled ones, whose
+  executions are rows of `transactions.json`, a working one, a rejected
+  one, a canceled spread, and a bracket, a TRIGGER holding an OCO of two
+  orders, which follows Schwab's spec, since no capture holds one.
+  `order.json` is one of them with the keys of an execution's leg in
+  another order, as captures of both orders are known.
 - `errors/` holds Schwab's error bodies and pages, rebuilt from community
   logs and from the gateway's documented faults. Each entry's `source` says
   which, and whether Schwab has been seen sending it. The refusals of the
@@ -76,8 +85,9 @@ is scrubbed:
   it matches its grammar (an enum, a symbol, a time), or replaced by a
   placeholder (`DESCRIPTION N`, `MESSAGE N`) unless it is wording known to
   be Schwab's. A value nothing classifies refuses the file, as does an
-  answer of a kind the policy does not cover, such as orders or market
-  data.
+  answer of a kind the policy does not cover, such as market data. Orders
+  are left out too: the policy covers them, and holds `orders.json` and
+  `order.json` to it, but no recording of real orders has been read yet.
 - Amounts are refused unless the owner chooses to keep them or to scale
   them; scaling hides little, so that choice is the owner's alone.
 - The scrubbed bytes are spliced, never re-encoded, so that key order,
